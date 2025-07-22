@@ -26,7 +26,7 @@
         }
         
         #game-wrapper {
-            height: 75vh; /* Game takes 3/4 of viewport height */
+            height: 75vh;
             display: flex;
             flex-direction: column;
             padding: 10px;
@@ -197,6 +197,46 @@
                 font-size: 14px;
             }
         }
+
+        /* New styles for tutorial and achievements */
+        .tutorial {
+            color: #0ff;
+            font-style: italic;
+        }
+        
+        .achievement {
+            color: #f0f;
+            font-weight: bold;
+            animation: pulse 1s infinite alternate;
+        }
+        
+        @keyframes pulse {
+            from { opacity: 1; }
+            to { opacity: 0.7; }
+        }
+        
+        /* Combat animations */
+        .damage-animation {
+            animation: shake 0.5s;
+        }
+        
+        @keyframes shake {
+            0% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            50% { transform: translateX(5px); }
+            75% { transform: translateX(-5px); }
+            100% { transform: translateX(0); }
+        }
+        
+        .heal-animation {
+            animation: pulseHeal 0.5s;
+        }
+        
+        @keyframes pulseHeal {
+            0% { color: #0f0; }
+            50% { color: #fff; }
+            100% { color: #0f0; }
+        }
     </style>
 </head>
 <body>
@@ -222,10 +262,10 @@
         </div>
     </div>
     
-<div style="height: 25vh; background-color: #000;"></div>
+    <div style="height: 25vh; background-color: #000;"></div>
 
     <script>
-        // Game State
+        // Enhanced Game State
         const gameState = {
             player: {
                 name: "Hero",
@@ -245,7 +285,9 @@
                     armor: null,
                     ring: null,
                     amulet: null
-                }
+                },
+                achievements: [],
+                tutorialCompleted: false
             },
             currentEnemy: null,
             inCombat: false,
@@ -254,10 +296,12 @@
             gameOver: false,
             currentRoom: 0,
             enemiesDefeated: 0,
-            shopCategory: null
+            shopCategory: null,
+            combatTurns: 0,
+            lastAction: null
         };
 
-        // Items Database
+        // Items Database - Expanded with more items
         const items = {
             weapons: [
                 { id: 1, name: "Rusty Sword", type: "weapon", attack: 5, value: 10, rarity: "common" },
@@ -269,7 +313,9 @@
                 { id: 7, name: "Sword of a Thousand Truths", type: "weapon", attack: 50, value: 500, rarity: "legendary" },
                 { id: 8, name: "Shadow Dagger", type: "weapon", attack: 15, critChance: 0.2, value: 120, rarity: "rare" },
                 { id: 9, name: "Frostbrand", type: "weapon", attack: 22, frostDamage: 5, value: 200, rarity: "epic" },
-                { id: 10, name: "Staff of the Magi", type: "weapon", attack: 12, magicPower: 15, value: 250, rarity: "epic" }
+                { id: 10, name: "Staff of the Magi", type: "weapon", attack: 12, magicPower: 15, value: 250, rarity: "epic" },
+                { id: 11, name: "Vampiric Blade", type: "weapon", attack: 20, lifesteal: 0.3, value: 180, rarity: "rare" },
+                { id: 12, name: "Thunder Hammer", type: "weapon", attack: 28, shockDamage: 8, value: 220, rarity: "epic" }
             ],
             armor: [
                 { id: 101, name: "Leather Armor", type: "armor", defense: 3, value: 15, rarity: "common" },
@@ -279,42 +325,53 @@
                 { id: 105, name: "Mithril Armor", type: "armor", defense: 20, value: 250, rarity: "rare" },
                 { id: 106, name: "Armor of the Gods", type: "armor", defense: 30, healthBonus: 50, value: 500, rarity: "legendary" },
                 { id: 107, name: "Cloak of Shadows", type: "armor", defense: 8, dodgeChance: 0.15, value: 180, rarity: "rare" },
-                { id: 108, name: "Void Robes", type: "armor", defense: 12, manaBonus: 30, value: 220, rarity: "epic" }
+                { id: 108, name: "Void Robes", type: "armor", defense: 12, manaBonus: 30, value: 220, rarity: "epic" },
+                { id: 109, name: "Phoenix Armor", type: "armor", defense: 18, healthRegen: 5, value: 280, rarity: "epic" },
+                { id: 110, name: "Titan's Cuirass", type: "armor", defense: 25, damageReduction: 0.1, value: 350, rarity: "legendary" }
             ],
             potions: [
                 { id: 201, name: "Health Potion", type: "potion", health: 30, value: 10, rarity: "common" },
                 { id: 202, name: "Mana Potion", type: "potion", mana: 20, value: 10, rarity: "common" },
                 { id: 203, name: "Elixir", type: "potion", health: 50, mana: 30, value: 25, rarity: "uncommon" },
                 { id: 204, name: "Super Potion", type: "potion", health: 100, mana: 50, value: 50, rarity: "rare" },
-                { id: 205, name: "Potion of Invulnerability", type: "potion", defenseBonus: 10, duration: 3, value: 80, rarity: "epic" }
+                { id: 205, name: "Potion of Invulnerability", type: "potion", defenseBonus: 10, duration: 3, value: 80, rarity: "epic" },
+                { id: 206, name: "Potion of Rage", type: "potion", attackBonus: 10, duration: 3, value: 70, rarity: "rare" },
+                { id: 207, name: "Potion of Clarity", type: "potion", manaRegen: 10, duration: 5, value: 60, rarity: "uncommon" }
             ],
             rings: [
                 { id: 301, name: "Ring of Strength", type: "ring", attack: 5, value: 100, rarity: "uncommon" },
                 { id: 302, name: "Ring of Protection", type: "ring", defense: 5, value: 100, rarity: "uncommon" },
                 { id: 303, name: "Ring of the Phoenix", type: "ring", healthRegen: 5, value: 150, rarity: "rare" },
-                { id: 304, name: "Ring of Arcane Power", type: "ring", manaRegen: 5, value: 150, rarity: "rare" }
+                { id: 304, name: "Ring of Arcane Power", type: "ring", manaRegen: 5, value: 150, rarity: "rare" },
+                { id: 305, name: "Ring of the Berserker", type: "ring", attack: 10, defense: -3, value: 200, rarity: "rare" },
+                { id: 306, name: "Ring of the Turtle", type: "ring", defense: 10, attack: -3, value: 200, rarity: "rare" }
             ],
             amulets: [
                 { id: 401, name: "Amulet of Vitality", type: "amulet", maxHealth: 20, value: 120, rarity: "uncommon" },
                 { id: 402, name: "Amulet of Wisdom", type: "amulet", maxMana: 20, value: 120, rarity: "uncommon" },
                 { id: 403, name: "Amulet of the Berserker", type: "amulet", attack: 10, defense: -5, value: 200, rarity: "rare" },
-                { id: 404, name: "Amulet of the Turtle", type: "amulet", defense: 10, attack: -5, value: 200, rarity: "rare" }
+                { id: 404, name: "Amulet of the Turtle", type: "amulet", defense: 10, attack: -5, value: 200, rarity: "rare" },
+                { id: 405, name: "Amulet of the Elements", type: "amulet", elementalDamage: 5, value: 250, rarity: "epic" },
+                { id: 406, name: "Amulet of Life", type: "amulet", maxHealth: 50, healthRegen: 3, value: 300, rarity: "epic" }
             ],
             scrolls: [
                 { id: 501, name: "Scroll of Fireball", type: "scroll", damage: 40, manaCost: 20, value: 50, rarity: "uncommon" },
                 { id: 502, name: "Scroll of Lightning", type: "scroll", damage: 60, manaCost: 30, value: 75, rarity: "rare" },
-                { id: 503, name: "Scroll of Healing", type: "scroll", heal: 80, manaCost: 25, value: 60, rarity: "uncommon" }
+                { id: 503, name: "Scroll of Healing", type: "scroll", heal: 80, manaCost: 25, value: 60, rarity: "uncommon" },
+                { id: 504, name: "Scroll of Freezing", type: "scroll", damage: 30, freezeDuration: 2, manaCost: 25, value: 70, rarity: "rare" },
+                { id: 505, name: "Scroll of Summoning", type: "scroll", summon: "Wolf", duration: 3, manaCost: 40, value: 90, rarity: "epic" }
             ],
             materials: [
                 { id: 601, name: "Iron Ingot", type: "material", value: 10, rarity: "common" },
                 { id: 602, name: "Steel Ingot", type: "material", value: 25, rarity: "common" },
                 { id: 603, name: "Mithril Ore", type: "material", value: 50, rarity: "uncommon" },
                 { id: 604, name: "Dragon Scale", type: "material", value: 100, rarity: "rare" },
-                { id: 605, name: "Enchanted Gem", type: "material", value: 150, rarity: "epic" }
+                { id: 605, name: "Enchanted Gem", type: "material", value: 150, rarity: "epic" },
+                { id: 606, name: "Phoenix Feather", type: "material", value: 200, rarity: "legendary" }
             ]
         };
 
-        // Enemies Database
+        // Enemies Database - Expanded with more enemies
         const enemies = [
             { name: "Goblin", health: 30, attack: 8, defense: 2, xp: 20, gold: 5, lootChance: 0.3, minLevel: 1 },
             { name: "Orc", health: 50, attack: 12, defense: 5, xp: 35, gold: 10, lootChance: 0.4, minLevel: 2 },
@@ -325,14 +382,33 @@
             { name: "Lich", health: 120, attack: 35, defense: 10, xp: 120, gold: 40, lootChance: 0.7, minLevel: 7 },
             { name: "Demon", health: 180, attack: 40, defense: 20, xp: 150, gold: 60, lootChance: 0.9, minLevel: 10 },
             { name: "Goblin King", health: 200, attack: 25, defense: 15, xp: 100, gold: 75, lootChance: 1.0, minLevel: 6 },
-            { name: "Ancient Dragon", health: 300, attack: 50, defense: 30, xp: 250, gold: 100, lootChance: 1.0, minLevel: 15 }
+            { name: "Ancient Dragon", health: 300, attack: 50, defense: 30, xp: 250, gold: 100, lootChance: 1.0, minLevel: 15 },
+            { name: "Wraith", health: 80, attack: 25, defense: 5, xp: 60, gold: 20, lootChance: 0.5, minLevel: 4 },
+            { name: "Minotaur", health: 120, attack: 30, defense: 15, xp: 90, gold: 35, lootChance: 0.7, minLevel: 6 },
+            { name: "Vampire", health: 100, attack: 28, lifesteal: 0.2, defense: 10, xp: 80, gold: 30, lootChance: 0.6, minLevel: 5 }
         ];
 
-        // Boss Enemies
+        // Boss Enemies - Expanded with more bosses
         const bosses = [
             { name: "The Forgotten King", health: 500, attack: 60, defense: 40, xp: 500, gold: 250, lootChance: 1.0, minLevel: 20 },
             { name: "The Voidwalker", health: 400, attack: 70, defense: 30, xp: 450, gold: 200, lootChance: 1.0, minLevel: 18 },
-            { name: "The Corruptor", health: 600, attack: 50, defense: 50, xp: 600, gold: 300, lootChance: 1.0, minLevel: 25 }
+            { name: "The Corruptor", health: 600, attack: 50, defense: 50, xp: 600, gold: 300, lootChance: 1.0, minLevel: 25 },
+            { name: "The Eternal Dragon", health: 700, attack: 65, defense: 45, xp: 700, gold: 400, lootChance: 1.0, minLevel: 30 },
+            { name: "The Shadow Lord", health: 550, attack: 75, defense: 35, xp: 650, gold: 350, lootChance: 1.0, minLevel: 28 }
+        ];
+
+        // Achievements
+        const achievements = [
+            { id: 1, name: "First Blood", description: "Defeat your first enemy", earned: false },
+            { id: 2, name: "Level 5", description: "Reach level 5", earned: false },
+            { id: 3, name: "Level 10", description: "Reach level 10", earned: false },
+            { id: 4, name: "Dragon Slayer", description: "Defeat a dragon", earned: false },
+            { id: 5, name: "Boss Killer", description: "Defeat your first boss", earned: false },
+            { id: 6, name: "Legendary Warrior", description: "Equip a legendary item", earned: false },
+            { id: 7, name: "Rich Adventurer", description: "Collect 1000 gold", earned: false },
+            { id: 8, name: "Dungeon Explorer", description: "Reach dungeon level 20", earned: false },
+            { id: 9, name: "Master Adventurer", description: "Defeat 50 enemies", earned: false },
+            { id: 10, name: "The Ultimate", description: "Defeat the final boss", earned: false }
         ];
 
         // DOM Elements
@@ -368,6 +444,11 @@
         printMessage("You find yourself in a dark dungeon...");
         printMessage("What will you do?");
         printMessage("");
+        
+        // Show tutorial if not completed
+        if (!gameState.player.tutorialCompleted) {
+            showTutorial();
+        }
         
         // Focus input on tap anywhere
         document.addEventListener('click', function() {
@@ -424,6 +505,27 @@
             }
         }
 
+        function showTutorial() {
+            clearOutput();
+            printMessage("=== TUTORIAL ===", "tutorial");
+            printMessage("Welcome to SanctuaryRPG!", "tutorial");
+            printMessage("This is a text-based adventure game where you fight enemies, collect loot, and grow stronger.", "tutorial");
+            printMessage("", "tutorial");
+            printMessage("BASIC CONTROLS:", "tutorial");
+            printMessage("- Use the buttons or type commands like 'fight', 'inventory', 'stats', 'shop'", "tutorial");
+            printMessage("- In combat, choose actions by number (1-4)", "tutorial");
+            printMessage("- Equip weapons and armor from your inventory to become stronger", "tutorial");
+            printMessage("- Buy better gear at the shop with gold earned from battles", "tutorial");
+            printMessage("- Use potions to heal during combat", "tutorial");
+            printMessage("", "tutorial");
+            printMessage("TIP: The deeper you go in the dungeon, the stronger the enemies become!", "tutorial");
+            printMessage("", "tutorial");
+            printMessage("Press any button to begin your adventure!", "tutorial");
+            
+            // Mark tutorial as completed
+            gameState.player.tutorialCompleted = true;
+        }
+
         function processCommand(command) {
             if (gameState.inCombat) {
                 processCombatCommand(command);
@@ -466,6 +568,9 @@
                 case 'help':
                     showHelp();
                     break;
+                case 'tutorial':
+                    showTutorial();
+                    break;
                 default:
                     printMessage("Unknown command. Type 'help' for available commands.", "warning");
             }
@@ -480,6 +585,7 @@
             printMessage("stats/s - Show character stats");
             printMessage("shop/sh - Visit the shop");
             printMessage("help - Show this help");
+            printMessage("tutorial - Show the tutorial again");
             printMessage("");
             printMessage("You can also use the buttons below.");
         }
@@ -491,6 +597,7 @@
             }
             
             gameState.currentRoom++;
+            gameState.combatTurns = 0;
             
             // Every 10 rooms, spawn a boss
             let enemyPool;
@@ -543,6 +650,9 @@
         function combatChoice(choice) {
             if (!gameState.inCombat) return;
             
+            gameState.combatTurns++;
+            gameState.lastAction = choice;
+            
             const player = gameState.player;
             const enemy = gameState.currentEnemy;
             
@@ -584,6 +694,14 @@
                 if (player.equipped.weapon.frostDamage) {
                     playerAttackValue += player.equipped.weapon.frostDamage;
                 }
+                
+                if (player.equipped.weapon.lifesteal) {
+                    // Lifesteal effect will be applied after damage is calculated
+                }
+                
+                if (player.equipped.weapon.shockDamage) {
+                    playerAttackValue += player.equipped.weapon.shockDamage;
+                }
             }
             
             // Add ring attack if equipped
@@ -603,9 +721,23 @@
             } else if (playerDamage > playerAttackValue * 1.5) {
                 printMessage(`You critically hit the ${enemy.name} for ${playerDamage} damage!`, "critical");
                 enemy.health -= playerDamage;
+                
+                // Apply lifesteal if weapon has it
+                if (player.equipped.weapon && player.equipped.weapon.lifesteal) {
+                    const healAmount = Math.floor(playerDamage * player.equipped.weapon.lifesteal);
+                    player.health = Math.min(player.maxHealth, player.health + healAmount);
+                    printMessage(`You steal ${healAmount} health from the ${enemy.name}!`, "health heal-animation");
+                }
             } else {
                 printMessage(`You hit the ${enemy.name} for ${playerDamage} damage.`);
                 enemy.health -= playerDamage;
+                
+                // Apply lifesteal if weapon has it
+                if (player.equipped.weapon && player.equipped.weapon.lifesteal) {
+                    const healAmount = Math.floor(playerDamage * player.equipped.weapon.lifesteal);
+                    player.health = Math.min(player.maxHealth, player.health + healAmount);
+                    printMessage(`You steal ${healAmount} health from the ${enemy.name}!`, "health heal-animation");
+                }
             }
             
             // Check if enemy is defeated
@@ -632,6 +764,14 @@
             let specialAttackValue = (player.attack + 
                                     (player.equipped.weapon ? player.equipped.weapon.attack : 0)) * 1.5;
             
+            // Add bonuses from accessories
+            if (player.equipped.ring && player.equipped.ring.attack) {
+                specialAttackValue += player.equipped.ring.attack;
+            }
+            if (player.equipped.amulet && player.equipped.amulet.attack) {
+                specialAttackValue += player.equipped.amulet.attack;
+            }
+            
             const specialDamage = calculateDamage(specialAttackValue, enemy.defense * 0.8); // Bypasses some defense
             
             if (specialDamage === 0) {
@@ -639,6 +779,13 @@
             } else {
                 printMessage(`You unleash a powerful special attack for ${specialDamage} damage!`, "critical");
                 enemy.health -= specialDamage;
+                
+                // Apply lifesteal if weapon has it
+                if (player.equipped.weapon && player.equipped.weapon.lifesteal) {
+                    const healAmount = Math.floor(specialDamage * player.equipped.weapon.lifesteal);
+                    player.health = Math.min(player.maxHealth, player.health + healAmount);
+                    printMessage(`You steal ${healAmount} health from the ${enemy.name}!`, "health heal-animation");
+                }
             }
             
             // Check if enemy is defeated
@@ -663,9 +810,23 @@
             } else if (enemyDamage > enemy.attack * 1.5) {
                 printMessage(`The ${enemy.name} critically hits you for ${enemyDamage} damage!`, "critical enemy");
                 player.health -= enemyDamage;
+                
+                // Apply enemy lifesteal if they have it
+                if (enemy.lifesteal) {
+                    const enemyHeal = Math.floor(enemyDamage * enemy.lifesteal);
+                    enemy.health = Math.min(enemy.health + enemyHeal, enemy.health);
+                    printMessage(`The ${enemy.name} steals ${enemyHeal} health from you!`, "enemy");
+                }
             } else {
                 printMessage(`The ${enemy.name} hits you for ${enemyDamage} damage.`, "enemy");
                 player.health -= enemyDamage;
+                
+                // Apply enemy lifesteal if they have it
+                if (enemy.lifesteal) {
+                    const enemyHeal = Math.floor(enemyDamage * enemy.lifesteal);
+                    enemy.health = Math.min(enemy.health + enemyHeal, enemy.health);
+                    printMessage(`The ${enemy.name} steals ${enemyHeal} health from you!`, "enemy");
+                }
             }
             
             // Check if player is defeated
@@ -674,17 +835,65 @@
                 return;
             }
             
+            // Apply regeneration effects at the end of turn
+            applyRegenerationEffects();
+            
             printMessage("");
             printCombatStatus();
         }
 
+        function applyRegenerationEffects() {
+            const player = gameState.player;
+            
+            // Health regeneration from ring
+            if (player.equipped.ring && player.equipped.ring.healthRegen) {
+                const oldHealth = player.health;
+                player.health = Math.min(player.maxHealth, player.health + player.equipped.ring.healthRegen);
+                const healed = player.health - oldHealth;
+                if (healed > 0) {
+                    printMessage(`You regenerate ${healed} health from your ${player.equipped.ring.name}.`, "health heal-animation");
+                }
+            }
+            
+            // Mana regeneration from ring
+            if (player.equipped.ring && player.equipped.ring.manaRegen) {
+                const oldMana = player.mana;
+                player.mana = Math.min(player.maxMana, player.mana + player.equipped.ring.manaRegen);
+                const restored = player.mana - oldMana;
+                if (restored > 0) {
+                    printMessage(`You regenerate ${restored} mana from your ${player.equipped.ring.name}.`, "mana");
+                }
+            }
+            
+            // Health regeneration from armor
+            if (player.equipped.armor && player.equipped.armor.healthRegen) {
+                const oldHealth = player.health;
+                player.health = Math.min(player.maxHealth, player.health + player.equipped.armor.healthRegen);
+                const healed = player.health - oldHealth;
+                if (healed > 0) {
+                    printMessage(`You regenerate ${healed} health from your ${player.equipped.armor.name}.`, "health heal-animation");
+                }
+            }
+        }
+
         function calculateDamage(attack, defense) {
-            const baseDamage = Math.max(1, attack - defense * 0.5);
+            // Damage reduction from armor (if equipped)
+            let damageReduction = 0;
+            if (gameState.player.equipped.armor && gameState.player.equipped.armor.damageReduction) {
+                damageReduction = gameState.player.equipped.armor.damageReduction;
+            }
+            
+            const baseDamage = Math.max(1, (attack - defense * 0.5) * (1 - damageReduction));
             const damageVariation = baseDamage * 0.3;
             const finalDamage = baseDamage + (Math.random() * damageVariation * 2) - damageVariation;
             
-            // 10% chance to miss
-            if (Math.random() < 0.1) {
+            // 10% chance to miss (reduced by dodge chance if armor has it)
+            let dodgeChance = 0.1;
+            if (gameState.player.equipped.armor && gameState.player.equipped.armor.dodgeChance) {
+                dodgeChance += gameState.player.equipped.armor.dodgeChance;
+            }
+            
+            if (Math.random() < dodgeChance) {
                 return 0;
             }
             
@@ -734,12 +943,55 @@
                 }
             }
             
+            // Check for achievements
+            checkAchievements();
+            
             // Check for level up
             checkLevelUp();
             
             gameState.inCombat = false;
             printMessage("");
             printMessage("What will you do now?");
+        }
+
+        function checkAchievements() {
+            const player = gameState.player;
+            const enemy = gameState.currentEnemy;
+            
+            // First Blood
+            if (gameState.enemiesDefeated === 1 && !achievements[0].earned) {
+                achievements[0].earned = true;
+                player.achievements.push(achievements[0]);
+                printMessage(`Achievement Unlocked: ${achievements[0].name} - ${achievements[0].description}`, "achievement");
+            }
+            
+            // Dragon Slayer
+            if (enemy.name.includes("Dragon") && !achievements[3].earned) {
+                achievements[3].earned = true;
+                player.achievements.push(achievements[3]);
+                printMessage(`Achievement Unlocked: ${achievements[3].name} - ${achievements[3].description}`, "achievement");
+            }
+            
+            // Boss Killer
+            if (bosses.some(boss => boss.name === enemy.name) && !achievements[4].earned) {
+                achievements[4].earned = true;
+                player.achievements.push(achievements[4]);
+                printMessage(`Achievement Unlocked: ${achievements[4].name} - ${achievements[4].description}`, "achievement");
+            }
+            
+            // Dungeon Explorer
+            if (gameState.currentRoom >= 20 && !achievements[7].earned) {
+                achievements[7].earned = true;
+                player.achievements.push(achievements[7]);
+                printMessage(`Achievement Unlocked: ${achievements[7].name} - ${achievements[7].description}`, "achievement");
+            }
+            
+            // Master Adventurer
+            if (gameState.enemiesDefeated >= 50 && !achievements[8].earned) {
+                achievements[8].earned = true;
+                player.achievements.push(achievements[8]);
+                printMessage(`Achievement Unlocked: ${achievements[8].name} - ${achievements[8].description}`, "achievement");
+            }
         }
 
         function generateLoot(enemy) {
@@ -749,7 +1001,8 @@
             // Possible loot categories based on enemy type
             let lootPool = [];
             
-            if (enemy.name.includes("Dragon") || enemy.name.includes("Lich") || enemy.name.includes("Demon")) {
+            if (enemy.name.includes("Dragon") || enemy.name.includes("Lich") || enemy.name.includes("Demon") || 
+                enemy.name.includes("Boss") || enemy.name.includes("King") || enemy.name.includes("Lord")) {
                 // Magical enemies drop more magical items
                 lootPool = [
                     ...items.weapons.filter(w => w.rarity === "rare" || w.rarity === "epic" || w.rarity === "legendary"),
@@ -757,7 +1010,7 @@
                     ...items.rings,
                     ...items.amulets,
                     ...items.scrolls,
-                    ...items.materials.filter(m => m.rarity === "rare" || m.rarity === "epic")
+                    ...items.materials.filter(m => m.rarity === "rare" || m.rarity === "epic" || m.rarity === "legendary")
                 ];
             } else {
                 // Normal enemies drop more common items
@@ -868,6 +1121,19 @@
                 printMessage(`Attack: +2 (now ${player.attack})`);
                 printMessage(`Defense: +1 (now ${player.defense})`);
                 
+                // Check for level-based achievements
+                if (player.level === 5 && !achievements[1].earned) {
+                    achievements[1].earned = true;
+                    player.achievements.push(achievements[1]);
+                    printMessage(`Achievement Unlocked: ${achievements[1].name} - ${achievements[1].description}`, "achievement");
+                }
+                
+                if (player.level === 10 && !achievements[2].earned) {
+                    achievements[2].earned = true;
+                    player.achievements.push(achievements[2]);
+                    printMessage(`Achievement Unlocked: ${achievements[2].name} - ${achievements[2].description}`, "achievement");
+                }
+                
                 // Check for new abilities or features at certain levels
                 if (player.level === 5) {
                     printMessage("You've learned the Special Attack ability!", "success");
@@ -905,6 +1171,7 @@
                 printMessage(`  Attack: +${player.equipped.weapon.attack}`, getRarityClass(player.equipped.weapon.rarity));
                 if (player.equipped.weapon.critChance) printMessage(`  Crit Chance: +${Math.floor(player.equipped.weapon.critChance * 100)}%`, getRarityClass(player.equipped.weapon.rarity));
                 if (player.equipped.weapon.frostDamage) printMessage(`  Frost Damage: +${player.equipped.weapon.frostDamage}`, getRarityClass(player.equipped.weapon.rarity));
+                if (player.equipped.weapon.lifesteal) printMessage(`  Lifesteal: +${Math.floor(player.equipped.weapon.lifesteal * 100)}%`, getRarityClass(player.equipped.weapon.rarity));
             }
             
             printMessage(`Armor: ${player.equipped.armor ? player.equipped.armor.name : "None"}`);
@@ -912,6 +1179,7 @@
                 printMessage(`  Defense: +${player.equipped.armor.defense}`, getRarityClass(player.equipped.armor.rarity));
                 if (player.equipped.armor.healthBonus) printMessage(`  Health Bonus: +${player.equipped.armor.healthBonus}`, getRarityClass(player.equipped.armor.rarity));
                 if (player.equipped.armor.dodgeChance) printMessage(`  Dodge Chance: +${Math.floor(player.equipped.armor.dodgeChance * 100)}%`, getRarityClass(player.equipped.armor.rarity));
+                if (player.equipped.armor.healthRegen) printMessage(`  Health Regen: +${player.equipped.armor.healthRegen}/turn`, getRarityClass(player.equipped.armor.rarity));
             }
             
             printMessage(`Ring: ${player.equipped.ring ? player.equipped.ring.name : "None"}`);
@@ -919,6 +1187,7 @@
                 if (player.equipped.ring.attack) printMessage(`  Attack: +${player.equipped.ring.attack}`, getRarityClass(player.equipped.ring.rarity));
                 if (player.equipped.ring.defense) printMessage(`  Defense: +${player.equipped.ring.defense}`, getRarityClass(player.equipped.ring.rarity));
                 if (player.equipped.ring.healthRegen) printMessage(`  Health Regen: +${player.equipped.ring.healthRegen}/turn`, getRarityClass(player.equipped.ring.rarity));
+                if (player.equipped.ring.manaRegen) printMessage(`  Mana Regen: +${player.equipped.ring.manaRegen}/turn`, getRarityClass(player.equipped.ring.rarity));
             }
             
             printMessage(`Amulet: ${player.equipped.amulet ? player.equipped.amulet.name : "None"}`);
@@ -1064,6 +1333,13 @@
                 player.inventory.splice(index, 1);
                 printMessage(`You equipped the ${item.name}.`, getRarityClass(item.rarity));
                 printMessage(`Attack increased by +${item.attack}.`);
+                
+                // Check for legendary achievement
+                if (item.rarity === "legendary" && !achievements[5].earned) {
+                    achievements[5].earned = true;
+                    player.achievements.push(achievements[5]);
+                    printMessage(`Achievement Unlocked: ${achievements[5].name} - ${achievements[5].description}`, "achievement");
+                }
             } else if (item.type === "armor") {
                 // It's armor
                 if (player.equipped.armor) {
@@ -1080,6 +1356,13 @@
                     player.maxHealth += item.healthBonus;
                     player.health = Math.min(player.health + item.healthBonus, player.maxHealth);
                     printMessage(`Max health increased by +${item.healthBonus}.`, "health");
+                }
+                
+                // Check for legendary achievement
+                if (item.rarity === "legendary" && !achievements[5].earned) {
+                    achievements[5].earned = true;
+                    player.achievements.push(achievements[5]);
+                    printMessage(`Achievement Unlocked: ${achievements[5].name} - ${achievements[5].description}`, "achievement");
                 }
             }
             
@@ -1107,6 +1390,7 @@
                 if (item.attack) printMessage(`Attack increased by +${item.attack}.`);
                 if (item.defense) printMessage(`Defense increased by +${item.defense}.`);
                 if (item.healthRegen) printMessage(`You will now regenerate ${item.healthRegen} HP per turn.`, "health");
+                if (item.manaRegen) printMessage(`You will now regenerate ${item.manaRegen} MP per turn.`, "mana");
             } else if (item.type === "amulet") {
                 // It's an amulet
                 if (player.equipped.amulet) {
@@ -1131,6 +1415,13 @@
                 }
                 if (item.attack) printMessage(`Attack increased by +${item.attack}.`);
                 if (item.defense) printMessage(`Defense increased by +${item.defense}.`);
+                
+                // Check for legendary achievement
+                if (item.rarity === "legendary" && !achievements[5].earned) {
+                    achievements[5].earned = true;
+                    player.achievements.push(achievements[5]);
+                    printMessage(`Achievement Unlocked: ${achievements[5].name} - ${achievements[5].description}`, "achievement");
+                }
             }
             
             gameState.inInventory = false;
@@ -1147,7 +1438,7 @@
                 const oldHealth = player.health;
                 player.health = Math.min(player.maxHealth, player.health + item.health);
                 const healed = player.health - oldHealth;
-                printMessage(`You used ${item.name} and restored ${healed} HP.`, "health");
+                printMessage(`You used ${item.name} and restored ${healed} HP.`, "health heal-animation");
             }
             if (item.mana) {
                 const oldMana = player.mana;
@@ -1206,7 +1497,7 @@
                     const oldHealth = player.health;
                     player.health = Math.min(player.maxHealth, player.health + item.heal);
                     const healed = player.health - oldHealth;
-                    printMessage(`The ${item.name} healed you for ${healed} HP.`, "health");
+                    printMessage(`The ${item.name} healed you for ${healed} HP.`, "health heal-animation");
                 }
                 
                 // Remove from inventory
@@ -1254,6 +1545,23 @@
             printMessage(`Armor: ${player.equipped.armor ? player.equipped.armor.name : "None"}`);
             printMessage(`Ring: ${player.equipped.ring ? player.equipped.ring.name : "None"}`);
             printMessage(`Amulet: ${player.equipped.amulet ? player.equipped.amulet.name : "None"}`);
+            
+            // Achievements
+            if (player.achievements.length > 0) {
+                printMessage("");
+                printMessage("ACHIEVEMENTS:");
+                player.achievements.forEach(ach => {
+                    printMessage(`${ach.name}: ${ach.description}`, "achievement");
+                });
+            }
+            
+            // Check for rich adventurer achievement
+            if (player.gold >= 1000 && !achievements[6].earned) {
+                achievements[6].earned = true;
+                player.achievements.push(achievements[6]);
+                printMessage(`Achievement Unlocked: ${achievements[6].name} - ${achievements[6].description}`, "achievement");
+            }
+            
             printMessage("");
             printMessage("Press any button to continue.");
         }
@@ -1313,6 +1621,7 @@
                         let weaponText = `${index + 1}. ${weapon.name} (ATK +${weapon.attack}) - ${weapon.value} gold${status}`;
                         if (weapon.critChance) weaponText += ` [Crit: +${Math.floor(weapon.critChance * 100)}%]`;
                         if (weapon.frostDamage) weaponText += ` [Frost: +${weapon.frostDamage}]`;
+                        if (weapon.lifesteal) weaponText += ` [Lifesteal: +${Math.floor(weapon.lifesteal * 100)}%]`;
                         
                         printMessage(weaponText, getRarityClass(weapon.rarity));
                     });
@@ -1330,6 +1639,7 @@
                         let armorText = `${index + 1}. ${armor.name} (DEF +${armor.defense}) - ${armor.value} gold${status}`;
                         if (armor.healthBonus) armorText += ` [HP +${armor.healthBonus}]`;
                         if (armor.dodgeChance) armorText += ` [Dodge: +${Math.floor(armor.dodgeChance * 100)}%]`;
+                        if (armor.healthRegen) armorText += ` [Regen: +${armor.healthRegen}/turn]`;
                         
                         printMessage(armorText, getRarityClass(armor.rarity));
                     });
@@ -1360,6 +1670,7 @@
                         if (ring.attack) ringText += ` [ATK +${ring.attack}]`;
                         if (ring.defense) ringText += ` [DEF +${ring.defense}]`;
                         if (ring.healthRegen) ringText += ` [Regen: +${ring.healthRegen}/turn]`;
+                        if (ring.manaRegen) ringText += ` [Mana Regen: +${ring.manaRegen}/turn]`;
                         
                         printMessage(ringText, getRarityClass(ring.rarity));
                     });
