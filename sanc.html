@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SanctuaryRPG Mobile</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Courier New', monospace;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        
+        body {
+            background-color: #000;
+            color: #0f0;
+            height: 100vh;
+            overflow: hidden;
+            touch-action: manipulation;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        #game-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid #0f0;
+            padding: 5px;
+            overflow: hidden;
+        }
+        
+        #output {
+            flex: 1;
+            overflow-y: auto;
+            padding: 5px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #333;
+            font-size: 16px;
+        }
+        
+        #input-container {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .input-row {
+            display: flex;
+            margin-bottom: 5px;
+        }
+        
+        #input-text {
+            flex: 1;
+            background: #000;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 12px;
+            min-width: 0;
+            font-size: 16px;
+        }
+        
+        #btn-enter {
+            background: #000;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 12px 15px;
+            margin-left: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        
+        #btn-enter:active {
+            background: #0f0;
+            color: #000;
+        }
+        
+        .button-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-bottom: 5px;
+        }
+        
+        button {
+            flex: 1;
+            min-width: 60px;
+            background: #000;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 12px 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        
+        button:active {
+            background: #0f0;
+            color: #000;
+        }
+        
+        .enemy {
+            color: #f00;
+        }
+        
+        .player {
+            color: #0af;
+        }
+        
+        .item {
+            color: #ff0;
+        }
+        
+        .gold {
+            color: #fc0;
+        }
+        
+        .health {
+            color: #f00;
+        }
+        
+        .mana {
+            color: #00f;
+        }
+        
+        .xp {
+            color: #0f0;
+        }
+        
+        .level {
+            color: #f0f;
+        }
+        
+        .critical {
+            color: #f80;
+            font-weight: bold;
+        }
+        
+        .dodge {
+            color: #0ff;
+            font-weight: bold;
+        }
+        
+        .success {
+            color: #0f0;
+            font-weight: bold;
+        }
+        
+        .warning {
+            color: #f80;
+        }
+        
+        .error {
+            color: #f00;
+        }
+        
+        .ascii-art {
+            font-family: monospace;
+            white-space: pre;
+            line-height: 1;
+            font-size: 8px;
+        }
+        
+        /* Mobile-specific optimizations */
+        @media (max-width: 480px) {
+            button {
+                padding: 14px 5px;
+                font-size: 14px;
+            }
+            
+            #input-text, #btn-enter {
+                padding: 14px;
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="output"></div>
+        <div id="input-container">
+            <div class="input-row">
+                <input type="text" id="input-text" placeholder="Enter command..." autocomplete="off">
+                <button id="btn-enter">Enter</button>
+            </div>
+            <div class="button-row">
+                <button id="btn-fight">Fight</button>
+                <button id="btn-inventory">Inventory</button>
+                <button id="btn-stats">Stats</button>
+                <button id="btn-shop">Shop</button>
+            </div>
+            <div class="button-row">
+                <button id="btn-1">1</button>
+                <button id="btn-2">2</button>
+                <button id="btn-3">3</button>
+                <button id="btn-4">4</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Game State
+        const gameState = {
+            player: {
+                name: "Hero",
+                level: 1,
+                xp: 0,
+                xpToNextLevel: 100,
+                health: 100,
+                maxHealth: 100,
+                mana: 50,
+                maxMana: 50,
+                attack: 10,
+                defense: 5,
+                gold: 50,
+                inventory: [],
+                equipped: {
+                    weapon: null,
+                    armor: null
+                }
+            },
+            currentEnemy: null,
+            inCombat: false,
+            inShop: false,
+            inInventory: false,
+            gameOver: false,
+            currentRoom: 0,
+            enemiesDefeated: 0,
+            shopCategory: null
+        };
+
+        // Items Database
+        const items = {
+            weapons: [
+                { id: 1, name: "Rusty Sword", type: "weapon", attack: 5, value: 10 },
+                { id: 2, name: "Iron Axe", type: "weapon", attack: 8, value: 20 },
+                { id: 3, name: "Steel Greatsword", type: "weapon", attack: 12, value: 40 },
+                { id: 4, name: "Enchanted Blade", type: "weapon", attack: 18, value: 80 }
+            ],
+            armor: [
+                { id: 101, name: "Leather Armor", type: "armor", defense: 3, value: 15 },
+                { id: 102, name: "Chainmail", type: "armor", defense: 6, value: 30 },
+                { id: 103, name: "Plate Armor", type: "armor", defense: 10, value: 60 },
+                { id: 104, name: "Dragon Scale Mail", type: "armor", defense: 15, value: 120 }
+            ],
+            potions: [
+                { id: 201, name: "Health Potion", type: "potion", health: 30, value: 10 },
+                { id: 202, name: "Mana Potion", type: "potion", mana: 20, value: 10 },
+                { id: 203, name: "Elixir", type: "potion", health: 50, mana: 30, value: 25 }
+            ]
+        };
+
+        // Enemies Database
+        const enemies = [
+            { name: "Goblin", health: 30, attack: 8, defense: 2, xp: 20, gold: 5 },
+            { name: "Orc", health: 50, attack: 12, defense: 5, xp: 35, gold: 10 },
+            { name: "Skeleton", health: 40, attack: 10, defense: 4, xp: 30, gold: 8 },
+            { name: "Troll", health: 70, attack: 15, defense: 8, xp: 50, gold: 15 },
+            { name: "Dark Knight", health: 90, attack: 20, defense: 12, xp: 70, gold: 25 },
+            { name: "Dragon", health: 150, attack: 30, defense: 15, xp: 100, gold: 50 }
+        ];
+
+        // DOM Elements
+        const outputEl = document.getElementById('output');
+        const inputEl = document.getElementById('input-text');
+        const btnEnter = document.getElementById('btn-enter');
+        const btnFight = document.getElementById('btn-fight');
+        const btnInventory = document.getElementById('btn-inventory');
+        const btnStats = document.getElementById('btn-stats');
+        const btnShop = document.getElementById('btn-shop');
+        const btn1 = document.getElementById('btn-1');
+        const btn2 = document.getElementById('btn-2');
+        const btn3 = document.getElementById('btn-3');
+        const btn4 = document.getElementById('btn-4');
+
+        // Event Listeners
+        inputEl.addEventListener('keypress', handleInput);
+        btnEnter.addEventListener('click', submitInput);
+        btnFight.addEventListener('click', startCombat);
+        btnInventory.addEventListener('click', showInventory);
+        btnStats.addEventListener('click', showStats);
+        btnShop.addEventListener('click', showShop);
+        btn1.addEventListener('click', () => handleButton(1));
+        btn2.addEventListener('click', () => handleButton(2));
+        btn3.addEventListener('click', () => handleButton(3));
+        btn4.addEventListener('click', () => handleButton(4));
+
+        // Initialize game
+        printMessage("=== SanctuaryRPG ===");
+        printMessage("A text-based adventure for mobile");
+        printMessage("");
+        printMessage("Type commands or use the buttons below to play.");
+        printMessage("You find yourself in a dark dungeon...");
+        printMessage("What will you do?");
+        printMessage("");
+        
+        // Focus input on tap anywhere
+        document.addEventListener('click', function() {
+            inputEl.focus();
+        });
+
+        // Game Functions
+        function printMessage(text, className = "") {
+            const p = document.createElement('p');
+            if (className) p.className = className;
+            p.textContent = text;
+            outputEl.appendChild(p);
+            outputEl.scrollTop = outputEl.scrollHeight;
+        }
+
+        function clearOutput() {
+            outputEl.innerHTML = '';
+        }
+
+        function submitInput() {
+            const command = inputEl.value.trim().toLowerCase();
+            inputEl.value = '';
+            
+            if (!command) return;
+            
+            processCommand(command);
+        }
+
+        function handleInput(e) {
+            if (e.key === 'Enter') {
+                submitInput();
+            }
+        }
+
+        function handleButton(choice) {
+            if (gameState.inCombat) {
+                combatChoice(choice);
+            } else if (gameState.inShop) {
+                if (gameState.shopCategory) {
+                    handleShopSelection(choice - 1);
+                } else {
+                    shopChoice(choice);
+                }
+            } else if (gameState.inInventory) {
+                handleInventorySelection(choice - 1);
+            } else {
+                // Handle main menu button presses
+                switch(choice) {
+                    case 1: startCombat(); break;
+                    case 2: showInventory(); break;
+                    case 3: showStats(); break;
+                    case 4: showShop(); break;
+                }
+            }
+        }
+
+        function processCommand(command) {
+            if (gameState.inCombat) {
+                processCombatCommand(command);
+            } else if (gameState.inShop) {
+                if (gameState.shopCategory) {
+                    const choice = parseInt(command);
+                    if (!isNaN(choice)) {
+                        handleShopSelection(choice - 1);
+                    } else {
+                        printMessage("Please enter a number to select an item.", "warning");
+                    }
+                } else {
+                    processShopCommand(command);
+                }
+            } else if (gameState.inInventory) {
+                processInventoryCommand(command);
+            } else {
+                processNormalCommand(command);
+            }
+        }
+
+        function processNormalCommand(command) {
+            switch(command) {
+                case 'fight':
+                case 'f':
+                    startCombat();
+                    break;
+                case 'inventory':
+                case 'i':
+                    showInventory();
+                    break;
+                case 'stats':
+                case 's':
+                    showStats();
+                    break;
+                case 'shop':
+                case 'sh':
+                    showShop();
+                    break;
+                case 'help':
+                    showHelp();
+                    break;
+                default:
+                    printMessage("Unknown command. Type 'help' for available commands.", "warning");
+            }
+        }
+
+        function showHelp() {
+            clearOutput();
+            printMessage("=== HELP ===");
+            printMessage("Commands:");
+            printMessage("fight/f - Start combat");
+            printMessage("inventory/i - Show inventory");
+            printMessage("stats/s - Show character stats");
+            printMessage("shop/sh - Visit the shop");
+            printMessage("help - Show this help");
+            printMessage("");
+            printMessage("You can also use the buttons below.");
+        }
+
+        function startCombat() {
+            if (gameState.inCombat) {
+                printMessage("You're already in combat!", "warning");
+                return;
+            }
+            
+            gameState.currentRoom++;
+            const enemyIndex = Math.min(Math.floor(gameState.currentRoom / 3), enemies.length - 1);
+            gameState.currentEnemy = {...enemies[enemyIndex]};
+            gameState.inCombat = true;
+            gameState.inShop = false;
+            gameState.inInventory = false;
+            gameState.shopCategory = null;
+            
+            clearOutput();
+            printMessage(`You encounter a ${gameState.currentEnemy.name}!`);
+            printMessage("");
+            printMessage("Combat Options:");
+            printMessage("1. Attack");
+            printMessage("2. Use Item");
+            printMessage("3. Flee (50% chance)");
+            printMessage("");
+            printCombatStatus();
+        }
+
+        function printCombatStatus() {
+            const player = gameState.player;
+            const enemy = gameState.currentEnemy;
+            
+            printMessage(`You: HP [${player.health}/${player.maxHealth}] | MP [${player.mana}/${player.maxMana}]`, "player");
+            printMessage(`${enemy.name}: HP [${enemy.health}]`, "enemy");
+        }
+
+        function combatChoice(choice) {
+            if (!gameState.inCombat) return;
+            
+            const player = gameState.player;
+            const enemy = gameState.currentEnemy;
+            
+            switch(choice) {
+                case 1: // Attack
+                    playerAttack();
+                    break;
+                case 2: // Use Item
+                    useItemInCombat();
+                    break;
+                case 3: // Flee
+                    attemptFlee();
+                    break;
+                default:
+                    printMessage("Invalid choice in combat!", "warning");
+            }
+        }
+
+        function playerAttack() {
+            const player = gameState.player;
+            const enemy = gameState.currentEnemy;
+            
+            // Player attack
+            const playerAttackValue = player.attack + (player.equipped.weapon ? player.equipped.weapon.attack : 0);
+            const playerDamage = calculateDamage(playerAttackValue, enemy.defense);
+            
+            if (playerDamage === 0) {
+                printMessage(`You attack the ${enemy.name} but miss!`, "dodge");
+            } else if (playerDamage > playerAttackValue * 1.5) {
+                printMessage(`You critically hit the ${enemy.name} for ${playerDamage} damage!`, "critical");
+                enemy.health -= playerDamage;
+            } else {
+                printMessage(`You hit the ${enemy.name} for ${playerDamage} damage.`);
+                enemy.health -= playerDamage;
+            }
+            
+            // Check if enemy is defeated
+            if (enemy.health <= 0) {
+                enemyDefeated();
+                return;
+            }
+            
+            // Enemy attack
+            const enemyDamage = calculateDamage(enemy.attack, 
+                                            player.defense + (player.equipped.armor ? player.equipped.armor.defense : 0));
+            
+            if (enemyDamage === 0) {
+                printMessage(`The ${enemy.name} attacks you but you dodge!`, "dodge");
+            } else if (enemyDamage > enemy.attack * 1.5) {
+                printMessage(`The ${enemy.name} critically hits you for ${enemyDamage} damage!`, "critical enemy");
+                player.health -= enemyDamage;
+            } else {
+                printMessage(`The ${enemy.name} hits you for ${enemyDamage} damage.`, "enemy");
+                player.health -= enemyDamage;
+            }
+            
+            // Check if player is defeated
+            if (player.health <= 0) {
+                playerDefeated();
+                return;
+            }
+            
+            printMessage("");
+            printCombatStatus();
+        }
+
+        function calculateDamage(attack, defense) {
+            const baseDamage = Math.max(1, attack - defense * 0.5);
+            const damageVariation = baseDamage * 0.3;
+            const finalDamage = baseDamage + (Math.random() * damageVariation * 2) - damageVariation;
+            
+            // 10% chance to miss
+            if (Math.random() < 0.1) {
+                return 0;
+            }
+            
+            // 10% chance for critical hit (50% more damage)
+            if (Math.random() < 0.1) {
+                return Math.floor(finalDamage * 1.5);
+            }
+            
+            return Math.max(0, Math.floor(finalDamage));
+        }
+
+        function attemptFlee() {
+            if (Math.random() < 0.5) {
+                printMessage("You successfully flee from combat!", "success");
+                gameState.inCombat = false;
+                printMessage("");
+                printMessage("What will you do now?");
+            } else {
+                printMessage("You failed to flee!", "warning");
+                
+                // Enemy gets a free attack
+                const player = gameState.player;
+                const enemy = gameState.currentEnemy;
+                
+                const enemyDamage = calculateDamage(enemy.attack, 
+                                                  player.defense + (player.equipped.armor ? player.equipped.armor.defense : 0));
+                
+                if (enemyDamage === 0) {
+                    printMessage(`The ${enemy.name} attacks you but you dodge!`, "dodge");
+                } else {
+                    printMessage(`The ${enemy.name} hits you for ${enemyDamage} damage as you try to flee.`, "enemy");
+                    player.health -= enemyDamage;
+                }
+                
+                // Check if player is defeated
+                if (player.health <= 0) {
+                    playerDefeated();
+                    return;
+                }
+                
+                printMessage("");
+                printCombatStatus();
+            }
+        }
+
+        function enemyDefeated() {
+            const player = gameState.player;
+            const enemy = gameState.currentEnemy;
+            
+            printMessage(`You defeated the ${enemy.name}!`, "success");
+            
+            // Gain XP and gold
+            player.xp += enemy.xp;
+            player.gold += enemy.gold;
+            gameState.enemiesDefeated++;
+            
+            printMessage(`You gained ${enemy.xp} XP and found ${enemy.gold} gold.`, "gold");
+            
+            // Check for level up
+            checkLevelUp();
+            
+            gameState.inCombat = false;
+            printMessage("");
+            printMessage("What will you do now?");
+        }
+
+        function playerDefeated() {
+            const player = gameState.player;
+            
+            printMessage("You have been defeated!", "error");
+            printMessage("You lose half your gold and are returned to town.", "warning");
+            printMessage("Your health and mana have been restored.", "player");
+            
+            // Reset player but keep items and level
+            player.health = player.maxHealth;
+            player.mana = player.maxMana;
+            player.gold = Math.floor(player.gold * 0.5); // Lose half gold
+            
+            gameState.inCombat = false;
+            gameState.currentRoom = 0;
+            printMessage("");
+            printMessage("What will you do now?");
+        }
+
+        function checkLevelUp() {
+            const player = gameState.player;
+            
+            if (player.xp >= player.xpToNextLevel) {
+                player.level++;
+                player.xp -= player.xpToNextLevel;
+                player.xpToNextLevel = Math.floor(player.xpToNextLevel * 1.5);
+                
+                // Increase stats
+                player.maxHealth += 10;
+                player.health = player.maxHealth;
+                player.maxMana += 5;
+                player.mana = player.maxMana;
+                player.attack += 2;
+                player.defense += 1;
+                
+                printMessage(`You leveled up to level ${player.level}!`, "level");
+                printMessage("Your stats have increased!", "player");
+                printMessage(`Health: +10 (now ${player.maxHealth})`, "health");
+                printMessage(`Mana: +5 (now ${player.maxMana})`, "mana");
+                printMessage(`Attack: +2 (now ${player.attack})`);
+                printMessage(`Defense: +1 (now ${player.defense})`);
+            }
+        }
+
+        function showInventory() {
+            clearOutput();
+            gameState.inShop = false;
+            gameState.inInventory = true;
+            gameState.shopCategory = null;
+            
+            const player = gameState.player;
+            
+            printMessage("=== INVENTORY ===");
+            printMessage(`Gold: ${player.gold}`, "gold");
+            printMessage("");
+            
+            // Equipped items
+            printMessage("EQUIPPED:");
+            printMessage(`Weapon: ${player.equipped.weapon ? player.equipped.weapon.name : "None"}`);
+            if (player.equipped.weapon) {
+                printMessage(`  Attack: +${player.equipped.weapon.attack}`, "item");
+            }
+            printMessage(`Armor: ${player.equipped.armor ? player.equipped.armor.name : "None"}`);
+            if (player.equipped.armor) {
+                printMessage(`  Defense: +${player.equipped.armor.defense}`, "item");
+            }
+            printMessage("");
+            
+            // Inventory items
+            if (player.inventory.length === 0) {
+                printMessage("Your inventory is empty.");
+            } else {
+                printMessage("ITEMS:");
+                player.inventory.forEach((item, index) => {
+                    let itemText = `${index + 1}. ${item.name}`;
+                    if (item.type === "potion") {
+                        if (item.health) itemText += ` (Heals ${item.health} HP)`;
+                        if (item.mana) itemText += ` (Restores ${item.mana} MP)`;
+                    } else if (item.type === "weapon") {
+                        itemText += ` (ATK +${item.attack})`;
+                    } else if (item.type === "armor") {
+                        itemText += ` (DEF +${item.defense})`;
+                    }
+                    printMessage(itemText, "item");
+                });
+            }
+            
+            printMessage("");
+            printMessage("Press item number to use/equip, or any other button to exit.");
+        }
+
+        function useItemInCombat() {
+            clearOutput();
+            gameState.inInventory = true;
+            
+            const player = gameState.player;
+            
+            printMessage("=== USE ITEM ===");
+            printMessage("");
+            
+            if (player.inventory.length === 0) {
+                printMessage("Your inventory is empty.", "warning");
+                printMessage("");
+                printCombatStatus();
+                gameState.inInventory = false;
+                return;
+            }
+            
+            printMessage("Select an item to use:");
+            player.inventory.forEach((item, index) => {
+                let itemText = `${index + 1}. ${item.name}`;
+                if (item.type === "potion") {
+                    if (item.health) itemText += ` (Heals ${item.health} HP)`;
+                    if (item.mana) itemText += ` (Restores ${item.mana} MP)`;
+                } else if (item.type === "weapon") {
+                    itemText += ` (ATK +${item.attack})`;
+                } else if (item.type === "armor") {
+                    itemText += ` (DEF +${item.defense})`;
+                }
+                printMessage(itemText, "item");
+            });
+            
+            printMessage("");
+            printMessage("Press item number to use, or any other button to cancel.");
+        }
+
+        function processInventoryCommand(command) {
+            const index = parseInt(command) - 1;
+            if (!isNaN(index)) {
+                handleInventorySelection(index);
+            } else {
+                printMessage("Please enter a number to select an item.", "warning");
+            }
+        }
+
+        function handleInventorySelection(index) {
+            const player = gameState.player;
+            
+            if (isNaN(index) || index < 0 || index >= player.inventory.length) {
+                gameState.inInventory = false;
+                if (gameState.inCombat) {
+                    printMessage("");
+                    printCombatStatus();
+                } else {
+                    printMessage("");
+                    printMessage("What will you do now?");
+                }
+                return;
+            }
+            
+            const item = player.inventory[index];
+            
+            // Check if it's a weapon or armor
+            if (item.type === "weapon") {
+                // It's a weapon
+                if (player.equipped.weapon) {
+                    player.inventory.push({...player.equipped.weapon});
+                    printMessage(`You unequipped ${player.equipped.weapon.name}.`, "item");
+                }
+                player.equipped.weapon = {...item};
+                player.inventory.splice(index, 1);
+                printMessage(`You equipped the ${item.name}.`, "item");
+                printMessage(`Attack increased by +${item.attack}.`);
+            } else if (item.type === "armor") {
+                // It's armor
+                if (player.equipped.armor) {
+                    player.inventory.push({...player.equipped.armor});
+                    printMessage(`You unequipped ${player.equipped.armor.name}.`, "item");
+                }
+                player.equipped.armor = {...item};
+                player.inventory.splice(index, 1);
+                printMessage(`You equipped the ${item.name}.`, "item");
+                printMessage(`Defense increased by +${item.defense}.`);
+            } else {
+                // It's a consumable
+                if (item.health) {
+                    const oldHealth = player.health;
+                    player.health = Math.min(player.maxHealth, player.health + item.health);
+                    const healed = player.health - oldHealth;
+                    printMessage(`You used ${item.name} and restored ${healed} HP.`, "health");
+                }
+                if (item.mana) {
+                    const oldMana = player.mana;
+                    player.mana = Math.min(player.maxMana, player.mana + item.mana);
+                    const restored = player.mana - oldMana;
+                    printMessage(`You used ${item.name} and restored ${restored} MP.`, "mana");
+                }
+                player.inventory.splice(index, 1);
+            }
+            
+            gameState.inInventory = false;
+            if (gameState.inCombat) {
+                printMessage("");
+                printCombatStatus();
+            } else {
+                printMessage("");
+                printMessage("What will you do now?");
+            }
+        }
+
+        function showStats() {
+            clearOutput();
+            gameState.inShop = false;
+            gameState.inInventory = false;
+            gameState.shopCategory = null;
+            
+            const player = gameState.player;
+            
+            printMessage("=== STATS ===");
+            printMessage(`Name: ${player.name}`);
+            printMessage(`Level: ${player.level}`, "level");
+            printMessage(`XP: ${player.xp}/${player.xpToNextLevel}`, "xp");
+            printMessage(`Health: ${player.health}/${player.maxHealth}`, "health");
+            printMessage(`Mana: ${player.mana}/${player.maxMana}`, "mana");
+            printMessage(`Attack: ${player.attack + (player.equipped.weapon ? player.equipped.weapon.attack : 0)}`);
+            printMessage(`Defense: ${player.defense + (player.equipped.armor ? player.equipped.armor.defense : 0)}`);
+            printMessage(`Gold: ${player.gold}`, "gold");
+            printMessage(`Enemies Defeated: ${gameState.enemiesDefeated}`);
+            printMessage(`Current Dungeon Level: ${gameState.currentRoom}`);
+            printMessage("");
+            printMessage("Press any button to continue.");
+        }
+
+        function showShop() {
+            clearOutput();
+            gameState.inShop = true;
+            gameState.inInventory = false;
+            gameState.shopCategory = null;
+            
+            const player = gameState.player;
+            
+            printMessage("=== SHOP ===");
+            printMessage(`Gold: ${player.gold}`, "gold");
+            printMessage("");
+            printMessage("1. Weapons");
+            printMessage("2. Armor");
+            printMessage("3. Potions");
+            printMessage("4. Sell Items");
+            printMessage("");
+            printMessage("Press item number to browse, or any other button to exit.");
+        }
+
+        function processShopCommand(command) {
+            const choice = parseInt(command);
+            if (!isNaN(choice)) {
+                shopChoice(choice);
+            } else {
+                gameState.inShop = false;
+                printMessage("You leave the shop.");
+                printMessage("");
+                printMessage("What will you do now?");
+            }
+        }
+
+        function shopChoice(choice) {
+            if (!gameState.inShop) return;
+            
+            clearOutput();
+            const player = gameState.player;
+            
+            printMessage("=== SHOP ===");
+            printMessage(`Gold: ${player.gold}`, "gold");
+            printMessage("");
+            
+            switch(choice) {
+                case 1: // Weapons
+                    printMessage("WEAPONS:");
+                    items.weapons.forEach((weapon, index) => {
+                        const equipped = player.equipped.weapon && player.equipped.weapon.id === weapon.id;
+                        const inInventory = player.inventory.some(item => item.id === weapon.id);
+                        let status = "";
+                        if (equipped) status = " (EQUIPPED)";
+                        else if (inInventory) status = " (IN INVENTORY)";
+                        printMessage(`${index + 1}. ${weapon.name} (ATK +${weapon.attack}) - ${weapon.value} gold${status}`, "item");
+                    });
+                    gameState.shopCategory = 'weapons';
+                    break;
+                case 2: // Armor
+                    printMessage("ARMOR:");
+                    items.armor.forEach((armor, index) => {
+                        const equipped = player.equipped.armor && player.equipped.armor.id === armor.id;
+                        const inInventory = player.inventory.some(item => item.id === armor.id);
+                        let status = "";
+                        if (equipped) status = " (EQUIPPED)";
+                        else if (inInventory) status = " (IN INVENTORY)";
+                        printMessage(`${index + 1}. ${armor.name} (DEF +${armor.defense}) - ${armor.value} gold${status}`, "item");
+                    });
+                    gameState.shopCategory = 'armor';
+                    break;
+                case 3: // Potions
+                    printMessage("POTIONS:");
+                    items.potions.forEach((potion, index) => {
+                        let potionText = `${index + 1}. ${potion.name}`;
+                        if (potion.health) potionText += ` (Heals ${potion.health} HP)`;
+                        if (potion.mana) potionText += ` (Restores ${potion.mana} MP)`;
+                        potionText += ` - ${potion.value} gold`;
+                        printMessage(potionText, "item");
+                    });
+                    gameState.shopCategory = 'potions';
+                    break;
+                case 4: // Sell Items
+                    if (player.inventory.length === 0) {
+                        printMessage("You have no items to sell.", "warning");
+                    } else {
+                        printMessage("SELL ITEMS:");
+                        player.inventory.forEach((item, index) => {
+                            printMessage(`${index + 1}. ${item.name} - ${Math.floor(item.value * 0.5)} gold`, "item");
+                        });
+                    }
+                    gameState.shopCategory = 'sell';
+                    break;
+                default:
+                    gameState.inShop = false;
+                    printMessage("You leave the shop.");
+                    printMessage("");
+                    printMessage("What will you do now?");
+                    return;
+            }
+            
+            if (choice >= 1 && choice <= 4) {
+                printMessage("");
+                printMessage("Press item number to buy/sell, or any other button to cancel.");
+            }
+        }
+
+        function handleShopSelection(index) {
+            const player = gameState.player;
+            
+            if (gameState.shopCategory === 'sell') {
+                // Selling items
+                if (index < 0 || index >= player.inventory.length) {
+                    showShop();
+                    return;
+                }
+                
+                const item = player.inventory[index];
+                const sellPrice = Math.floor(item.value * 0.5);
+                
+                player.gold += sellPrice;
+                player.inventory.splice(index, 1);
+                
+                printMessage(`You sold ${item.name} for ${sellPrice} gold.`, "gold");
+                printMessage("");
+                showShop();
+            } else {
+                // Buying items
+                let itemsList;
+                switch(gameState.shopCategory) {
+                    case 'weapons': itemsList = items.weapons; break;
+                    case 'armor': itemsList = items.armor; break;
+                    case 'potions': itemsList = items.potions; break;
+                    default: showShop(); return;
+                }
+                
+                if (index < 0 || index >= itemsList.length) {
+                    showShop();
+                    return;
+                }
+                
+                const item = itemsList[index];
+                
+                // Check if already have this item (not equipped)
+                const alreadyHas = player.inventory.some(invItem => invItem.id === item.id);
+                if (alreadyHas) {
+                    printMessage(`You already have ${item.name} in your inventory!`, "warning");
+                    printMessage("");
+                    showShop();
+                    return;
+                }
+                
+                // Check if player has enough gold
+                if (player.gold < item.value) {
+                    printMessage("You don't have enough gold for that!", "warning");
+                    printMessage("");
+                    showShop();
+                    return;
+                }
+                
+                // Purchase item
+                player.gold -= item.value;
+                
+                if (gameState.shopCategory === 'potions') {
+                    // Potions go to inventory
+                    player.inventory.push({...item});
+                    printMessage(`You bought ${item.name} for ${item.value} gold.`, "gold");
+                    printMessage(`Added to inventory.`, "success");
+                } else {
+                    // Weapons and armor - add to inventory (let player equip manually)
+                    player.inventory.push({...item});
+                    printMessage(`You bought ${item.name} for ${item.value} gold.`, "gold");
+                    printMessage(`Added to inventory. Equip it from your inventory.`, "success");
+                }
+                
+                printMessage("");
+                showShop();
+            }
+        }
+    </script>
+</body>
+</html>
