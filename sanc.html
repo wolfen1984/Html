@@ -484,26 +484,27 @@
         }
 
         function handleButton(choice) {
-            if (gameState.inCombat) {
-                combatChoice(choice);
-            } else if (gameState.inShop) {
-                if (gameState.shopCategory) {
-                    handleShopSelection(choice - 1);
-                } else {
-                    shopChoice(choice);
-                }
-            } else if (gameState.inInventory) {
-                handleInventorySelection(choice - 1);
-            } else {
-                // Handle main menu button presses
-                switch(choice) {
-                    case 1: startCombat(); break;
-                    case 2: showInventory(); break;
-                    case 3: showStats(); break;
-                    case 4: showShop(); break;
-                }
-            }
+    if (gameState.inCombat) {
+        combatChoice(choice);
+    } else if (gameState.inShop) {
+        if (gameState.shopCategory) {
+            // For all categories including accessories
+            handleShopSelection(choice - 1);
+        } else {
+            shopChoice(choice);
         }
+    } else if (gameState.inInventory) {
+        handleInventorySelection(choice - 1);
+    } else {
+        // Handle main menu button presses
+        switch(choice) {
+            case 1: startCombat(); break;
+            case 2: showInventory(); break;
+            case 3: showStats(); break;
+            case 4: showShop(); break;
+        }
+    }
+}
 
         function showTutorial() {
             clearOutput();
@@ -1657,43 +1658,31 @@
                     gameState.shopCategory = 'potions';
                     break;
                 case 4: // Accessories
-                    printMessage("ACCESSORIES:");
-                    printMessage("RINGS:");
-                    items.rings.forEach((ring, index) => {
-                        const equipped = player.equipped.ring && player.equipped.ring.id === ring.id;
-                        const inInventory = player.inventory.some(item => item.id === ring.id);
-                        let status = "";
-                        if (equipped) status = " (EQUIPPED)";
-                        else if (inInventory) status = " (IN INVENTORY)";
-                        
-                        let ringText = `${index + 1}. ${ring.name} - ${ring.value} gold${status}`;
-                        if (ring.attack) ringText += ` [ATK +${ring.attack}]`;
-                        if (ring.defense) ringText += ` [DEF +${ring.defense}]`;
-                        if (ring.healthRegen) ringText += ` [Regen: +${ring.healthRegen}/turn]`;
-                        if (ring.manaRegen) ringText += ` [Mana Regen: +${ring.manaRegen}/turn]`;
-                        
-                        printMessage(ringText, getRarityClass(ring.rarity));
-                    });
-                    
-                    printMessage("");
-                    printMessage("AMULETS:");
-                    items.amulets.forEach((amulet, index) => {
-                        const equipped = player.equipped.amulet && player.equipped.amulet.id === amulet.id;
-                        const inInventory = player.inventory.some(item => item.id === amulet.id);
-                        let status = "";
-                        if (equipped) status = " (EQUIPPED)";
-                        else if (inInventory) status = " (IN INVENTORY)";
-                        
-                        let amuletText = `${index + 1}. ${amulet.name} - ${amulet.value} gold${status}`;
-                        if (amulet.maxHealth) amuletText += ` [Max HP +${amulet.maxHealth}]`;
-                        if (amulet.maxMana) amuletText += ` [Max MP +${amulet.maxMana}]`;
-                        if (amulet.attack) amuletText += ` [ATK +${amulet.attack}]`;
-                        if (amulet.defense) amuletText += ` [DEF +${amulet.defense}]`;
-                        
-                        printMessage(amuletText, getRarityClass(amulet.rarity));
-                    });
-                    gameState.shopCategory = 'accessories';
-                    break;
+    printMessage("ACCESSORIES:");
+    printMessage("RINGS:");
+    items.rings.forEach((ring, index) => {
+        const equipped = player.equipped.ring && player.equipped.ring.id === ring.id;
+        const inInventory = player.inventory.some(item => item.id === ring.id);
+        let status = "";
+        if (equipped) status = " (EQUIPPED)";
+        else if (inInventory) status = " (IN INVENTORY)";
+        
+        printMessage(`${index + 1}. ${ring.name} - ${ring.value} gold${status}`, getRarityClass(ring.rarity));
+    });
+    
+    printMessage("");
+    printMessage("AMULETS:");
+    items.amulets.forEach((amulet, index) => {
+        const equipped = player.equipped.amulet && player.equipped.amulet.id === amulet.id;
+        const inInventory = player.inventory.some(item => item.id === amulet.id);
+        let status = "";
+        if (equipped) status = " (EQUIPPED)";
+        else if (inInventory) status = " (IN INVENTORY)";
+        
+        printMessage(`${index + 1 + items.rings.length}. ${amulet.name} - ${amulet.value} gold${status}`, getRarityClass(amulet.rarity));
+    });
+    gameState.shopCategory = 'accessories';
+    break;
                 case 5: // Sell Items
                     if (player.inventory.length === 0) {
                         printMessage("You have no items to sell.", "warning");
@@ -1721,77 +1710,89 @@
         }
 
         function handleShopSelection(index) {
-            const player = gameState.player;
-            
-            if (gameState.shopCategory === 'sell') {
-                // Selling items
-                if (index < 0 || index >= player.inventory.length) {
-                    showShop();
-                    return;
-                }
-                
-                const item = player.inventory[index];
-                const sellPrice = Math.floor(item.value * 0.5);
-                
-                player.gold += sellPrice;
-                player.inventory.splice(index, 1);
-                
-                printMessage(`You sold ${item.name} for ${sellPrice} gold.`, "gold");
-                printMessage("");
-                showShop();
-            } else {
-                // Buying items
-                let itemsList;
-                switch(gameState.shopCategory) {
-                    case 'weapons': itemsList = items.weapons; break;
-                    case 'armor': itemsList = items.armor; break;
-                    case 'potions': itemsList = items.potions; break;
-                    case 'accessories': 
-                        // For accessories, combine rings and amulets
-                        itemsList = [...items.rings, ...items.amulets];
-                        break;
-                    default: showShop(); return;
-                }
-                
-                if (index < 0 || index >= itemsList.length) {
-                    showShop();
-                    return;
-                }
-                
-                const item = itemsList[index];
-                
-                // Check if already have this item (not equipped)
-                const alreadyHas = player.inventory.some(invItem => invItem.id === item.id);
-                if (alreadyHas) {
-                    printMessage(`You already have ${item.name} in your inventory!`, "warning");
-                    printMessage("");
-                    showShop();
-                    return;
-                }
-                
-                // Check if player has enough gold
-                if (player.gold < item.value) {
-                    printMessage("You don't have enough gold for that!", "warning");
-                    printMessage("");
-                    showShop();
-                    return;
-                }
-                
-                // Purchase item
-                player.gold -= item.value;
-                player.inventory.push({...item});
-                
-                printMessage(`You bought ${item.name} for ${item.value} gold.`, "gold");
-                printMessage(`Added to inventory.`, "success");
-                
-                if (item.type === "weapon" || item.type === "armor" || item.type === "ring" || item.type === "amulet") {
-                    printMessage(`Equip it from your inventory.`, "success");
-                }
-                
-                printMessage("");
-                showShop();
-            }
+    const player = gameState.player;
+    
+    if (gameState.shopCategory === 'sell') {
+        // Selling items
+        if (isNaN(index) || index < 0 || index >= player.inventory.length) {
+            showShop();
+            return;
         }
+        
+        const item = player.inventory[index];
+        const sellPrice = Math.floor(item.value * 0.5);
+        
+        player.gold += sellPrice;
+        player.inventory.splice(index, 1);
+        
+        printMessage(`You sold ${item.name} for ${sellPrice} gold.`, "gold");
+        printMessage("");
+        showShop();
+    } else {
+        // Buying items
+        let itemsList;
+        
+        // Determine which items we're looking at
+        switch(gameState.shopCategory) {
+            case 'weapons': 
+                itemsList = items.weapons;
+                break;
+            case 'armor': 
+                itemsList = items.armor;
+                break;
+            case 'potions': 
+                itemsList = items.potions;
+                break;
+            case 'accessories':
+                // For accessories, combine rings and amulets
+                itemsList = items.rings.concat(items.amulets);
+                break;
+            default: 
+                showShop(); 
+                return;
+        }
+        
+        // Validate selection
+        if (isNaN(index) || index < 0 || index >= itemsList.length) {
+            showShop();
+            return;
+        }
+        
+        const item = itemsList[index];
+        
+        // Check if already have this item (not equipped)
+        const alreadyHas = player.inventory.some(invItem => invItem.id === item.id);
+        if (alreadyHas) {
+            printMessage(`You already have ${item.name} in your inventory!`, "warning");
+            printMessage("");
+            showShop();
+            return;
+        }
+        
+        // Check if player has enough gold
+        if (player.gold < item.value) {
+            printMessage("You don't have enough gold for that!", "warning");
+            printMessage("");
+            showShop();
+            return;
+        }
+        
+        // Purchase item
+        player.gold -= item.value;
+        player.inventory.push({...item});
+        
+        printMessage(`You bought ${item.name} for ${item.value} gold.`, "gold");
+        printMessage(`Added to inventory.`, "success");
+        
+        if (item.type === "weapon" || item.type === "armor" || item.type === "ring" || item.type === "amulet") {
+            printMessage(`Equip it from your inventory.`, "success");
+        }
+        
+        printMessage("");
+        showShop();
+    }
+}
+
     </script>
 </body>
 </html>
