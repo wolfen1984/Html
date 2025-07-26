@@ -325,10 +325,6 @@ body::before {
     background-color: #0f0;
 }
 
-.stealth {
-    background-color: #555;
-}
-
 /* Quest styles */
 .quest {
     border: 1px solid #333;
@@ -659,9 +655,8 @@ const gameState = {
             active: [],
             completed: []
         },
-        stealth: false,
-        stealthTurns: 0,
-        achievements: []
+        achievements: [],
+        stealth: 0 // New property for rogue stealth
     },
     areas: [
         { name: "Forest", minLevel: 1, unlocked: true, description: "A dense forest filled with low-level creatures." },
@@ -730,8 +725,8 @@ const gameState = {
             { id: 5, name: "Demon Edge", type: "weapon", damage: "35-45", value: 300, level: 8, lifesteal: 0.1 },
             { id: 6, name: "Staff of Fire", type: "weapon", damage: "12-18", magicDamage: 20, value: 80, level: 3 },
             { id: 7, name: "Arcane Scepter", type: "weapon", damage: "8-14", magicDamage: 30, value: 150, level: 5, manaRegen: 5 },
-            { id: 8, name: "Dagger", type: "weapon", damage: "6-10", critChance: 0.25, value: 25, level: 1 },
-            { id: 9, name: "Assassin's Blade", type: "weapon", damage: "14-18", critChance: 0.35, value: 120, level: 4, poisonDamage: 5 },
+            { id: 8, name: "Dagger of Shadows", type: "weapon", damage: "10-15", value: 40, level: 1, critChance: 0.15 },
+            { id: 9, name: "Assassin's Blade", type: "weapon", damage: "18-24", value: 100, level: 3, backstabDamage: 1.5 },
             { id: 20, name: "Frostbrand", type: "weapon", damage: "30-40", value: 250, level: 7, frostDamage: 15, slowChance: 0.3 },
             { id: 21, name: "Dragonbone Bow", type: "weapon", damage: "25-35", value: 200, level: 6, critChance: 0.2, armorPen: 10 },
             { id: 22, name: "Voidreaver", type: "weapon", damage: "50-60", value: 400, level: 10, voidDamage: 25, lifesteal: 0.15 },
@@ -744,10 +739,10 @@ const gameState = {
             { id: 11, name: "Chainmail", type: "armor", defense: 15, value: 70, level: 2 },
             { id: 12, name: "Plate Armor", type: "armor", defense: 25, value: 150, level: 4, blockChance: 0.1 },
             { id: 13, name: "Mage Robes", type: "armor", defense: 12, magicResist: 20, value: 90, level: 3, manaRegen: 3 },
-            { id: 14, name: "Shadow Cloak", type: "armor", defense: 10, dodgeChance: 0.2, value: 120, level: 4 },
+            { id: 14, name: "Shadow Cloak", type: "armor", defense: 10, value: 60, level: 2, dodgeChance: 0.15, stealthBonus: 1 },
             { id: 26, name: "Dragon Scale Armor", type: "armor", defense: 35, value: 300, level: 8, fireResist: 25 },
             { id: 27, name: "Celestial Plate", type: "armor", defense: 40, value: 400, level: 10, magicResist: 30, healthRegen: 5 },
-            { id: 28, name: "Voidwalker Mantle", type: "armor", defense: 25, value: 350, level: 9, dodgeChance: 0.3, stealthBonus: 0.2 },
+            { id: 28, name: "Nightstalker Garb", type: "armor", defense: 20, value: 250, level: 6, dodgeChance: 0.25, stealthBonus: 2, critChance: 0.1 },
             { id: 29, name: "Titan's Cuirass", type: "armor", defense: 50, value: 500, level: 12, blockChance: 0.2, strengthBonus: 5 },
             { id: 30, name: "Archmage's Vestments", type: "armor", defense: 20, value: 450, level: 11, magicResist: 40, manaRegen: 10 }
         ],
@@ -776,7 +771,7 @@ const gameState = {
     classDescriptions: {
         warrior: "The Warrior excels in close combat with high health and strength. Can wear heavy armor and wield powerful weapons. Starts with higher health and strength but lower mana. Skills include Taunt and Battle Cry.",
         mage: "The Mage harnesses arcane power to cast devastating spells. High intelligence boosts magical damage. Starts with powerful spells but lower health and armor. Skills include Fireball and Mana Shield.",
-        rogue: "The Rogue relies on speed and precision. High dexterity increases critical hit chance and dodge. Starts with high crit chance and evasion but lower defense. Skills include Backstab and Smoke Bomb."
+        rogue: "The Rogue specializes in stealth and precision strikes. High dexterity increases critical hit chance and dodge. Starts with light armor and fast weapons. Skills include Backstab and Vanish."
     },
     classSkills: {
         warrior: [
@@ -788,8 +783,8 @@ const gameState = {
             { name: "Mana Shield", cost: 25, description: "Absorbs 50% of damage with mana for 3 turns" }
         ],
         rogue: [
-            { name: "Backstab", cost: 15, damageMultiplier: 2, requiresStealth: true, description: "Deals double damage when stealthed" },
-            { name: "Smoke Bomb", cost: 20, description: "Grants stealth for 3 turns" }
+            { name: "Backstab", cost: 15, description: "Deals 2x damage if attacking from stealth", requiresStealth: true },
+            { name: "Vanish", cost: 20, description: "Enter stealth for 2 turns, avoiding enemy attacks" }
         ]
     },
     quests: [
@@ -1021,7 +1016,7 @@ function updatePlayerStats() {
     let statsHTML = `[${player.name}] <span class="class-${player.class}">${player.class ? player.class.toUpperCase() : ''}</span> Lvl:${player.level} `;
     statsHTML += `<span class="health">HP:${player.health}/${player.maxHealth}</span> `;
 
-    if (player.class === 'mage' || player.class === 'warrior') {
+    if (player.class === 'mage' || player.class === 'warrior' || player.class === 'rogue') {
         statsHTML += `<span class="mana">MP:${player.mana}/${player.maxMana}</span> `;
     }
 
@@ -1031,7 +1026,7 @@ function updatePlayerStats() {
     // Add progress bars
     statsHTML += `<div class="progress-container"><div class="progress-bar health-bar" style="width: ${(player.health / player.maxHealth) * 100}%"></div></div>`;
 
-    if (player.class === 'mage' || player.class === 'warrior') {
+    if (player.class === 'mage' || player.class === 'warrior' || player.class === 'rogue') {
         statsHTML += `<div class="progress-container"><div class="progress-bar mana-bar" style="width: ${(player.mana / player.maxMana) * 100}%"></div></div>`;
     }
 
@@ -1055,6 +1050,11 @@ function updatePlayerStats() {
             statsHTML += `<span class="debuff">${debuff.name}</span> (${debuff.duration}), `;
         });
         statsHTML = statsHTML.slice(0, -2); // Remove trailing comma
+    }
+
+    // Show stealth if active
+    if (player.stealth > 0) {
+        statsHTML += `<br><span class="heal">Stealth: ${player.stealth} turns remaining</span>`;
     }
 
     statsElement.innerHTML = statsHTML;
@@ -1311,7 +1311,7 @@ function updateCombatScreen() {
         if (player.mana < skill.cost) {
             skillBtn.disabled = true;
         }
-        if (skill.requiresStealth && !player.stealth) {
+        if (skill.requiresStealth && player.stealth <= 0) {
             skillBtn.disabled = true;
         }
 
@@ -1347,28 +1347,34 @@ function playerAttack() {
         const damageRange = player.equippedWeapon.damage.split("-").map(Number);
         damage = Math.floor(Math.random() * (damageRange[1] - damageRange[0] + 1)) + damageRange[0];
 
-        // Add strength bonus for physical attacks
-        if (player.class === 'warrior' || player.class === 'rogue') {
+        // Add stat bonuses based on class
+        if (player.class === 'warrior') {
             damage += Math.floor(player.strength / 2);
+        } else if (player.class === 'rogue') {
+            damage += Math.floor(player.dexterity / 3);
         }
 
-        // Check for critical hit (rogue has higher chance)
-        let critChance = 0.1; // Base 10% chance
-        if (player.equippedWeapon.critChance) {
-            critChance += player.equippedWeapon.critChance;
-        }
-        if (player.class === 'rogue') {
-            critChance += player.dexterity / 100;
-        }
-        if (player.stealth) {
-            critChance += 0.3; // Bonus crit chance from stealth
-        }
-
-        if (Math.random() < critChance) {
-            damage *= 2;
-            addToGameLog(`<span class="critical">Critical hit!</span> You attack the ${enemy.name} for <span class="damage">${damage}</span> damage!`);
+        // Check for backstab bonus (Rogue only)
+        if (player.class === 'rogue' && player.stealth > 0 && player.equippedWeapon.backstabDamage) {
+            damage = Math.floor(damage * player.equippedWeapon.backstabDamage);
+            addToGameLog(`<span class="critical">Backstab!</span> You attack the ${enemy.name} for <span class="damage">${damage}</span> damage!`);
+            player.stealth = 0; // Break stealth after attacking
         } else {
-            addToGameLog(`You attack the ${enemy.name} for <span class="damage">${damage}</span> damage!`);
+            // Check for critical hit
+            let critChance = 0.1; // Base 10% chance
+            if (player.equippedWeapon.critChance) {
+                critChance += player.equippedWeapon.critChance;
+            }
+            if (player.class === 'rogue') {
+                critChance += player.dexterity * 0.01; // 1% per point of dexterity
+            }
+
+            if (Math.random() < critChance) {
+                damage *= 2;
+                addToGameLog(`<span class="critical">Critical hit!</span> You attack the ${enemy.name} for <span class="damage">${damage}</span> damage!`);
+            } else {
+                addToGameLog(`You attack the ${enemy.name} for <span class="damage">${damage}</span> damage!`);
+            }
         }
 
         // Check for weapon special effects
@@ -1405,22 +1411,15 @@ function playerAttack() {
         enemy.health = 0;
         defeatEnemy();
     } else {
-        // Enemy attacks back
-        enemyAttack();
+        // Enemy attacks back unless player is stealthed
+        if (player.stealth <= 0) {
+            enemyAttack();
+        } else {
+            addToGameLog(`The ${enemy.name} can't see you!`);
+            player.stealth--; // Reduce stealth duration
+        }
     }
 
-    // Break stealth after attacking
-    if (player.stealth) {
-        player.stealth = false;
-        addToGameLog("<span class='debuff'>You are no longer stealthed!</span>");
-    }
-
-    // Add visual feedback
-    document.getElementById("combat-info").classList.add("combat-shake");
-    setTimeout(() => {
-        document.getElementById("combat-info").classList.remove("combat-shake");
-    }, 500);
-    
     updateCombatScreen();
 }
 
@@ -1448,10 +1447,10 @@ function useSkill(skill) {
         // Add stat bonuses
         if (player.class === 'warrior') {
             damage += Math.floor(player.strength / 2);
-        } else if (player.class === 'rogue') {
-            damage += Math.floor(player.dexterity / 2);
         } else if (player.class === 'mage') {
             damage += Math.floor(player.intelligence);
+        } else if (player.class === 'rogue') {
+            damage += Math.floor(player.dexterity / 2);
         }
 
         addToGameLog(`You use <span class="important">${skill.name}</span> on the ${enemy.name} for <span class="damage">${damage}</span> damage!`);
@@ -1494,9 +1493,9 @@ function useSkill(skill) {
                 duration: 3,
                 effect: "manaShield"
             });
-        } else if (skill.name === "Smoke Bomb") {
-            player.stealth = true;
-            player.stealthTurns = 3;
+        } else if (skill.name === "Vanish") {
+            player.stealth = 2;
+            addToGameLog("You vanish into the shadows!");
         }
     }
 
@@ -1518,14 +1517,13 @@ function useSkill(skill) {
         return;
     }
 
-    // Break stealth after using skill (unless it's a stealth skill)
-    if (player.stealth && skill.name !== "Smoke Bomb") {
-        player.stealth = false;
-        addToGameLog("<span class='debuff'>You are no longer stealthed!</span>");
+    // Enemy attacks back unless player is stealthed
+    if (player.stealth <= 0) {
+        enemyAttack();
+    } else {
+        addToGameLog(`The ${enemy.name} can't see you!`);
+        player.stealth--; // Reduce stealth duration
     }
-
-    // Enemy attacks back
-    enemyAttack();
 
     // Add visual feedback
     document.getElementById("combat-info").classList.add("combat-flash");
@@ -1543,6 +1541,13 @@ function enemyAttack() {
 
     if (!enemy) return;
 
+    // Check if player is stealthed
+    if (player.stealth > 0) {
+        addToGameLog(`The ${enemy.name} can't see you!`);
+        player.stealth--;
+        return;
+    }
+
     // Check if enemy is stunned
     if (enemy.debuffs && enemy.debuffs.some(d => d.effect === "stun")) {
         addToGameLog(`<span class="important">The ${enemy.name} is stunned and can't attack!</span>`);
@@ -1551,12 +1556,6 @@ function enemyAttack() {
             if (debuff.effect === "stun") debuff.duration--;
         });
         enemy.debuffs = enemy.debuffs.filter(d => d.duration > 0);
-        return;
-    }
-
-    // Check if player is stealthed (enemy might miss)
-    if (player.stealth && Math.random() < 0.5) {
-        addToGameLog(`<span class="important">The ${enemy.name} can't find you in the shadows!</span>`);
         return;
     }
 
@@ -1610,23 +1609,24 @@ function enemyAttack() {
         damage -= player.equippedArmor.defense;
         if (damage < 1) damage = 1; // Minimum 1 damage
 
-        // Check for block chance
-        if (player.equippedArmor.blockChance && Math.random() < player.equippedArmor.blockChance) {
-            damage = 0;
-            addToGameLog(`<span class="important">Your armor blocks the attack!</span>`);
-        }
-    }
-
-    // Rogue has chance to dodge
-    if (player.class === 'rogue') {
-        const dodgeChance = 0.1 + (player.dexterity / 200);
-        if (player.equippedArmor && player.equippedArmor.dodgeChance) {
-            dodgeChance += player.equippedArmor.dodgeChance;
+        // Check for dodge chance (Rogue)
+        let dodgeChance = 0;
+        if (player.class === 'rogue') {
+            dodgeChance = player.dexterity * 0.01; // 1% per point of dexterity
+            if (player.equippedArmor.dodgeChance) {
+                dodgeChance += player.equippedArmor.dodgeChance;
+            }
         }
 
         if (Math.random() < dodgeChance) {
-            addToGameLog(`<span class="important">You dodge the ${enemy.name}'s attack!</span>`);
-            return;
+            damage = 0;
+            addToGameLog(`<span class="important">You dodge the attack!</span>`);
+        } else {
+            // Check for block chance
+            if (player.equippedArmor.blockChance && Math.random() < player.equippedArmor.blockChance) {
+                damage = 0;
+                addToGameLog(`<span class="important">Your armor blocks the attack!</span>`);
+            }
         }
     }
 
@@ -1702,7 +1702,7 @@ function enemyAttack() {
 
         // Reset health
         player.health = Math.floor(player.maxHealth / 3);
-        if (player.class === 'mage' || player.class === 'warrior') {
+        if (player.class === 'mage' || player.class === 'warrior' || player.class === 'rogue') {
             player.mana = Math.floor(player.maxMana / 3);
         }
 
@@ -1734,10 +1734,11 @@ function attemptFlee() {
     const player = gameState.player;
     const enemy = gameState.player.currentEnemy;
 
-    // Rogue has higher chance to flee
-    let fleeChance = 0.4;
+    let fleeChance = 0.4; // Base 40% chance
+
+    // Rogues have higher flee chance
     if (player.class === 'rogue') {
-        fleeChance = 0.6;
+        fleeChance += 0.2 + (player.dexterity * 0.01); // +20% base +1% per dexterity
     }
 
     // Reduce chance if enemy is faster
@@ -1820,8 +1821,7 @@ function useItem(item) {
             return;
         }
     } else if (item.effect.stealth) {
-        player.stealth = true;
-        player.stealthTurns = item.effect.stealth;
+        player.stealth = item.effect.stealth;
         addToGameLog(`You use ${item.name} and vanish into the shadows for ${item.effect.stealth} turns!`);
     }
 
@@ -1831,8 +1831,13 @@ function useItem(item) {
         player.inventory.splice(itemIndex, 1);
     }
 
-    // Enemy still gets an attack
-    enemyAttack();
+    // Enemy still gets an attack unless player is stealthed
+    if (player.stealth <= 0) {
+        enemyAttack();
+    } else {
+        addToGameLog(`The ${enemy.name} can't see you!`);
+        player.stealth--;
+    }
 
     updateCombatScreen();
 }
@@ -1937,10 +1942,12 @@ function checkLevelUp() {
             player.intelligence += 5;
             player.dexterity += 1;
         } else if (player.class === 'rogue') {
-            player.maxHealth += 18;
-            player.health += 18;
+            player.maxHealth += 15;
+            player.health += 15;
+            player.maxMana += 10;
+            player.mana += 10;
             player.dexterity += 4;
-            player.strength += 2;
+            player.strength += 1;
             player.constitution += 2;
         }
 
@@ -2004,7 +2011,7 @@ function rest() {
     const healthRecovered = Math.floor(player.maxHealth * 0.5);
     player.health = Math.min(player.maxHealth, player.health + healthRecovered);
 
-    if (player.class === 'mage' || player.class === 'warrior') {
+    if (player.class === 'mage' || player.class === 'warrior' || player.class === 'rogue') {
         const manaRecovered = Math.floor(player.maxMana * 0.5);
         player.mana = Math.min(player.maxMana, player.mana + manaRecovered);
     }
@@ -2028,7 +2035,7 @@ function showCharacterScreen() {
     charHTML += `XP: ${player.xp}/${player.xpToNextLevel}<br><br>`;
     charHTML += `<span class="health">Health: ${player.health}/${player.maxHealth}</span><br>`;
 
-    if (player.class === 'mage' || player.class === 'warrior') {
+    if (player.class === 'mage' || player.class === 'warrior' || player.class === 'rogue') {
         charHTML += `<span class="mana">Mana: ${player.mana}/${player.maxMana}</span><br>`;
     }
 
@@ -2130,6 +2137,9 @@ function showItemDetails(itemId) {
         if (item.armorPen) {
             detailsHTML += `Armor Penetration: ${item.armorPen}<br>`;
         }
+        if (item.backstabDamage) {
+            detailsHTML += `Backstab Damage: ${Math.floor((item.backstabDamage - 1) * 100)}% bonus<br>`;
+        }
         detailsHTML += `Level: ${item.level}<br>`;
         detailsHTML += `Value: ${item.value} gold<br><br>`;
 
@@ -2159,6 +2169,9 @@ function showItemDetails(itemId) {
         }
         if (item.strengthBonus) {
             detailsHTML += `Strength Bonus: +${item.strengthBonus}<br>`;
+        }
+        if (item.stealthBonus) {
+            detailsHTML += `Stealth Bonus: +${item.stealthBonus}<br>`;
         }
         detailsHTML += `Level: ${item.level}<br>`;
         detailsHTML += `Value: ${item.value} gold<br><br>`;
@@ -2387,12 +2400,14 @@ function showShop() {
             if (item.magicDamage) shopHTML += `+ ${item.magicDamage} magic `;
             if (item.critChance) shopHTML += `(${Math.floor(item.critChance * 100)}% crit) `;
             if (item.lifesteal) shopHTML += `(${Math.floor(item.lifesteal * 100)}% lifesteal) `;
+            if (item.backstabDamage) shopHTML += `(${Math.floor((item.backstabDamage - 1) * 100)}% backstab) `;
             shopHTML += `| Level: ${item.level}`;
         } else if (item.type === "armor") {
             shopHTML += `Defense: ${item.defense} `;
             if (item.magicResist) shopHTML += `Magic Resist: ${item.magicResist} `;
             if (item.dodgeChance) shopHTML += `Dodge: ${Math.floor(item.dodgeChance * 100)}% `;
             if (item.blockChance) shopHTML += `Block: ${Math.floor(item.blockChance * 100)}% `;
+            if (item.stealthBonus) shopHTML += `Stealth: +${item.stealthBonus} `;
             shopHTML += `| Level: ${item.level}`;
         } else if (item.type === "consumable") {
             if (item.effect.health) {
@@ -2655,15 +2670,17 @@ function selectClass(className) {
         player.equippedArmor = {...gameState.items.armor.find(a => a.id === 13)}; // Mage Robes
         player.skills = [...gameState.classSkills.mage];
     } else if (className === 'rogue') {
-        player.maxHealth = 120;
-        player.health = 120;
+        player.maxHealth = 110;
+        player.health = 110;
+        player.maxMana = 60;
+        player.mana = 60;
         player.strength = 8;
         player.dexterity = 18;
         player.intelligence = 8;
         player.constitution = 10;
 
         // Starting equipment
-        player.equippedWeapon = {...gameState.items.weapons.find(w => w.id === 8)}; // Dagger
+        player.equippedWeapon = {...gameState.items.weapons.find(w => w.id === 8)}; // Dagger of Shadows
         player.equippedArmor = {...gameState.items.armor.find(a => a.id === 14)}; // Shadow Cloak
         player.skills = [...gameState.classSkills.rogue];
     }
@@ -2692,7 +2709,7 @@ function initClassSelection() {
     document.getElementById("main-buttons").style.display = "none";
     document.getElementById("class-select-screen").style.display = "block";
 
-addToGameLog("Welcome to the Hollowlands! Choose your class to begin...");
+    addToGameLog("Welcome to the Hollowlands! Choose your class to begin...");
 
     // Add event listeners for class buttons
     document.querySelector(".class-warrior").addEventListener("mouseover", function() { showClassDescription('warrior'); });
