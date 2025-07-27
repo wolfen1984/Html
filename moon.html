@@ -228,7 +228,7 @@
             margin-bottom: 10px;
         }
         
-        #npc-buttons, #item-buttons, #skill-buttons, #system-buttons, #take-buttons, #look-buttons {
+        #npc-buttons, #item-buttons, #skill-buttons, #system-buttons, #take-buttons, #look-buttons, #use-target-buttons {
             display: none;
             grid-template-columns: repeat(2, 1fr);
             gap: 8px;
@@ -376,7 +376,7 @@
                 grid-template-columns: repeat(2, 1fr);
             }
             
-            #action-buttons, #npc-buttons, #item-buttons, #skill-buttons, #system-buttons, #take-buttons, #look-buttons {
+            #action-buttons, #npc-buttons, #item-buttons, #skill-buttons, #system-buttons, #take-buttons, #look-buttons, #use-target-buttons {
                 grid-template-columns: repeat(2, 1fr);
             }
             
@@ -477,6 +477,7 @@
         <div id="system-buttons"></div>
         <div id="take-buttons"></div>
         <div id="look-buttons"></div>
+        <div id="use-target-buttons"></div>
     </div>
 
     <div id="map-display">
@@ -717,7 +718,8 @@
             savedGames: [],
             exploredLocations: ['command_center'],
             currentEnemy: null,
-            combatTurn: 0
+            combatTurn: 0,
+            selectedItem: null // Track which item is selected for use
         };
 
         // DOM elements
@@ -742,6 +744,7 @@
         const systemButtons = document.getElementById('system-buttons');
         const takeButtons = document.getElementById('take-buttons');
         const lookButtons = document.getElementById('look-buttons');
+        const useTargetButtons = document.getElementById('use-target-buttons');
         const healthFill = document.getElementById('health-fill');
         const healthText = document.getElementById('health-text');
         const timeRemaining = document.getElementById('time-remaining');
@@ -1291,8 +1294,70 @@
             }
         }
 
+        // Use an item on a target
+        function useItemOnTarget(itemName, target) {
+            const inventoryItem = gameState.inventory.find(item => item.name.toLowerCase() === itemName.toLowerCase());
+            if (!inventoryItem) {
+                displayText(`You don't have [${itemName}].`);
+                return;
+            }
+
+            const location = gameState.locations[gameState.currentLocation];
+            
+            // Check if target is valid (either NPC or item in location)
+            const validTarget = location.npcs.includes(target) || location.items.includes(target);
+            if (!validTarget) {
+                displayText(`There is no ${target} here to use [${itemName}] on.`);
+                return;
+            }
+
+            // Specific use cases
+            if (itemName === 'Security Codes' && target === 'Command Console') {
+                displayText(`~You use the [Security Codes] on the [Command Console]. Access granted to restricted systems.~`);
+                gameState.flags.alarmTriggered = true;
+                gameState.reputation.security -= 20;
+                updateReputation();
+                return;
+            }
+
+            if (itemName === 'Welding Torch' && target === 'Command Console') {
+                if (gameState.skills.technical >= 3) {
+                    displayText(`~You use the [Welding Torch] to bypass security on the [Command Console]. Access granted.~`);
+                    gameState.flags.alarmTriggered = true;
+                    gameState.reputation.security -= 15;
+                    updateReputation();
+                } else {
+                    displayText(`!You lack the #Technical# skills to modify the console with the [Welding Torch].!`);
+                }
+                return;
+            }
+
+            if (itemName === 'Hangar Key' && target === 'Chief Engineer Krause') {
+                displayText(`~You show the [Hangar Key] to *Chief Engineer Krause*. "Ah good, you have proper clearance. Let me show you the prototype."~`);
+                gameState.npcs['Chief Engineer Krause'].trust += 10;
+                return;
+            }
+
+            if (itemName === 'Personal Diary' && target === 'General Müller') {
+                displayText(`~You show the [Personal Diary] to *General Müller*. His face darkens. "This confirms my suspicions. There is a traitor among us."~`);
+                gameState.flags.knowsAboutTraitor = true;
+                if (completeMission('find_traitor')) {
+                    addMission('confront_traitor', 'Confront the traitor', 'Identify and deal with the mole in the base');
+                }
+                return;
+            }
+
+            // Default response if no specific interaction
+            displayText(`You use [${itemName}] on ${location.npcs.includes(target) ? `*${target}*` : `[${target}]`}, but nothing notable happens.`);
+        }
+
         // Use an item
-        function useItem(itemName) {
+        function useItem(itemName, target = null) {
+            if (target) {
+                useItemOnTarget(itemName, target);
+                return;
+            }
+
             const inventoryItem = gameState.inventory.find(item => item.name.toLowerCase() === itemName.toLowerCase());
             
             if (!inventoryItem) {
@@ -1442,7 +1507,59 @@
                 }
             }
             
-            displayText(`You're not sure how to use [${inventoryItem.name}] here.`);
+            // If no specific use case found, show targets the item can be used on
+            showUseTargets(itemName);
+        }
+
+        // Show possible targets for using an item
+        function showUseTargets(itemName) {
+            gameState.mode = 'use-target';
+            gameState.selectedItem = itemName;
+            const location = gameState.locations[gameState.currentLocation];
+            
+            useTargetButtons.innerHTML = '';
+            useTargetButtons.style.display = 'grid';
+            
+            // Add NPC buttons if any
+            if (location.npcs.length > 0) {
+                location.npcs.forEach(npc => {
+                    const btn = document.createElement('button');
+                    btn.textContent = `USE ON ${npc}`;
+                    btn.addEventListener('click', () => {
+                        useItem(itemName, npc);
+                        exitMode();
+                    });
+                    useTargetButtons.appendChild(btn);
+                });
+            }
+            
+            // Add item buttons if any
+            if (location.items.length > 0) {
+                location.items.forEach(item => {
+                    const btn = document.createElement('button');
+                    btn.textContent = `USE ON ${item}`;
+                    btn.addEventListener('click', () => {
+                        useItem(itemName, item);
+                        exitMode();
+                    });
+                    useTargetButtons.appendChild(btn);
+                });
+            }
+            
+            // Add cancel button
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = 'CANCEL';
+            cancelBtn.addEventListener('click', exitMode);
+            useTargetButtons.appendChild(cancelBtn);
+            
+            // If no valid targets, show message
+            if (location.npcs.length === 0 && location.items.length === 0) {
+                const noTargetsBtn = document.createElement('button');
+                noTargetsBtn.textContent = 'NOTHING TO USE ON HERE';
+                noTargetsBtn.disabled = true;
+                useTargetButtons.appendChild(noTargetsBtn);
+                displayText(`There's nothing here to use [${itemName}] on.`);
+            }
         }
 
         // Start combat encounter
@@ -1902,8 +2019,18 @@ $DSecurity$D - Base protection and discipline`);
                 const btn = document.createElement('button');
                 btn.textContent = item.name;
                 btn.addEventListener('click', () => {
-                    useItem(item.name);
-                    exitMode();
+                    // Check if this item can be used on something
+                    const location = gameState.locations[gameState.currentLocation];
+                    const hasTargets = location.npcs.length > 0 || location.items.length > 0;
+                    
+                    if (item.type === 'weapon' || item.type === 'medical' || !hasTargets) {
+                        // Use item directly if it's a weapon, medical item, or no targets available
+                        useItem(item.name);
+                        exitMode();
+                    } else {
+                        // Show targets this item can be used on
+                        showUseTargets(item.name);
+                    }
                 });
                 itemButtons.appendChild(btn);
             });
@@ -2066,6 +2193,8 @@ $DSecurity$D - Base protection and discipline`);
             systemButtons.style.display = 'none';
             takeButtons.style.display = 'none';
             lookButtons.style.display = 'none';
+            useTargetButtons.style.display = 'none';
+            gameState.selectedItem = null;
             toggleControls(true);
         }
 
@@ -2143,8 +2272,12 @@ $DSecurity$D - Base protection and discipline`);
             
             // Use command
             if (command.startsWith('use ')) {
-                const item = command.substring(4);
-                useItem(item);
+                const parts = command.substring(4).split(' on ');
+                if (parts.length === 2) {
+                    useItem(parts[0], parts[1]);
+                } else {
+                    useItem(parts[0]);
+                }
                 return;
             }
             
