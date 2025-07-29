@@ -272,6 +272,81 @@
     </div>
 
     <script>
+        function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+}
+
+function generateRandomDungeon() {
+    // Create a list of all room IDs
+    const roomIds = Array.from({length: 50}, (_, i) => i + 1);
+    
+    // Shuffle the room IDs (except room 1 which is the starting room)
+    const shuffledIds = [1, ...shuffleArray(roomIds.slice(1))];
+    
+    // Create a new rooms object with shuffled connections
+    const newRooms = {};
+    
+    // First copy all rooms with their basic properties
+    for (const [id, room] of Object.entries(rooms)) {
+        newRooms[shuffledIds[parseInt(id) - 1]] = {
+            ...room,
+            items: [...room.items],
+            monster: room.monster ? {...room.monster} : null
+        };
+    }
+    
+    // Now update all the exits to point to the new shuffled room IDs
+    for (const [id, room] of Object.entries(newRooms)) {
+        const newExits = {};
+        for (const [dir, targetId] of Object.entries(room.exits)) {
+            if (targetId === "exit") {
+                newExits[dir] = "exit";
+            } else {
+                // Find which original room this target corresponds to
+                const originalTargetIndex = shuffledIds.indexOf(parseInt(targetId));
+                newExits[dir] = originalTargetIndex + 1;
+            }
+        }
+        room.exits = newExits;
+        
+        // Update secret exits if they exist
+        if (room.secretExit) {
+            const newSecretExit = {};
+            for (const [dir, targetId] of Object.entries(room.secretExit)) {
+                const originalTargetIndex = shuffledIds.indexOf(parseInt(targetId));
+                newSecretExit[dir] = originalTargetIndex + 1;
+            }
+            room.secretExit = newSecretExit;
+        }
+        
+        // Update locked exits if they exist
+        if (room.lockedExit) {
+            const newLockedExit = {};
+            for (const [dir, targetId] of Object.entries(room.lockedExit)) {
+                const originalTargetIndex = shuffledIds.indexOf(parseInt(targetId));
+                newLockedExit[dir] = originalTargetIndex + 1;
+            }
+            room.lockedExit = newLockedExit;
+        }
+    }
+    
+    // Update NPC locations
+    const newNpcs = {};
+    for (const [id, npc] of Object.entries(npcs)) {
+        const originalIdIndex = shuffledIds.indexOf(parseInt(id));
+        newNpcs[originalIdIndex + 1] = npc;
+    }
+    
+    return {
+        rooms: newRooms,
+        npcs: newNpcs
+    };
+}
+        
         // Game state
         const gameState = {
             currentRoom: 1,
@@ -294,7 +369,7 @@
         };
 
         // NPCs in specific rooms
-        const npcs = {
+        let npcs = {
             7: { type: "merchant", name: "Wandering Merchant", dialog: "What do you want to buy?" },
             14: { type: "healer", name: "Mystic Healer", dialog: "I can heal your wounds... for a price." },
             20: { type: "blacksmith", name: "Traveling Blacksmith", dialog: "I can improve your weapon." }
@@ -310,7 +385,7 @@
         ];
 
         // Room descriptions and connections
-        const rooms = {
+        let rooms = {
             1: {
                 description: "You stand in a damp stone chamber. Torchlight flickers on moss-covered walls. A wooden door creaks to the NORTH. To the EAST, a narrow passage leads downward.",
                 exits: {north: 2, east: 3},
@@ -1609,28 +1684,33 @@
         }
 
         function restartGame() {
-            // Reset game state
-            gameState.currentRoom = 1;
-            gameState.health = 10;
-            gameState.maxHealth = 10;
-            gameState.gold = 50;
-            gameState.defense = 0;
-            gameState.damage = "1d4";
-            gameState.inventory = [
-                { name: "Torch", uses: 3 },
-                { name: "Rusty Dagger", damage: "1d4", equipped: true, type: "weapon" }
-            ];
-            gameState.visitedRooms = new Set([1]);
-            gameState.killedMonsters = new Set();
-            gameState.unlockedRooms = new Set();
-            gameState.foundSecretRooms = new Set();
-            gameState.strengthBuff = 0;
-            gameState.strengthBuffDuration = 0;
-            
-            closeModal();
-            updateDisplay();
-            showMessage("Your new adventure begins...", "success");
-        }
+    // Generate a new random dungeon layout
+    const newDungeon = generateRandomDungeon();
+    rooms = newDungeon.rooms;
+    npcs = newDungeon.npcs;
+    
+    // Reset game state
+    gameState.currentRoom = 1;
+    gameState.health = 10;
+    gameState.maxHealth = 10;
+    gameState.gold = 50;
+    gameState.defense = 0;
+    gameState.damage = "1d4";
+    gameState.inventory = [
+        { name: "Torch", uses: 3 },
+        { name: "Rusty Dagger", damage: "1d4", equipped: true, type: "weapon" }
+    ];
+    gameState.visitedRooms = new Set([1]);
+    gameState.killedMonsters = new Set();
+    gameState.unlockedRooms = new Set();
+    gameState.foundSecretRooms = new Set();
+    gameState.strengthBuff = 0;
+    gameState.strengthBuffDuration = 0;
+    
+    closeModal();
+    updateDisplay();
+    showMessage("Your new adventure begins...", "success");
+}
 
         function showMessage(msg, type = "") {
             const messageDiv = document.getElementById('message');
