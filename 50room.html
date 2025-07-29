@@ -1,1 +1,1698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dungeon of 50 Rooms</title>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --panel-color: #2d2d2d;
+            --text-color: #e0e0e0;
+            --highlight-color: #4a8fe7;
+            --danger-color: #e74c3c;
+            --success-color: #2ecc71;
+            --gold-color: #f1c40f;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 10px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            touch-action: manipulation;
+            line-height: 1.5;
+        }
+        
+        #game-container {
+            max-width: 100%;
+            margin: 0 auto;
+        }
+        
+        .panel {
+            background-color: var(--panel-color);
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        
+        #room-description {
+            min-height: 120px;
+            font-size: 15px;
+        }
+        
+        #stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 8px;
+            font-size: 14px;
+        }
+        
+        .stat {
+            background-color: rgba(0,0,0,0.2);
+            padding: 8px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-weight: bold;
+            color: var(--highlight-color);
+        }
+        
+        #health .stat-value { color: var(--danger-color); }
+        #gold .stat-value { color: var(--gold-color); }
+        
+        #inventory {
+            font-size: 14px;
+        }
+        
+        #actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        
+        button {
+            padding: 12px;
+            background-color: #3a3a3a;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 15px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        button:active {
+            transform: scale(0.98);
+            background-color: #4a4a4a;
+        }
+        
+        .action-primary {
+            background-color: var(--highlight-color);
+        }
+        
+        .action-danger {
+            background-color: var(--danger-color);
+        }
+        
+        .action-success {
+            background-color: var(--success-color);
+        }
+        
+        #message {
+            min-height: 20px;
+            padding: 8px;
+            border-left: 3px solid var(--highlight-color);
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        
+        .message-alert {
+            border-left-color: var(--danger-color);
+            color: #ff9;
+        }
+        
+        .message-success {
+            border-left-color: var(--success-color);
+        }
+        
+        #modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.7);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        #modal-content {
+            background-color: var(--panel-color);
+            padding: 15px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 400px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        #modal-close {
+            float: right;
+            background: none;
+            border: none;
+            color: var(--text-color);
+            font-size: 20px;
+        }
+        
+        .inventory-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #444;
+        }
+        
+        .inventory-item:last-child {
+            border-bottom: none;
+        }
+        
+        .item-name {
+            font-weight: bold;
+        }
+        
+        .item-details {
+            font-size: 12px;
+            color: #aaa;
+        }
+        
+        .equipped {
+            color: var(--highlight-color);
+        }
+        
+        .npc-option {
+            margin: 8px 0;
+            padding: 10px;
+            background-color: #3a3a3a;
+            border-radius: 6px;
+        }
+        
+        .combat-log {
+            max-height: 150px;
+            overflow-y: auto;
+            background-color: rgba(0,0,0,0.2);
+            padding: 8px;
+            border-radius: 6px;
+            margin-top: 10px;
+            font-size: 13px;
+        }
+        
+        .combat-entry {
+            margin-bottom: 5px;
+        }
+        
+        #toggle-map {
+            width: 100%;
+            margin-top: 5px;
+        }
+        
+        #map {
+            font-family: monospace;
+            white-space: pre;
+            font-size: 12px;
+            line-height: 1.2;
+            text-align: center;
+            display: none;
+        }
+        
+        @media (max-width: 400px) {
+            #stats {
+                grid-template-columns: 1fr 1fr;
+            }
+            
+            #actions {
+                grid-template-columns: 1fr;
+            }
+            
+            button {
+                padding: 10px;
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="stats" class="panel">
+            <div class="stat" id="health">❤️ Health: <span class="stat-value">10/10</span></div>
+            <div class="stat" id="gold">💰 Gold: <span class="stat-value">0</span></div>
+            <div class="stat" id="defense">🛡️ Defense: <span class="stat-value">0</span></div>
+            <div class="stat" id="damage">⚔️ Damage: <span class="stat-value">1d4</span></div>
+            <div class="stat">🚪 Room: <span class="stat-value">1/50</span></div>
+        </div>
+        
+        <div id="room-description" class="panel">
+            Welcome to the Dungeon of 50 Rooms! Your adventure begins...
+        </div>
+        
+        <div id="inventory" class="panel">
+            <div style="display: flex; justify-content: space-between;">
+                <strong>Inventory</strong>
+                <span id="equipped-weapon">⚔️ Rusty Dagger (1d4)</span>
+                <span id="equipped-armor">🛡️ None</span>
+            </div>
+            <div id="inventory-items"></div>
+        </div>
+        
+        <div id="actions">
+            <!-- Buttons will be generated by JavaScript -->
+        </div>
+        
+        <div id="message"></div>
+        
+        <button id="toggle-map" class="action-primary">Show Map</button>
+        <div id="map" class="panel"></div>
+    </div>
 
+    <div id="modal">
+        <div id="modal-content">
+            <button id="modal-close">×</button>
+            <div id="modal-text"></div>
+        </div>
+    </div>
+
+    <script>
+        // Game state
+        const gameState = {
+            currentRoom: 1,
+            health: 10,
+            maxHealth: 10,
+            gold: 50,
+            defense: 0,
+            damage: "1d4", // Base damage with equipped weapon
+            inventory: [
+                { name: "Torch", uses: 3 },
+                { name: "Rusty Dagger", damage: "1d4", equipped: true, type: "weapon" }
+            ],
+            visitedRooms: new Set([1]),
+            killedMonsters: new Set(),
+            unlockedRooms: new Set(),
+            foundSecretRooms: new Set(),
+            strengthBuff: 0,
+            strengthBuffDuration: 0,
+            combatLog: []
+        };
+
+        // NPCs in specific rooms
+        const npcs = {
+            7: { type: "merchant", name: "Wandering Merchant", dialog: "What do you want to buy?" },
+            14: { type: "healer", name: "Mystic Healer", dialog: "I can heal your wounds... for a price." },
+            20: { type: "blacksmith", name: "Traveling Blacksmith", dialog: "I can improve your weapon." }
+        };
+
+        // Merchant's inventory
+        const merchantItems = [
+            { name: "Health Potion", price: 15, effect: "heal", amount: "2d4", type: "consumable" },
+            { name: "Iron Sword", price: 50, damage: "1d8", type: "weapon" },
+            { name: "Leather Armor", price: 40, defense: 1, type: "armor" },
+            { name: "Mage Robe", price: 45, defense: 1, magicResist: 1, type: "armor" },
+            { name: "Torch", price: 5, uses: 3, type: "light" }
+        ];
+
+        // Room descriptions and connections
+        const rooms = {
+            1: {
+                description: "You stand in a damp stone chamber. Torchlight flickers on moss-covered walls. A wooden door creaks to the NORTH. To the EAST, a narrow passage leads downward.",
+                exits: {north: 2, east: 3},
+                items: [],
+                monster: null
+            },
+            2: {
+                description: "This room smells of decay. Broken furniture litters the floor. Exits lead SOUTH and WEST. A rusty key glints in the corner.",
+                exits: {south: 1, west: 4},
+                items: ["Rusty Key"],
+                monster: null
+            },
+            3: {
+                description: "The passage opens into a circular room with strange carvings. A pit in the center drops into darkness. Exits are WEST and SOUTH.",
+                exits: {west: 1, south: 5},
+                items: [],
+                monster: { name: "Giant Rat", health: 5, maxHealth: 5, damage: "1d2", gold: "1d4", drops: ["Rat Tail"] }
+            },
+            4: {
+                description: "A library with rotting books. Most texts are illegible. One intact tome shows a crude map of the dungeon. Exits are EAST and a hidden SOUTH passage.",
+                exits: {east: 2, south: 6},
+                items: ["Dungeon Map"],
+                monster: null,
+                secretExit: {south: 6}
+            },
+            5: {
+                description: "This room is flooded ankle-deep. Something moves beneath the murky water. Exits are NORTH and EAST.",
+                exits: {north: 3, east: 7},
+                items: [],
+                monster: { name: "Swamp Creature", health: 8, maxHealth: 8, damage: "1d4", gold: "1d6", drops: ["Swamp Moss"] }
+            },
+            6: {
+                description: "A secret armory! Rusted weapons line the walls. One sword still looks serviceable. Exit NORTH leads back.",
+                exits: {north: 4},
+                items: ["Iron Sword"],
+                monster: null
+            },
+            7: {
+                description: "A dining hall with a long rotten table. Silverware lies scattered. A hooded figure sits in the corner. Exits are WEST and SOUTH.",
+                exits: {west: 5, south: 8},
+                items: ["Silver Fork"],
+                monster: null
+            },
+            8: {
+                description: "A torture chamber with rusted implements. Chains rattle despite no wind. Exits are NORTH and DOWN.",
+                exits: {north: 7, down: 9},
+                items: [],
+                monster: { name: "Restless Spirit", health: 7, maxHealth: 7, damage: "1d3", gold: 0, drops: ["Ectoplasm"] }
+            },
+            9: {
+                description: "The dungeon's lower level. The air is colder here. A locked gate blocks the EAST exit. Exits are UP and WEST.",
+                exits: {up: 8, west: 10},
+                items: [],
+                monster: null,
+                lockedExit: {east: 11}
+            },
+            10: {
+                description: "A barracks with moldy cots. A chest sits at the foot of one bed. Exits are EAST and SOUTH.",
+                exits: {east: 9, south: 12},
+                items: ["Health Potion"],
+                monster: { name: "Skeleton Warrior", health: 10, maxHealth: 10, damage: "1d6", gold: "1d8", drops: ["Bone Fragment"] }
+            },
+            11: {
+                description: "A treasure vault! Gold coins cover the floor. But the way back is blocked by a portcullis. Exits are WEST (locked).",
+                exits: {west: 9},
+                items: ["50 Gold"],
+                monster: null
+            },
+            12: {
+                description: "A chapel with broken pews. The altar radiates strange energy. Exits are NORTH and DOWN.",
+                exits: {north: 10, down: 13},
+                items: ["Holy Symbol"],
+                monster: null
+            },
+            13: {
+                description: "Catacombs lined with skulls. Some seem to watch you. Exits are UP and EAST.",
+                exits: {up: 12, east: 14},
+                items: [],
+                monster: { name: "Necromancer", health: 12, maxHealth: 12, damage: "1d8", gold: "2d6", drops: ["Necromancer's Robe"] }
+            },
+            14: {
+                description: "An alchemy lab with bubbling flasks. A woman in robes stands over a cauldron. Exits are WEST and SOUTH.",
+                exits: {west: 13, south: 15},
+                items: ["Potion of Strength"],
+                monster: null
+            },
+            15: {
+                description: "A circular room with a summoning circle. The runes pulse faintly. Exits are NORTH and EAST.",
+                exits: {north: 14, east: 16},
+                items: [],
+                monster: { name: "Summoned Demon", health: 15, maxHealth: 15, damage: "2d4", gold: "2d8", drops: ["Demon Horn"] }
+            },
+            16: {
+                description: "A collapsed tunnel. Rubble blocks most paths. One narrow passage leads SOUTH.",
+                exits: {south: 17},
+                items: ["Pickaxe"],
+                monster: null
+            },
+            17: {
+                description: "A natural cavern with glowing mushrooms. Their light reveals cave paintings. Exits are NORTH and EAST.",
+                exits: {north: 16, east: 18},
+                items: ["Glowing Mushroom"],
+                monster: { name: "Cave Troll", health: 18, maxHealth: 18, damage: "1d10", gold: "3d6", drops: ["Troll Blood"] }
+            },
+            18: {
+                description: "An underground lake. A small boat is tied to a post. Exits are WEST and SOUTH.",
+                exits: {west: 17, south: 19},
+                items: ["Fishing Rod"],
+                monster: null
+            },
+            19: {
+                description: "A small island in the lake. An ancient statue holds a jeweled amulet. Exit NORTH by boat.",
+                exits: {north: 18},
+                items: ["Jeweled Amulet"],
+                monster: { name: "Guardian Naga", health: 20, maxHealth: 20, damage: "2d6", gold: "3d8", drops: ["Naga Scale"] }
+            },
+            20: {
+                description: "A forge with cold furnaces. A burly smith works at an anvil. Exits are SOUTH and WEST.",
+                exits: {south: 21, west: 22},
+                items: ["Steel Ingot"],
+                monster: null
+            },
+            21: {
+                description: "A training room with dummy targets. Weapons racks line the walls. Exits are NORTH and EAST.",
+                exits: {north: 20, east: 23},
+                items: ["Throwing Knives"],
+                monster: { name: "Animated Armor", health: 12, maxHealth: 12, damage: "1d8", gold: "2d6", drops: ["Magic Plating"] }
+            },
+            22: {
+                description: "A prison block with empty cells. One holds a skeleton clutching a diary. Exits are EAST and SOUTH.",
+                exits: {east: 20, south: 24},
+                items: ["Prison Diary"],
+                monster: null
+            },
+            23: {
+                description: "A kitchen with spoiled provisions. Rats scurry away as you enter. Exits are WEST and SOUTH.",
+                exits: {west: 21, south: 25},
+                items: ["Cheese Wheel"],
+                monster: null
+            },
+            24: {
+                description: "The warden's office. A large key hangs on the wall. Exits are NORTH and EAST.",
+                exits: {north: 22, east: 26},
+                items: ["Warden's Key"],
+                monster: { name: "Warden's Ghost", health: 15, maxHealth: 15, damage: "1d8", gold: "3d6", drops: ["Ghostly Chains"] }
+            },
+            25: {
+                description: "A pantry with empty shelves. A trapdoor in the floor leads DOWN. Exits are NORTH and WEST.",
+                exits: {north: 23, west: 27},
+                items: [],
+                monster: { name: "Giant Spider", health: 10, maxHealth: 10, damage: "1d6", gold: "1d8", drops: ["Spider Silk"] },
+                secretExit: {down: 28}
+            },
+            26: {
+                description: "An execution chamber. The block is stained dark. Exits are WEST and SOUTH.",
+                exits: {west: 24, south: 29},
+                items: ["Executioner's Hood"],
+                monster: null
+            },
+            27: {
+                description: "A wine cellar. Most bottles are broken. A few remain intact. Exits are EAST and SOUTH.",
+                exits: {east: 25, south: 30},
+                items: ["Ancient Wine"],
+                monster: null
+            },
+            28: {
+                description: "A secret tunnel! It's cramped but leads to an unknown area. Exits are UP and EAST.",
+                exits: {up: 25, east: 31},
+                items: [],
+                monster: null
+            },
+            29: {
+                description: "A burial chamber with ornate tombs. One sarcophagus is ajar. Exits are NORTH and EAST.",
+                exits: {north: 26, east: 32},
+                items: ["Burial Jewelry"],
+                monster: { name: "Vampire Spawn", health: 18, maxHealth: 18, damage: "2d4", gold: "3d6", drops: ["Vampire Fangs"] }
+            },
+            30: {
+                description: "A well room. The bucket is missing. Exits are NORTH and EAST.",
+                exits: {north: 27, east: 33},
+                items: [],
+                monster: null
+            },
+            31: {
+                description: "A smuggler's hideout! Stolen goods are piled here. Exits are WEST and SOUTH.",
+                exits: {west: 28, south: 34},
+                items: ["Smuggled Goods"],
+                monster: { name: "Bandit Leader", health: 14, maxHealth: 14, damage: "1d8", gold: "4d6", drops: ["Leader's Crest"] }
+            },
+            32: {
+                description: "A crypt with wall niches. Some contain bones, others empty. Exits are WEST and SOUTH.",
+                exits: {west: 29, south: 35},
+                items: [],
+                monster: { name: "Wight", health: 16, maxHealth: 16, damage: "2d4", gold: "2d8", drops: ["Wight's Ring"] }
+            },
+            33: {
+                description: "A guard post with arrow slits. Old weapons remain. Exits are WEST and SOUTH.",
+                exits: {west: 30, south: 36},
+                items: ["Crossbow"],
+                monster: null
+            },
+            34: {
+                description: "A narrow escape tunnel. It emerges in an unfamiliar area. Exits are NORTH and EAST.",
+                exits: {north: 31, east: 37},
+                items: [],
+                monster: null
+            },
+            35: {
+                description: "A shrine to a forgotten god. The idol's eyes seem to follow you. Exits are NORTH and EAST.",
+                exits: {north: 32, east: 38},
+                items: ["Holy Relic"],
+                monster: { name: "Cultist", health: 12, maxHealth: 12, damage: "1d6", gold: "2d6", drops: ["Cultist Mask"] }
+            },
+            36: {
+                description: "A stable with skeletal horses. Their eyes still glow red. Exits are NORTH and EAST.",
+                exits: {north: 33, east: 39},
+                items: ["Horse Barding"],
+                monster: { name: "Nightmare Steed", health: 20, maxHealth: 20, damage: "2d6", gold: 0, drops: ["Nightmare Mane"] }
+            },
+            37: {
+                description: "A mushroom grove. The air is thick with spores. Exits are WEST and SOUTH.",
+                exits: {west: 34, south: 40},
+                items: ["Healing Spores"],
+                monster: null
+            },
+            38: {
+                description: "An offering chamber. Piles of gold and gems surround a central altar. Exits are WEST and SOUTH.",
+                exits: {west: 35, south: 41},
+                items: ["Sacrificial Dagger"],
+                monster: { name: "High Priest", health: 18, maxHealth: 18, damage: "2d6", gold: "4d6", drops: ["High Priest's Staff"] }
+            },
+            39: {
+                description: "A blacksmith's workshop. The forge still radiates heat mysteriously. Exits are WEST and SOUTH.",
+                exits: {west: 36, south: 42},
+                items: ["Enchanted Blade"],
+                monster: null
+            },
+            40: {
+                description: "A natural hot spring. The water looks inviting but may be dangerous. Exits are NORTH and EAST.",
+                exits: {north: 37, east: 43},
+                items: [],
+                monster: { name: "Water Elemental", health: 25, maxHealth: 25, damage: "2d8", gold: 0, drops: ["Elemental Core"] }
+            },
+            41: {
+                description: "A ritual chamber with blood-stained runes. The air hums with power. Exits are NORTH and EAST.",
+                exits: {north: 38, east: 44},
+                items: ["Spell Tome"],
+                monster: null
+            },
+            42: {
+                description: "An armory with magical weapons. Most are broken beyond repair. Exits are NORTH and EAST.",
+                exits: {north: 39, east: 45},
+                items: ["Magic Shield"],
+                monster: { name: "Animated Weapons", health: 15, maxHealth: 15, damage: "2d4", gold: "2d6", drops: ["Magic Weapon Shard"] }
+            },
+            43: {
+                description: "A collapsed mine shaft. Fresh air suggests an exit might be near. Exits are WEST and SOUTH.",
+                exits: {west: 40, south: 46},
+                items: ["Miner's Helmet"],
+                monster: null
+            },
+            44: {
+                description: "A wizard's study. Spellbooks line the walls. One glows with energy. Exits are WEST and SOUTH.",
+                exits: {west: 41, south: 47},
+                items: ["Scroll of Fireball"],
+                monster: { name: "Arcane Golem", health: 30, maxHealth: 30, damage: "2d10", gold: "5d6", drops: ["Arcane Core"] }
+            },
+            45: {
+                description: "A treasury with empty chests. Someone got here first. Exits are WEST and SOUTH.",
+                exits: {west: 42, south: 48},
+                items: ["Gold Coin"],
+                monster: { name: "Mimic", health: 20, maxHealth: 20, damage: "2d6", gold: "5d8", drops: ["Mimic Hide"] }
+            },
+            46: {
+                description: "A cave with glowing crystals. Their light reveals ancient carvings. Exits are NORTH and EAST.",
+                exits: {north: 43, east: 49},
+                items: ["Glowing Crystal"],
+                monster: null
+            },
+            47: {
+                description: "An observatory with a star chart. It shows constellations unknown to you. Exits are NORTH and EAST.",
+                exits: {north: 44, east: 50},
+                items: ["Star Map"],
+                monster: { name: "Astral Projection", health: 18, maxHealth: 18, damage: "2d6", gold: 0, drops: ["Astral Essence"] }
+            },
+            48: {
+                description: "A throne room. The skeletal king still sits upon his chair. Exits are NORTH and EAST.",
+                exits: {north: 45, east: 50},
+                items: ["Royal Scepter"],
+                monster: { name: "Skeleton King", health: 35, maxHealth: 35, damage: "3d6", gold: "10d10", drops: ["Crown of the Dead"] }
+            },
+            49: {
+                description: "A natural exit! Sunlight filters through a crack in the ceiling. Exits are WEST and UP (to freedom).",
+                exits: {west: 46, up: "exit"},
+                items: [],
+                monster: null
+            },
+            50: {
+                description: "The final chamber. Before you stands the Dungeon Master, guardian of this place. Defeat him to claim the ultimate treasure!",
+                exits: {},
+                items: ["Dungeon Master's Treasure"],
+                monster: { name: "Dungeon Master", health: 40, maxHealth: 40, damage: "3d8", gold: "20d20", drops: ["Master's Key"] }
+            }
+        };
+
+        // Item definitions
+        const itemDefinitions = {
+            "Torch": { type: "light", uses: 3, description: "Provides light for 3 rooms" },
+            "Rusty Dagger": { type: "weapon", damage: "1d4", description: "A basic weapon" },
+            "Rusty Key": { type: "key", unlocks: [11], description: "Opens the vault in room 9" },
+            "Dungeon Map": { type: "map", description: "Reveals visited rooms on map" },
+            "Iron Sword": { type: "weapon", damage: "1d8", description: "A decent sword" },
+            "Silver Fork": { type: "item", value: 5, description: "Worth 5 gold" },
+            "Health Potion": { type: "consumable", effect: "heal", amount: "2d4", description: "Restores 2d4 health" },
+            "Holy Symbol": { type: "item", effect: "fear undead", description: "Scares undead monsters" },
+            "Potion of Strength": { type: "consumable", effect: "strength", duration: 3, amount: "+2", description: "+2 damage for 3 rooms" },
+            "Pickaxe": { type: "tool", description: "Might be useful for digging" },
+            "Glowing Mushroom": { type: "consumable", effect: "light", duration: 5, description: "Glows for 5 rooms" },
+            "Fishing Rod": { type: "tool", description: "Could catch something" },
+            "Jeweled Amulet": { type: "item", value: 50, description: "Worth 50 gold" },
+            "Steel Ingot": { type: "material", value: 20, description: "Used for weapon upgrades" },
+            "Throwing Knives": { type: "weapon", damage: "1d3", ranged: true, description: "Throwable weapon" },
+            "Prison Diary": { type: "item", info: "Reveals secret in room 25", description: "Tells of a hidden trapdoor" },
+            "Cheese Wheel": { type: "consumable", effect: "heal", amount: "1d4", description: "Restores 1d4 health" },
+            "Warden's Key": { type: "key", unlocks: [26], description: "Opens the execution chamber" },
+            "Ancient Wine": { type: "consumable", effect: "random", description: "Might do something" },
+            "Burial Jewelry": { type: "item", value: 25, description: "Worth 25 gold" },
+            "Smuggled Goods": { type: "item", value: 30, description: "Worth 30 gold" },
+            "Crossbow": { type: "weapon", damage: "1d10", ranged: true, description: "Powerful ranged weapon" },
+            "Holy Relic": { type: "item", effect: "holy damage", description: "Deals extra damage to undead" },
+            "Horse Barding": { type: "armor", defense: 1, description: "+1 armor" },
+            "Healing Spores": { type: "consumable", effect: "heal", amount: "3d4", description: "Restores 3d4 health" },
+            "Sacrificial Dagger": { type: "weapon", damage: "1d6", effect: "life steal", description: "Steals health on hit" },
+            "Enchanted Blade": { type: "weapon", damage: "2d6", description: "A powerful magical sword" },
+            "Spell Tome": { type: "item", effect: "learn spell", description: "Teaches a random spell" },
+            "Magic Shield": { type: "armor", defense: 2, description: "+2 armor" },
+            "Miner's Helmet": { type: "light", uses: "unlimited", description: "Permanent light source" },
+            "Scroll of Fireball": { type: "consumable", effect: "fireball", damage: "3d6", description: "Deals 3d6 damage to all enemies" },
+            "Gold Coin": { type: "item", value: 1, description: "1 gold" },
+            "Glowing Crystal": { type: "light", uses: 10, description: "Glows for 10 rooms" },
+            "Star Map": { type: "item", effect: "navigation", description: "Helps with dungeon navigation" },
+            "Royal Scepter": { type: "weapon", damage: "1d6", effect: "command undead", description: "Can control undead" },
+            "Dungeon Master's Treasure": { type: "item", value: 1000, description: "The ultimate prize!" },
+            "Leather Armor": { type: "armor", defense: 1, description: "Basic armor that provides +1 defense" },
+            "Mage Robe": { type: "armor", defense: 1, magicResist: 1, description: "Robe that provides +1 defense and +1 magic resist" }
+        };
+
+        // Game functions
+        function rollDice(dice) {
+            if (!dice) return 0;
+            if (typeof dice === "number") return dice;
+            
+            const parts = dice.split('d');
+            const count = parseInt(parts[0]);
+            const sides = parseInt(parts[1]);
+            let total = 0;
+            
+            for (let i = 0; i < count; i++) {
+                total += Math.floor(Math.random() * sides) + 1;
+            }
+            
+            return total;
+        }
+
+        function updateDisplay() {
+            const room = rooms[gameState.currentRoom];
+            
+            // Update room description
+            document.getElementById('room-description').textContent = room.description;
+            
+            // Update stats
+            document.getElementById('health').querySelector('.stat-value').textContent = 
+                `${gameState.health}/${gameState.maxHealth}`;
+            document.getElementById('gold').querySelector('.stat-value').textContent = gameState.gold;
+            document.getElementById('defense').querySelector('.stat-value').textContent = gameState.defense;
+            document.getElementById('damage').querySelector('.stat-value').textContent = gameState.damage;
+            document.querySelector('#stats .stat:last-child .stat-value').textContent = 
+                `${gameState.currentRoom}/50`;
+            
+            // Update equipped weapon and armor
+            const equippedWeapon = gameState.inventory.find(item => item.equipped && item.damage);
+            if (equippedWeapon) {
+                document.getElementById('equipped-weapon').textContent = 
+                    `⚔️ ${equippedWeapon.name} (${equippedWeapon.damage})`;
+                gameState.damage = equippedWeapon.damage;
+            } else {
+                document.getElementById('equipped-weapon').textContent = '⚔️ None';
+                gameState.damage = "1d2"; // Bare hands
+            }
+            
+            const equippedArmor = gameState.inventory.find(item => item.equipped && (item.defense || item.armor));
+            if (equippedArmor) {
+                document.getElementById('equipped-armor').textContent = 
+                    `🛡️ ${equippedArmor.name} (+${equippedArmor.defense || equippedArmor.armor})`;
+                gameState.defense = equippedArmor.defense || equippedArmor.armor || 0;
+            } else {
+                document.getElementById('equipped-armor').textContent = '🛡️ None';
+                gameState.defense = 0;
+            }
+            
+            // Update inventory display
+            const inventoryDiv = document.getElementById('inventory-items');
+            inventoryDiv.innerHTML = '';
+            
+            if (gameState.inventory.length === 0) {
+                inventoryDiv.textContent = 'Empty';
+            } else {
+                gameState.inventory.forEach(item => {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'inventory-item';
+                    
+                    const nameSpan = document.createElement('span');
+                    nameSpan.className = 'item-name';
+                    if (item.equipped) nameSpan.classList.add('equipped');
+                    nameSpan.textContent = item.name;
+                    
+                    const detailsSpan = document.createElement('span');
+                    detailsSpan.className = 'item-details';
+                    
+                    if (item.damage) {
+                        detailsSpan.textContent = item.damage;
+                    } else if (item.uses) {
+                        detailsSpan.textContent = `${item.uses} uses`;
+                    } else if (item.defense) {
+                        detailsSpan.textContent = `+${item.defense} defense`;
+                    } else if (itemDefinitions[item.name]?.description) {
+                        detailsSpan.textContent = itemDefinitions[item.name].description;
+                    }
+                    
+                    itemDiv.appendChild(nameSpan);
+                    itemDiv.appendChild(detailsSpan);
+                    inventoryDiv.appendChild(itemDiv);
+                });
+            }
+            
+            // Clear actions
+            const actionsDiv = document.getElementById('actions');
+            actionsDiv.innerHTML = '';
+            
+            // Add movement actions
+            for (const [direction, roomId] of Object.entries(room.exits)) {
+                const button = document.createElement('button');
+                button.textContent = `Go ${direction.toUpperCase()}`;
+                button.className = 'action-primary';
+                button.addEventListener('click', () => move(direction));
+                actionsDiv.appendChild(button);
+            }
+            
+            // Add item actions if items are present
+            if (room.items.length > 0) {
+                const button = document.createElement('button');
+                button.textContent = 'Take Item';
+                button.className = 'action-success';
+                button.addEventListener('click', takeItem);
+                actionsDiv.appendChild(button);
+            }
+            
+            // Add combat action if monster is present and not killed
+            if (room.monster && !gameState.killedMonsters.has(`${gameState.currentRoom}-${room.monster.name}`)) {
+                const button = document.createElement('button');
+                button.textContent = `Fight ${room.monster.name}`;
+                button.className = 'action-danger';
+                button.addEventListener('click', () => startCombat(room.monster));
+                actionsDiv.appendChild(button);
+            }
+            
+            // Add NPC interaction if present
+            if (npcs[gameState.currentRoom]) {
+                const npc = npcs[gameState.currentRoom];
+                const button = document.createElement('button');
+                button.textContent = `Talk to ${npc.name}`;
+                button.className = 'action-success';
+                button.addEventListener('click', () => interactWithNPC(npc));
+                actionsDiv.appendChild(button);
+            }
+            
+            // Add special actions
+            if (room.secretExit && !gameState.foundSecretRooms.has(gameState.currentRoom)) {
+                const button = document.createElement('button');
+                button.textContent = 'Search for Secrets';
+                button.addEventListener('click', searchForSecrets);
+                actionsDiv.appendChild(button);
+            }
+            
+            if (room.lockedExit && !gameState.unlockedRooms.has(gameState.currentRoom)) {
+                const button = document.createElement('button');
+                button.textContent = 'Check Locked Exit';
+                button.addEventListener('click', checkLockedExit);
+                actionsDiv.appendChild(button);
+            }
+            
+            // Add inventory button
+            const invButton = document.createElement('button');
+            invButton.textContent = 'Inventory';
+            invButton.addEventListener('click', openInventory);
+            actionsDiv.appendChild(invButton);
+            
+            // Add rest button to recover health
+            const restButton = document.createElement('button');
+            restButton.textContent = 'Rest';
+            restButton.addEventListener('click', rest);
+            actionsDiv.appendChild(restButton);
+            
+            // Mark room as visited
+            gameState.visitedRooms.add(gameState.currentRoom);
+            
+            // Update strength buff duration
+            if (gameState.strengthBuffDuration > 0) {
+                gameState.strengthBuffDuration--;
+                if (gameState.strengthBuffDuration === 0) {
+                    gameState.strengthBuff = 0;
+                    showMessage("Your strength buff wears off.", "alert");
+                }
+            }
+            
+            // Update map display
+            updateMap();
+        }
+
+        function move(direction) {
+            const room = rooms[gameState.currentRoom];
+            const newRoomId = room.exits[direction];
+            
+            if (newRoomId === "exit") {
+                endGame(true);
+                return;
+            }
+            
+            if (!newRoomId) {
+                showMessage("You can't go that way!", "alert");
+                return;
+            }
+            
+            gameState.currentRoom = newRoomId;
+            showMessage(`You move ${direction}.`);
+            updateDisplay();
+        }
+
+        function takeItem() {
+            const room = rooms[gameState.currentRoom];
+            
+            if (room.items.length === 0) {
+                showMessage("There's nothing to take here!", "alert");
+                return;
+            }
+            
+            const itemName = room.items[0];
+            const itemDef = itemDefinitions[itemName];
+            
+            // Handle special items
+            if (itemName === "Dungeon Map") {
+                gameState.hasMap = true;
+                document.getElementById('toggle-map').style.display = 'block';
+                showMessage(`You take the ${itemName}. It reveals the dungeon layout!`, "success");
+            } else if (itemName.includes("Gold")) {
+                const goldAmount = parseInt(itemName);
+                gameState.gold += goldAmount;
+                showMessage(`You found ${goldAmount} gold!`, "success");
+            } else {
+                // Create inventory item based on definition
+                const newItem = { name: itemName, ...itemDef };
+                if (newItem.uses) newItem.uses = itemDef.uses; // Reset uses
+                gameState.inventory.push(newItem);
+                showMessage(`You take the ${itemName}.`, "success");
+            }
+            
+            // Remove item from room
+            room.items = [];
+            
+            updateDisplay();
+        }
+
+        function startCombat(monster) {
+            // Create a copy of the monster to avoid modifying the original
+            const currentMonster = JSON.parse(JSON.stringify(monster));
+            
+            showMessage(`Combat with ${currentMonster.name} (${currentMonster.health}/${currentMonster.maxHealth} HP) begins!`, "alert");
+            
+            // Reset combat log
+            gameState.combatLog = [];
+            addCombatLog(`You encounter a ${currentMonster.name}!`);
+            
+            // Create modal for combat
+            openModal();
+            const modalText = document.getElementById('modal-text');
+            modalText.innerHTML = `
+                <h2>Combat: ${currentMonster.name}</h2>
+                <div class="combat-stats">
+                    <div>Your Health: ${gameState.health}/${gameState.maxHealth}</div>
+                    <div>${currentMonster.name}'s Health: ${currentMonster.health}/${currentMonster.maxHealth}</div>
+                </div>
+                <div class="combat-log" id="combat-log-display"></div>
+                <div id="combat-actions" style="margin-top: 10px;">
+                    <button id="combat-attack" class="action-danger" style="width: 100%; padding: 10px;">Attack</button>
+                    <button id="combat-item" style="width: 100%; padding: 10px; margin-top: 5px;">Use Item</button>
+                    <button id="combat-flee" style="width: 100%; padding: 10px; margin-top: 5px;">Flee</button>
+                </div>
+            `;
+            
+            // Add event listeners for combat buttons
+            document.getElementById('combat-attack').addEventListener('click', () => playerAttack(gameState.currentRoom, currentMonster.name));
+            document.getElementById('combat-item').addEventListener('click', () => useCombatItem(gameState.currentRoom, currentMonster.name));
+            document.getElementById('combat-flee').addEventListener('click', () => fleeCombat(gameState.currentRoom, currentMonster.name));
+            
+            updateCombatLog();
+            
+            // Store the current monster state in the room
+            rooms[gameState.currentRoom].currentMonster = currentMonster;
+        }
+
+        function playerAttack(roomId, monsterName) {
+            const room = rooms[roomId];
+            const monster = room.currentMonster;
+            
+            if (!monster || monster.name !== monsterName) {
+                showMessage("The monster is no longer here!", "alert");
+                closeModal();
+                return;
+            }
+            
+            // Get equipped weapon
+            const weapon = gameState.inventory.find(item => item.equipped && item.damage) || 
+                          { name: "Fists", damage: "1d2" };
+            
+            // Calculate damage
+            let damage = rollDice(weapon.damage) + gameState.strengthBuff;
+            
+            // Apply weapon effects
+            if (weapon.effect === "life steal") {
+                const heal = Math.floor(damage / 2);
+                gameState.health = Math.min(gameState.health + heal, gameState.maxHealth);
+                addCombatLog(`Your ${weapon.name} steals ${heal} health!`);
+            }
+            
+            // Apply holy damage to undead
+            const holyItem = gameState.inventory.find(item => item.effect === "holy damage");
+            if (holyItem && monster.name.match(/Spirit|Ghost|Skeleton|Undead|Wight/i)) {
+                damage += 2;
+                addCombatLog(`Your ${holyItem.name} glows, adding 2 holy damage!`);
+            }
+            
+            monster.health -= damage;
+            addCombatLog(`You hit the ${monster.name} with your ${weapon.name} for ${damage} damage!`);
+            
+            // Update monster health display
+            updateCombatStats();
+            
+            // Check if monster is dead
+            if (monster.health <= 0) {
+                monster.health = 0;
+                addCombatLog(`You defeated the ${monster.name}!`);
+                
+                // Give rewards
+                const goldReward = rollDice(monster.gold);
+                gameState.gold += goldReward;
+                
+                if (monster.drops && monster.drops.length > 0) {
+                    const drop = monster.drops[Math.floor(Math.random() * monster.drops.length)];
+                    gameState.inventory.push({ name: drop, ...itemDefinitions[drop] });
+                    addCombatLog(`It dropped ${drop} and ${goldReward} gold!`);
+                } else if (goldReward > 0) {
+                    addCombatLog(`You found ${goldReward} gold!`);
+                }
+                
+                gameState.killedMonsters.add(`${roomId}-${monsterName}`);
+                
+                // Add button to close combat
+                const combatActions = document.getElementById('combat-actions');
+                combatActions.innerHTML = '';
+                const closeButton = document.createElement('button');
+                closeButton.textContent = 'Continue';
+                closeButton.className = 'action-success';
+                closeButton.style.width = '100%';
+                closeButton.style.padding = '10px';
+                closeButton.addEventListener('click', () => {
+                    delete room.currentMonster; // Remove the temporary monster
+                    closeModal();
+                    updateDisplay();
+                });
+                combatActions.appendChild(closeButton);
+                
+                return;
+            }
+            
+            // Monster's turn
+            monsterAttack(roomId, monsterName);
+        }
+
+        function monsterAttack(roomId, monsterName) {
+            const room = rooms[roomId];
+            const monster = room.currentMonster;
+            
+            if (!monster || monster.name !== monsterName) {
+                showMessage("The monster is no longer here!", "alert");
+                closeModal();
+                return;
+            }
+            
+            // Calculate damage
+            let damage = rollDice(monster.damage);
+            
+            // Check for armor
+            const armor = gameState.inventory.find(item => item.equipped && (item.defense || item.armor));
+            if (armor) {
+                const defense = armor.defense || armor.armor;
+                damage = Math.max(1, damage - defense);
+                addCombatLog(`Your ${armor.name} reduces damage by ${defense}!`);
+            }
+            
+            gameState.health -= damage;
+            addCombatLog(`The ${monster.name} hits you for ${damage} damage!`);
+            
+            // Update player health display
+            updateCombatStats();
+            
+            // Check if player is dead
+            if (gameState.health <= 0) {
+                gameState.health = 0;
+                addCombatLog(`You were defeated by the ${monster.name}...`);
+                
+                // Add button to end game
+                const combatActions = document.getElementById('combat-actions');
+                combatActions.innerHTML = '';
+                const closeButton = document.createElement('button');
+                closeButton.textContent = 'Game Over';
+                closeButton.className = 'action-danger';
+                closeButton.style.width = '100%';
+                closeButton.style.padding = '10px';
+                closeButton.addEventListener('click', () => {
+                    delete room.currentMonster; // Remove the temporary monster
+                    closeModal();
+                    endGame(false);
+                });
+                combatActions.appendChild(closeButton);
+                
+                return;
+            }
+        }
+
+        function updateCombatStats() {
+            const room = rooms[gameState.currentRoom];
+            if (!room.currentMonster) return;
+            
+            const combatStats = document.querySelector('.combat-stats');
+            if (combatStats) {
+                combatStats.innerHTML = `
+                    <div>Your Health: ${gameState.health}/${gameState.maxHealth}</div>
+                    <div>${room.currentMonster.name}'s Health: ${room.currentMonster.health}/${room.currentMonster.maxHealth}</div>
+                `;
+            }
+            
+            // Also update the main stats display
+            document.getElementById('health').querySelector('.stat-value').textContent = 
+                `${gameState.health}/${gameState.maxHealth}`;
+        }
+
+        function useCombatItem(roomId, monsterName) {
+            const modalText = document.getElementById('modal-text');
+            modalText.innerHTML = `
+                <h2>Use Item in Combat</h2>
+                <p>Select an item to use:</p>
+                <div id="combat-item-list"></div>
+                <button id="combat-back" style="width: 100%; margin-top: 10px; padding: 10px;">Back</button>
+            `;
+            
+            document.getElementById('combat-back').addEventListener('click', () => startCombat(rooms[roomId].currentMonster));
+            
+            const itemList = document.getElementById('combat-item-list');
+            gameState.inventory.forEach(item => {
+                if (item.type === "consumable" || (item.type === "weapon" && !item.equipped) || (item.type === "armor" && !item.equipped)) {
+                    const button = document.createElement('button');
+                    button.textContent = item.name;
+                    button.style.width = '100%';
+                    button.style.margin = '5px 0';
+                    button.style.padding = '8px';
+                    
+                    if (item.type === "weapon" || item.type === "armor") {
+                        button.addEventListener('click', () => {
+                            // Equip weapon or armor
+                            if (item.type === "weapon") {
+                                gameState.inventory.forEach(i => { if (i.type === "weapon") i.equipped = false; });
+                            } else if (item.type === "armor") {
+                                gameState.inventory.forEach(i => { if (i.type === "armor") i.equipped = false; });
+                            }
+                            
+                            item.equipped = true;
+                            addCombatLog(`You equip the ${item.name}!`);
+                            startCombat(rooms[roomId].currentMonster);
+                            updateDisplay();
+                        });
+                    } else {
+                        button.addEventListener('click', () => {
+                            useItem(item.name, true);
+                            startCombat(rooms[roomId].currentMonster);
+                        });
+                    }
+                    
+                    itemList.appendChild(button);
+                }
+            });
+            
+            if (itemList.children.length === 0) {
+                itemList.innerHTML = '<p>No usable items in inventory.</p>';
+            }
+        }
+
+        function fleeCombat(roomId, monsterName) {
+            const fleeChance = 0.7; // 70% chance to flee
+            if (Math.random() < fleeChance) {
+                addCombatLog("You successfully flee from combat!");
+                closeModal();
+                updateDisplay();
+            } else {
+                addCombatLog("You failed to flee!");
+                monsterAttack(roomId, monsterName);
+            }
+        }
+
+        function addCombatLog(message) {
+            gameState.combatLog.push(message);
+            if (gameState.combatLog.length > 10) {
+                gameState.combatLog.shift();
+            }
+            updateCombatLog();
+        }
+
+        function updateCombatLog() {
+            const logDisplay = document.getElementById('combat-log-display');
+            if (logDisplay) {
+                logDisplay.innerHTML = gameState.combatLog.map(msg => 
+                    `<div class="combat-entry">${msg}</div>`).join('');
+                logDisplay.scrollTop = logDisplay.scrollHeight;
+            }
+        }
+
+        function interactWithNPC(npc) {
+            openModal();
+            const modalText = document.getElementById('modal-text');
+            
+            switch (npc.type) {
+                case "merchant":
+                    modalText.innerHTML = `
+                        <h2>${npc.name}</h2>
+                        <p>"${npc.dialog}"</p>
+                        <p>Your gold: ${gameState.gold}</p>
+                        <div id="merchant-items" style="margin: 10px 0;"></div>
+                        <button id="leave-merchant" style="width: 100%; padding: 10px;">Leave</button>
+                    `;
+                    
+                    document.getElementById('leave-merchant').addEventListener('click', closeModal);
+                    
+                    const merchantItemsDiv = document.getElementById('merchant-items');
+                    merchantItems.forEach(item => {
+                        const itemDiv = document.createElement('div');
+                        itemDiv.className = 'npc-option';
+                        itemDiv.innerHTML = `
+                            <div style="display: flex; justify-content: space-between;">
+                                <strong>${item.name}</strong>
+                                <span>${item.price} gold</span>
+                            </div>
+                            <div class="item-details">${itemDefinitions[item.name]?.description || ''}</div>
+                            <button class="buy-item" data-item="${item.name}" data-price="${item.price}" 
+                                style="width: 100%; padding: 5px; margin-top: 5px;" 
+                                ${gameState.gold < item.price ? 'disabled' : ''}>
+                                Buy
+                            </button>
+                        `;
+                        merchantItemsDiv.appendChild(itemDiv);
+                    });
+                    
+                    // Add event listeners to buy buttons
+                    document.querySelectorAll('.buy-item').forEach(button => {
+                        button.addEventListener('click', () => {
+                            const itemName = button.dataset.item;
+                            const price = parseInt(button.dataset.price);
+                            buyItem(itemName, price);
+                        });
+                    });
+                    break;
+                    
+                case "healer":
+                    const healCost = 20;
+                    const healAmount = rollDice("2d6");
+                    modalText.innerHTML = `
+                        <h2>${npc.name}</h2>
+                        <p>"${npc.dialog}"</p>
+                        <p>Your health: ${gameState.health}/${gameState.maxHealth}</p>
+                        <div class="npc-option">
+                            <p>Restore ${healAmount} health for ${healCost} gold</p>
+                            <button id="accept-heal" style="width: 100%; padding: 10px;" 
+                                ${gameState.gold < healCost ? 'disabled' : ''}>
+                                Accept Healing
+                            </button>
+                        </div>
+                        <button id="refuse-heal" style="width: 100%; padding: 10px; margin-top: 10px;">Refuse</button>
+                    `;
+                    
+                    document.getElementById('accept-heal').addEventListener('click', () => healPlayer(healAmount, healCost));
+                    document.getElementById('refuse-heal').addEventListener('click', closeModal);
+                    break;
+                    
+                case "blacksmith":
+                    const weapon = gameState.inventory.find(item => item.equipped && item.damage);
+                    const upgradeCost = 30;
+                    const steelIngot = gameState.inventory.findIndex(item => item.name === "Steel Ingot");
+                    
+                    modalText.innerHTML = `
+                        <h2>${npc.name}</h2>
+                        <p>"${npc.dialog}"</p>
+                        ${weapon ? `
+                            <div class="npc-option">
+                                <p>Current weapon: ${weapon.name} (${weapon.damage})</p>
+                                <p>Upgrade cost: ${upgradeCost} gold + Steel Ingot</p>
+                                <button id="upgrade-weapon" style="width: 100%; padding: 10px;" 
+                                    ${gameState.gold < upgradeCost || steelIngot === -1 ? 'disabled' : ''}>
+                                    Upgrade Weapon (+1 damage)
+                                </button>
+                            </div>
+                        ` : '<p>You have no weapon equipped to upgrade.</p>'}
+                        <button id="leave-blacksmith" style="width: 100%; padding: 10px; margin-top: 10px;">Leave</button>
+                    `;
+                    
+                    if (weapon) {
+                        document.getElementById('upgrade-weapon').addEventListener('click', upgradeWeapon);
+                    }
+                    document.getElementById('leave-blacksmith').addEventListener('click', closeModal);
+                    break;
+            }
+        }
+
+        function buyItem(itemName, price) {
+            if (gameState.gold < price) {
+                showMessage("Not enough gold!", "alert");
+                return;
+            }
+            
+            gameState.gold -= price;
+            const itemDef = merchantItems.find(item => item.name === itemName);
+            gameState.inventory.push({ name: itemName, ...itemDef });
+            
+            showMessage(`You bought ${itemName} for ${price} gold.`, "success");
+            updateDisplay();
+            interactWithNPC(npcs[gameState.currentRoom]); // Refresh merchant screen
+        }
+
+        function healPlayer(amount, cost) {
+            if (gameState.gold < cost) {
+                showMessage("Not enough gold!", "alert");
+                return;
+            }
+            
+            gameState.gold -= cost;
+            gameState.health = Math.min(gameState.health + amount, gameState.maxHealth);
+            
+            showMessage(`You were healed for ${amount} health.`, "success");
+            updateDisplay();
+            closeModal();
+        }
+
+        function upgradeWeapon() {
+            const upgradeCost = 30;
+            const steelIngotIndex = gameState.inventory.findIndex(item => item.name === "Steel Ingot");
+            
+            if (gameState.gold < upgradeCost || steelIngotIndex === -1) {
+                showMessage("You need 30 gold and a Steel Ingot!", "alert");
+                return;
+            }
+            
+            const weapon = gameState.inventory.find(item => item.equipped && item.damage);
+            if (!weapon) {
+                showMessage("No weapon equipped to upgrade!", "alert");
+                return;
+            }
+            
+            gameState.gold -= upgradeCost;
+            gameState.inventory.splice(steelIngotIndex, 1); // Remove steel ingot
+            
+            // Upgrade weapon damage
+            const diceMatch = weapon.damage.match(/(\d+)d(\d+)/);
+            if (diceMatch) {
+                const sides = parseInt(diceMatch[2]);
+                weapon.damage = `${diceMatch[1]}d${sides + 1}`;
+            } else {
+                weapon.damage = `${weapon.damage}+1`;
+            }
+            
+            gameState.damage = weapon.damage;
+            showMessage(`Your ${weapon.name} was upgraded to ${weapon.damage} damage!`, "success");
+            updateDisplay();
+            closeModal();
+        }
+
+        function searchForSecrets() {
+            const room = rooms[gameState.currentRoom];
+            
+            if (!room.secretExit) {
+                showMessage("You find nothing unusual.", "alert");
+                return;
+            }
+            
+            gameState.foundSecretRooms.add(gameState.currentRoom);
+            showMessage("You found a hidden passage!", "success");
+            
+            // Refresh display to show the new exit
+            updateDisplay();
+        }
+
+        function checkLockedExit() {
+            const room = rooms[gameState.currentRoom];
+            
+            if (!room.lockedExit) {
+                showMessage("Nothing is locked here.", "alert");
+                return;
+            }
+            
+            // Check if player has a key that can unlock this
+            for (const item of gameState.inventory) {
+                const itemDef = itemDefinitions[item.name];
+                if (itemDef && itemDef.type === "key" && itemDef.unlocks.includes(room.lockedExit[Object.keys(room.lockedExit)[0]])) {
+                    showMessage(`You use the ${item.name} to unlock the exit!`, "success");
+                    gameState.unlockedRooms.add(gameState.currentRoom);
+                    
+                    // Add the unlocked exit
+                    const direction = Object.keys(room.lockedExit)[0];
+                    room.exits[direction] = room.lockedExit[direction];
+                    
+                    updateDisplay();
+                    return;
+                }
+            }
+            
+            showMessage("You don't have the key to unlock this.", "alert");
+        }
+
+        function openInventory() {
+            openModal();
+            const modalText = document.getElementById('modal-text');
+            modalText.innerHTML = `
+                <h2>Inventory</h2>
+                <p>Gold: ${gameState.gold}</p>
+                <div id="inventory-modal-items" style="margin: 10px 0;"></div>
+                <button id="close-inventory" style="width: 100%; padding: 10px;">Close</button>
+            `;
+            
+            document.getElementById('close-inventory').addEventListener('click', closeModal);
+            
+            const itemsDiv = document.getElementById('inventory-modal-items');
+            
+            if (gameState.inventory.length === 0) {
+                itemsDiv.innerHTML = '<p>Your inventory is empty.</p>';
+                return;
+            }
+            
+            gameState.inventory.forEach((item, index) => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'inventory-item';
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'item-name';
+                if (item.equipped) nameSpan.classList.add('equipped');
+                nameSpan.textContent = item.name;
+                
+                const detailsSpan = document.createElement('span');
+                detailsSpan.className = 'item-details';
+                
+                if (item.damage) {
+                    detailsSpan.textContent = item.damage;
+                } else if (item.uses) {
+                    detailsSpan.textContent = `${item.uses} uses`;
+                } else if (item.defense) {
+                    detailsSpan.textContent = `+${item.defense} defense`;
+                } else if (itemDefinitions[item.name]?.description) {
+                    detailsSpan.textContent = itemDefinitions[item.name].description;
+                }
+                
+                itemDiv.appendChild(nameSpan);
+                itemDiv.appendChild(detailsSpan);
+                
+                // Add use/equip button if applicable
+                if (item.type === "consumable" || (item.type === "weapon" && !item.equipped) || (item.type === "armor" && !item.equipped)) {
+                    const useButton = document.createElement('button');
+                    useButton.textContent = item.type === "weapon" || item.type === "armor" ? "Equip" : "Use";
+                    useButton.style.float = 'right';
+                    useButton.style.padding = '3px 8px';
+                    useButton.style.marginLeft = '10px';
+                    useButton.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        useItem(item.name);
+                    });
+                    itemDiv.appendChild(useButton);
+                }
+                
+                // Add drop button
+                const dropButton = document.createElement('button');
+                dropButton.textContent = "Drop";
+                dropButton.style.float = 'right';
+                dropButton.style.padding = '3px 8px';
+                dropButton.style.marginLeft = '5px';
+                dropButton.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    dropItem(index);
+                });
+                itemDiv.appendChild(dropButton);
+                
+                itemDiv.addEventListener('click', () => {
+                    // Show item details
+                    modalText.innerHTML = `
+                        <h2>${item.name}</h2>
+                        <p>${itemDefinitions[item.name]?.description || 'No description available.'}</p>
+                        ${item.damage ? `<p>Damage: ${item.damage}</p>` : ''}
+                        ${item.uses ? `<p>Uses remaining: ${item.uses}</p>` : ''}
+                        ${item.defense ? `<p>Defense: +${item.defense}</p>` : ''}
+                        <button onclick="openInventory()" style="width: 100%; padding: 10px; margin-top: 10px;">Back</button>
+                    `;
+                });
+                
+                itemsDiv.appendChild(itemDiv);
+            });
+        }
+
+        function useItem(itemName, inCombat = false) {
+            const itemIndex = gameState.inventory.findIndex(item => item.name === itemName);
+            if (itemIndex === -1) return;
+            
+            const item = gameState.inventory[itemIndex];
+            const itemDef = itemDefinitions[itemName];
+            
+            if (!itemDef) {
+                showMessage(`You're not sure how to use ${itemName}.`, "alert");
+                return;
+            }
+            
+            switch (itemDef.type) {
+                case "consumable":
+                    useConsumable(item, itemIndex);
+                    break;
+                case "weapon":
+                    // Equip weapon
+                    gameState.inventory.forEach(i => { if (i.type === "weapon") i.equipped = false; });
+                    item.equipped = true;
+                    gameState.damage = item.damage;
+                    showMessage(`You equip the ${itemName}.`, "success");
+                    break;
+                case "armor":
+                    // Equip armor
+                    gameState.inventory.forEach(i => { if (i.type === "armor") i.equipped = false; });
+                    item.equipped = true;
+                    gameState.defense = item.defense || 0;
+                    showMessage(`You equip the ${itemName}.`, "success");
+                    break;
+                case "light":
+                    useLight(item, itemIndex);
+                    break;
+                default:
+                    showMessage(`You examine the ${itemName} but it doesn't seem useful right now.`, "alert");
+            }
+            
+            if (!inCombat) {
+                closeModal();
+                updateDisplay();
+            }
+        }
+
+        function useConsumable(item, index) {
+            switch (item.effect) {
+                case "heal":
+                    const healAmount = rollDice(item.amount);
+                    gameState.health = Math.min(gameState.health + healAmount, gameState.maxHealth);
+                    showMessage(`You use ${item.name} and heal ${healAmount} health!`, "success");
+                    removeFromInventory(index);
+                    break;
+                case "strength":
+                    gameState.strengthBuff = rollDice(item.amount);
+                    gameState.strengthBuffDuration = item.duration;
+                    showMessage(`You drink ${item.name} and feel stronger! (+${gameState.strengthBuff} damage for ${item.duration} rooms)`, "success");
+                    removeFromInventory(index);
+                    break;
+                case "fireball":
+                    const room = rooms[gameState.currentRoom];
+                    if (room.monster && !gameState.killedMonsters.has(`${gameState.currentRoom}-${room.monster.name}`)) {
+                        const damage = rollDice(item.damage);
+                        room.monster.health -= damage;
+                        showMessage(`You cast Fireball at ${room.monster.name} for ${damage} damage!`, "success");
+                        
+                        if (room.monster.health <= 0) {
+                            room.monster.health = 0;
+                            gameState.killedMonsters.add(`${gameState.currentRoom}-${room.monster.name}`);
+                            showMessage(`The ${room.monster.name} was defeated!`, "success");
+                        }
+                        
+                        removeFromInventory(index);
+                    } else {
+                        showMessage("No target for the fireball!", "alert");
+                    }
+                    break;
+                case "random":
+                    const effects = ["heal", "strength", "poison"];
+                    const randomEffect = effects[Math.floor(Math.random() * effects.length)];
+                    
+                    if (randomEffect === "heal") {
+                        const healAmount = rollDice("1d4");
+                        gameState.health = Math.min(gameState.health + healAmount, gameState.maxHealth);
+                        showMessage(`The ${item.name} restores ${healAmount} health!`, "success");
+                    } else if (randomEffect === "strength") {
+                        gameState.strengthBuff = 2;
+                        gameState.strengthBuffDuration = 3;
+                        showMessage(`The ${item.name} makes you feel stronger! (+2 damage for 3 rooms)`, "success");
+                    } else {
+                        const damage = rollDice("1d4");
+                        gameState.health -= damage;
+                        showMessage(`The ${item.name} was poisoned! You take ${damage} damage.`, "alert");
+                    }
+                    
+                    removeFromInventory(index);
+                    break;
+                default:
+                    showMessage(`You use ${item.name} but nothing noticeable happens.`, "alert");
+                    removeFromInventory(index);
+            }
+        }
+
+        function useLight(item, index) {
+            if (item.uses === "unlimited") {
+                showMessage(`Your ${item.name} provides steady light.`, "success");
+            } else {
+                item.uses--;
+                showMessage(`Your ${item.name} flickers. ${item.uses} uses remaining.`, "success");
+                
+                if (item.uses <= 0) {
+                    showMessage(`Your ${item.name} burns out!`, "alert");
+                    removeFromInventory(index);
+                }
+            }
+        }
+
+        function dropItem(index) {
+            const item = gameState.inventory[index];
+            if (item.equipped) {
+                showMessage(`You can't drop your equipped ${item.name}!`, "alert");
+                return;
+            }
+            
+            const room = rooms[gameState.currentRoom];
+            room.items.push(item.name);
+            removeFromInventory(index);
+            showMessage(`You dropped the ${item.name}.`, "success");
+            openInventory(); // Refresh inventory view
+        }
+
+        function removeFromInventory(index) {
+            gameState.inventory.splice(index, 1);
+            updateDisplay();
+        }
+
+        function rest() {
+            const healAmount = rollDice("1d4");
+            gameState.health = Math.min(gameState.health + healAmount, gameState.maxHealth);
+            showMessage(`You rest and recover ${healAmount} health.`, "success");
+            updateDisplay();
+        }
+
+        function endGame(victory) {
+            openModal();
+            const modalText = document.getElementById('modal-text');
+            
+            if (victory) {
+                modalText.innerHTML = `
+                    <h2>Victory!</h2>
+                    <p>Congratulations! You escaped the dungeon with:</p>
+                    <ul>
+                        <li>${gameState.gold} gold</li>
+                        <li>${gameState.inventory.length} items</li>
+                    </ul>
+                    <p>Total rooms explored: ${gameState.visitedRooms.size}/50</p>
+                    <p>Monsters defeated: ${gameState.killedMonsters.size}</p>
+                    <button id="restart-game" style="width: 100%; padding: 10px; margin-top: 10px;" class="action-success">
+                        Play Again
+                    </button>
+                `;
+            } else {
+                modalText.innerHTML = `
+                    <h2>Game Over</h2>
+                    <p>Your adventure ends here...</p>
+                    <p>You reached room ${gameState.currentRoom} and collected:</p>
+                    <ul>
+                        <li>${gameState.gold} gold</li>
+                        <li>${gameState.inventory.length} items</li>
+                    </ul>
+                    <button id="restart-game" style="width: 100%; padding: 10px; margin-top: 10px;" class="action-success">
+                        Try Again
+                    </button>
+                `;
+            }
+            
+            document.getElementById('restart-game').addEventListener('click', restartGame);
+        }
+
+        function restartGame() {
+            // Reset game state
+            gameState.currentRoom = 1;
+            gameState.health = 10;
+            gameState.maxHealth = 10;
+            gameState.gold = 50;
+            gameState.defense = 0;
+            gameState.damage = "1d4";
+            gameState.inventory = [
+                { name: "Torch", uses: 3 },
+                { name: "Rusty Dagger", damage: "1d4", equipped: true, type: "weapon" }
+            ];
+            gameState.visitedRooms = new Set([1]);
+            gameState.killedMonsters = new Set();
+            gameState.unlockedRooms = new Set();
+            gameState.foundSecretRooms = new Set();
+            gameState.strengthBuff = 0;
+            gameState.strengthBuffDuration = 0;
+            
+            closeModal();
+            updateDisplay();
+            showMessage("Your new adventure begins...", "success");
+        }
+
+        function showMessage(msg, type = "") {
+            const messageDiv = document.getElementById('message');
+            messageDiv.textContent = msg;
+            messageDiv.className = type ? `message-${type}` : "";
+        }
+
+        function openModal() {
+            document.getElementById('modal').style.display = "flex";
+        }
+
+        function closeModal() {
+            document.getElementById('modal').style.display = "none";
+            updateDisplay();
+        }
+
+        function toggleMap() {
+            const mapDiv = document.getElementById('map');
+            if (mapDiv.style.display === "none" || !mapDiv.style.display) {
+                mapDiv.style.display = "block";
+                document.getElementById('toggle-map').textContent = "Hide Map";
+            } else {
+                mapDiv.style.display = "none";
+                document.getElementById('toggle-map').textContent = "Show Map";
+            }
+        }
+
+        function updateMap() {
+            if (!gameState.hasMap) return;
+            
+            // Create a simple ASCII map of visited rooms
+            const mapSize = 7;
+            const center = Math.floor(mapSize / 2);
+            const mapGrid = Array(mapSize).fill().map(() => Array(mapSize).fill(' '));
+            
+            // Mark visited rooms
+            for (const roomId of gameState.visitedRooms) {
+                const x = (roomId % mapSize);
+                const y = Math.floor(roomId / mapSize);
+                
+                if (x >= 0 && x < mapSize && y >= 0 && y < mapSize) {
+                    mapGrid[y][x] = roomId === gameState.currentRoom ? 'X' : 'O';
+                }
+            }
+            
+            // Convert grid to string
+            let mapString = 'Dungeon Map:\n';
+            for (let y = 0; y < mapSize; y++) {
+                for (let x = 0; x < mapSize; x++) {
+                    mapString += mapGrid[y][x] + ' ';
+                }
+                mapString += '\n';
+            }
+            
+            mapString += '\nX = Current room\nO = Visited room';
+            document.getElementById('map').textContent = mapString;
+        }
+
+        // Initialize game
+        document.getElementById('toggle-map').addEventListener('click', toggleMap);
+        document.getElementById('modal-close').addEventListener('click', closeModal);
+        updateDisplay();
+    </script>
+</body>
+</html>
