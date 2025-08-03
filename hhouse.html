@@ -1,0 +1,1605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>House of Hell</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 10px;
+            background-color: #111;
+            color: #ddd;
+            line-height: 1.5;
+            touch-action: manipulation;
+            -webkit-text-size-adjust: none;
+            text-size-adjust: none;
+        }
+        #game-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #222;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+        h1 {
+            color: #c33;
+            text-align: center;
+            font-size: 24px;
+            margin-top: 0;
+        }
+        #content {
+            min-height: 300px;
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: #1a1a1a;
+            border-radius: 3px;
+        }
+        button {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            background-color: #333;
+            color: #eee;
+            border: 1px solid #444;
+            border-radius: 3px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #444;
+        }
+        #stats {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            padding: 5px;
+            background-color: #1a1a1a;
+            border-radius: 3px;
+        }
+        .stat {
+            text-align: center;
+        }
+        #inventory {
+            margin-top: 10px;
+            padding: 5px;
+            background-color: #1a1a1a;
+            border-radius: 3px;
+        }
+        #inventory-items {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 5px;
+        }
+        .inventory-item {
+            background-color: #333;
+            padding: 5px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .inventory-item:hover {
+            background-color: #444;
+        }
+        .equipped {
+            border: 1px solid #c33;
+            background-color: #422;
+        }
+        #dice-result {
+            text-align: center;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .death {
+            color: #f44;
+            font-weight: bold;
+        }
+        .success {
+            color: #4f4;
+            font-weight: bold;
+        }
+        .hidden {
+            display: none;
+        }
+        #combat-log {
+            max-height: 100px;
+            overflow-y: auto;
+            background-color: #1a1a1a;
+            padding: 5px;
+            margin-top: 10px;
+            border-radius: 3px;
+            font-size: 14px;
+        }
+        .combat-entry {
+            margin: 3px 0;
+        }
+        .player-action {
+            color: #4af;
+        }
+        .enemy-action {
+            color: #f44;
+        }
+        .damage {
+            color: #f84;
+        }
+        .heal {
+            color: #4f4;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <h1>HOUSE OF HELL</h1>
+        <div id="stats">
+            <div class="stat">Fear: <span id="fear">0</span></div>
+            <div class="stat">HP: <span id="stamina">20</span>/20</div>
+            <div class="stat">Weapon: <span id="current-weapon">Fists (1 dmg)</span></div>
+        </div>
+        <div id="content">
+            <p>Your car has broken down in a storm. You see a large mansion ahead - the only shelter for miles. Do you:</p>
+            <button onclick="goToSection(2)">Approach the mansion</button>
+            <button onclick="goToSection(3)">Stay in the car</button>
+        </div>
+        <div id="dice-result"></div>
+        <div id="combat-log"></div>
+        <div id="inventory">
+            <strong>Inventory:</strong>
+            <div id="inventory-items">None</div>
+        </div>
+    </div>
+
+    <script>
+        // Game state
+        const state = {
+            currentSection: 1,
+            fear: 0,
+            stamina: 20,
+            maxStamina: 20,
+            inventory: [],
+            equippedWeapon: { name: "Fists", damage: 1 },
+            visitedSections: new Set(),
+            combatActive: false,
+            currentEnemy: null,
+            postCombatSection: null,
+            
+            // Player stats
+            playerAttack: 1,
+            playerDefense: 1,
+            
+            // Key items
+            hasSilverCross: false,
+            hasGarlic: false,
+            hasKnife: false,
+            hasKey: false,
+            hasCandle: false,
+            hasHolyWater: false,
+            hasMirror: false,
+            hasRope: false,
+            hasBell: false,
+            hasAmulet: false,
+            hasLantern: false,
+            hasBook: false,
+            // Special items
+            silverKnife: false,
+            blessedCandle: false,
+            // Knowledge
+            knowsRitual: false,
+            knowsWords: false,
+            knowsWeakness: false,
+            // Events
+            metGhost: false,
+            fedVampire: false,
+            secretPassageFound: false,
+            chapelFound: false,
+            atticExplored: false,
+            gardenExplored: false,
+            // Time
+            time: 0, // 0=early evening, 1=late evening, 2=midnight
+            // Enemies
+            vampireAngry: false,
+            demonWeakened: false
+        };
+
+        // Enemy definitions
+        const enemies = {
+            vampire: {
+                name: "Vampire",
+                hp: 15,
+                maxHp: 15,
+                damage: 4,
+                fearEffect: 2,
+                weaknesses: ["silver", "garlic", "holy"],
+                resistances: ["normal"],
+                special: "The vampire's wounds heal quickly from normal weapons"
+            },
+            demon: {
+                name: "Demon Kelnor",
+                hp: 30,
+                maxHp: 30,
+                damage: 6,
+                fearEffect: 4,
+                weaknesses: ["holy", "silver", "ritual"],
+                resistances: ["normal"],
+                special: "The demon laughs at your puny attacks"
+            },
+            ghost: {
+                name: "Angry Spirit",
+                hp: 10,
+                maxHp: 10,
+                damage: 3,
+                fearEffect: 3,
+                weaknesses: ["holy", "silver"],
+                resistances: ["normal"],
+                special: "Your attacks pass right through the ghost"
+            },
+            batCreature: {
+                name: "Demon Bat",
+                hp: 8,
+                maxHp: 8,
+                damage: 2,
+                fearEffect: 1,
+                weaknesses: ["silver"],
+                resistances: [],
+                special: "The bat creature flutters around you"
+            }
+        };
+
+        // Item definitions
+        const items = {
+            knife: {
+                name: "Knife",
+                type: "weapon",
+                damage: 3,
+                description: "A sharp kitchen knife. Better than fists.",
+                use: function() {
+                    equipItem(this);
+                }
+            },
+            silverKnife: {
+                name: "Silver Dagger",
+                type: "weapon",
+                damage: 5,
+                special: "silver",
+                description: "A blessed silver dagger. Effective against supernatural creatures.",
+                use: function() {
+                    equipItem(this);
+                }
+            },
+            fists: {
+                name: "Fists",
+                type: "weapon",
+                damage: 1,
+                description: "Your bare hands. Better than nothing.",
+                use: function() {
+                    equipItem(this);
+                }
+            },
+            shovel: {
+                name: "Shovel",
+                type: "weapon",
+                damage: 4,
+                description: "A sturdy shovel. Makes a decent weapon.",
+                use: function() {
+                    equipItem(this);
+                }
+            },
+            garlic: {
+                name: "Garlic",
+                type: "consumable",
+                description: "Strong smelling garlic. Vampires hate this.",
+                use: function() {
+                    if (state.currentEnemy && state.currentEnemy.weaknesses.includes("garlic")) {
+                        addCombatLog(`You throw garlic at the ${state.currentEnemy.name}! It recoils in pain!`, "player-action");
+                        state.currentEnemy.hp -= 5;
+                        checkEnemyHealth();
+                        removeFromInventory("Garlic");
+                        state.hasGarlic = false;
+                    } else {
+                        addCombatLog("The garlic has no effect here.", "player-action");
+                    }
+                }
+            },
+            holyWater: {
+                name: "Holy Water",
+                type: "consumable",
+                description: "Water blessed by a priest. Burns evil creatures.",
+                use: function() {
+                    if (state.currentEnemy && state.currentEnemy.weaknesses.includes("holy")) {
+                        addCombatLog(`You splash holy water on the ${state.currentEnemy.name}! It sizzles and burns!`, "player-action");
+                        state.currentEnemy.hp -= 8;
+                        checkEnemyHealth();
+                        removeFromInventory("Holy Water");
+                        state.hasHolyWater = false;
+                    } else {
+                        addCombatLog("The holy water has no effect here.", "player-action");
+                    }
+                }
+            },
+            greenPotion: {
+                name: "Green Potion",
+                type: "consumable",
+                description: "A bottle of greenish liquid. Looks medicinal.",
+                use: function() {
+                    const healAmount = 10;
+                    state.stamina = Math.min(state.stamina + healAmount, state.maxStamina);
+                    addCombatLog(`You drink the potion and heal ${healAmount} HP!`, "heal");
+                    updateStats();
+                    removeFromInventory("Green Potion");
+                }
+            },
+            silverCross: {
+                name: "Silver Cross",
+                type: "item",
+                description: "A sacred symbol. May ward off evil.",
+                use: function() {
+                    if (state.currentEnemy && state.currentEnemy.weaknesses.includes("holy")) {
+                        addCombatLog(`You brandish the silver cross at the ${state.currentEnemy.name}! It hesitates to approach!`, "player-action");
+                        // Enemy skips next attack
+                        state.currentEnemy.skipTurn = true;
+                    } else {
+                        addCombatLog("The cross glows faintly but has no visible effect.", "player-action");
+                    }
+                }
+            },
+            mirror: {
+                name: "Mirror",
+                type: "item",
+                description: "A handheld mirror. Might be useful against certain creatures.",
+                use: function() {
+                    if (state.currentEnemy && state.currentEnemy.name === "Demon Kelnor") {
+                        addCombatLog(`You show the mirror to ${state.currentEnemy.name}! It recoils from its own reflection!`, "player-action");
+                        state.currentEnemy.hp -= 5;
+                        checkEnemyHealth();
+                    } else {
+                        addCombatLog("The mirror doesn't seem to do anything special here.", "player-action");
+                    }
+                }
+            },
+            candle: {
+                name: "Candle",
+                type: "item",
+                description: "A simple wax candle. Can be lit to provide light.",
+                use: function() {
+                    if (state.currentEnemy && state.currentEnemy.weaknesses.includes("light")) {
+                        addCombatLog(`You light the candle, causing the ${state.currentEnemy.name} to shy away from the light!`, "player-action");
+                        state.currentEnemy.damage = Math.floor(state.currentEnemy.damage * 0.5); // Halves enemy damage
+                    } else {
+                        addCombatLog("You light the candle, but it doesn't seem particularly useful here.", "player-action");
+                    }
+                }
+            },
+            lantern: {
+                name: "Lantern",
+                type: "item",
+                description: "An oil lantern. Can be combined with a candle for brighter light.",
+                use: function() {
+                    if (state.hasCandle) {
+                        addCombatLog("You place the candle in the lantern, creating a bright light source!", "player-action");
+                    } else {
+                        addCombatLog("The lantern needs a candle to be useful.", "player-action");
+                    }
+                }
+            }
+        };
+
+        // All game sections
+        const sections = {
+            1: {
+                content: `<p>Your car has broken down in a storm. You see a large mansion ahead - the only shelter for miles. Do you:</p>`,
+                options: [
+                    { text: "Approach the mansion", next: 2 },
+                    { text: "Stay in the car", next: 3 }
+                ]
+            },
+            2: {
+                content: `<p>You approach the ominous mansion. The door creaks open as you touch it. Inside, a shadowy hallway stretches before you. A cold wind blows from somewhere. Do you:</p>`,
+                options: [
+                    { text: "Enter the hallway", next: 10 },
+                    { text: "Check around the side of the house", next: 15 },
+                    { text: "Look for a cellar entrance", next: 18 },
+                    { text: "Explore the garden first", next: 200 }
+                ]
+            },
+            3: {
+                content: `<p>The storm worsens. Lightning strikes a tree nearby, sending it crashing onto your car! You barely escape as the vehicle is crushed.</p>
+                <p>With no other choice, you run toward the mansion.</p>`,
+                options: [
+                    { text: "Continue", next: 2 }
+                ],
+                action: () => {
+                    state.fear += 1;
+                    updateStats();
+                }
+            },
+            10: {
+                content: `<p>The hallway is lined with portraits whose eyes seem to follow you. At the end is a grand staircase. To your left is a dining room, to your right a library. Behind you, the front door slams shut!</p>`,
+                options: [
+                    { text: "Go upstairs", next: 20 },
+                    { text: "Enter the dining room", next: 30 },
+                    { text: "Enter the library", next: 40 },
+                    { text: "Try to open the front door", next: 11 },
+                    { text: "Check the hallway closet", next: 12 }
+                ]
+            },
+            11: {
+                content: `<p>The door won't budge. It's as if something is holding it shut from the outside. A whisper seems to say "You're here forever now..."</p>`,
+                options: [
+                    { text: "Go upstairs", next: 20 },
+                    { text: "Enter the dining room", next: 30 },
+                    { text: "Enter the library", next: 40 },
+                    { text: "Check the hallway closet", next: 12 }
+                ],
+                action: () => {
+                    state.fear += 1;
+                    updateStats();
+                }
+            },
+            12: {
+                content: `<p>The closet contains a dusty coat, an old umbrella, and a small silver bell.</p>`,
+                options: [
+                    { text: "Take the silver bell", next: 13 },
+                    { text: "Leave everything and close the closet", next: 10 }
+                ]
+            },
+            13: {
+                content: `<p>You take the silver bell and return to the hallway.</p>`,
+                options: [
+                    { text: "Continue", next: 10 }
+                ],
+                action: () => {
+                    state.hasBell = true;
+                    addToInventory({ name: "Silver Bell", type: "item", description: "A small silver bell. Might attract attention if rung." });
+                }
+            },
+            15: {
+                content: `<p>You find a side door slightly ajar. Inside is a kitchen where you see a knife block, some garlic hanging, and a candle. There's also a bottle of greenish liquid on the counter.</p>`,
+                options: [
+                    { text: "Take a knife", next: 16 },
+                    { text: "Take some garlic", next: 17 },
+                    { text: "Take the candle", next: 19 },
+                    { text: "Take the green potion", next: 151 },
+                    { text: "Take all items", next: 18 },
+                    { text: "Take nothing and return to the front", next: 2 }
+                ]
+            },
+            151: {
+                content: `<p>You take the green potion and return to the front entrance.</p>`,
+                options: [
+                    { text: "Continue", next: 2 }
+                ],
+                action: () => {
+                    addToInventory(items.greenPotion);
+                }
+            },
+            16: {
+                content: `<p>You take a sharp knife and return to the front entrance.</p>`,
+                options: [
+                    { text: "Continue", next: 2 }
+                ],
+                action: () => {
+                    state.hasKnife = true;
+                    addToInventory(items.knife);
+                }
+            },
+            17: {
+                content: `<p>You take some garlic and return to the front entrance.</p>`,
+                options: [
+                    { text: "Continue", next: 2 }
+                ],
+                action: () => {
+                    state.hasGarlic = true;
+                    addToInventory(items.garlic);
+                }
+            },
+            18: {
+                content: `<p>You take the knife, garlic, candle, and green potion before returning to the front entrance.</p>`,
+                options: [
+                    { text: "Continue", next: 2 }
+                ],
+                action: () => {
+                    state.hasKnife = true;
+                    state.hasGarlic = true;
+                    state.hasCandle = true;
+                    addToInventory(items.knife);
+                    addToInventory(items.garlic);
+                    addToInventory(items.candle);
+                    addToInventory(items.greenPotion);
+                }
+            },
+            19: {
+                content: `<p>You take the candle and return to the front entrance.</p>`,
+                options: [
+                    { text: "Continue", next: 2 }
+                ],
+                action: () => {
+                    state.hasCandle = true;
+                    addToInventory(items.candle);
+                }
+            },
+            20: {
+                content: `<p>Upstairs, the hallway branches left and right. To the left, you hear faint moaning. To the right, there's complete silence. A small table holds ${state.hasBell ? "nothing of interest" : "a silver bell"}.</p>`,
+                options: [
+                    { text: "Go left toward the moaning", next: 25 },
+                    { text: "Go right toward the silence", next: 50 },
+                    { text: "Ring the silver bell", next: 21, condition: () => !state.hasBell && !state.metGhost },
+                    { text: "Check for an attic entrance", next: 22 },
+                    { text: "Go back downstairs", next: 10 }
+                ]
+            },
+            21: {
+                content: `<p>As the bell chimes, a ghostly figure materializes before you! "Thank you for releasing me," it says. "Beware the master of the house - he fears silver and light. The chapel holds secrets against him." The ghost vanishes.</p>`,
+                options: [
+                    { text: "Go left", next: 25 },
+                    { text: "Go right", next: 50 },
+                    { text: "Search for the chapel", next: 23 }
+                ],
+                action: () => {
+                    state.metGhost = true;
+                    state.knowsWeakness = true;
+                }
+            },
+            22: {
+                content: `<p>You find a pull-down ladder leading to the attic. Do you:</p>`,
+                options: [
+                    { text: "Climb up to the attic", next: 220 },
+                    { text: "Leave it and go back", next: 20 }
+                ]
+            },
+            23: {
+                content: `<p>Searching the upstairs, you find a small chapel hidden behind a tapestry. Inside is an altar with a silver cross and a book of prayers.</p>`,
+                options: [
+                    { text: "Take the silver cross", next: 24 },
+                    { text: "Read the prayer book", next: 231 },
+                    { text: "Take both", next: 232 },
+                    { text: "Leave the chapel", next: 20 }
+                ]
+            },
+            24: {
+                content: `<p>You take the silver cross and leave the chapel.</p>`,
+                options: [
+                    { text: "Continue", next: 20 }
+                ],
+                action: () => {
+                    state.hasSilverCross = true;
+                    state.chapelFound = true;
+                    addToInventory(items.silverCross);
+                }
+            },
+            231: {
+                content: `<p>The book contains the words of banishment against demons. You memorize them carefully.</p>`,
+                options: [
+                    { text: "Take the silver cross too", next: 232, condition: () => !state.hasSilverCross },
+                    { text: "Leave the chapel", next: 20 }
+                ],
+                action: () => {
+                    state.knowsWords = true;
+                    state.chapelFound = true;
+                }
+            },
+            232: {
+                content: `<p>You take both the silver cross and the prayer book.</p>`,
+                options: [
+                    { text: "Leave the chapel", next: 20 }
+                ],
+                action: () => {
+                    state.hasSilverCross = true;
+                    state.knowsWords = true;
+                    state.chapelFound = true;
+                    addToInventory(items.silverCross);
+                }
+            },
+            25: {
+                content: `<p>You find a bedroom with a pale man chained to the wall! He begs for help. Do you:</p>`,
+                options: [
+                    { text: "Free him", next: 26 },
+                    { text: "Leave him", next: 27 },
+                    { text: "Offer him garlic", next: 28, condition: () => hasItem("Garlic") },
+                    { text: "Show silver cross", next: 29, condition: () => hasItem("Silver Cross") }
+                ]
+            },
+            26: {
+                content: `<p>As you release the chains, his eyes turn red and he lunges at your neck! It was a vampire!</p>`,
+                options: [
+                    { text: "Fight the vampire", action: () => startCombat(enemies.vampire, 265) },
+                    { text: "Try to escape", next: 264 }
+                ],
+                action: () => {
+                    state.fear += 2;
+                    updateStats();
+                }
+            },
+            264: {
+                content: `<p>You barely escape as the vampire laughs maniacally. You run back to the hallway (-1 Stamina).</p>`,
+                options: [
+                    { text: "Continue", next: 20 }
+                ],
+                action: () => {
+                    state.stamina -= 1;
+                    state.combatActive = false;
+                    updateStats();
+                }
+            },
+            265: {
+                content: `<p>Searching the room, you find ${state.hasKey ? "a note that reads: 'The master's lair is below, protected by his minions.'" : "a key in the dresser and a note that reads: 'The master's lair is below, protected by his minions.'"}</p>`,
+                options: [
+                    { text: "Continue", next: 266 }
+                ],
+                action: () => {
+                    if (!state.hasKey) {
+                        state.hasKey = true;
+                        addToInventory({ name: "Old Key", type: "key", description: "An ornate key. Probably opens something important." });
+                    }
+                }
+            },
+            266: {
+                content: `<p>With ${state.hasKey ? "the note" : "the items"} secured, you return to the upstairs hallway.</p>`,
+                options: [
+                    { text: "Go right this time", next: 50 }
+                ]
+            },
+            27: {
+                content: `<p>You leave the moaning man and return to the hallway.</p>`,
+                options: [
+                    { text: "Go right this time", next: 50 }
+                ]
+            },
+            28: {
+                content: `<p>The chained man snarls at the garlic. "You know what I am then! Free me and I'll tell you how to survive the night!"</p>`,
+                options: [
+                    { text: "Free him in exchange for information", next: 281 },
+                    { text: "Leave him chained", next: 27 }
+                ]
+            },
+            281: {
+                content: `<p>You carefully free the vampire. "The master is Kelnor, a demon who feeds on fear. His weakness is the ritual of banishment - the ingredients are in this house. Now leave me!" He leaps out the window.</p>`,
+                options: [
+                    { text: "Search the room", next: 265 },
+                    { text: "Return to hallway", next: 20 }
+                ],
+                action: () => {
+                    state.knowsRitual = true;
+                    state.fedVampire = true;
+                }
+            },
+            29: {
+                content: `<p>The chained man hisses at the cross. "So you know! Then you know I cannot lie. Free me and I'll tell you the master's weakness."</p>`,
+                options: [
+                    { text: "Free him for information", next: 281 },
+                    { text: "Leave him chained", next: 27 }
+                ]
+            },
+            50: {
+                content: `<p>The silent hallway leads to a locked door. A painting of a demonic face hangs nearby, its eyes seeming to follow you. Do you:</p>`,
+                options: [
+                    { text: "Try your key", next: 51, condition: () => state.hasKey },
+                    { text: "Break down the door", next: 52 },
+                    { text: "Examine the painting", next: 53 },
+                    { text: "Go back", next: 20 }
+                ]
+            },
+            51: {
+                content: `<p>The key fits! Inside is a study with a trapdoor in the floor. A desk holds papers about occult rituals.</p>`,
+                options: [
+                    { text: "Open the trapdoor", next: 100 },
+                    { text: "Read the papers", next: 511 },
+                    { text: "Leave and go back", next: 20 }
+                ]
+            },
+            511: {
+                content: `<p>The papers describe a demon named Kelnor who was summoned here centuries ago. To banish him requires: "silver to blind him, garlic to weaken him, and the words of unbinding spoken at his altar."</p>`,
+                options: [
+                    { text: "Open the trapdoor", next: 100 },
+                    { text: "Leave", next: 20 }
+                ],
+                action: () => {
+                    state.knowsRitual = true;
+                }
+            },
+            52: {
+                content: `<p>You throw your shoulder against the door. Roll two dice:</p>`,
+                options: [
+                    { text: "Roll dice", next: 521 }
+                ]
+            },
+            521: {
+                content: `<p id="dice-content">You need to roll 8 or less to succeed.</p>`,
+                action: () => {
+                    const roll = rollDice(2);
+                    const success = roll <= 8;
+                    document.getElementById('dice-content').innerHTML += `<br>You rolled ${roll}. ${success ? 'Success!' : 'Failure!'}`;
+                    
+                    if (success) {
+                        setTimeout(() => goToSection(100), 1500);
+                    } else {
+                        setTimeout(() => goToSection(522), 1500);
+                    }
+                }
+            },
+            522: {
+                content: `<p>The door doesn't budge and you hurt your shoulder (-2 Stamina).</p>`,
+                options: [
+                    { text: "Go back", next: 20 }
+                ],
+                action: () => {
+                    state.stamina -= 2;
+                    updateStats();
+                }
+            },
+            53: {
+                content: `<p>As you examine the painting, the demon's eyes glow red! Roll two dice to resist fear:</p>`,
+                options: [
+                    { text: "Roll dice", next: 531 }
+                ]
+            },
+            531: {
+                content: `<p id="dice-content">Roll less than or equal to your Stamina to resist.</p>`,
+                action: () => {
+                    const roll = rollDice(2);
+                    const success = roll <= state.stamina;
+                    document.getElementById('dice-content').innerHTML += `<br>You rolled ${roll}. ${success ? 'You resist!' : 'The fear overwhelms you!'}`;
+                    
+                    if (success) {
+                        setTimeout(() => goToSection(532), 1500);
+                    } else {
+                        setTimeout(() => goToSection(533), 1500);
+                    }
+                }
+            },
+            532: {
+                content: `<p>You shake off the fear. Behind the painting you find a small keyhole - perhaps your key fits here?</p>`,
+                options: [
+                    { text: "Try your key", next: 51, condition: () => state.hasKey },
+                    { text: "Leave it", next: 50 }
+                ]
+            },
+            533: {
+                content: `<p class="death">The demon's gaze fills you with terror! You flee screaming back to the hallway (+3 Fear).</p>`,
+                options: [
+                    { text: "Continue", next: 20 }
+                ],
+                action: () => {
+                    state.fear += 3;
+                    updateStats();
+                }
+            },
+            30: {
+                content: `<p>The dining room has a long table set with rotting food. At the head sits a pale woman who smiles with pointed teeth. "Join me for dinner," she says. Other figures sit motionless at the table.</p>`,
+                options: [
+                    { text: "Sit at the table", next: 31 },
+                    { text: "Run back to the hallway", next: 10 },
+                    { text: "Throw garlic at the woman", next: 32, condition: () => hasItem("Garlic") }
+                ]
+            },
+            31: {
+                content: `<p>As you sit, the other guests reveal themselves as vampires! They surround you.</p>`,
+                options: [
+                    { text: "Fight the vampires", action: () => startCombat(enemies.vampire, 10) },
+                    { text: "Try to escape", next: 10 }
+                ],
+                action: () => {
+                    state.fear += 3;
+                    updateStats();
+                }
+            },
+            32: {
+                content: `<p>You throw garlic at the woman! She screams as it burns her skin! "You'll pay for that!" she shrieks as the other vampires rise.</p>`,
+                options: [
+                    { text: "Fight the vampires", action: () => { 
+                        startCombat(enemies.vampire, 10);
+                        items.garlic.use();
+                    }},
+                    { text: "Run for the hallway", next: 10 }
+                ]
+            },
+            40: {
+                content: `<p>The library is filled with ancient tomes. One book on the desk is open to a page about banishing evil spirits. Another book lies on a reading stand.</p>`,
+                options: [
+                    { text: "Read the open book", next: 41 },
+                    { text: "Examine the book on the stand", next: 42 },
+                    { text: "Search the shelves", next: 43 },
+                    { text: "Leave the library", next: 10 }
+                ]
+            },
+            41: {
+                content: `<p>The book explains that the house is a nexus of evil, controlled by a demon named Kelnor. To banish him, you must find his hidden altar in the basement and perform the ritual at midnight: "silver to blind him, garlic to weaken him, and the words of unbinding."</p>
+                <p>You memorize the incantation.</p>`,
+                options: [
+                    { text: "Continue", next: 40 }
+                ],
+                action: () => {
+                    state.knowsRitual = true;
+                }
+            },
+            42: {
+                content: `<p>The book contains a map of the house! It shows a secret passage behind the library shelves leading to the basement.</p>`,
+                options: [
+                    { text: "Search for the secret passage", next: 421 },
+                    { text: "Return to reading", next: 40 }
+                ]
+            },
+            421: {
+                content: `<p>You find a hidden lever behind some books. The shelf swings open to reveal a dark staircase leading down.</p>`,
+                options: [
+                    { text: "Descend carefully", next: 100 },
+                    { text: "Go back", next: 40 }
+                ],
+                action: () => {
+                    state.secretPassageFound = true;
+                }
+            },
+            43: {
+                content: `<p>As you search the shelves, you find a hidden compartment containing a vial of clear liquid labeled "Against the Dead" and a silver dagger!</p>`,
+                options: [
+                    { text: "Take the vial", next: 431 },
+                    { text: "Take the dagger", next: 432 },
+                    { text: "Take both", next: 433 },
+                    { text: "Leave them", next: 40 }
+                ]
+            },
+            431: {
+                content: `<p>You take the vial (Holy Water) and return to the library.</p>`,
+                options: [
+                    { text: "Continue", next: 40 }
+                ],
+                action: () => {
+                    state.hasHolyWater = true;
+                    addToInventory(items.holyWater);
+                }
+            },
+            432: {
+                content: `<p>You take the silver dagger (replaces regular knife) and return to the library.</p>`,
+                options: [
+                    { text: "Continue", next: 40 }
+                ],
+                action: () => {
+                    state.hasKnife = true;
+                    state.silverKnife = true;
+                    addToInventory(items.silverKnife);
+                }
+            },
+            433: {
+                content: `<p>You take both the holy water and silver dagger before returning to the library.</p>`,
+                options: [
+                    { text: "Continue", next: 40 }
+                ],
+                action: () => {
+                    state.hasHolyWater = true;
+                    state.hasKnife = true;
+                    state.silverKnife = true;
+                    addToInventory(items.holyWater);
+                    addToInventory(items.silverKnife);
+                }
+            },
+            220: {
+                content: `<p>The attic is filled with cobwebs and old furniture. In one corner is a chest, in another a standing mirror covered with a sheet. A small window shows the storm still raging outside.</p>`,
+                options: [
+                    { text: "Open the chest", next: 221 },
+                    { text: "Examine the covered mirror", next: 222 },
+                    { text: "Try to signal for help at the window", next: 223 },
+                    { text: "Leave the attic", next: 20 }
+                ],
+                action: () => {
+                    state.atticExplored = true;
+                }
+            },
+            221: {
+                content: `<p>The chest contains an old journal and a strange amulet. The journal describes how the house's previous owner tried to banish Kelnor but failed.</p>`,
+                options: [
+                    { text: "Take the amulet", next: 2211 },
+                    { text: "Read more of the journal", next: 2212 },
+                    { text: "Take both", next: 2213 },
+                    { text: "Close the chest", next: 220 }
+                ]
+            },
+            2211: {
+                content: `<p>You take the amulet (protection against evil) and return to exploring the attic.</p>`,
+                options: [
+                    { text: "Continue", next: 220 }
+                ],
+                action: () => {
+                    state.hasAmulet = true;
+                    addToInventory({ name: "Protective Amulet", type: "item", description: "An ancient amulet said to ward off evil." });
+                }
+            },
+            2212: {
+                content: `<p>The journal reveals that Kelnor can be weakened by reciting the words "Per sanctum virtutem" while showing a holy symbol. The last entry says: "He's coming for me. May God forgive my failure."</p>`,
+                options: [
+                    { text: "Take the amulet", next: 2213 },
+                    { text: "Continue exploring", next: 220 }
+                ],
+                action: () => {
+                    state.knowsWords = true;
+                }
+            },
+            2213: {
+                content: `<p>You take both the amulet and the journal.</p>`,
+                options: [
+                    { text: "Continue exploring", next: 220 }
+                ],
+                action: () => {
+                    state.hasAmulet = true;
+                    state.knowsWords = true;
+                    addToInventory({ name: "Protective Amulet", type: "item", description: "An ancient amulet said to ward off evil." });
+                }
+            },
+            222: {
+                content: `<p>You pull the sheet off the mirror. Instead of your reflection, you see a ghostly figure reaching out toward you!</p>`,
+                options: [
+                    { text: "Fight the ghost", action: () => startCombat(enemies.ghost, 220) },
+                    { text: "Use item from inventory", next: 2226 },
+                    { text: "Step back", next: 2224 }
+                ]
+            },
+            2226: {
+                content: `<p>Select an item from your inventory to use.</p>`,
+                options: [
+                    { text: "Back", next: 222 }
+                ]
+            },
+            2224: {
+                content: `<p>The ghost's hand almost touches you before you jump back. It fades away with a mournful sigh.</p>`,
+                options: [
+                    { text: "Continue", next: 220 }
+                ],
+                action: () => {
+                    state.fear += 1;
+                    state.combatActive = false;
+                    updateStats();
+                }
+            },
+            223: {
+                content: `<p>You wave and shout at the window, but the storm is too fierce. Suddenly, something grabs your shoulder from behind!</p>`,
+                options: [
+                    { text: "Fight the creature", action: () => startCombat(enemies.batCreature, 20) },
+                    { text: "Use item from inventory", next: 2236 },
+                    { text: "Try to break free", next: 2234 }
+                ]
+            },
+            2236: {
+                content: `<p>Select an item from your inventory to use.</p>`,
+                options: [
+                    { text: "Back", next: 223 }
+                ]
+            },
+            2234: {
+                content: `<p>You struggle free and run for the attic ladder (-1 Stamina). The creature's laughter follows you.</p>`,
+                options: [
+                    { text: "Continue", next: 20 }
+                ],
+                action: () => {
+                    state.stamina -= 1;
+                    state.combatActive = false;
+                    updateStats();
+                }
+            },
+            200: {
+                content: `<p>The overgrown garden is eerily silent despite the storm. You see a toolshed, a gazebo, and what might be a family cemetery.</p>`,
+                options: [
+                    { text: "Check the toolshed", next: 201 },
+                    { text: "Go to the gazebo", next: 205 },
+                    { text: "Investigate the cemetery", next: 210 },
+                    { text: "Return to the mansion entrance", next: 2 }
+                ],
+                action: () => {
+                    state.gardenExplored = true;
+                }
+            },
+            201: {
+                content: `<p>The toolshed contains gardening tools, a lantern, and a coil of rope. Do you:</p>`,
+                options: [
+                    { text: "Take the lantern", next: 202 },
+                    { text: "Take the rope", next: 203 },
+                    { text: "Take both", next: 204 },
+                    { text: "Leave everything", next: 200 }
+                ]
+            },
+            202: {
+                content: `<p>You take the lantern (can be lit with candle) and return to the garden.</p>`,
+                options: [
+                    { text: "Continue", next: 200 }
+                ],
+                action: () => {
+                    state.hasLantern = true;
+                    addToInventory(items.lantern);
+                }
+            },
+            203: {
+                content: `<p>You take the rope and return to the garden.</p>`,
+                options: [
+                    { text: "Continue", next: 200 }
+                ],
+                action: () => {
+                    state.hasRope = true;
+                    addToInventory({ name: "Rope", type: "item", description: "A sturdy coil of rope. Could be useful for climbing." });
+                }
+            },
+            204: {
+                content: `<p>You take both the lantern and rope before returning to the garden.</p>`,
+                options: [
+                    { text: "Continue", next: 200 }
+                ],
+                action: () => {
+                    state.hasLantern = true;
+                    state.hasRope = true;
+                    addToInventory(items.lantern);
+                    addToInventory({ name: "Rope", type: "item", description: "A sturdy coil of rope. Could be useful for climbing." });
+                }
+            },
+            205: {
+                content: `<p>The gazebo is covered in strange symbols. At its center is a stone pedestal with a bowl of dark liquid. Do you:</p>`,
+                options: [
+                    { text: "Examine the symbols", next: 206 },
+                    { text: "Inspect the bowl", next: 207 },
+                    { text: "Leave the gazebo", next: 200 }
+                ]
+            },
+            206: {
+                content: `<p>The symbols seem to be protective runes, though many are defaced. One intact symbol looks like it could be useful against evil.</p>`,
+                options: [
+                    { text: "Try to memorize it", next: 2061 },
+                    { text: "Inspect the bowl", next: 207 },
+                    { text: "Leave", next: 200 }
+                ]
+            },
+            2061: {
+                content: `<p>You commit the protective symbol to memory. Perhaps showing it to evil creatures will help.</p>`,
+                options: [
+                    { text: "Inspect the bowl", next: 207 },
+                    { text: "Leave", next: 200 }
+                ],
+                action: () => {
+                    state.hasSymbol = true;
+                }
+            },
+            207: {
+                content: `<p>The bowl contains thick, dark blood. It bubbles slightly despite being cold. Do you:</p>`,
+                options: [
+                    { text: "Add holy water", next: 2071, condition: () => hasItem("Holy Water") },
+                    { text: "Add garlic", next: 2072, condition: () => hasItem("Garlic") },
+                    { text: "Pour it out", next: 2073 },
+                    { text: "Leave it", next: 205 }
+                ]
+            },
+            2071: {
+                content: `<p>The holy water causes the blood to boil violently before evaporating completely. The gazebo's wood begins to creak ominously.</p>`,
+                options: [
+                    { text: "Leave quickly", next: 200 }
+                ],
+                action: () => {
+                    state.fear += 1;
+                    updateStats();
+                }
+            },
+            2072: {
+                content: `<p>The garlic causes the blood to thicken into a black mass that falls out of the bowl. It writhes on the ground before dissolving.</p>`,
+                options: [
+                    { text: "Leave quickly", next: 200 }
+                ]
+            },
+            2073: {
+                content: `<p>As you pour out the blood, the ground hisses where it lands. A deep growl comes from somewhere beneath the gazebo!</p>`,
+                options: [
+                    { text: "Run!", next: 200 }
+                ],
+                action: () => {
+                    state.fear += 2;
+                    updateStats();
+                }
+            },
+            210: {
+                content: `<p>The small cemetery has five graves, one of which is freshly disturbed. A shovel stands nearby.</p>`,
+                options: [
+                    { text: "Examine the disturbed grave", next: 211 },
+                    { text: "Read the gravestones", next: 212 },
+                    { text: "Take the shovel", next: 213 },
+                    { text: "Return to garden", next: 200 }
+                ]
+            },
+            211: {
+                content: `<p>The grave is partially open. Inside you see skeletal remains wrapped in chains. The ghost from the mirror?</p>`,
+                options: [
+                    { text: "Bury the remains properly", next: 2111 },
+                    { text: "Leave them", next: 210 }
+                ]
+            },
+            2111: {
+                content: `<p>You rebury the bones properly. A sigh of relief seems to come from the air around you. The chains feel cold to the touch.</p>`,
+                options: [
+                    { text: "Take the chains", next: 2112 },
+                    { text: "Leave everything", next: 210 }
+                ]
+            },
+            2112: {
+                content: `<p>You take the cold iron chains (may be useful against spirits).</p>`,
+                options: [
+                    { text: "Continue", next: 210 }
+                ],
+                action: () => {
+                    state.hasChains = true;
+                    addToInventory({ name: "Iron Chains", type: "item", description: "Cold iron chains that might bind spirits." });
+                }
+            },
+            212: {
+                content: `<p>The gravestones mark the deaths of the house's previous owners, all on the same night in 1883. One reads "Eleanor - Taken too soon by the darkness."</p>`,
+                options: [
+                    { text: "Examine the disturbed grave", next: 211 },
+                    { text: "Return to garden", next: 200 }
+                ]
+            },
+            213: {
+                content: `<p>You take the shovel (could be useful as a weapon).</p>`,
+                options: [
+                    { text: "Continue", next: 210 }
+                ],
+                action: () => {
+                    state.hasShovel = true;
+                    addToInventory(items.shovel);
+                }
+            },
+            100: {
+                content: `<p>The ${state.secretPassageFound ? "secret passage" : "trapdoor"} leads to a dark basement. At the center is a blood-stained altar with strange symbols. The air is thick with the scent of decay.</p>
+                <p>A shadowy figure materializes before you - Kelnor the demon! "Foolish mortal," he hisses. "You cannot defeat me!"</p>`,
+                options: [
+                    { text: "Fight the demon", action: () => startCombat(enemies.demon, 400) },
+                    { text: "Try to escape", next: 105 }
+                ],
+                action: () => {
+                    state.fear += 4;
+                    updateStats();
+                }
+            },
+            105: {
+                content: `<p class="death">You turn to flee but the ${state.secretPassageFound ? "secret passage" : "trapdoor"} slams shut. Kelnor's laughter fills the room as darkness overtakes you...</p>`,
+                options: [
+                    { text: "You have died. Restart?", next: 1 }
+                ],
+                action: () => {
+                    state.stamina = 0;
+                    state.combatActive = false;
+                    updateStats();
+                }
+            },
+            150: {
+                content: `<p>In your exploration, you find a boarded-up window. The wood is old and rotten. Do you:</p>`,
+                options: [
+                    { text: "Try to break through", next: 151 },
+                    { text: "Leave it", next: 10 }
+                ]
+            },
+            151: {
+                content: `<p>You break through the boards and see the storm still raging outside. The drop is about 15 feet to the ground.</p>`,
+                options: [
+                    { text: "Jump for freedom", next: 152 },
+                    { text: "Use your rope to climb down", next: 157, condition: () => hasItem("Rope") },
+                    { text: "Stay in the house", next: 10 }
+                ]
+            },
+            152: {
+                content: `<p>You leap from the window! Roll two dice:</p>`,
+                options: [
+                    { text: "Roll dice", next: 153 }
+                ]
+            },
+            153: {
+                content: `<p id="dice-content">Roll 7 or less to land safely.</p>`,
+                action: () => {
+                    const roll = rollDice(2);
+                    const success = roll <= 7;
+                    document.getElementById('dice-content').innerHTML += `<br>You rolled ${roll}. ${success ? 'Success!' : 'Failure!'}`;
+                    
+                    if (success) {
+                        setTimeout(() => goToSection(154), 1500);
+                    } else {
+                        setTimeout(() => goToSection(155), 1500);
+                    }
+                }
+            },
+            154: {
+                content: `<p>You land hard but unharmed! The house seems to scream in frustration as you run toward the road. After hours of walking, you find help.</p>
+                <p class="success">You escaped the House of Hell!</p>`,
+                options: [
+                    { text: "Play again?", next: 1 }
+                ]
+            },
+            155: {
+                content: `<p>You land badly, twisting your ankle. As you try to limp away, dark figures emerge from the house and drag you back inside...</p>`,
+                options: [
+                    { text: "Continue", next: 156 }
+                ],
+                action: () => {
+                    state.stamina -= 4;
+                    updateStats();
+                }
+            },
+            156: {
+                content: `<p class="death">You awaken chained in the basement as Kelnor approaches with a ritual dagger. "A fresh sacrifice," he murmurs. The last thing you see is the blade descending...</p>`,
+                options: [
+                    { text: "You have died. Restart?", next: 1 }
+                ],
+                action: () => {
+                    state.stamina = 0;
+                    updateStats();
+                }
+            },
+            157: {
+                content: `<p>You secure the rope and climb down safely. The house seems to scream in frustration as you run toward the road. After hours of walking, you find help.</p>
+                <p class="success">You escaped the House of Hell!</p>`,
+                options: [
+                    { text: "Play again?", next: 1 }
+                ]
+            },
+            400: {
+                content: `<h2 class="success">VICTORY!</h2>
+                <p>With Kelnor defeated, the house's evil influence is broken. The walls begin to crumble as you rush outside just in time.</p>
+                <p>As dawn breaks, you look back to see the mansion collapse into dust. You have survived the House of Hell!</p>
+                <p>Your final Fear score: ${state.fear}</p>
+                <p>${state.fear < 5 ? "Remarkably, you kept your cool throughout the ordeal." : 
+                   state.fear < 10 ? "You were frightened but persevered." : 
+                   "You were terrified but survived against all odds."}</p>`,
+                options: [
+                    { text: "Play again?", next: 1 }
+                ]
+            }
+        };
+
+        // Initialize the game
+        function init() {
+            updateStats();
+            updateInventory();
+            equipItem(items.fists);
+            goToSection(1);
+        }
+
+        // Navigate to a section
+        function goToSection(sectionId) {
+            if (!sectionId) return;
+            
+            state.currentSection = sectionId;
+            state.visitedSections.add(sectionId);
+            
+            const section = sections[sectionId];
+            if (!section) {
+                console.error(`Section ${sectionId} not found!`);
+                return;
+            }
+            
+            const contentDiv = document.getElementById('content');
+            contentDiv.innerHTML = section.content || '';
+            
+            // Clear existing buttons
+            const buttons = contentDiv.querySelectorAll('button');
+            buttons.forEach(button => button.remove());
+            
+            // Add new options if they exist
+            if (section.options && section.options.length > 0) {
+                section.options.forEach(option => {
+                    if (!option.condition || option.condition()) {
+                        const button = document.createElement('button');
+                        button.textContent = option.text;
+                        
+                        if (option.action) {
+                            button.onclick = () => {
+                                option.action();
+                                if (option.next) goToSection(option.next);
+                            };
+                        } else {
+                            button.onclick = () => goToSection(option.next);
+                        }
+                        
+                        contentDiv.appendChild(button);
+                    }
+                });
+            }
+            
+            // Execute section action if it exists
+            if (section.action && typeof section.action === 'function') {
+                section.action();
+            }
+            
+            // Hide dice result if not needed
+            document.getElementById('dice-result').textContent = '';
+            
+            // Check for death
+            if (state.stamina <= 0 && sectionId !== "combat") {
+                contentDiv.innerHTML += `<p class="death">You have died! Game over.</p>`;
+                const restartButton = document.createElement('button');
+                restartButton.textContent = "Restart Game";
+                restartButton.onclick = restartGame;
+                contentDiv.appendChild(restartButton);
+            }
+        }
+
+        function restartGame() {
+            // Reset game state
+            state.currentSection = 1;
+            state.fear = 0;
+            state.stamina = 20;
+            state.maxStamina = 20;
+            state.inventory = [];
+            state.equippedWeapon = { name: "Fists", damage: 1 };
+            state.visitedSections = new Set();
+            state.combatActive = false;
+            state.currentEnemy = null;
+            state.postCombatSection = null;
+            
+            // Reset all flags and items
+            state.hasSilverCross = false;
+            state.hasGarlic = false;
+            state.hasKnife = false;
+            state.hasKey = false;
+            state.hasCandle = false;
+            state.hasHolyWater = false;
+            state.hasMirror = false;
+            state.hasRope = false;
+            state.hasBell = false;
+            state.hasAmulet = false;
+            state.hasLantern = false;
+            state.hasBook = false;
+            state.silverKnife = false;
+            state.blessedCandle = false;
+            state.knowsRitual = false;
+            state.knowsWords = false;
+            state.knowsWeakness = false;
+            state.metGhost = false;
+            state.fedVampire = false;
+            state.secretPassageFound = false;
+            state.chapelFound = false;
+            state.atticExplored = false;
+            state.gardenExplored = false;
+            state.time = 0;
+            state.vampireAngry = false;
+            state.demonWeakened = false;
+            
+            // Reinitialize the game
+            init();
+        }
+
+        function showCombatOptions() {
+            if (!state.combatActive || !state.currentEnemy) {
+                // If combat is over, return to post-combat section
+                if (state.postCombatSection) {
+                    goToSection(state.postCombatSection);
+                } else {
+                    goToSection(state.currentSection);
+                }
+                return;
+            }
+
+            const contentDiv = document.getElementById('content');
+            contentDiv.innerHTML = `
+                <p>You're fighting a ${state.currentEnemy.name} (${state.currentEnemy.hp}/${state.currentEnemy.maxHp} HP)!</p>
+                <p>Your HP: ${state.stamina}/${state.maxStamina}</p>
+            `;
+            
+            const attackBtn = document.createElement('button');
+            attackBtn.textContent = "Attack";
+            attackBtn.onclick = playerAttack;
+            contentDiv.appendChild(attackBtn);
+            
+            const itemBtn = document.createElement('button');
+            itemBtn.textContent = "Use Item";
+            itemBtn.onclick = () => {
+                contentDiv.innerHTML = `<p>Select an item from your inventory to use:</p>`;
+                updateInventory(true); // Show inventory for combat use
+                
+                const backBtn = document.createElement('button');
+                backBtn.textContent = "Back";
+                backBtn.onclick = showCombatOptions;
+                contentDiv.appendChild(backBtn);
+            };
+            contentDiv.appendChild(itemBtn);
+            
+            const escapeBtn = document.createElement('button');
+            escapeBtn.textContent = "Try to Escape";
+            escapeBtn.onclick = tryEscape;
+            contentDiv.appendChild(escapeBtn);
+        }
+
+        function tryEscape() {
+            const escapeRoll = rollDice(2);
+            if (escapeRoll <= 6) {
+                addCombatLog(`You successfully escape from the ${state.currentEnemy.name}!`, "success");
+                state.combatActive = false;
+                state.currentEnemy = null;
+                goToSection(state.currentSection);
+            } else {
+                addCombatLog(`You fail to escape! The ${state.currentEnemy.name} attacks!`, "enemy-action");
+                enemyAttack();
+            }
+        }
+
+        // Update stats display
+        function updateStats() {
+            document.getElementById('fear').textContent = state.fear;
+            document.getElementById('stamina').textContent = state.stamina;
+        }
+
+        // Inventory management
+        function addToInventory(item) {
+            if (!state.inventory.some(i => i.name === item.name)) {
+                state.inventory.push(item);
+                updateInventory();
+            }
+        }
+
+        function removeFromInventory(itemName) {
+            state.inventory = state.inventory.filter(item => item.name !== itemName);
+            updateInventory();
+        }
+
+        function hasItem(itemName) {
+            return state.inventory.some(item => item.name === itemName);
+        }
+
+        function updateInventory(forCombat = false) {
+            const inventoryDiv = document.getElementById('inventory-items');
+            inventoryDiv.innerHTML = '';
+            
+            if (state.inventory.length === 0) {
+                inventoryDiv.textContent = 'None';
+                return;
+            }
+            
+            state.inventory.forEach(item => {
+                const itemElement = document.createElement('div');
+                itemElement.className = 'inventory-item';
+                if (state.equippedWeapon && item.name === state.equippedWeapon.name && item.type === "weapon") {
+                    itemElement.classList.add('equipped');
+                }
+                itemElement.textContent = item.name;
+                itemElement.onclick = () => {
+                    if (item.use) {
+                        item.use();
+                        if (forCombat) {
+                            showCombatOptions();
+                        }
+                    }
+                };
+                inventoryDiv.appendChild(itemElement);
+            });
+        }
+
+        function equipItem(weapon) {
+            if (weapon.type === "weapon") {
+                state.equippedWeapon = weapon;
+                document.getElementById('current-weapon').textContent = `${weapon.name} (${weapon.damage} dmg)`;
+                updateInventory();
+                addCombatLog(`You equipped the ${weapon.name}.`, "player-action");
+            }
+        }
+
+        // Combat system
+        function startCombat(enemy, postCombatSection) {
+            state.combatActive = true;
+            state.currentEnemy = JSON.parse(JSON.stringify(enemy));
+            state.postCombatSection = postCombatSection;
+            addCombatLog(`A ${state.currentEnemy.name} appears!`, "enemy-action");
+            if (state.currentEnemy.special) {
+                addCombatLog(state.currentEnemy.special, "enemy-action");
+            }
+            showCombatOptions();
+        }
+
+        function playerAttack() {
+            if (!state.combatActive || !state.currentEnemy) return;
+            
+            let damage = state.equippedWeapon.damage + state.playerAttack;
+            
+            // Check for weapon special properties against enemy weaknesses
+            if (state.equippedWeapon.special && 
+                state.currentEnemy.weaknesses.includes(state.equippedWeapon.special)) {
+                damage *= 2; // Double damage for weakness
+                addCombatLog(`Your ${state.equippedWeapon.name} is super effective!`, "player-action");
+            }
+            
+            // Check if enemy resists normal weapons
+            if (state.currentEnemy.resistances.includes("normal") && 
+                (!state.equippedWeapon.special || !state.currentEnemy.weaknesses.includes(state.equippedWeapon.special))) {
+                damage = Math.floor(damage * 0.5); // Half damage for resistance
+                addCombatLog(`The ${state.currentEnemy.name} resists your attack!`, "enemy-action");
+            }
+            
+            state.currentEnemy.hp -= damage;
+            addCombatLog(`You hit the ${state.currentEnemy.name} for ${damage} damage!`, "damage");
+            
+            checkEnemyHealth();
+        }
+
+        function enemyAttack() {
+            if (!state.combatActive || !state.currentEnemy) return;
+            
+            if (state.currentEnemy.skipTurn) {
+                addCombatLog(`The ${state.currentEnemy.name} hesitates to attack!`, "enemy-action");
+                state.currentEnemy.skipTurn = false;
+                return;
+            }
+            
+            const damage = Math.max(1, state.currentEnemy.damage - state.playerDefense);
+            state.stamina -= damage;
+            updateStats();
+            addCombatLog(`The ${state.currentEnemy.name} hits you for ${damage} damage!`, "damage");
+            
+            // Fear effect
+            if (Math.random() < 0.3) { // 30% chance of fear increase
+                state.fear += Math.floor(state.currentEnemy.fearEffect / 2);
+                addCombatLog(`The ${state.currentEnemy.name} frightens you!`, "enemy-action");
+                updateStats();
+            }
+            
+            checkPlayerHealth();
+        }
+
+        function checkEnemyHealth() {
+            if (state.currentEnemy.hp <= 0) {
+                addCombatLog(`You defeated the ${state.currentEnemy.name}!`, "success");
+                state.combatActive = false;
+                
+                // Special case for defeating the demon (final boss)
+                if (state.currentEnemy.name === "Demon Kelnor") {
+                    state.currentEnemy = null;
+                    goToSection(400); // Go to victory section
+                    return;
+                }
+                
+                state.currentEnemy = null;
+                
+                // Clear combat log and go to post-combat section
+                document.getElementById('combat-log').innerHTML = '';
+                if (state.postCombatSection) {
+                    goToSection(state.postCombatSection);
+                } else {
+                    goToSection(state.currentSection);
+                }
+            } else {
+                // Enemy gets a turn
+                setTimeout(enemyAttack, 1000);
+            }
+        }
+
+        function checkPlayerHealth() {
+            if (state.stamina <= 0) {
+                addCombatLog("You have been defeated!", "death");
+                state.combatActive = false;
+                state.currentEnemy = null;
+                
+                const contentDiv = document.getElementById('content');
+                contentDiv.innerHTML = `<p class="death">You have been defeated!</p>`;
+                
+                const restartButton = document.createElement('button');
+                restartButton.textContent = "Restart Game";
+                restartButton.onclick = restartGame;
+                contentDiv.appendChild(restartButton);
+            } else if (state.combatActive) {
+                // Return to combat options
+                showCombatOptions();
+            }
+        }
+
+        function addCombatLog(message, type) {
+            const logEntry = document.createElement('div');
+            logEntry.className = `combat-entry ${type}`;
+            logEntry.textContent = message;
+            document.getElementById('combat-log').appendChild(logEntry);
+            // Auto-scroll to bottom
+            document.getElementById('combat-log').scrollTop = document.getElementById('combat-log').scrollHeight;
+        }
+
+        // Roll dice
+        function rollDice(count) {
+            let total = 0;
+            for (let i = 0; i < count; i++) {
+                total += Math.floor(Math.random() * 6) + 1;
+            }
+            document.getElementById('dice-result').textContent = `Rolled: ${total}`;
+            return total;
+        }
+
+        // Start the game
+        window.onload = init;
+    </script>
+</body>
+</html>
