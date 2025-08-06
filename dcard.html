@@ -769,6 +769,103 @@
             100% { transform: translateY(-100vh) translateX(20px); opacity: 0; }
         }
         
+        /* New styles for character selection */
+        .character-select {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .character-option {
+            width: 100px;
+            padding: 10px;
+            background: rgba(30, 10, 10, 0.7);
+            border-radius: 5px;
+            text-align: center;
+            cursor: pointer;
+            transition: transform 0.2s;
+            border: 2px solid #5a1a1a;
+        }
+        
+        .character-option:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 10px rgba(255, 0, 0, 0.2);
+        }
+        
+        .character-option.selected {
+            border-color: #ffcc00;
+            box-shadow: 0 0 15px #ffcc00;
+        }
+        
+        .character-icon {
+            font-size: 40px;
+            margin-bottom: 5px;
+        }
+        
+        /* Card tooltip */
+        .card-tooltip {
+            position: fixed;
+            background: rgba(20, 10, 10, 0.95);
+            border: 2px solid #5a1a1a;
+            border-radius: 5px;
+            padding: 10px;
+            max-width: 200px;
+            z-index: 100;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.7);
+        }
+        
+        /* Screen shake */
+        .screen-shake {
+            animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+        }
+        
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+        
+        /* Enemy death animation */
+        .enemy-death {
+            animation: deathAnimation 1s ease-out forwards;
+        }
+        
+        @keyframes deathAnimation {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+            100% { transform: scale(0.5); opacity: 0; }
+        }
+        
+        /* Event modal */
+        .event-option {
+            margin: 10px 0;
+            padding: 10px;
+            background: rgba(30, 10, 10, 0.7);
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.2s;
+            border-left: 3px solid #5a1a1a;
+        }
+        
+        .event-option:hover {
+            background: rgba(50, 20, 20, 0.7);
+        }
+        
+        /* Save indicator */
+        .save-indicator {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            font-size: 12px;
+            color: #888;
+        }
+        
         @media (max-width: 400px) {
             .card {
                 width: 70px;
@@ -794,6 +891,15 @@
                 width: 120px;
                 padding: 10px;
             }
+            
+            .character-option {
+                width: 80px;
+                font-size: 12px;
+            }
+            
+            .character-icon {
+                font-size: 30px;
+            }
         }
     </style>
 </head>
@@ -804,6 +910,7 @@
     
     <button id="shop-btn">🛒</button>
     <button id="achievements-btn">🏆</button>
+    <div class="save-indicator" id="save-indicator">Auto-saving...</div>
     
     <div id="game-container">
         <div id="header">
@@ -872,6 +979,31 @@
     </div>
     
     <div id="screen-overlay" style="display: none;">
+        <div class="modal" id="start-modal">
+            <h2>DEMON CARDS</h2>
+            <p>A dark card game of strategy and survival</p>
+            
+            <div class="character-select" id="character-select">
+                <div class="character-option" data-class="occultist">
+                    <div class="character-icon">🔮</div>
+                    <div>Occultist</div>
+                    <small>Balanced deck with curses and wards</small>
+                </div>
+                <div class="character-option" data-class="bloodmage">
+                    <div class="character-icon">🩸</div>
+                    <div>Blood Mage</div>
+                    <small>Powerful attacks that cost HP</small>
+                </div>
+                <div class="character-option" data-class="necromancer">
+                    <div class="character-icon">💀</div>
+                    <div>Necromancer</div>
+                    <small>Poison and undead minions</small>
+                </div>
+            </div>
+            
+            <button class="btn" id="start-game-btn">Begin Ritual</button>
+        </div>
+        
         <div class="modal" id="reward-modal" style="display: none;">
             <h2>VICTORY!</h2>
             <p>You banished the demon!</p>
@@ -904,12 +1036,23 @@
             </div>
             <button class="btn" id="close-shop-btn" style="margin-top: 20px;">Leave</button>
         </div>
+        
+        <div class="modal" id="event-modal" style="display: none;">
+            <h2 id="event-title">ENCOUNTER</h2>
+            <p id="event-description"></p>
+            <div id="event-options">
+                <!-- Event options will be added here -->
+            </div>
+        </div>
     </div>
+    
+    <div class="card-tooltip" id="card-tooltip"></div>
     
     <script>
         // Game state
         const gameState = {
             player: {
+                class: "occultist",
                 maxHp: 30,
                 hp: 30,
                 maxEnergy: 3,
@@ -929,7 +1072,8 @@
                 perfectVictories: 0,
                 demonsBanished: 0,
                 statusEffects: {},
-                relics: []
+                relics: [],
+                storyFlags: {}
             },
             enemy: {
                 name: "Ghoul",
@@ -946,7 +1090,8 @@
             cardsPlayedThisTurn: 0,
             selectedReward: null,
             currentCombatDamageTaken: 0,
-            shopInventory: []
+            shopInventory: [],
+            lastSave: Date.now()
         };
         
         // Create floating particles
@@ -986,6 +1131,27 @@
             
             setTimeout(() => {
                 damageNumber.remove();
+            }, 1000);
+        }
+        
+        // Screen shake effect
+        function screenShake(intensity = 10) {
+            const gameContainer = document.getElementById('game-container');
+            gameContainer.classList.add('screen-shake');
+            gameContainer.style.animationDuration = `${intensity/20}s`;
+            
+            setTimeout(() => {
+                gameContainer.classList.remove('screen-shake');
+            }, 500);
+        }
+        
+        // Enemy death animation
+        function playEnemyDeathAnimation() {
+            const enemy = document.getElementById('enemy');
+            enemy.classList.add('enemy-death');
+            
+            setTimeout(() => {
+                enemy.classList.remove('enemy-death');
             }, 1000);
         }
         
@@ -1074,7 +1240,13 @@
             { id: "immortality", name: "Immortality", cost: 3, description: "Gain 20 Block. Heal 10 HP", type: "skill", effect: { block: 20, heal: 10 }, rarity: "legendary" },
             { id: "time_distortion", name: "Time Distortion", cost: 3, description: "Take an extra turn", type: "skill", effect: { extraTurn: true }, rarity: "legendary" },
             { id: "black_death", name: "Black Death", cost: 3, description: "Apply 5 Poison to all enemies", type: "skill", effect: { status: { poison: 5 }, aoe: true }, rarity: "legendary", cardClass: "poison" },
-            { id: "void_chill", name: "Void Chill", cost: 4, description: "Deal 15 damage. Apply 3 Vulnerable", type: "attack", effect: { damage: 15, status: { vulnerable: 3 } }, rarity: "legendary", cardClass: "ice" }
+            { id: "void_chill", name: "Void Chill", cost: 4, description: "Deal 15 damage. Apply 3 Vulnerable", type: "attack", effect: { damage: 15, status: { vulnerable: 3 } }, rarity: "legendary", cardClass: "ice" },
+            
+            // Class-specific cards
+            { id: "blood_sacrifice", name: "Blood Sacrifice", cost: 0, description: "Lose 3 HP. Gain 2 Energy", type: "skill", effect: { damageSelf: 3, energy: 2 }, rarity: "uncommon", class: "bloodmage" },
+            { id: "hemorrhage", name: "Hemorrhage", cost: 1, description: "Lose 5 HP. Deal 12 damage", type: "attack", effect: { damageSelf: 5, damage: 12 }, rarity: "rare", class: "bloodmage" },
+            { id: "summon_ghoul", name: "Summon Ghoul", cost: 2, description: "Summon a 10 HP Ghoul to fight for you", type: "skill", effect: { summon: "ghoul" }, rarity: "uncommon", class: "necromancer" },
+            { id: "necrotic_blast", name: "Necrotic Blast", cost: 1, description: "Deal 3 damage + 1 per Poison on enemy", type: "attack", effect: { damage: { base: 3, perPoison: 1 } }, rarity: "common", class: "necromancer" }
         ];
         
         // Enemy database (updated for horror theme)
@@ -1124,7 +1296,13 @@
             } },
             { id: "blood_vial", name: "Blood Vial", description: "Heal 10 HP immediately", price: 50, effect: (game) => {
                 game.player.hp = Math.min(game.player.hp + 10, game.player.maxHp);
-            }, consumable: true }
+            }, consumable: true },
+            { id: "bloodstone", name: "Bloodstone", description: "Blood Mage cards cost 1 less HP to use", price: 120, effect: (game) => {
+                game.player.relics.push("bloodstone");
+            }, class: "bloodmage" },
+            { id: "necronomicon", name: "Necronomicon", description: "Your first attack each turn is played twice", price: 200, effect: (game) => {
+                game.player.relics.push("necronomicon");
+            }, class: "necromancer" }
         ];
         
         // Achievements database (updated for horror theme)
@@ -1137,7 +1315,126 @@
             { id: "deck_master", title: "Grimoire Master", description: "Have a deck with 30+ cards", icon: "📜", condition: (game) => game.player.deck.length >= 30, reward: { maxEnergy: 1 } },
             { id: "demon_slayer", title: "Demon Slayer", description: "Defeat the Archdemon", icon: "👹", condition: (game) => game.player.demonsBanished >= 1, reward: { card: "apocalypse" } },
             { id: "toxic_avenger", title: "Plague Bringer", description: "Defeat 5 enemies with poison", icon: "☠️", condition: (game) => game.player.achievements.toxic_avenger?.progress >= 5, reward: { card: "black_death" } },
-            { id: "fire_master", title: "Hellfire Master", description: "Deal 100 damage with Hellfire cards", icon: "🔥", condition: (game) => game.player.achievements.fire_master?.progress >= 100, reward: { card: "infernal_torment" } }
+            { id: "fire_master", title: "Hellfire Master", description: "Deal 100 damage with Hellfire cards", icon: "🔥", condition: (game) => game.player.achievements.fire_master?.progress >= 100, reward: { card: "infernal_torment" } },
+            { id: "blood_ritual", title: "Blood Ritual", description: "Deal 50 damage with Blood Mage cards", icon: "🩸", condition: (game) => game.player.achievements.blood_ritual?.progress >= 50, reward: { card: "hemorrhage" } },
+            { id: "undead_army", title: "Undead Army", description: "Summon 10 Ghouls", icon: "💀", condition: (game) => game.player.achievements.undead_army?.progress >= 10, reward: { card: "summon_ghoul" } }
+        ];
+        
+        // Event database
+        const eventDatabase = [
+            {
+                id: "cursed_shrine",
+                title: "Cursed Shrine",
+                description: "You find an ancient shrine pulsating with dark energy. A whispering voice offers power... for a price.",
+                options: [
+                    {
+                        text: "Gain 1 Max Energy (Lose 10 Max HP)",
+                        effect: (game) => {
+                            game.player.maxEnergy += 1;
+                            game.player.maxHp = Math.max(10, game.player.maxHp - 10);
+                            game.player.hp = Math.min(game.player.hp, game.player.maxHp);
+                            showNotification("Energy surges through you, but you feel weaker...");
+                        }
+                    },
+                    {
+                        text: "Gain 10 Max HP (Lose 1 Max Energy)",
+                        effect: (game) => {
+                            game.player.maxHp += 10;
+                            game.player.maxEnergy = Math.max(1, game.player.maxEnergy - 1);
+                            showNotification("Your body feels stronger, but your connection to the arcane weakens...");
+                        }
+                    },
+                    {
+                        text: "Leave it alone",
+                        effect: (game) => {
+                            showNotification("You wisely avoid meddling with dark forces.");
+                        }
+                    }
+                ]
+            },
+            {
+                id: "wounded_adventurer",
+                title: "Wounded Adventurer",
+                description: "A fellow demon hunter lies bleeding. You recognize them as a rival from your order.",
+                options: [
+                    {
+                        text: "Heal them (Lose 15 HP)",
+                        effect: (game) => {
+                            if (game.player.hp > 15) {
+                                game.player.hp -= 15;
+                                game.player.gold += 75;
+                                showNotification("They thank you and give you 75 soul fragments before vanishing.");
+                            } else {
+                                showNotification("You don't have enough health to help them.");
+                            }
+                        }
+                    },
+                    {
+                        text: "Rob them",
+                        effect: (game) => {
+                            game.player.gold += 50;
+                            game.player.storyFlags.stoleFromWounded = true;
+                            showNotification("You take their pouch of soul fragments. They curse you with their dying breath.");
+                        }
+                    },
+                    {
+                        text: "Put them out of their misery",
+                        effect: (game) => {
+                            game.player.maxHp += 5;
+                            showNotification("You end their suffering and feel a dark energy empower you.");
+                        }
+                    }
+                ]
+            },
+            {
+                id: "mysterious_merchant",
+                title: "Mysterious Merchant",
+                description: "A hooded figure offers to modify one of your cards for 50 soul fragments.",
+                options: [
+                    {
+                        text: "Upgrade a random card (-50 gold)",
+                        effect: (game) => {
+                            if (game.player.gold >= 50) {
+                                game.player.gold -= 50;
+                                const upgradableCards = game.player.deck.filter(c => c.rarity !== "legendary");
+                                if (upgradableCards.length > 0) {
+                                    const card = upgradableCards[Math.floor(Math.random() * upgradableCards.length)];
+                                    if (card.effect.damage) card.effect.damage += 2;
+                                    if (card.effect.block) card.effect.block += 3;
+                                    if (card.effect.heal) card.effect.heal += 2;
+                                    showNotification(`${card.name} has been empowered!`);
+                                } else {
+                                    showNotification("No cards available to upgrade");
+                                    game.player.gold += 50;
+                                }
+                            } else {
+                                showNotification("Not enough soul fragments!");
+                            }
+                        }
+                    },
+                    {
+                        text: "Remove a random card (-30 gold)",
+                        effect: (game) => {
+                            if (game.player.gold >= 30 && game.player.deck.length > 5) {
+                                game.player.gold -= 30;
+                                const cardIndex = Math.floor(Math.random() * game.player.deck.length);
+                                const removedCard = game.player.deck.splice(cardIndex, 1)[0];
+                                showNotification(`Removed ${removedCard.name} from your deck`);
+                            } else if (game.player.deck.length <= 5) {
+                                showNotification("Your deck is too small to remove cards");
+                            } else {
+                                showNotification("Not enough soul fragments!");
+                            }
+                        }
+                    },
+                    {
+                        text: "Decline their offer",
+                        effect: (game) => {
+                            showNotification("You decide to keep your deck as it is.");
+                        }
+                    }
+                ]
+            }
         ];
         
         // Initialize game
@@ -1155,12 +1452,8 @@
                 }
             });
             
-            // Create starter deck
-            gameState.player.deck = [
-                { ...findCardById("dark_strike") }, { ...findCardById("dark_strike") }, { ...findCardById("dark_strike") }, { ...findCardById("dark_strike") },
-                { ...findCardById("shadow_ward") }, { ...findCardById("shadow_ward") }, { ...findCardById("shadow_ward") }, { ...findCardById("shadow_ward") },
-                { ...findCardById("soul_rend") }, { ...findCardById("blood_dagger") }
-            ];
+            // Create starter deck based on class
+            createStarterDeck();
             
             // Initialize player stats
             gameState.player.goldSpent = 0;
@@ -1169,6 +1462,7 @@
             gameState.currentCombatDamageTaken = 0;
             gameState.player.statusEffects = {};
             gameState.player.relics = [];
+            gameState.player.storyFlags = {};
             
             // Generate initial shop inventory
             generateShopInventory();
@@ -1187,6 +1481,49 @@
             
             // Set enemy intent
             setEnemyIntent();
+            
+            // Show start screen
+            showStartScreen();
+            
+            // Initialize auto-save
+            setInterval(autoSave, 30000); // Save every 30 seconds
+        }
+        
+        // Create starter deck based on selected class
+        function createStarterDeck() {
+            gameState.player.deck = [];
+            
+            // Common cards for all classes
+            const commonCards = [
+                { ...findCardById("dark_strike") }, { ...findCardById("dark_strike") },
+                { ...findCardById("shadow_ward") }, { ...findCardById("shadow_ward") }
+            ];
+            
+            // Class-specific cards
+            let classCards = [];
+            switch(gameState.player.class) {
+                case "bloodmage":
+                    classCards = [
+                        { ...findCardById("blood_dagger") }, { ...findCardById("blood_dagger") },
+                        { ...findCardById("blood_sacrifice") }, { ...findCardById("soul_rend") }
+                    ];
+                    gameState.player.maxHp = 40; // Blood Mages have more HP to offset self-damage
+                    gameState.player.hp = 40;
+                    break;
+                case "necromancer":
+                    classCards = [
+                        { ...findCardById("venomous_curse") }, { ...findCardById("venomous_curse") },
+                        { ...findCardById("necrotic_blast") }, { ...findCardById("summon_ghoul") }
+                    ];
+                    break;
+                default: // Occultist
+                    classCards = [
+                        { ...findCardById("dark_strike") }, { ...findCardById("shadow_ward") },
+                        { ...findCardById("soul_rend") }, { ...findCardById("dark_ritual") }
+                    ];
+            }
+            
+            gameState.player.deck = [...commonCards, ...classCards];
         }
         
         // Find card by ID
@@ -1217,6 +1554,7 @@
                     gameState.player.drawPile = [...gameState.player.discard];
                     gameState.player.discard = [];
                     shuffleDeck();
+                    showNotification("Deck reshuffled!");
                 }
                 
                 const card = gameState.player.drawPile.pop();
@@ -1276,6 +1614,36 @@
                 effect.damage = (effect.damage || 0) + 2;
             }
             
+            // Handle self-damage for Blood Mage cards
+            if (effect.damageSelf) {
+                dealDamageToPlayer(effect.damageSelf);
+                showNotification(`You sacrificed ${effect.damageSelf} HP!`);
+            }
+            
+            // Handle summon effects
+            if (effect.summon) {
+                if (effect.summon === "ghoul") {
+                    // In a full game, this would summon a minion to fight for you
+                    showNotification("A ghoul joins your side!");
+                    
+                    // Track for achievement
+                    const progress = gameState.player.achievements.undead_army?.progress || 0;
+                    gameState.player.achievements.undead_army = {
+                        ...gameState.player.achievements.undead_army,
+                        progress: progress + 1
+                    };
+                }
+            }
+            
+            // Handle dynamic damage (like Necrotic Blast)
+            if (effect.damage && typeof effect.damage === 'object') {
+                let damage = effect.damage.base || 0;
+                if (effect.damage.perPoison && gameState.enemy.statusEffects.poison) {
+                    damage += effect.damage.perPoison * gameState.enemy.statusEffects.poison.stacks;
+                }
+                effect.damage = damage;
+            }
+            
             if (effect.damage) {
                 let totalDamage = Math.floor(effect.damage * damageModifier);
                 
@@ -1302,6 +1670,15 @@
                     const progress = gameState.player.achievements.fire_master?.progress || 0;
                     gameState.player.achievements.fire_master = {
                         ...gameState.player.achievements.fire_master,
+                        progress: progress + totalDamage
+                    };
+                }
+                
+                // Track blood mage damage for achievement
+                if (gameState.player.class === "bloodmage") {
+                    const progress = gameState.player.achievements.blood_ritual?.progress || 0;
+                    gameState.player.achievements.blood_ritual = {
+                        ...gameState.player.achievements.blood_ritual,
                         progress: progress + totalDamage
                     };
                 }
@@ -1369,6 +1746,11 @@
             const rect = enemyElement.getBoundingClientRect();
             showDamageNumber(amount, rect.left + rect.width/2, rect.top + rect.height/2, false);
             
+            // Screen shake for big hits
+            if (amount >= 10) {
+                screenShake(amount);
+            }
+            
             // Check if enemy is defeated
             if (gameState.enemy.hp <= 0) {
                 enemyDefeated();
@@ -1379,6 +1761,9 @@
         
         // Enemy defeated
         function enemyDefeated() {
+            // Play death animation
+            playEnemyDeathAnimation();
+            
             // Track enemy defeat
             gameState.player.enemiesDefeated++;
             
@@ -1413,7 +1798,14 @@
             checkAchievements();
             
             // Show reward screen
-            showRewardScreen();
+            setTimeout(() => {
+                // 30% chance for an event between floors
+                if (Math.random() < 0.3 && gameState.floor % 5 !== 0) {
+                    showRandomEvent();
+                } else {
+                    showRewardScreen();
+                }
+            }, 1000);
         }
         
         // End player turn
@@ -1514,6 +1906,11 @@
                 const playerElement = document.getElementById('player-display');
                 const rect = playerElement.getBoundingClientRect();
                 showDamageNumber(amount, rect.left + rect.width/2, rect.top + rect.height/2, true);
+                
+                // Screen shake for big hits
+                if (amount >= 10) {
+                    screenShake(amount);
+                }
             }
             
             // Check if player is defeated
@@ -1532,8 +1929,15 @@
             gameState.player.block = 0;
             
             // Apply relic effects at start of combat
-            if (gameState.turn === 1 && gameState.player.relics.includes("vial_of_venom")) {
-                applyStatusEffects({ poison: 3 }, gameState.enemy);
+            if (gameState.turn === 1) {
+                if (gameState.player.relics.includes("vial_of_venom")) {
+                    applyStatusEffects({ poison: 3 }, gameState.enemy);
+                }
+                
+                // Show story intro for floor 5
+                if (gameState.floor === 5) {
+                    showNotification("A powerful presence approaches... The Archdemon awakens!");
+                }
             }
             
             // Draw new hand
@@ -1571,10 +1975,10 @@
             if (gameState.floor >= 3) availableRarities.push("rare");
             if (gameState.floor >= 5) availableRarities.push("epic");
             
-            // Add 3 random cards
+            // Add 3 random cards (including class-specific ones)
             const eligibleCards = cardDatabase.filter(card => 
                 availableRarities.includes(card.rarity) && 
-                !['dark_strike', 'shadow_ward', 'soul_rend', 'blood_dagger'].includes(card.id));
+                !card.class || card.class === gameState.player.class);
             
             for (let i = 0; i < 3; i++) {
                 if (eligibleCards.length > 0) {
@@ -1587,10 +1991,11 @@
                 }
             }
             
-            // Add 1-2 relics
+            // Add 1-2 relics (including class-specific ones)
             const availableRelics = relicsDatabase.filter(relic => 
                 !gameState.player.relics.includes(relic.id) && 
-                !gameState.shopInventory.some(item => item.id === relic.id));
+                !gameState.shopInventory.some(item => item.id === relic.id) &&
+                (!relic.class || relic.class === gameState.player.class));
             
             const relicCount = 1 + Math.floor(Math.random());
             for (let i = 0; i < relicCount && availableRelics.length > 0; i++) {
@@ -1608,6 +2013,45 @@
                 id: "blood_vial",
                 price: 50
             });
+        }
+        
+        // Show start screen
+        function showStartScreen() {
+            document.getElementById('screen-overlay').style.display = 'flex';
+            document.getElementById('start-modal').style.display = 'block';
+            
+            // Character selection
+            const options = document.querySelectorAll('.character-option');
+            options.forEach(option => {
+                option.addEventListener('click', function() {
+                    options.forEach(opt => opt.classList.remove('selected'));
+                    this.classList.add('selected');
+                    gameState.player.class = this.getAttribute('data-class');
+                });
+            });
+            
+            // Default selection
+            options[0].classList.add('selected');
+        }
+        
+        // Start game
+        function startGame() {
+            document.getElementById('screen-overlay').style.display = 'none';
+            document.getElementById('start-modal').style.display = 'none';
+            
+            // Create starter deck based on selected class
+            createStarterDeck();
+            
+            // Shuffle deck
+            shuffleDeck();
+            
+            // Set initial draw pile
+            gameState.player.drawPile = [...gameState.player.deck];
+            
+            // Draw initial hand
+            drawCards(5);
+            
+            updateUI();
         }
         
         // Show reward screen
@@ -1628,7 +2072,8 @@
             // Filter cards by available rarities and exclude starter cards
             const eligibleCards = cardDatabase.filter(card => 
                 availableRarities.includes(card.rarity) && 
-                !['dark_strike', 'shadow_ward', 'soul_rend', 'blood_dagger'].includes(card.id));
+                !['dark_strike', 'shadow_ward', 'soul_rend', 'blood_dagger'].includes(card.id) &&
+                (!card.class || card.class === gameState.player.class));
             
             // Select 3 random cards with weighted rarity distribution
             const rewardCards = [];
@@ -1686,6 +2131,35 @@
                     gameState.selectedReward = card;
                 };
                 rewardContainer.appendChild(cardElement);
+            });
+        }
+        
+        // Show random event
+        function showRandomEvent() {
+            const event = eventDatabase[Math.floor(Math.random() * eventDatabase.length)];
+            const eventModal = document.getElementById('event-modal');
+            
+            document.getElementById('screen-overlay').style.display = 'flex';
+            eventModal.style.display = 'block';
+            
+            document.getElementById('event-title').textContent = event.title;
+            document.getElementById('event-description').textContent = event.description;
+            
+            const optionsContainer = document.getElementById('event-options');
+            optionsContainer.innerHTML = '';
+            
+            event.options.forEach((option, index) => {
+                const optionElement = document.createElement('div');
+                optionElement.className = 'event-option';
+                optionElement.textContent = option.text;
+                optionElement.onclick = function() {
+                    option.effect(gameState);
+                    eventModal.style.display = 'none';
+                    setTimeout(() => {
+                        showRewardScreen();
+                    }, 500);
+                };
+                optionsContainer.appendChild(optionElement);
             });
         }
         
@@ -1879,6 +2353,7 @@
         function restartGame() {
             // Reset game state
             gameState.player = {
+                class: gameState.player.class,
                 maxHp: 30,
                 hp: 30,
                 maxEnergy: 3,
@@ -1898,7 +2373,8 @@
                 perfectVictories: 0,
                 demonsBanished: 0,
                 statusEffects: {},
-                relics: []
+                relics: [],
+                storyFlags: {}
             };
             
             gameState.enemy = {
@@ -1920,6 +2396,12 @@
             
             document.getElementById('screen-overlay').style.display = 'none';
             document.getElementById('game-over-modal').style.display = 'none';
+            
+            // Reset class-specific stats
+            if (gameState.player.class === "bloodmage") {
+                gameState.player.maxHp = 40;
+                gameState.player.hp = 40;
+            }
             
             initGame();
         }
@@ -2039,6 +2521,25 @@
                         playCard(index);
                     }
                 };
+                
+                // Card tooltip
+                cardElement.addEventListener('mousemove', function(e) {
+                    const tooltip = document.getElementById('card-tooltip');
+                    tooltip.style.left = `${e.clientX + 15}px`;
+                    tooltip.style.top = `${e.clientY + 15}px`;
+                    tooltip.style.opacity = '1';
+                    
+                    let tooltipText = `<strong>${card.name}</strong><br>${card.description}`;
+                    if (card.cardClass === "fire") tooltipText += "<br><br>Fire: Deals direct damage";
+                    if (card.cardClass === "poison") tooltipText += "<br><br>Poison: Deals damage over time";
+                    if (card.cardClass === "ice") tooltipText += "<br><br>Ice: Weakens enemies";
+                    
+                    tooltip.innerHTML = tooltipText;
+                });
+                
+                cardElement.addEventListener('mouseout', function() {
+                    document.getElementById('card-tooltip').style.opacity = '0';
+                });
             }
             
             cardElement.innerHTML = `
@@ -2150,6 +2651,28 @@
             updateStatusDisplay();
         }
         
+        // Auto-save game
+        function autoSave() {
+            localStorage.setItem('demonCardsSave', JSON.stringify(gameState));
+            document.getElementById('save-indicator').textContent = "Game saved";
+            setTimeout(() => {
+                document.getElementById('save-indicator').textContent = "Auto-saving...";
+            }, 2000);
+        }
+        
+        // Load game
+        function loadGame() {
+            const save = localStorage.getItem('demonCardsSave');
+            if (save) {
+                const loadedState = JSON.parse(save);
+                Object.assign(gameState, loadedState);
+                showNotification("Game loaded");
+                updateUI();
+                return true;
+            }
+            return false;
+        }
+        
         // Initialize event listeners
         function initEventListeners() {
             document.getElementById('draw-btn').addEventListener('click', function() {
@@ -2185,12 +2708,28 @@
                 document.getElementById('screen-overlay').style.display = 'none';
                 document.getElementById('shop-modal').style.display = 'none';
             });
+            
+            document.getElementById('start-game-btn').addEventListener('click', function() {
+                startGame();
+            });
+            
+            // Mobile touch controls
+            document.addEventListener('touchstart', function(e) {
+                // Prevent zooming
+                if (e.touches.length > 1) {
+                    e.preventDefault();
+                }
+            }, { passive: false });
         }
         
         // Initialize game when DOM is loaded
         document.addEventListener('DOMContentLoaded', function() {
             initEventListeners();
-            initGame();
+            
+            // Try to load game, otherwise start new game
+            if (!loadGame()) {
+                initGame();
+            }
         });
     </script>
 </body>
