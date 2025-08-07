@@ -85,7 +85,7 @@
             right: 0;
             bottom: 0;
             background: url('bk1.jpg') center/cover no-repeat;
-            opacity: 100;
+            opacity: 0;
             pointer-events: none;
         }
         
@@ -188,8 +188,8 @@
         }
         
         .energy-orb {
-            width: 12px;
-            height: 12px;
+            width: 25px;
+            height: 25px;
             border-radius: 50%;
             background: radial-gradient(circle at 30% 30%, #ffcc00, #cc9900);
             border: 1px solid #ffcc00;
@@ -199,6 +199,78 @@
         .energy-orb.empty {
             background: #300000;
             border-color: #5a1a1a;
+            box-shadow: none;
+        }
+        
+        /* New card display box */
+        #card-display {
+            display: none;
+            justify-content: space-between;
+            align-items: center;
+            background: linear-gradient(to right, #1a0a0a, #2a0a0a, #1a0a0a);
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #5a1a1a;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+        }
+        
+        #card-display-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 0 10px;
+        }
+        
+        #card-display-name {
+            font-weight: bold;
+            font-family: 'Cinzel Decorative', cursive;
+            font-size: 18px;
+            color: #e0d8c0;
+        }
+        
+        #card-display-description {
+            font-size: 16px;
+            color: #c0b8a0;
+        }
+        
+        #card-display-cost {
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, #ffcc00, #cc9900);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            border: 1px solid #ffcc00;
+            box-shadow: 0 0 5px #ffcc00;
+        }
+        
+        #play-card-btn {
+            padding: 8px 15px;
+            background: linear-gradient(to bottom, #4ecca3, #3eaa83);
+            border: none;
+            border-radius: 5px;
+            color: #1a0a0a;
+            font-weight: bold;
+            cursor: pointer;
+            font-family: 'Cinzel Decorative', cursive;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: 1px solid #5a1a1a;
+        }
+        
+        #play-card-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+        }
+        
+        #play-card-btn:disabled {
+            background: linear-gradient(to bottom, #555, #333);
+            color: #888;
+            cursor: not-allowed;
+            transform: none;
             box-shadow: none;
         }
         
@@ -366,7 +438,7 @@
             flex-direction: column;
             align-items: center;
             font-family: 'Cinzel Decorative', cursive;
-            font-size: 12px;
+            font-size: 20px;
         }
         
         #controls {
@@ -953,6 +1025,16 @@
             </div>
         </div>
         
+        <!-- New card display box -->
+        <div id="card-display">
+            <div id="card-display-cost">0</div>
+            <div id="card-display-content">
+                <div id="card-display-name">No card selected</div>
+                <div id="card-display-description">Click on a card in your hand to select it</div>
+            </div>
+            <button id="play-card-btn" disabled>Play</button>
+        </div>
+        
         <div id="hand">
             <!-- Cards will be added here -->
         </div>
@@ -1087,6 +1169,7 @@
             floor: 1,
             turn: 0,
             selectedCard: null,
+            selectedCardIndex: -1,
             cardsPlayedThisTurn: 0,
             selectedReward: null,
             currentCombatDamageTaken: 0,
@@ -1564,14 +1647,42 @@
             updateUI();
         }
         
-        // Play card
-        function playCard(cardIndex) {
+        // Select card to display in the card display box
+        function selectCard(cardIndex) {
             const card = gameState.player.hand[cardIndex];
             
             if (!card) return;
-            if (gameState.player.energy < card.cost) return;
             
             gameState.selectedCard = card;
+            gameState.selectedCardIndex = cardIndex;
+            
+            // Update card display box
+            document.getElementById('card-display').style.display = 'flex';
+            document.getElementById('card-display-name').textContent = card.name;
+            document.getElementById('card-display-description').textContent = card.description;
+            document.getElementById('card-display-cost').textContent = card.cost;
+            
+            // Update play button state
+            const playBtn = document.getElementById('play-card-btn');
+            playBtn.disabled = gameState.player.energy < card.cost;
+            
+            // Highlight selected card
+            document.querySelectorAll('.card').forEach((el, idx) => {
+                if (idx === cardIndex) {
+                    el.classList.add('selected');
+                } else {
+                    el.classList.remove('selected');
+                }
+            });
+        }
+        
+        // Play selected card
+        function playSelectedCard() {
+            if (gameState.selectedCardIndex === -1 || !gameState.selectedCard) return;
+            
+            const card = gameState.selectedCard;
+            
+            if (gameState.player.energy < card.cost) return;
             
             // Deduct energy
             gameState.player.energy -= card.cost;
@@ -1583,11 +1694,15 @@
             applyCardEffect(card);
             
             // Move card to discard
-            gameState.player.hand.splice(cardIndex, 1);
+            gameState.player.hand.splice(gameState.selectedCardIndex, 1);
             gameState.player.discard.push(card);
             
             gameState.cardsPlayedThisTurn++;
             gameState.selectedCard = null;
+            gameState.selectedCardIndex = -1;
+            
+            // Hide card display box
+            document.getElementById('card-display').style.display = 'none';
             
             // Check achievements
             checkAchievements();
@@ -1813,6 +1928,9 @@
             // Discard hand
             gameState.player.discard = gameState.player.discard.concat(gameState.player.hand);
             gameState.player.hand = [];
+            
+            // Hide card display box
+            document.getElementById('card-display').style.display = 'none';
             
             // Process status effects at start of enemy turn
             processStatusEffects(gameState.player, "player");
@@ -2390,6 +2508,7 @@
             gameState.floor = 1;
             gameState.turn = 0;
             gameState.selectedCard = null;
+            gameState.selectedCardIndex = -1;
             gameState.cardsPlayedThisTurn = 0;
             gameState.selectedReward = null;
             gameState.currentCombatDamageTaken = 0;
@@ -2517,9 +2636,7 @@
             cardElement.className = `card ${card.rarity} ${card.cardClass || ''}`;
             if (index !== undefined) {
                 cardElement.onclick = function() {
-                    if (gameState.player.energy >= card.cost) {
-                        playCard(index);
-                    }
+                    selectCard(index);
                 };
                 
                 // Card tooltip
@@ -2711,6 +2828,11 @@
             
             document.getElementById('start-game-btn').addEventListener('click', function() {
                 startGame();
+            });
+            
+            // Play card button
+            document.getElementById('play-card-btn').addEventListener('click', function() {
+                playSelectedCard();
             });
             
             // Mobile touch controls
