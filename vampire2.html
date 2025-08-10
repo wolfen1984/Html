@@ -1,0 +1,1185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DRACULA'S CURSE</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; touch-action: manipulation; font-family: 'Arial', monospace; }
+body { background: #000; color: red; height: 100vh; overflow: hidden; display: flex; flex-direction: column; padding: 10px; }
+
+#game-container { flex: 1; display: flex; flex-direction: column; gap: 10px; width: 100%; }
+
+/* Stats */
+.stat-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+.stat-group { display: flex; flex-direction: column; min-width: 100px; }
+.bar { height: 5px; background: #300; width: 100%; position: relative; overflow: hidden; }
+.bar-fill { height: 100%; transition: width 0.3s; }
+.health { background: #f00; }
+.sanity { background: #0f0; }
+
+/* Content */
+#content-area { flex: 1; display: flex; flex-direction: column; max-width: 600px; width: 100%; margin: 0 auto; gap: 5px; }
+#scene-description { flex: 1; overflow-y: auto; border: 1px solid red; padding: 8px; min-height: 150px; }
+#combat-log { min-height: 80px; border: 1px solid red; padding: 8px; display: none; }
+
+/* Buttons */
+.button-container { display: grid; gap: 5px; }
+#action-buttons { grid-template-columns: 1fr 1fr; margin-bottom: 5px; }
+#footer-buttons { grid-template-columns: repeat(4, 1fr); }
+button { background: #000; color: red; border: 1px solid red; padding: 8px; cursor: pointer; transition: all 0.2s; }
+button:active { background: red; color: #000; }
+button:disabled { opacity: 0.5; }
+button:hover:not(:disabled) { background: #300; }
+
+/* Modals */
+.modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.9); padding: 10px; display: none; z-index: 100; overflow-y: auto; }
+.modal-content { border: 1px solid red; padding: 8px; height: 100%; display: flex; flex-direction: column; }
+.modal-header { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid red; padding-bottom: 5px; }
+.modal-body { flex: 1; overflow-y: auto; }
+.close-modal { background: none; border: none; color: red; cursor: pointer; }
+
+/* Animations */
+@keyframes shake { 0%,100% { transform: translateX(0); } 20%,60% { transform: translateX(-5px); } 40%,80% { transform: translateX(5px); } }
+.shake { animation: shake 0.4s; }
+@keyframes flash-red { 0%,100% { background: #000; } 50% { background: #f00; } }
+.flash-red { animation: flash-red 0.3s; }
+.critical { animation: critical 0.5s; }
+@keyframes critical { 0%,100% { color: red; } 50% { color: yellow; } }
+
+/* Merchant */
+.merchant-item { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed red; }
+
+/* Mobile */
+@media (max-width: 600px) {
+  #scene-description { min-height: 30vh; }
+  button { padding: 6px 2px; font-size: 12px; }
+  .stat-row { flex-direction: column; gap: 5px; }
+}
+</style>
+</head>
+<body>
+<div id="game-container">
+  <!-- Character Selection -->
+  <div id="character-selection">
+    <h1 style="text-align: center">DRACULA'S CURSE</h1>
+    <p>The year is 1897. The vampire Count Dracula has taken residence in his decaying castle above the village of Bistritz.</p>
+    <p style="text-align: center">CHOOSE YOUR HUNTER:</p>
+    
+    <div class="character-select" id="select-jonathan">
+      <h2>JONATHAN HARKER</h2>
+      <p><strong>Class:</strong> Diplomat | <strong>HP:</strong> 90 | <strong>SAN:</strong> 110</p>
+      <p><strong>Skills:</strong> Silver Strike (2x damage with silver weapons)</p>
+    </div>
+    
+    <div class="character-select" id="select-vanhelsing">
+      <h2>VAN HELSING</h2>
+      <p><strong>Class:</strong> Professor | <strong>HP:</strong> 100 | <strong>SAN:</strong> 90</p>
+      <p><strong>Skills:</strong> Holy Water (double effectiveness), Vampire Knowledge</p>
+    </div>
+    
+    <div class="character-select" id="select-mina">
+      <h2>MINA MURRAY</h2>
+      <p><strong>Class:</strong> Occultist | <strong>HP:</strong> 80 | <strong>SAN:</strong> 120</p>
+      <p><strong>Skills:</strong> Hypnosis, Sixth Sense (better item finding)</p>
+    </div>
+    
+    <div style="margin-top: 10px">
+      <label>DIFFICULTY:</label>
+      <select id="difficulty" style="background: #000; color: red; border: 1px solid red; padding: 5px;">
+        <option value="easy">Easy</option>
+        <option value="normal" selected>Normal</option>
+        <option value="hard">Hard</option>
+        <option value="nightmare">Nightmare</option>
+      </select>
+    </div>
+    
+    <div style="display: flex; gap: 5px; margin-top: 10px;">
+      <button id="load-button" style="display: none;">LOAD GAME</button>
+      <button id="settings-button">SETTINGS</button>
+    </div>
+  </div>
+
+  <!-- Main Game -->
+  <div id="main-game" style="display: none; height: 100%;">
+    <div id="content-area">
+      <!-- Stats -->
+      <div class="stat-row">
+        <div class="stat-group">
+          <div>HP: <span id="current-hp">100</span>/<span id="max-hp">100</span></div>
+          <div class="bar"><div id="player-health-fill" class="bar-fill health" style="width: 100%;"></div></div>
+        </div>
+        <div class="stat-group">
+          <div>SAN: <span id="current-sanity">100</span>/<span id="max-sanity">100</span></div>
+          <div class="bar"><div id="player-sanity-fill" class="bar-fill sanity" style="width: 100%;"></div></div>
+        </div>
+      </div>
+      
+      <div class="stat-row">
+        <div class="stat-group"><div>LVL: <span id="player-level">1</span></div></div>
+        <div class="stat-group"><div>GOLD: <span id="player-gold">50</span></div></div>
+        <div class="stat-group"><div>DAY: <span id="game-day">1</span></div></div>
+      </div>
+
+      <!-- Location -->
+      <div id="dungeon-level" style="text-align: center; font-weight: bold;">TAVERN</div>
+      <div class="bar"><div id="level-progress" class="bar-fill health" style="width: 0%;"></div></div>
+
+      <!-- Scene -->
+      <div id="scene-description">
+        <p>You stand in the dimly lit tavern at the foot of the Carpathian Mountains. The villagers whisper of horrors in the castle above.</p>
+        <p>The barkeep eyes you warily. "You're not going up there, are you?" A merchant sits in the corner.</p>
+      </div>
+
+      <div id="combat-log"></div>
+
+      <!-- Actions -->
+      <div id="action-buttons" class="button-container">
+        <button id="explore-button">EXPLORE</button>
+        <button id="tavern-action">TALK</button>
+        <button id="merchant-button">MERCHANT</button>
+        <button id="rest-button">REST</button>
+      </div>
+
+      <!-- Weapon -->
+      <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed red;">
+        <span>WEAPON:</span>
+        <span id="equipped-weapon-name">FISTS</span> (<span id="equipped-weapon-dmg">2</span> DMG)
+      </div>
+
+      <!-- Footer -->
+      <div id="footer-buttons" class="button-container">
+        <button id="inventory-button">INV</button>
+        <button id="quests-button">QUESTS</button>
+        <button id="character-button">STATS</button>
+        <button id="map-button">MAP</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modals -->
+<div id="inventory-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>INVENTORY</h2>
+      <button id="close-inventory" class="close-modal">X</button>
+    </div>
+    <div class="modal-body">
+      <h3>WEAPONS</h3>
+      <div id="weapons-list"></div>
+      <h3 style="margin-top: 10px;">ITEMS</h3>
+      <div id="items-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Merchant Modal -->
+<div id="merchant-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>MERCHANT</h2>
+      <button id="close-merchant" class="close-modal">X</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom: 10px;">GOLD: <span id="merchant-gold-amount">0</span></div>
+      
+      <h3>BUY ITEMS</h3>
+      <div id="merchant-buy-list"></div>
+      
+      <h3 style="margin-top: 10px;">SELL ITEMS</h3>
+      <div id="merchant-sell-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Character Stats Modal -->
+<div id="character-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="character-name">CHARACTER</h2>
+      <button id="close-character" class="close-modal">X</button>
+    </div>
+    <div class="modal-body">
+      <div class="stat-row">
+        <span>CLASS:</span>
+        <span id="character-class">CLASS</span>
+      </div>
+      <div class="stat-row">
+        <span>LEVEL:</span>
+        <span id="character-level">1</span>
+      </div>
+      
+      <h3 style="margin-top: 10px;">ATTRIBUTES</h3>
+      <div class="stat-row">
+        <span>STRENGTH:</span>
+        <span id="character-strength">5</span>
+      </div>
+      <div class="stat-row">
+        <span>AGILITY:</span>
+        <span id="character-agility">5</span>
+      </div>
+      <div class="stat-row">
+        <span>INTELLIGENCE:</span>
+        <span id="character-intelligence">5</span>
+      </div>
+      
+      <h3 style="margin-top: 10px;">SKILLS</h3>
+      <div id="character-skills"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Quests Modal -->
+<div id="quests-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>QUESTS</h2>
+      <button id="close-quests" class="close-modal">X</button>
+    </div>
+    <div class="modal-body">
+      <h3>ACTIVE QUESTS</h3>
+      <div id="active-quests"></div>
+      
+      <h3 style="margin-top: 10px;">COMPLETED QUESTS</h3>
+      <div id="completed-quests"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Combat Modal -->
+<div id="combat-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="combat-title">COMBAT</h2>
+    </div>
+    <div class="modal-body">
+      <div id="enemy-display" style="border: 1px solid red; padding: 8px; margin-bottom: 5px;">
+        <h3 id="enemy-name">ENEMY</h3>
+        <div>HP: <span id="enemy-hp">30</span>/<span id="enemy-max-hp">30</span></div>
+        <div class="bar"><div id="enemy-hp-bar" class="bar-fill health" style="width: 100%;"></div></div>
+      </div>
+
+      <div id="player-display" style="border: 1px solid red; padding: 8px; margin-bottom: 5px;">
+        <h3 id="player-name">PLAYER</h3>
+        <div>HP: <span id="player-hp-combat">100</span>/<span id="player-max-hp-combat">100</span></div>
+        <div class="bar"><div id="player-hp-bar" class="bar-fill health" style="width: 100%;"></div></div>
+        <div>SAN: <span id="player-sanity-combat">100</span>/<span id="player-max-sanity-combat">100</span></div>
+        <div class="bar"><div id="player-sanity-bar" class="bar-fill sanity" style="width: 100%;"></div></div>
+      </div>
+
+      <div id="combat-log-modal" style="min-height: 80px; border: 1px solid red; padding: 8px;"></div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 10px;">
+        <button id="attack-button">ATTACK</button>
+        <button id="special-button">SPECIAL</button>
+        <button id="use-item-button">ITEM</button>
+        <button id="flee-button">FLEE</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Game Over Modal -->
+<div id="game-over-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 style="text-align: center">GAME OVER</h2>
+    </div>
+    <div class="modal-body" style="text-align: center;">
+      <p id="game-over-text">You have been defeated!</p>
+      <p>Dracula laughs as your life fades away...</p>
+      <button id="try-again-button">TRY AGAIN</button>
+      <button id="main-menu-button">MAIN MENU</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Game State
+const game = {
+  player: null,
+  currentEnemy: null,
+  inCombat: false,
+  location: 0, // 0=tavern, 1=forest, etc.
+  day: 1,
+  difficulty: 'normal',
+  hasStake: false,
+  
+  // Game Data
+  locations: [
+    { name: "TAVERN", desc: "You stand in the dimly lit tavern at the foot of the Carpathian Mountains.", enemies: [] },
+    { name: "FOREST", desc: "The dark forest is filled with eerie sounds.", enemies: ["vampire-spawn", "ghoul"] },
+    { name: "MOUNTAIN", desc: "The steep mountain path winds upward.", enemies: ["vampire-spawn", "werewolf"] },
+    { name: "CASTLE", desc: "You stand before Dracula's castle.", enemies: ["brides", "werewolf"] },
+    { name: "THRONE ROOM", desc: "The final confrontation.", enemies: ["dracula"] }
+  ],
+  
+  characters: {
+    jonathan: { 
+      name: "JONATHAN HARKER", 
+      class: "Diplomat",
+      hp: 90, maxHp: 90, 
+      sanity: 110, maxSanity: 110,
+      strength: 7, agility: 6, intelligence: 5,
+      skills: ["SILVER STRIKE"], 
+      perks: ["+10% damage with silver weapons"],
+      inventory: ["silver-dagger"] 
+    },
+    vanhelsing: { 
+      name: "VAN HELSING", 
+      class: "Professor",
+      hp: 100, maxHp: 100, 
+      sanity: 90, maxSanity: 90,
+      strength: 5, agility: 4, intelligence: 8,
+      skills: ["HOLY WATER", "VAMPIRE KNOWLEDGE"], 
+      perks: ["-25% sanity loss from undead"],
+      inventory: ["holy-water", "garlic"] 
+    },
+    mina: { 
+      name: "MINA MURRAY", 
+      class: "Occultist",
+      hp: 80, maxHp: 80, 
+      sanity: 120, maxSanity: 120,
+      strength: 4, agility: 7, intelligence: 7,
+      skills: ["HYPNOSIS", "SIXTH SENSE"], 
+      perks: ["+30% better item finding"],
+      inventory: ["occult-tome"] 
+    }
+  },
+  
+  enemies: {
+    "vampire-spawn": { name: "VAMPIRE SPAWN", hp: 30, maxHp: 30, damage: 6, xp: 25, gold: 15, weakness: ["stake", "holy"] },
+    "brides": { name: "DRACULA'S BRIDES", hp: 50, maxHp: 50, damage: 9, xp: 40, gold: 30, weakness: ["holy"], special: "charm" },
+    "werewolf": { name: "WEREWOLF", hp: 70, maxHp: 70, damage: 12, xp: 60, gold: 45, weakness: ["silver"] },
+    "ghoul": { name: "GHOUL", hp: 40, maxHp: 40, damage: 8, xp: 35, gold: 20, weakness: ["holy"] },
+    "dracula": { name: "COUNT DRACULA", hp: 150, maxHp: 150, damage: 15, xp: 200, gold: 100, weakness: ["stake", "holy"], special: "transform" }
+  },
+  
+  items: {
+    "fists": { name: "FISTS", damage: 2 },
+    "silver-dagger": { name: "SILVER DAGGER", damage: 8, special: "silver" },
+    "wooden-stake": { name: "WOODEN STAKE", damage: 12, special: "stake" },
+    "health-potion": { name: "HEALTH POTION", heal: 20 },
+    "holy-water": { name: "HOLY WATER", damage: 15, special: "holy" },
+    "garlic": { name: "GARLIC", damage: 5, special: "repel" },
+    "occult-tome": { name: "OCCULT TOME", special: "knowledge" }
+  },
+  
+  merchantItems: [
+    { id: "health-potion", name: "HEALTH POTION", price: 15, heal: 20 },
+    { id: "holy-water", name: "HOLY WATER", price: 25, damage: 15, special: "holy" },
+    { id: "garlic", name: "GARLIC", price: 10, damage: 5, special: "repel" },
+    { id: "silver-dagger", name: "SILVER DAGGER", price: 50, damage: 8, special: "silver" },
+    { id: "wooden-stake", name: "WOODEN STAKE", price: 40, damage: 12, special: "stake" }
+  ],
+  
+  quests: {
+    active: [
+      { id: "slay-dracula", title: "SLAY DRACULA", description: "Defeat Count Dracula to lift the curse.", completed: false },
+      { id: "find-stake", title: "FIND A STAKE", description: "Obtain a wooden stake to fight vampires.", completed: false }
+    ],
+    completed: []
+  }
+};
+
+// Initialize Game
+document.addEventListener('DOMContentLoaded', function() {
+  // Character selection
+  document.getElementById('select-jonathan').addEventListener('click', () => startGame('jonathan'));
+  document.getElementById('select-vanhelsing').addEventListener('click', () => startGame('vanhelsing'));
+  document.getElementById('select-mina').addEventListener('click', () => startGame('mina'));
+  
+  // Settings
+  document.getElementById('settings-button').addEventListener('click', () => {
+    document.getElementById('settings-modal').style.display = 'block';
+  });
+  
+  // Check for saved game
+  if (localStorage.getItem('draculasCurseSave')) {
+    document.getElementById('load-button').style.display = 'block';
+    document.getElementById('load-button').addEventListener('click', loadGame);
+  }
+});
+
+function startGame(character) {
+  game.player = JSON.parse(JSON.stringify(game.characters[character]));
+  game.player.gold = 50;
+  game.player.level = 1;
+  game.player.xp = 0;
+  game.player.nextLevelXp = 100;
+  game.player.equippedWeapon = "fists";
+  game.player.inventory = game.player.inventory || [];
+  game.player.inventory.push("health-potion", "health-potion");
+  game.difficulty = document.getElementById('difficulty').value;
+  game.location = 0;
+  game.day = 1;
+  game.hasStake = false;
+  
+  // Apply difficulty
+  applyDifficulty();
+  
+  // Show game UI
+  document.getElementById('character-selection').style.display = 'none';
+  document.getElementById('main-game').style.display = 'flex';
+  
+  // Update UI
+  updateUI();
+  bindButtons();
+  
+  // Start game
+  updateLocation();
+  addToScene(`You awaken in the tavern as ${game.player.name}, ready to face the horrors ahead.`);
+}
+
+function applyDifficulty() {
+  const modifier = {
+    easy: { hp: 0.8, damage: 0.8, reward: 1.2 },
+    normal: { hp: 1, damage: 1, reward: 1 },
+    hard: { hp: 1.3, damage: 1.3, reward: 0.8 },
+    nightmare: { hp: 1.8, damage: 1.5, reward: 0.5 }
+  }[game.difficulty];
+  
+  // Adjust enemies
+  Object.keys(game.enemies).forEach(key => {
+    game.enemies[key].hp = Math.floor(game.enemies[key].hp * modifier.hp);
+    game.enemies[key].maxHp = game.enemies[key].hp;
+    game.enemies[key].damage = Math.floor(game.enemies[key].damage * modifier.damage);
+    game.enemies[key].xp = Math.floor(game.enemies[key].xp * modifier.reward);
+    game.enemies[key].gold = Math.floor(game.enemies[key].gold * modifier.reward);
+  });
+}
+
+function updateUI() {
+  // Stats
+  document.getElementById('current-hp').textContent = game.player.hp;
+  document.getElementById('max-hp').textContent = game.player.maxHp;
+  document.getElementById('current-sanity').textContent = game.player.sanity;
+  document.getElementById('max-sanity').textContent = game.player.maxSanity;
+  document.getElementById('player-level').textContent = game.player.level;
+  document.getElementById('player-gold').textContent = game.player.gold;
+  document.getElementById('game-day').textContent = game.day;
+  
+  // Bars
+  document.getElementById('player-health-fill').style.width = `${(game.player.hp / game.player.maxHp) * 100}%`;
+  document.getElementById('player-sanity-fill').style.width = `${(game.player.sanity / game.player.maxSanity) * 100}%`;
+  document.getElementById('level-progress').style.width = `${(game.player.xp / game.player.nextLevelXp) * 100}%`;
+  
+  // Weapon
+  const weapon = game.items[game.player.equippedWeapon] || game.items.fists;
+  document.getElementById('equipped-weapon-name').textContent = weapon.name;
+  document.getElementById('equipped-weapon-dmg').textContent = weapon.damage;
+}
+
+function bindButtons() {
+  // Main actions
+  document.getElementById('explore-button').onclick = explore;
+  document.getElementById('merchant-button').onclick = openMerchant;
+  document.getElementById('rest-button').onclick = rest;
+  document.getElementById('tavern-action').onclick = talkToBarkeep;
+  
+  // Modals
+  document.getElementById('inventory-button').onclick = openInventory;
+  document.getElementById('character-button').onclick = openCharacter;
+  document.getElementById('quests-button').onclick = openQuests;
+  document.getElementById('map-button').onclick = openMap;
+  
+  // Combat
+  document.getElementById('attack-button').onclick = playerAttack;
+  document.getElementById('special-button').onclick = specialAttack;
+  document.getElementById('use-item-button').onclick = useItemInCombat;
+  document.getElementById('flee-button').onclick = attemptFlee;
+  
+  // Close buttons
+  document.getElementById('close-inventory').onclick = hideAllModals;
+  document.getElementById('close-merchant').onclick = hideAllModals;
+  document.getElementById('close-character').onclick = hideAllModals;
+  document.getElementById('close-quests').onclick = hideAllModals;
+  
+  // Game over
+  document.getElementById('try-again-button').onclick = tryAgain;
+  document.getElementById('main-menu-button').onclick = returnToMainMenu;
+}
+
+// Game Actions
+function explore() {
+  clearScene();
+  if (game.location === 0) {
+    game.location = 1;
+    updateLocation();
+    addToScene(game.locations[1].desc);
+    setTimeout(() => startRandomEncounter(), 1000);
+  } else {
+    addToScene(`You explore the ${game.locations[game.location].name.toLowerCase()}...`);
+    if (Math.random() < 0.7) {
+      setTimeout(() => startRandomEncounter(), 1000);
+    } else if (Math.random() < 0.5) {
+      findItem();
+    } else {
+      setTimeout(() => addToScene("You find nothing of interest."), 1000);
+    }
+  }
+}
+
+function findItem() {
+  const possibleItems = ["health-potion", "holy-water", "garlic"];
+  const foundItem = possibleItems[Math.floor(Math.random() * possibleItems.length)];
+  game.player.inventory.push(foundItem);
+  addToScene(`You found a ${game.items[foundItem].name}!`);
+}
+
+function startRandomEncounter() {
+  const enemies = game.locations[game.location].enemies;
+  const enemyType = enemies[Math.floor(Math.random() * enemies.length)];
+  startCombat(enemyType);
+}
+
+function startCombat(enemyType) {
+  game.inCombat = true;
+  game.currentEnemy = JSON.parse(JSON.stringify(game.enemies[enemyType]));
+  
+  // Update UI
+  document.getElementById('combat-title').textContent = `COMBAT: ${game.currentEnemy.name}`;
+  document.getElementById('enemy-name').textContent = game.currentEnemy.name;
+  document.getElementById('enemy-hp').textContent = game.currentEnemy.hp;
+  document.getElementById('enemy-max-hp').textContent = game.currentEnemy.maxHp;
+  document.getElementById('enemy-hp-bar').style.width = '100%';
+  
+  document.getElementById('player-name').textContent = game.player.name;
+  document.getElementById('player-hp-combat').textContent = game.player.hp;
+  document.getElementById('player-max-hp-combat').textContent = game.player.maxHp;
+  document.getElementById('player-hp-bar').style.width = `${(game.player.hp / game.player.maxHp) * 100}%`;
+  document.getElementById('player-sanity-combat').textContent = game.player.sanity;
+  document.getElementById('player-max-sanity-combat').textContent = game.player.maxSanity;
+  document.getElementById('player-sanity-bar').style.width = `${(game.player.sanity / game.player.maxSanity) * 100}%`;
+  
+  // Set combat log
+  const combatLog = document.getElementById('combat-log-modal');
+  combatLog.innerHTML = `<p>A ${game.currentEnemy.name} ATTACKS!</p>`;
+  
+  // Special enemy intro
+  if (enemyType === "dracula") {
+    combatLog.innerHTML += `<p>"I AM DRACULA! YOU DARE CHALLENGE ME?"</p>`;
+  }
+  
+  // Show modal
+  document.getElementById('combat-modal').style.display = 'block';
+}
+
+function playerAttack() {
+  if (!game.inCombat) return;
+  
+  const weapon = game.items[game.player.equippedWeapon] || game.items.fists;
+  let damage = weapon.damage + Math.floor(Math.random() * 4);
+  
+  // Check for critical
+  const isCritical = Math.random() < 0.05;
+  if (isCritical) damage = Math.floor(damage * 1.5);
+  
+  // Check for weapon special effects
+  if (weapon.special && game.currentEnemy.weakness.includes(weapon.special)) {
+    damage = Math.floor(damage * 1.5);
+    addCombatLog(`${weapon.name} IS EFFECTIVE!`);
+  }
+  
+  // Jonathan's Silver Strike ability
+  if (game.player.skills.includes("SILVER STRIKE") && weapon.special === "silver") {
+    damage = Math.floor(damage * 2);
+    addCombatLog(`SILVER STRIKE ACTIVATED!`);
+  }
+  
+  // Apply damage
+  game.currentEnemy.hp -= damage;
+  
+  // Update UI
+  const hpPercent = (game.currentEnemy.hp / game.currentEnemy.maxHp) * 100;
+  document.getElementById('enemy-hp').textContent = Math.max(0, game.currentEnemy.hp);
+  document.getElementById('enemy-hp-bar').style.width = `${Math.max(0, hpPercent)}%`;
+  
+  // Animation
+  document.getElementById('enemy-display').classList.add('shake');
+  setTimeout(() => document.getElementById('enemy-display').classList.remove('shake'), 400);
+  
+  addCombatLog(`YOU HIT FOR ${damage} DAMAGE!${isCritical ? ' <span class="critical">CRITICAL!</span>' : ''}`);
+  
+  // Check if enemy defeated
+  if (game.currentEnemy.hp <= 0) {
+    enemyDefeated();
+    return;
+  }
+  
+  // Enemy counterattack
+  setTimeout(() => enemyAttack(), 1000);
+}
+
+function enemyAttack() {
+  if (!game.inCombat) return;
+  
+  let damage = game.currentEnemy.damage + Math.floor(Math.random() * 4);
+  
+  // Special attacks
+  if (game.currentEnemy.special === "charm" && Math.random() < 0.3) {
+    addCombatLog(`${game.currentEnemy.name} CHARMS YOU! YOU CAN'T ATTACK NEXT TURN!`);
+    return;
+  } else if (game.currentEnemy.special === "transform" && game.currentEnemy.hp < game.currentEnemy.maxHp / 2) {
+    if (!game.currentEnemy.transformed) {
+      game.currentEnemy.transformed = true;
+      game.currentEnemy.damage += 5;
+      addCombatLog(`${game.currentEnemy.name} TRANSFORMS! ATTACK INCREASED!`);
+    }
+  }
+  
+  // Apply damage
+  game.player.hp -= damage;
+  updateUI();
+  
+  // Update combat UI
+  document.getElementById('player-hp-combat').textContent = game.player.hp;
+  document.getElementById('player-hp-bar').style.width = `${(game.player.hp / game.player.maxHp) * 100}%`;
+  
+  // Animation
+  document.getElementById('player-display').classList.add('flash-red');
+  setTimeout(() => document.getElementById('player-display').classList.remove('flash-red'), 300);
+  
+  addCombatLog(`${game.currentEnemy.name} HITS YOU FOR ${damage} DAMAGE!`);
+  
+  // Check if player defeated
+  if (game.player.hp <= 0) {
+    playerDefeated();
+  }
+}
+
+function enemyDefeated() {
+  // Award XP and gold
+  game.player.xp += game.currentEnemy.xp;
+  game.player.gold += game.currentEnemy.gold;
+  
+  addCombatLog(`${game.currentEnemy.name} DEFEATED! +${game.currentEnemy.xp} XP | +${game.currentEnemy.gold} GOLD`);
+  
+  // Check for quest completion
+  if (game.currentEnemy.name === "COUNT DRACULA") {
+    completeQuest("slay-dracula");
+  }
+  
+  // Check for level up
+  if (game.player.xp >= game.player.nextLevelXp) {
+    levelUp();
+  }
+  
+  updateUI();
+  
+  // End combat
+  setTimeout(() => {
+    game.inCombat = false;
+    document.getElementById('combat-modal').style.display = 'none';
+    addToScene(`You defeated the ${game.currentEnemy.name}!`);
+    
+    // Progress through locations
+    if (game.location < game.locations.length - 1 && Math.random() < 0.3) {
+      game.location++;
+      updateLocation();
+      addToScene(`You progress deeper into the castle...`);
+      addToScene(game.locations[game.location].desc);
+    }
+  }, 1500);
+}
+
+function levelUp() {
+  game.player.level++;
+  game.player.xp -= game.player.nextLevelXp;
+  game.player.nextLevelXp = Math.floor(game.player.nextLevelXp * 1.5);
+  
+  // Stat increases
+  game.player.maxHp += 10;
+  game.player.hp = game.player.maxHp;
+  game.player.maxSanity += 5;
+  game.player.sanity = game.player.maxSanity;
+  
+  // Random stat boost
+  const stat = ["strength", "agility", "intelligence"][Math.floor(Math.random() * 3)];
+  game.player[stat]++;
+  
+  addCombatLog(`LEVEL UP! NOW LEVEL ${game.player.level}`);
+  addCombatLog(`+10 MAX HP | +5 MAX SANITY | +1 ${stat.toUpperCase()}`);
+  updateUI();
+}
+
+function specialAttack() {
+  if (!game.inCombat) return;
+  
+  if (game.player.skills.includes("SILVER STRIKE")) {
+    const weapon = game.items[game.player.equippedWeapon];
+    if (weapon && weapon.special === "silver") {
+      playerAttack(); // Regular attack will be doubled
+    } else {
+      addCombatLog("YOU NEED A SILVER WEAPON!");
+    }
+  } else if (game.player.skills.includes("HOLY WATER")) {
+    const holyWaterIndex = game.player.inventory.indexOf("holy-water");
+    if (holyWaterIndex !== -1) {
+      game.player.inventory.splice(holyWaterIndex, 1);
+      let damage = 30; // Double effectiveness
+      if (game.currentEnemy.weakness.includes("holy")) damage = Math.floor(damage * 1.5);
+      
+      game.currentEnemy.hp -= damage;
+      document.getElementById('enemy-hp').textContent = Math.max(0, game.currentEnemy.hp);
+      document.getElementById('enemy-hp-bar').style.width = `${(game.currentEnemy.hp / game.currentEnemy.maxHp) * 100}%`;
+      
+      addCombatLog(`YOU THROW HOLY WATER FOR ${damage} DAMAGE!`);
+      
+      if (game.currentEnemy.hp <= 0) {
+        enemyDefeated();
+      } else {
+        setTimeout(() => enemyAttack(), 1000);
+      }
+    } else {
+      addCombatLog("YOU HAVE NO HOLY WATER!");
+    }
+  } else if (game.player.skills.includes("HYPNOSIS")) {
+    if (Math.random() < 0.6) {
+      addCombatLog(`YOU HYPNOTIZE THE ${game.currentEnemy.name}! IT SKIPS ITS TURN!`);
+    } else {
+      addCombatLog("YOUR HYPNOSIS FAILS!");
+      setTimeout(() => enemyAttack(), 1000);
+    }
+  }
+}
+
+function playerDefeated() {
+  addCombatLog("YOU HAVE BEEN DEFEATED!");
+  setTimeout(() => {
+    game.inCombat = false;
+    document.getElementById('combat-modal').style.display = 'none';
+    document.getElementById('game-over-modal').style.display = 'block';
+  }, 1500);
+}
+
+function useItemInCombat() {
+  openInventory();
+}
+
+function attemptFlee() {
+  if (Math.random() < 0.5) {
+    addCombatLog("YOU SUCCESSFULLY FLEE!");
+    setTimeout(() => {
+      game.inCombat = false;
+      document.getElementById('combat-modal').style.display = 'none';
+      addToScene(`You barely escape from the ${game.currentEnemy.name}!`);
+    }, 1000);
+  } else {
+    addCombatLog("FAILED TO FLEE!");
+    setTimeout(() => enemyAttack(), 1000);
+  }
+}
+
+// Location Functions
+function updateLocation() {
+  document.getElementById('dungeon-level').textContent = game.locations[game.location].name;
+  
+  // Update action buttons
+  if (game.location === 0) {
+    document.getElementById('explore-button').textContent = "LEAVE";
+    document.getElementById('tavern-action').textContent = "TALK";
+    document.getElementById('explore-button').onclick = leaveTavern;
+    document.getElementById('tavern-action').onclick = talkToBarkeep;
+    document.getElementById('merchant-button').disabled = false;
+  } else {
+    document.getElementById('explore-button').textContent = "EXPLORE";
+    document.getElementById('tavern-action').textContent = "RETURN";
+    document.getElementById('explore-button').onclick = explore;
+    document.getElementById('tavern-action').onclick = returnToTavern;
+    document.getElementById('merchant-button').disabled = true;
+  }
+}
+
+function leaveTavern() {
+  game.location = 1;
+  updateLocation();
+  clearScene();
+  addToScene(game.locations[1].desc);
+  setTimeout(() => startRandomEncounter(), 1000);
+}
+
+function returnToTavern() {
+  game.location = 0;
+  updateLocation();
+  clearScene();
+  addToScene(game.locations[0].desc);
+}
+
+function talkToBarkeep() {
+  if (!game.hasStake) {
+    addToScene(`"Take this," the barkeep says, sliding a WOODEN STAKE across the counter.`);
+    game.player.inventory.push("wooden-stake");
+    game.hasStake = true;
+    completeQuest("find-stake");
+  } else {
+    const dialogues = [
+      `"You still here? Don't say I didn't warn you," the barkeep mutters.`,
+      `"The nights grow longer. Dracula's power increases," he whispers.`,
+      `"The merchant has good wares, but don't trust him too much," he advises.`
+    ];
+    addToScene(dialogues[Math.floor(Math.random() * dialogues.length)]);
+  }
+}
+
+function rest() {
+  const healAmount = Math.floor(game.player.maxHp * 0.3);
+  const sanityAmount = Math.floor(game.player.maxSanity * 0.2);
+  
+  game.player.hp = Math.min(game.player.maxHp, game.player.hp + healAmount);
+  game.player.sanity = Math.min(game.player.maxSanity, game.player.sanity + sanityAmount);
+  
+  addToScene(`You rest and recover ${healAmount} HP and ${sanityAmount} sanity.`);
+  updateUI();
+  
+  if (game.location > 0 && Math.random() < 0.2) {
+    setTimeout(() => {
+      addToScene(`You are ambushed while resting!`);
+      startRandomEncounter();
+    }, 1000);
+  }
+}
+
+// Merchant Functions
+function openMerchant() {
+  // Update gold display
+  document.getElementById('merchant-gold-amount').textContent = game.player.gold;
+  
+  // Create buy list
+  const buyList = document.getElementById('merchant-buy-list');
+  buyList.innerHTML = '';
+  
+  game.merchantItems.forEach(item => {
+    const itemElement = document.createElement('div');
+    itemElement.className = 'merchant-item';
+    itemElement.innerHTML = `
+      <span>${item.name} (${item.price} GOLD)</span>
+      <button class="buy-button" data-id="${item.id}" data-price="${item.price}">BUY</button>
+    `;
+    buyList.appendChild(itemElement);
+  });
+  
+  // Create sell list
+  const sellList = document.getElementById('merchant-sell-list');
+  sellList.innerHTML = '';
+  
+  // Count items
+  const itemCounts = {};
+  game.player.inventory.forEach(item => {
+    if (game.items[item] && item !== "fists") {
+      itemCounts[item] = (itemCounts[item] || 0) + 1;
+    }
+  });
+  
+  // Add sellable items
+  Object.keys(itemCounts).forEach(itemId => {
+    const item = game.items[itemId];
+    const sellPrice = Math.floor((item.damage || item.heal || 5) * 2);
+    
+    const itemElement = document.createElement('div');
+    itemElement.className = 'merchant-item';
+    itemElement.innerHTML = `
+      <span>${item.name} x${itemCounts[itemId]} (${sellPrice} GOLD)</span>
+      <button class="sell-button" data-id="${itemId}" data-price="${sellPrice}">SELL</button>
+    `;
+    sellList.appendChild(itemElement);
+  });
+  
+  // Add event listeners
+  document.querySelectorAll('.buy-button').forEach(button => {
+    button.addEventListener('click', function() {
+      const itemId = this.dataset.id;
+      const price = parseInt(this.dataset.price);
+      
+      if (game.player.gold >= price) {
+        game.player.gold -= price;
+        game.player.inventory.push(itemId);
+        updateUI();
+        document.getElementById('merchant-gold-amount').textContent = game.player.gold;
+        addToScene(`You bought a ${game.items[itemId].name} for ${price} gold.`);
+        openMerchant(); // Refresh
+      } else {
+        addToScene("Not enough gold!");
+      }
+    });
+  });
+  
+  document.querySelectorAll('.sell-button').forEach(button => {
+    button.addEventListener('click', function() {
+      const itemId = this.dataset.id;
+      const price = parseInt(this.dataset.price);
+      
+      // Remove from inventory
+      const index = game.player.inventory.indexOf(itemId);
+      if (index !== -1) {
+        game.player.inventory.splice(index, 1);
+        game.player.gold += price;
+        updateUI();
+        document.getElementById('merchant-gold-amount').textContent = game.player.gold;
+        addToScene(`You sold a ${game.items[itemId].name} for ${price} gold.`);
+        openMerchant(); // Refresh
+      }
+    });
+  });
+  
+  document.getElementById('merchant-modal').style.display = 'block';
+}
+
+// Inventory Functions
+function openInventory() {
+  // Weapons
+  const weaponsList = document.getElementById('weapons-list');
+  weaponsList.innerHTML = '';
+  
+  // Count weapons
+  const weaponCounts = {};
+  game.player.inventory.forEach(item => {
+    if (game.items[item]?.damage) {
+      weaponCounts[item] = (weaponCounts[item] || 0) + 1;
+    }
+  });
+  
+  // Add fists (always available)
+  weaponCounts["fists"] = 1;
+  
+  // Display weapons
+  Object.keys(weaponCounts).forEach(weaponId => {
+    const weapon = game.items[weaponId];
+    const isEquipped = weaponId === game.player.equippedWeapon;
+    
+    const weaponElement = document.createElement('div');
+    weaponElement.className = 'item-row';
+    weaponElement.innerHTML = `
+      <span>${weapon.name} (${weapon.damage} DMG)${isEquipped ? ' [EQUIPPED]' : ''}</span>
+      <button class="equip-button" data-id="${weaponId}">${isEquipped ? 'UNEQUIP' : 'EQUIP'}</button>
+    `;
+    weaponsList.appendChild(weaponElement);
+  });
+  
+  // Items
+  const itemsList = document.getElementById('items-list');
+  itemsList.innerHTML = '';
+  
+  // Count items
+  const itemCounts = {};
+  game.player.inventory.forEach(item => {
+    if (game.items[item]?.heal) {
+      itemCounts[item] = (itemCounts[item] || 0) + 1;
+    }
+  });
+  
+  // Display items
+  Object.keys(itemCounts).forEach(itemId => {
+    const item = game.items[itemId];
+    
+    const itemElement = document.createElement('div');
+    itemElement.className = 'item-row';
+    itemElement.innerHTML = `
+      <span>${item.name} x${itemCounts[itemId]}</span>
+      <button class="use-button" data-id="${itemId}">USE</button>
+    `;
+    itemsList.appendChild(itemElement);
+  });
+  
+  // Add event listeners
+  document.querySelectorAll('.equip-button').forEach(button => {
+    button.addEventListener('click', function() {
+      const weaponId = this.dataset.id;
+      
+      if (game.player.equippedWeapon === weaponId) {
+        game.player.equippedWeapon = "fists";
+        addToScene(`You unequip your weapon.`);
+      } else {
+        game.player.equippedWeapon = weaponId;
+        addToScene(`You equip the ${game.items[weaponId].name}.`);
+      }
+      
+      updateUI();
+      openInventory(); // Refresh
+    });
+  });
+  
+  document.querySelectorAll('.use-button').forEach(button => {
+    button.addEventListener('click', function() {
+      const itemId = this.dataset.id;
+      const item = game.items[itemId];
+      
+      if (item.heal) {
+        const healAmount = Math.min(item.heal, game.player.maxHp - game.player.hp);
+        game.player.hp += healAmount;
+        
+        // Remove from inventory
+        const index = game.player.inventory.indexOf(itemId);
+        if (index !== -1) game.player.inventory.splice(index, 1);
+        
+        if (game.inCombat) {
+          addCombatLog(`YOU USE A ${item.name} AND HEAL ${healAmount} HP!`);
+          setTimeout(() => enemyAttack(), 1000);
+        } else {
+          addToScene(`You use a ${item.name} and heal ${healAmount} HP.`);
+        }
+        
+        updateUI();
+        openInventory(); // Refresh
+      }
+    });
+  });
+  
+  document.getElementById('inventory-modal').style.display = 'block';
+}
+
+// Character Stats
+function openCharacter() {
+  document.getElementById('character-name').textContent = game.player.name;
+  document.getElementById('character-class').textContent = game.player.class;
+  document.getElementById('character-level').textContent = game.player.level;
+  
+  document.getElementById('character-strength').textContent = game.player.strength;
+  document.getElementById('character-agility').textContent = game.player.agility;
+  document.getElementById('character-intelligence').textContent = game.player.intelligence;
+  
+  const skillsList = document.getElementById('character-skills');
+  skillsList.innerHTML = '';
+  
+  game.player.skills.forEach(skill => {
+    const skillElement = document.createElement('div');
+    skillElement.textContent = `• ${skill}`;
+    skillsList.appendChild(skillElement);
+  });
+  
+  document.getElementById('character-modal').style.display = 'block';
+}
+
+// Quests
+function openQuests() {
+  const activeQuests = document.getElementById('active-quests');
+  activeQuests.innerHTML = '';
+  
+  game.quests.active.forEach(quest => {
+    const questElement = document.createElement('div');
+    questElement.style.padding = '5px 0';
+    questElement.style.borderBottom = '1px dashed red';
+    questElement.innerHTML = `
+      <div style="font-weight: bold;">${quest.title}</div>
+      <div>${quest.description}</div>
+      <div>${quest.completed ? '(Completed)' : '(Active)'}</div>
+    `;
+    activeQuests.appendChild(questElement);
+  });
+  
+  const completedQuests = document.getElementById('completed-quests');
+  completedQuests.innerHTML = '';
+  
+  game.quests.completed.forEach(quest => {
+    const questElement = document.createElement('div');
+    questElement.style.padding = '5px 0';
+    questElement.style.borderBottom = '1px dashed red';
+    questElement.innerHTML = `
+      <div style="font-weight: bold; color: #0f0;">${quest.title}</div>
+      <div>${quest.description}</div>
+    `;
+    completedQuests.appendChild(questElement);
+  });
+  
+  document.getElementById('quests-modal').style.display = 'block';
+}
+
+function completeQuest(questId) {
+  const questIndex = game.quests.active.findIndex(q => q.id === questId);
+  if (questIndex === -1) return;
+  
+  const quest = game.quests.active[questIndex];
+  quest.completed = true;
+  
+  // Move to completed
+  game.quests.completed.push(quest);
+  game.quests.active.splice(questIndex, 1);
+  
+  addToScene(`QUEST COMPLETED: ${quest.title}`);
+  
+  // Refresh if open
+  if (document.getElementById('quests-modal').style.display === 'block') {
+    openQuests();
+  }
+}
+
+// Map
+function openMap() {
+  // Simple ASCII map showing progress
+  let map = '';
+  for (let i = 0; i < game.locations.length; i++) {
+    if (i < game.location) {
+      map += `■ ${game.locations[i].name}\n`;
+    } else if (i === game.location) {
+      map += `X ${game.locations[i].name}\n`;
+    } else {
+      map += `□ ${game.locations[i].name}\n`;
+    }
+  }
+  
+  alert(`MAP:\n\n${map}`);
+}
+
+// Utility Functions
+function addToScene(text) {
+  const scene = document.getElementById('scene-description');
+  scene.innerHTML += `<p>${text}</p>`;
+  scene.scrollTop = scene.scrollHeight;
+}
+
+function addCombatLog(text) {
+  const log = document.getElementById('combat-log-modal');
+  log.innerHTML += `<p>${text}</p>`;
+  log.scrollTop = log.scrollHeight;
+}
+
+function clearScene() {
+  document.getElementById('scene-description').innerHTML = '';
+}
+
+function hideAllModals() {
+  document.querySelectorAll('.modal').forEach(modal => {
+    modal.style.display = 'none';
+  });
+  
+  // If in combat, return to combat modal
+  if (game.inCombat) {
+    document.getElementById('combat-modal').style.display = 'block';
+  }
+}
+
+function tryAgain() {
+  document.getElementById('game-over-modal').style.display = 'none';
+  game.player.hp = game.player.maxHp;
+  game.player.sanity = game.player.maxSanity;
+  updateUI();
+}
+
+function returnToMainMenu() {
+  document.getElementById('game-over-modal').style.display = 'none';
+  document.getElementById('main-game').style.display = 'none';
+  document.getElementById('character-selection').style.display = 'flex';
+}
+
+// Save/Load
+function saveGame() {
+  localStorage.setItem('draculasCurseSave', JSON.stringify(game));
+  addToScene("Game saved successfully.");
+}
+
+function loadGame() {
+  const saved = JSON.parse(localStorage.getItem('draculasCurseSave'));
+  if (saved) {
+    Object.assign(game, saved);
+    document.getElementById('character-selection').style.display = 'none';
+    document.getElementById('main-game').style.display = 'flex';
+    updateUI();
+    bindButtons();
+    updateLocation();
+    addToScene(`Game loaded. Welcome back, ${game.player.name}!`);
+  }
+}
+</script>
+</body>
+</html>
