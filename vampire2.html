@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+    <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -46,6 +46,10 @@ button:hover:not(:disabled) { background: #300; }
 .flash-red { animation: flash-red 0.3s; }
 .critical { animation: critical 0.5s; }
 @keyframes critical { 0%,100% { color: red; } 50% { color: yellow; } }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+.poisoned { color: #0f0; animation: pulse 1s infinite; }
+.bleeding { color: #f00; animation: pulse 0.5s infinite; }
+.cursed { color: #800080; animation: pulse 2s infinite; }
 
 /* Merchant */
 .merchant-item { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed red; }
@@ -70,18 +74,21 @@ button:hover:not(:disabled) { background: #300; }
       <h2>JONATHAN HARKER</h2>
       <p><strong>Class:</strong> Diplomat | <strong>HP:</strong> 90 | <strong>SAN:</strong> 110</p>
       <p><strong>Skills:</strong> Silver Strike (2x damage with silver weapons)</p>
+      <p><strong>Unlocks at Lvl 5:</strong> Vampire Slayer (+25% damage to vampires)</p>
     </div>
     
     <div class="character-select" id="select-vanhelsing">
       <h2>VAN HELSING</h2>
       <p><strong>Class:</strong> Professor | <strong>HP:</strong> 100 | <strong>SAN:</strong> 90</p>
       <p><strong>Skills:</strong> Holy Water (double effectiveness), Vampire Knowledge</p>
+      <p><strong>Unlocks at Lvl 5:</strong> Alchemy (craft special items)</p>
     </div>
     
     <div class="character-select" id="select-mina">
       <h2>MINA MURRAY</h2>
       <p><strong>Class:</strong> Occultist | <strong>HP:</strong> 80 | <strong>SAN:</strong> 120</p>
       <p><strong>Skills:</strong> Hypnosis, Sixth Sense (better item finding)</p>
+      <p><strong>Unlocks at Lvl 5:</strong> Clairvoyance (see hidden paths)</p>
     </div>
     
     <div style="margin-top: 10px">
@@ -96,6 +103,7 @@ button:hover:not(:disabled) { background: #300; }
     
     <div style="display: flex; gap: 5px; margin-top: 10px;">
       <button id="load-button" style="display: none;">LOAD GAME</button>
+      <button id="new-game-plus-button" style="display: none;">NEW GAME+</button>
       <button id="settings-button">SETTINGS</button>
     </div>
   </div>
@@ -146,6 +154,9 @@ button:hover:not(:disabled) { background: #300; }
         <span>WEAPON:</span>
         <span id="equipped-weapon-name">FISTS</span> (<span id="equipped-weapon-dmg">2</span> DMG)
       </div>
+
+      <!-- Status Effects -->
+      <div id="status-effects" style="min-height: 20px;"></div>
 
       <!-- Footer -->
       <div id="footer-buttons" class="button-container">
@@ -226,6 +237,9 @@ button:hover:not(:disabled) { background: #300; }
       
       <h3 style="margin-top: 10px;">SKILLS</h3>
       <div id="character-skills"></div>
+
+      <h3 style="margin-top: 10px;">STATUS EFFECTS</h3>
+      <div id="character-status-effects"></div>
     </div>
   </div>
 </div>
@@ -243,6 +257,9 @@ button:hover:not(:disabled) { background: #300; }
       
       <h3 style="margin-top: 10px;">COMPLETED QUESTS</h3>
       <div id="completed-quests"></div>
+
+      <h3 style="margin-top: 10px;">SIDE QUESTS</h3>
+      <div id="side-quests"></div>
     </div>
   </div>
 </div>
@@ -258,6 +275,7 @@ button:hover:not(:disabled) { background: #300; }
         <h3 id="enemy-name">ENEMY</h3>
         <div>HP: <span id="enemy-hp">30</span>/<span id="enemy-max-hp">30</span></div>
         <div class="bar"><div id="enemy-hp-bar" class="bar-fill health" style="width: 100%;"></div></div>
+        <div id="enemy-status-effects"></div>
       </div>
 
       <div id="player-display" style="border: 1px solid red; padding: 8px; margin-bottom: 5px;">
@@ -266,6 +284,7 @@ button:hover:not(:disabled) { background: #300; }
         <div class="bar"><div id="player-hp-bar" class="bar-fill health" style="width: 100%;"></div></div>
         <div>SAN: <span id="player-sanity-combat">100</span>/<span id="player-max-sanity-combat">100</span></div>
         <div class="bar"><div id="player-sanity-bar" class="bar-fill sanity" style="width: 100%;"></div></div>
+        <div id="player-combat-status-effects"></div>
       </div>
 
       <div id="combat-log-modal" style="min-height: 80px; border: 1px solid red; padding: 8px;"></div>
@@ -295,6 +314,28 @@ button:hover:not(:disabled) { background: #300; }
   </div>
 </div>
 
+<!-- New Game Plus Modal -->
+<div id="new-game-plus-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 style="text-align: center">NEW GAME+</h2>
+    </div>
+    <div class="modal-body" style="text-align: center;">
+      <p>Congratulations on defeating Dracula!</p>
+      <p>Start a new game with increased difficulty but keep your:</p>
+      <ul style="text-align: left; margin: 10px 0;">
+        <li>Level and stats</li>
+        <li>Inventory (except key items)</li>
+        <li>Gold</li>
+        <li>Unlocked abilities</li>
+      </ul>
+      <p>Enemies will be stronger and smarter!</p>
+      <button id="start-new-game-plus">BEGIN NEW GAME+</button>
+      <button id="regular-new-game">START NORMAL GAME</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // Game State
 const game = {
@@ -305,13 +346,18 @@ const game = {
   day: 1,
   difficulty: 'normal',
   hasStake: false,
+  newGamePlus: false,
+  statusEffects: [],
+  enemyStatusEffects: [],
   
   // Game Data
   locations: [
     { name: "TAVERN", desc: "You stand in the dimly lit tavern at the foot of the Carpathian Mountains.", enemies: [] },
-    { name: "FOREST", desc: "The dark forest is filled with eerie sounds.", enemies: ["vampire-spawn", "ghoul"] },
-    { name: "MOUNTAIN", desc: "The steep mountain path winds upward.", enemies: ["vampire-spawn", "werewolf"] },
-    { name: "CASTLE", desc: "You stand before Dracula's castle.", enemies: ["brides", "werewolf"] },
+    { name: "FOREST", desc: "The dark forest is filled with eerie sounds.", enemies: ["vampire-spawn", "ghoul", "banshee"] },
+    { name: "MOUNTAIN", desc: "The steep mountain path winds upward.", enemies: ["vampire-spawn", "werewolf", "ghost"] },
+    { name: "CASTLE GATES", desc: "The massive iron gates stand ominously open.", enemies: ["brides", "werewolf", "zombie"] },
+    { name: "CASTLE HALLS", desc: "The interior is dark and foreboding.", enemies: ["brides", "vampire-spawn", "ghost"] },
+    { name: "DUNGEONS", desc: "The stench of death fills the air.", enemies: ["ghoul", "zombie", "banshee"] },
     { name: "THRONE ROOM", desc: "The final confrontation.", enemies: ["dracula"] }
   ],
   
@@ -324,7 +370,8 @@ const game = {
       strength: 7, agility: 6, intelligence: 5,
       skills: ["SILVER STRIKE"], 
       perks: ["+10% damage with silver weapons"],
-      inventory: ["silver-dagger"] 
+      inventory: ["silver-dagger"],
+      unlockedAbilities: []
     },
     vanhelsing: { 
       name: "VAN HELSING", 
@@ -334,7 +381,8 @@ const game = {
       strength: 5, agility: 4, intelligence: 8,
       skills: ["HOLY WATER", "VAMPIRE KNOWLEDGE"], 
       perks: ["-25% sanity loss from undead"],
-      inventory: ["holy-water", "garlic"] 
+      inventory: ["holy-water", "garlic"],
+      unlockedAbilities: []
     },
     mina: { 
       name: "MINA MURRAY", 
@@ -344,16 +392,20 @@ const game = {
       strength: 4, agility: 7, intelligence: 7,
       skills: ["HYPNOSIS", "SIXTH SENSE"], 
       perks: ["+30% better item finding"],
-      inventory: ["occult-tome"] 
+      inventory: ["occult-tome"],
+      unlockedAbilities: []
     }
   },
   
   enemies: {
-    "vampire-spawn": { name: "VAMPIRE SPAWN", hp: 30, maxHp: 30, damage: 6, xp: 25, gold: 15, weakness: ["stake", "holy"] },
+    "vampire-spawn": { name: "VAMPIRE SPAWN", hp: 30, maxHp: 30, damage: 6, xp: 25, gold: 15, weakness: ["stake", "holy"], special: "bleed" },
     "brides": { name: "DRACULA'S BRIDES", hp: 50, maxHp: 50, damage: 9, xp: 40, gold: 30, weakness: ["holy"], special: "charm" },
-    "werewolf": { name: "WEREWOLF", hp: 70, maxHp: 70, damage: 12, xp: 60, gold: 45, weakness: ["silver"] },
-    "ghoul": { name: "GHOUL", hp: 40, maxHp: 40, damage: 8, xp: 35, gold: 20, weakness: ["holy"] },
-    "dracula": { name: "COUNT DRACULA", hp: 150, maxHp: 150, damage: 15, xp: 200, gold: 100, weakness: ["stake", "holy"], special: "transform" }
+    "werewolf": { name: "WEREWOLF", hp: 70, maxHp: 70, damage: 12, xp: 60, gold: 45, weakness: ["silver"], special: "howl" },
+    "ghoul": { name: "GHOUL", hp: 40, maxHp: 40, damage: 8, xp: 35, gold: 20, weakness: ["holy"], special: "disease" },
+    "dracula": { name: "COUNT DRACULA", hp: 150, maxHp: 150, damage: 15, xp: 200, gold: 100, weakness: ["stake", "holy"], special: "transform" },
+    "banshee": { name: "BANSHEE", hp: 35, maxHp: 35, damage: 7, xp: 30, gold: 25, weakness: ["silver"], special: "screech" },
+    "ghost": { name: "GHOST", hp: 25, maxHp: 25, damage: 5, xp: 20, gold: 10, weakness: ["holy"], special: "phase" },
+    "zombie": { name: "ZOMBIE", hp: 45, maxHp: 45, damage: 7, xp: 30, gold: 15, weakness: ["fire"], special: "grapple" }
   },
   
   items: {
@@ -363,7 +415,10 @@ const game = {
     "health-potion": { name: "HEALTH POTION", heal: 20 },
     "holy-water": { name: "HOLY WATER", damage: 15, special: "holy" },
     "garlic": { name: "GARLIC", damage: 5, special: "repel" },
-    "occult-tome": { name: "OCCULT TOME", special: "knowledge" }
+    "occult-tome": { name: "OCCULT TOME", special: "knowledge" },
+    "antidote": { name: "ANTIDOTE", special: "cure" },
+    "blessed-blade": { name: "BLESSED BLADE", damage: 14, special: "holy" },
+    "vampire-killer": { name: "VAMPIRE KILLER", damage: 18, special: ["silver", "holy"] }
   },
   
   merchantItems: [
@@ -371,7 +426,8 @@ const game = {
     { id: "holy-water", name: "HOLY WATER", price: 25, damage: 15, special: "holy" },
     { id: "garlic", name: "GARLIC", price: 10, damage: 5, special: "repel" },
     { id: "silver-dagger", name: "SILVER DAGGER", price: 50, damage: 8, special: "silver" },
-    { id: "wooden-stake", name: "WOODEN STAKE", price: 40, damage: 12, special: "stake" }
+    { id: "wooden-stake", name: "WOODEN STAKE", price: 40, damage: 12, special: "stake" },
+    { id: "antidote", name: "ANTIDOTE", price: 20, special: "cure" }
   ],
   
   quests: {
@@ -379,8 +435,28 @@ const game = {
       { id: "slay-dracula", title: "SLAY DRACULA", description: "Defeat Count Dracula to lift the curse.", completed: false },
       { id: "find-stake", title: "FIND A STAKE", description: "Obtain a wooden stake to fight vampires.", completed: false }
     ],
-    completed: []
-  }
+    completed: [],
+    side: [
+      { id: "kill-werewolf", title: "SLAY THE WEREWOLF", description: "Defeat the werewolf haunting the mountains.", completed: false, reward: "blessed-blade" },
+      { id: "find-tome", title: "FIND THE LOST TOME", description: "Recover the ancient occult tome from the dungeons.", completed: false, reward: "vampire-killer" }
+    ]
+  },
+  
+  statusEffectTypes: {
+    "bleed": { name: "BLEEDING", duration: 3, damage: 2, class: "bleeding" },
+    "poison": { name: "POISONED", duration: 4, damage: 1, class: "poisoned" },
+    "curse": { name: "CURSED", duration: 5, damage: 0, sanityLoss: 5, class: "cursed" },
+    "charmed": { name: "CHARMED", duration: 1, skipTurn: true, class: "cursed" }
+  },
+  
+  travelEvents: [
+    { text: "You find a hidden path that leads to a small clearing.", effect: "findItem" },
+    { text: "A strange mist surrounds you, making it hard to see.", effect: "loseSanity", amount: 5 },
+    { text: "You stumble upon an abandoned campsite with some useful items.", effect: "findItem" },
+    { text: "The howling wind carries whispers that chill you to the bone.", effect: "loseSanity", amount: 10 },
+    { text: "You discover a shortcut through the terrain.", effect: "progressFaster" },
+    { text: "A wounded traveler warns you of dangers ahead before collapsing.", effect: "findItem" }
+  ]
 };
 
 // Initialize Game
@@ -400,21 +476,42 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('load-button').style.display = 'block';
     document.getElementById('load-button').addEventListener('click', loadGame);
   }
+
+  // Check for completed game
+  if (localStorage.getItem('draculasCurseCompleted')) {
+    document.getElementById('new-game-plus-button').style.display = 'block';
+    document.getElementById('new-game-plus-button').addEventListener('click', () => {
+      document.getElementById('new-game-plus-modal').style.display = 'block';
+    });
+  }
 });
 
-function startGame(character) {
-  game.player = JSON.parse(JSON.stringify(game.characters[character]));
-  game.player.gold = 50;
-  game.player.level = 1;
-  game.player.xp = 0;
-  game.player.nextLevelXp = 100;
-  game.player.equippedWeapon = "fists";
-  game.player.inventory = game.player.inventory || [];
-  game.player.inventory.push("health-potion", "health-potion");
+function startGame(character, isNewGamePlus = false) {
+  if (isNewGamePlus) {
+    // Load from completed game
+    const completedGame = JSON.parse(localStorage.getItem('draculasCurseCompleted'));
+    game.player = completedGame.player;
+    game.newGamePlus = true;
+    game.difficulty = 'hard'; // Automatically increase difficulty for NG+
+  } else {
+    // New game
+    game.player = JSON.parse(JSON.stringify(game.characters[character]));
+    game.player.gold = 50;
+    game.player.level = 1;
+    game.player.xp = 0;
+    game.player.nextLevelXp = 100;
+    game.player.equippedWeapon = "fists";
+    game.player.inventory = game.player.inventory || [];
+    game.player.inventory.push("health-potion", "health-potion");
+    game.player.unlockedAbilities = [];
+  }
+  
   game.difficulty = document.getElementById('difficulty').value;
   game.location = 0;
   game.day = 1;
   game.hasStake = false;
+  game.statusEffects = [];
+  game.enemyStatusEffects = [];
   
   // Apply difficulty
   applyDifficulty();
@@ -429,7 +526,11 @@ function startGame(character) {
   
   // Start game
   updateLocation();
-  addToScene(`You awaken in the tavern as ${game.player.name}, ready to face the horrors ahead.`);
+  if (isNewGamePlus) {
+    addToScene(`You awaken with a start... the nightmare begins again. But you are stronger now.`);
+  } else {
+    addToScene(`You awaken in the tavern as ${game.player.name}, ready to face the horrors ahead.`);
+  }
 }
 
 function applyDifficulty() {
@@ -442,9 +543,9 @@ function applyDifficulty() {
   
   // Adjust enemies
   Object.keys(game.enemies).forEach(key => {
-    game.enemies[key].hp = Math.floor(game.enemies[key].hp * modifier.hp);
+    game.enemies[key].hp = Math.floor(game.enemies[key].hp * modifier.hp * (game.newGamePlus ? 1.5 : 1));
     game.enemies[key].maxHp = game.enemies[key].hp;
-    game.enemies[key].damage = Math.floor(game.enemies[key].damage * modifier.damage);
+    game.enemies[key].damage = Math.floor(game.enemies[key].damage * modifier.damage * (game.newGamePlus ? 1.2 : 1));
     game.enemies[key].xp = Math.floor(game.enemies[key].xp * modifier.reward);
     game.enemies[key].gold = Math.floor(game.enemies[key].gold * modifier.reward);
   });
@@ -469,6 +570,23 @@ function updateUI() {
   const weapon = game.items[game.player.equippedWeapon] || game.items.fists;
   document.getElementById('equipped-weapon-name').textContent = weapon.name;
   document.getElementById('equipped-weapon-dmg').textContent = weapon.damage;
+  
+  // Status effects
+  updateStatusEffects();
+}
+
+function updateStatusEffects() {
+  const statusContainer = document.getElementById('status-effects');
+  statusContainer.innerHTML = '';
+  
+  game.statusEffects.forEach(effect => {
+    const effectType = game.statusEffectTypes[effect.type];
+    const span = document.createElement('span');
+    span.textContent = effectType.name;
+    span.className = effectType.class;
+    span.style.marginRight = '5px';
+    statusContainer.appendChild(span);
+  });
 }
 
 function bindButtons() {
@@ -499,6 +617,17 @@ function bindButtons() {
   // Game over
   document.getElementById('try-again-button').onclick = tryAgain;
   document.getElementById('main-menu-button').onclick = returnToMainMenu;
+  
+  // New Game+
+  document.getElementById('start-new-game-plus').onclick = () => {
+    document.getElementById('new-game-plus-modal').style.display = 'none';
+    const completedGame = JSON.parse(localStorage.getItem('draculasCurseCompleted'));
+    startGame(completedGame.player.character, true);
+  };
+  document.getElementById('regular-new-game').onclick = () => {
+    document.getElementById('new-game-plus-modal').style.display = 'none';
+    document.getElementById('character-selection').style.display = 'flex';
+  };
 }
 
 // Game Actions
@@ -508,9 +637,38 @@ function explore() {
     game.location = 1;
     updateLocation();
     addToScene(game.locations[1].desc);
+    
+    // Random travel event
+    if (Math.random() < 0.5) {
+      const event = game.travelEvents[Math.floor(Math.random() * game.travelEvents.length)];
+      addToScene(event.text);
+      
+      switch(event.effect) {
+        case "findItem":
+          findItem();
+          break;
+        case "loseSanity":
+          game.player.sanity = Math.max(0, game.player.sanity - event.amount);
+          updateUI();
+          break;
+        case "progressFaster":
+          game.location = Math.min(game.location + 1, game.locations.length - 1);
+          updateLocation();
+          break;
+      }
+    }
+    
     setTimeout(() => startRandomEncounter(), 1000);
   } else {
     addToScene(`You explore the ${game.locations[game.location].name.toLowerCase()}...`);
+    
+    // Check for hidden areas (Mina's ability)
+    if (game.player.skills.includes("CLAIRVOYANCE") && Math.random() < 0.3) {
+      addToScene("Your sixth sense tingles... you find a hidden alcove!");
+      findItem();
+      return;
+    }
+    
     if (Math.random() < 0.7) {
       setTimeout(() => startRandomEncounter(), 1000);
     } else if (Math.random() < 0.5) {
@@ -522,7 +680,18 @@ function explore() {
 }
 
 function findItem() {
-  const possibleItems = ["health-potion", "holy-water", "garlic"];
+  let possibleItems = ["health-potion", "holy-water", "garlic"];
+  
+  // Mina's Sixth Sense ability gives better items
+  if (game.player.skills.includes("SIXTH SENSE")) {
+    possibleItems = possibleItems.concat(["antidote", "silver-dagger"]);
+  }
+  
+  // Higher level characters find better items
+  if (game.player.level > 3) {
+    possibleItems.push("wooden-stake");
+  }
+  
   const foundItem = possibleItems[Math.floor(Math.random() * possibleItems.length)];
   game.player.inventory.push(foundItem);
   addToScene(`You found a ${game.items[foundItem].name}!`);
@@ -537,6 +706,7 @@ function startRandomEncounter() {
 function startCombat(enemyType) {
   game.inCombat = true;
   game.currentEnemy = JSON.parse(JSON.stringify(game.enemies[enemyType]));
+  game.enemyStatusEffects = [];
   
   // Update UI
   document.getElementById('combat-title').textContent = `COMBAT: ${game.currentEnemy.name}`;
@@ -560,24 +730,42 @@ function startCombat(enemyType) {
   // Special enemy intro
   if (enemyType === "dracula") {
     combatLog.innerHTML += `<p>"I AM DRACULA! YOU DARE CHALLENGE ME?"</p>`;
+  } else if (enemyType === "werewolf") {
+    combatLog.innerHTML += `<p>The beast howls as it charges at you!</p>`;
   }
   
   // Show modal
   document.getElementById('combat-modal').style.display = 'block';
+  updateCombatStatusEffects();
 }
 
 function playerAttack() {
   if (!game.inCombat) return;
   
+  // Check if charmed
+  const charmed = game.statusEffects.find(e => e.type === "charmed");
+  if (charmed) {
+    addCombatLog(`You are charmed and can't attack!`);
+    game.statusEffects = game.statusEffects.filter(e => e.type !== "charmed");
+    updateStatusEffects();
+    setTimeout(() => enemyAttack(), 1000);
+    return;
+  }
+  
   const weapon = game.items[game.player.equippedWeapon] || game.items.fists;
   let damage = weapon.damage + Math.floor(Math.random() * 4);
   
+  // Strength bonus
+  damage += Math.floor(game.player.strength / 2);
+  
   // Check for critical
-  const isCritical = Math.random() < 0.05;
+  const isCritical = Math.random() < 0.05 + (game.player.agility / 100);
   if (isCritical) damage = Math.floor(damage * 1.5);
   
   // Check for weapon special effects
-  if (weapon.special && game.currentEnemy.weakness.includes(weapon.special)) {
+  if (weapon.special && Array.isArray(weapon.special) 
+      ? weapon.special.some(s => game.currentEnemy.weakness.includes(s))
+      : game.currentEnemy.weakness.includes(weapon.special)) {
     damage = Math.floor(damage * 1.5);
     addCombatLog(`${weapon.name} IS EFFECTIVE!`);
   }
@@ -586,6 +774,13 @@ function playerAttack() {
   if (game.player.skills.includes("SILVER STRIKE") && weapon.special === "silver") {
     damage = Math.floor(damage * 2);
     addCombatLog(`SILVER STRIKE ACTIVATED!`);
+  }
+  
+  // Jonathan's Vampire Slayer ability
+  if (game.player.unlockedAbilities.includes("VAMPIRE SLAYER") && 
+      (game.currentEnemy.name.includes("VAMPIRE") || game.currentEnemy.name === "COUNT DRACULA")) {
+    damage = Math.floor(damage * 1.25);
+    addCombatLog(`VAMPIRE SLAYER: +25% DAMAGE!`);
   }
   
   // Apply damage
@@ -602,6 +797,11 @@ function playerAttack() {
   
   addCombatLog(`YOU HIT FOR ${damage} DAMAGE!${isCritical ? ' <span class="critical">CRITICAL!</span>' : ''}`);
   
+  // Apply status effects from weapon
+  if (weapon.special === "silver" && Math.random() < 0.2) {
+    applyEnemyStatusEffect("bleed");
+  }
+  
   // Check if enemy defeated
   if (game.currentEnemy.hp <= 0) {
     enemyDefeated();
@@ -617,16 +817,44 @@ function enemyAttack() {
   
   let damage = game.currentEnemy.damage + Math.floor(Math.random() * 4);
   
-  // Special attacks
-  if (game.currentEnemy.special === "charm" && Math.random() < 0.3) {
-    addCombatLog(`${game.currentEnemy.name} CHARMS YOU! YOU CAN'T ATTACK NEXT TURN!`);
-    return;
-  } else if (game.currentEnemy.special === "transform" && game.currentEnemy.hp < game.currentEnemy.maxHp / 2) {
-    if (!game.currentEnemy.transformed) {
-      game.currentEnemy.transformed = true;
-      game.currentEnemy.damage += 5;
-      addCombatLog(`${game.currentEnemy.name} TRANSFORMS! ATTACK INCREASED!`);
-    }
+  // Apply status effects from enemy special
+  switch(game.currentEnemy.special) {
+    case "bleed":
+      if (Math.random() < 0.3) {
+        applyStatusEffect("bleed");
+        addCombatLog(`The ${game.currentEnemy.name}'s attack makes you bleed!`);
+      }
+      break;
+    case "charm":
+      if (Math.random() < 0.3) {
+        applyStatusEffect("charmed");
+        addCombatLog(`${game.currentEnemy.name} CHARMS YOU! YOU CAN'T ATTACK NEXT TURN!`);
+      }
+      break;
+    case "howl":
+      if (Math.random() < 0.4) {
+        damage = Math.floor(damage * 1.5);
+        addCombatLog(`${game.currentEnemy.name} HOWLS, increasing its attack power!`);
+      }
+      break;
+    case "disease":
+      if (Math.random() < 0.25) {
+        applyStatusEffect("poison");
+        addCombatLog(`The ${game.currentEnemy.name} infects you with disease!`);
+      }
+      break;
+    case "screech":
+      game.player.sanity = Math.max(0, game.player.sanity - 10);
+      updateUI();
+      addCombatLog(`The ${game.currentEnemy.name} SCREECHES, damaging your sanity!`);
+      break;
+    case "transform":
+      if (!game.currentEnemy.transformed && game.currentEnemy.hp < game.currentEnemy.maxHp / 2) {
+        game.currentEnemy.transformed = true;
+        game.currentEnemy.damage += 5;
+        addCombatLog(`${game.currentEnemy.name} TRANSFORMS! ATTACK INCREASED!`);
+      }
+      break;
   }
   
   // Apply damage
@@ -643,10 +871,98 @@ function enemyAttack() {
   
   addCombatLog(`${game.currentEnemy.name} HITS YOU FOR ${damage} DAMAGE!`);
   
+  // Apply status effects
+  applyStatusEffectsDamage();
+  updateCombatStatusEffects();
+  
   // Check if player defeated
   if (game.player.hp <= 0) {
     playerDefeated();
   }
+}
+
+function applyStatusEffect(type) {
+  const existing = game.statusEffects.find(e => e.type === type);
+  if (existing) {
+    existing.duration = game.statusEffectTypes[type].duration; // Refresh duration
+  } else {
+    game.statusEffects.push({
+      type: type,
+      duration: game.statusEffectTypes[type].duration
+    });
+  }
+  updateStatusEffects();
+}
+
+function applyEnemyStatusEffect(type) {
+  const existing = game.enemyStatusEffects.find(e => e.type === type);
+  if (existing) {
+    existing.duration = game.statusEffectTypes[type].duration; // Refresh duration
+  } else {
+    game.enemyStatusEffects.push({
+      type: type,
+      duration: game.statusEffectTypes[type].duration
+    });
+  }
+  updateCombatStatusEffects();
+}
+
+function applyStatusEffectsDamage() {
+  // Player status effects
+  game.statusEffects.forEach(effect => {
+    const effectType = game.statusEffectTypes[effect.type];
+    if (effectType.damage) {
+      game.player.hp = Math.max(0, game.player.hp - effectType.damage);
+      addCombatLog(`${effectType.name}: -${effectType.damage} HP`);
+    }
+    if (effectType.sanityLoss) {
+      game.player.sanity = Math.max(0, game.player.sanity - effectType.sanityLoss);
+      addCombatLog(`${effectType.name}: -${effectType.sanityLoss} SAN`);
+    }
+  });
+  
+  // Enemy status effects
+  game.enemyStatusEffects.forEach(effect => {
+    const effectType = game.statusEffectTypes[effect.type];
+    if (effectType.damage) {
+      game.currentEnemy.hp = Math.max(0, game.currentEnemy.hp - effectType.damage);
+      addCombatLog(`${effectType.name}: -${effectType.damage} HP to enemy`);
+    }
+  });
+  
+  // Update durations
+  game.statusEffects.forEach(effect => effect.duration--);
+  game.enemyStatusEffects.forEach(effect => effect.duration--);
+  
+  // Remove expired effects
+  game.statusEffects = game.statusEffects.filter(e => e.duration > 0);
+  game.enemyStatusEffects = game.enemyStatusEffects.filter(e => e.duration > 0);
+  
+  updateUI();
+}
+
+function updateCombatStatusEffects() {
+  const playerEffects = document.getElementById('player-combat-status-effects');
+  const enemyEffects = document.getElementById('enemy-status-effects');
+  
+  playerEffects.innerHTML = '';
+  enemyEffects.innerHTML = '';
+  
+  game.statusEffects.forEach(effect => {
+    const effectType = game.statusEffectTypes[effect.type];
+    const span = document.createElement('div');
+    span.textContent = `${effectType.name} (${effect.duration})`;
+    span.className = effectType.class;
+    playerEffects.appendChild(span);
+  });
+  
+  game.enemyStatusEffects.forEach(effect => {
+    const effectType = game.statusEffectTypes[effect.type];
+    const span = document.createElement('div');
+    span.textContent = `${effectType.name} (${effect.duration})`;
+    span.className = effectType.class;
+    enemyEffects.appendChild(span);
+  });
 }
 
 function enemyDefeated() {
@@ -659,6 +975,16 @@ function enemyDefeated() {
   // Check for quest completion
   if (game.currentEnemy.name === "COUNT DRACULA") {
     completeQuest("slay-dracula");
+    // Mark game as completed for New Game+
+    localStorage.setItem('draculasCurseCompleted', JSON.stringify({
+      player: {
+        ...game.player,
+        character: Object.keys(game.characters).find(key => game.characters[key].name === game.player.name)
+      }
+    }));
+    document.getElementById('new-game-plus-button').style.display = 'block';
+  } else if (game.currentEnemy.name === "WEREWOLF") {
+    completeQuest("kill-werewolf");
   }
   
   // Check for level up
@@ -671,11 +997,16 @@ function enemyDefeated() {
   // End combat
   setTimeout(() => {
     game.inCombat = false;
+    game.statusEffects = [];
     document.getElementById('combat-modal').style.display = 'none';
     addToScene(`You defeated the ${game.currentEnemy.name}!`);
     
     // Progress through locations
-    if (game.location < game.locations.length - 1 && Math.random() < 0.3) {
+    if (game.currentEnemy.name === "COUNT DRACULA") {
+      // Game completed
+      addToScene("CONGRATULATIONS! You have defeated Dracula and lifted the curse!");
+      addToScene("The villagers will sing songs of your bravery for generations to come.");
+    } else if (game.location < game.locations.length - 1 && Math.random() < 0.3) {
       game.location++;
       updateLocation();
       addToScene(`You progress deeper into the castle...`);
@@ -699,8 +1030,27 @@ function levelUp() {
   const stat = ["strength", "agility", "intelligence"][Math.floor(Math.random() * 3)];
   game.player[stat]++;
   
+  // Check for ability unlocks
+  if (game.player.level === 5) {
+    if (game.player.name === "JONATHAN HARKER") {
+      game.player.unlockedAbilities.push("VAMPIRE SLAYER");
+      game.player.skills.push("VAMPIRE SLAYER");
+    } else if (game.player.name === "VAN HELSING") {
+      game.player.unlockedAbilities.push("ALCHEMY");
+      game.player.skills.push("ALCHEMY");
+    } else if (game.player.name === "MINA MURRAY") {
+      game.player.unlockedAbilities.push("CLAIRVOYANCE");
+      game.player.skills.push("CLAIRVOYANCE");
+    }
+  }
+  
   addCombatLog(`LEVEL UP! NOW LEVEL ${game.player.level}`);
   addCombatLog(`+10 MAX HP | +5 MAX SANITY | +1 ${stat.toUpperCase()}`);
+  
+  if (game.player.level === 5) {
+    addCombatLog(`NEW ABILITY UNLOCKED: ${game.player.unlockedAbilities[game.player.unlockedAbilities.length - 1]}!`);
+  }
+  
   updateUI();
 }
 
@@ -742,6 +1092,14 @@ function specialAttack() {
       addCombatLog("YOUR HYPNOSIS FAILS!");
       setTimeout(() => enemyAttack(), 1000);
     }
+  } else if (game.player.skills.includes("VAMPIRE SLAYER")) {
+    if (game.currentEnemy.name.includes("VAMPIRE") || game.currentEnemy.name === "COUNT DRACULA") {
+      playerAttack(); // Regular attack will get the bonus
+    } else {
+      addCombatLog("THIS ABILITY ONLY WORKS ON VAMPIRES!");
+    }
+  } else if (game.player.skills.includes("CLAIRVOYANCE") && !game.inCombat) {
+    // Handled in explore function
   }
 }
 
@@ -759,12 +1117,21 @@ function useItemInCombat() {
 }
 
 function attemptFlee() {
-  if (Math.random() < 0.5) {
+  // Agility affects flee chance
+  const fleeChance = 0.5 + (game.player.agility / 100);
+  
+  if (Math.random() < fleeChance) {
     addCombatLog("YOU SUCCESSFULLY FLEE!");
     setTimeout(() => {
       game.inCombat = false;
       document.getElementById('combat-modal').style.display = 'none';
       addToScene(`You barely escape from the ${game.currentEnemy.name}!`);
+      
+      // Return to previous location when fleeing
+      if (game.location > 1) {
+        game.location--;
+        updateLocation();
+      }
     }, 1000);
   } else {
     addCombatLog("FAILED TO FLEE!");
@@ -797,6 +1164,27 @@ function leaveTavern() {
   updateLocation();
   clearScene();
   addToScene(game.locations[1].desc);
+  
+  // Random travel event
+  if (Math.random() < 0.5) {
+    const event = game.travelEvents[Math.floor(Math.random() * game.travelEvents.length)];
+    addToScene(event.text);
+    
+    switch(event.effect) {
+      case "findItem":
+        findItem();
+        break;
+      case "loseSanity":
+        game.player.sanity = Math.max(0, game.player.sanity - event.amount);
+        updateUI();
+        break;
+      case "progressFaster":
+        game.location = Math.min(game.location + 1, game.locations.length - 1);
+        updateLocation();
+        break;
+    }
+  }
+  
   setTimeout(() => startRandomEncounter(), 1000);
 }
 
@@ -817,7 +1205,9 @@ function talkToBarkeep() {
     const dialogues = [
       `"You still here? Don't say I didn't warn you," the barkeep mutters.`,
       `"The nights grow longer. Dracula's power increases," he whispers.`,
-      `"The merchant has good wares, but don't trust him too much," he advises.`
+      `"The merchant has good wares, but don't trust him too much," he advises.`,
+      `"They say there's a werewolf in the mountains... be careful out there."`,
+      `"I heard there's a powerful weapon hidden in the castle dungeons."`
     ];
     addToScene(dialogues[Math.floor(Math.random() * dialogues.length)]);
   }
@@ -829,6 +1219,10 @@ function rest() {
   
   game.player.hp = Math.min(game.player.maxHp, game.player.hp + healAmount);
   game.player.sanity = Math.min(game.player.maxSanity, game.player.sanity + sanityAmount);
+  
+  // Rest cures some status effects
+  game.statusEffects = game.statusEffects.filter(e => !["bleed", "poison"].includes(e.type));
+  updateStatusEffects();
   
   addToScene(`You rest and recover ${healAmount} HP and ${sanityAmount} sanity.`);
   updateUI();
@@ -964,7 +1358,7 @@ function openInventory() {
   // Count items
   const itemCounts = {};
   game.player.inventory.forEach(item => {
-    if (game.items[item]?.heal) {
+    if (game.items[item]?.heal || game.items[item]?.special === "cure") {
       itemCounts[item] = (itemCounts[item] || 0) + 1;
     }
   });
@@ -1022,6 +1416,24 @@ function openInventory() {
         
         updateUI();
         openInventory(); // Refresh
+      } else if (item.special === "cure") {
+        // Remove all negative status effects
+        game.statusEffects = [];
+        updateStatusEffects();
+        
+        // Remove from inventory
+        const index = game.player.inventory.indexOf(itemId);
+        if (index !== -1) game.player.inventory.splice(index, 1);
+        
+        if (game.inCombat) {
+          addCombatLog(`YOU USE AN ${item.name} AND CURE ALL AILMENTS!`);
+          setTimeout(() => enemyAttack(), 1000);
+        } else {
+          addToScene(`You use an ${item.name} and cure all ailments.`);
+        }
+        
+        updateUI();
+        openInventory(); // Refresh
       }
     });
   });
@@ -1046,6 +1458,17 @@ function openCharacter() {
     const skillElement = document.createElement('div');
     skillElement.textContent = `• ${skill}`;
     skillsList.appendChild(skillElement);
+  });
+  
+  const statusEffectsList = document.getElementById('character-status-effects');
+  statusEffectsList.innerHTML = '';
+  
+  game.statusEffects.forEach(effect => {
+    const effectType = game.statusEffectTypes[effect.type];
+    const effectElement = document.createElement('div');
+    effectElement.textContent = `• ${effectType.name} (${effect.duration} turns)`;
+    effectElement.className = effectType.class;
+    statusEffectsList.appendChild(effectElement);
   });
   
   document.getElementById('character-modal').style.display = 'block';
@@ -1082,21 +1505,52 @@ function openQuests() {
     completedQuests.appendChild(questElement);
   });
   
+  const sideQuests = document.getElementById('side-quests');
+  sideQuests.innerHTML = '';
+  
+  game.quests.side.forEach(quest => {
+    const questElement = document.createElement('div');
+    questElement.style.padding = '5px 0';
+    questElement.style.borderBottom = '1px dashed red';
+    questElement.innerHTML = `
+      <div style="font-weight: bold;">${quest.title}</div>
+      <div>${quest.description}</div>
+      <div>${quest.completed ? '(Completed)' : '(Active)'}</div>
+    `;
+    sideQuests.appendChild(questElement);
+  });
+  
   document.getElementById('quests-modal').style.display = 'block';
 }
 
 function completeQuest(questId) {
-  const questIndex = game.quests.active.findIndex(q => q.id === questId);
-  if (questIndex === -1) return;
+  // Main quests
+  const mainQuestIndex = game.quests.active.findIndex(q => q.id === questId);
+  if (mainQuestIndex !== -1) {
+    const quest = game.quests.active[mainQuestIndex];
+    quest.completed = true;
+    
+    // Move to completed
+    game.quests.completed.push(quest);
+    game.quests.active.splice(mainQuestIndex, 1);
+    
+    addToScene(`QUEST COMPLETED: ${quest.title}`);
+  }
   
-  const quest = game.quests.active[questIndex];
-  quest.completed = true;
-  
-  // Move to completed
-  game.quests.completed.push(quest);
-  game.quests.active.splice(questIndex, 1);
-  
-  addToScene(`QUEST COMPLETED: ${quest.title}`);
+  // Side quests
+  const sideQuestIndex = game.quests.side.findIndex(q => q.id === questId);
+  if (sideQuestIndex !== -1) {
+    const quest = game.quests.side[sideQuestIndex];
+    quest.completed = true;
+    
+    // Give reward
+    if (quest.reward) {
+      game.player.inventory.push(quest.reward);
+      addToScene(`You received ${game.items[quest.reward].name} as a reward!`);
+    }
+    
+    addToScene(`SIDE QUEST COMPLETED: ${quest.title}`);
+  }
   
   // Refresh if open
   if (document.getElementById('quests-modal').style.display === 'block') {
@@ -1116,6 +1570,13 @@ function openMap() {
     } else {
       map += `□ ${game.locations[i].name}\n`;
     }
+  }
+  
+  // Show hidden locations if Mina has Clairvoyance
+  if (game.player.skills.includes("CLAIRVOYANCE")) {
+    map += "\nHIDDEN LOCATIONS:\n";
+    map += "□ SECRET CHAPEL\n";
+    map += "□ ALCHEMIST'S LAB\n";
   }
   
   alert(`MAP:\n\n${map}`);
@@ -1153,6 +1614,7 @@ function tryAgain() {
   document.getElementById('game-over-modal').style.display = 'none';
   game.player.hp = game.player.maxHp;
   game.player.sanity = game.player.maxSanity;
+  game.statusEffects = [];
   updateUI();
 }
 
