@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Wolfenstein 3D HTML5 (Fixed Shooting)</title>
+  <style>
+    body { margin: 0; background: black; overscroll-behavior: none; }
+    canvas { display: block; }
+    #controls {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: space-around;
+      z-index: 10;
+      padding: 8px;
+      box-sizing: border-box;
+      pointer-events: auto;
+    }
+    button {
+      flex: 1 1 17%;
+      height: 56px;
+      font-size: 18px;
+      opacity: 0.8;
+      border-radius: 12px;
+      border: none;
+      background: #222;
+      color: #eee;
+      touch-action: manipulation;
+    }
+    button:active { transform: scale(0.98); }
+    #shoot { flex-basis: 36%; background:#444; font-weight:700; }
+    #hud {
+      position: fixed;
+      left: 0; right: 0; top: 0;
+      display: flex; justify-content: center; align-items: center;
+      padding: 6px; pointer-events: none; color:#ddd; font-family: monospace;
+      text-shadow: 0 1px 2px #000;
+      z-index: 5; opacity: 0.8;
+    }
+    #weapon-hud {
+      position: fixed;
+      bottom: 80px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+      z-index: 10;
+      pointer-events: none;
+      font-family: monospace;
+      color: #fff;
+      text-shadow: 0 1px 2px #000;
+    }
+    #hit-indicator {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 64px;
+      color: #ff5555;
+      font-weight: bold;
+      text-shadow: 0 0 10px #ff0000;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 20;
+      transition: opacity 0.1s;
+    }
+    #enemy-health {
+      position: fixed;
+      top: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.6);
+      color: #ff5555;
+      padding: 4px 12px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 14px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+      z-index: 15;
+    }
+  </style>
+</head>
+<body>
+  <div id="hud">Click/tap to shoot when the enemy is centered. Find the pistol pickup first!</div>
+  <div id="hit-indicator">HIT!</div>
+  <div id="enemy-health"></div>
+  <div id="weapon-hud">
+    <div id="ammo-display">AMMO: <span id="ammo-count">0</span></div>
+    <div id="weapon-display">WEAPON: <span id="weapon-name">NONE</span></div>
+  </div>
+  <canvas id="canvas"></canvas>
+
+  <div id="controls">
+    <button id="left">Left</button>
+    <button id="up">Up</button>
+    <button id="down">Down</button>
+    <button id="right">Right</button>
+    <button id="shoot">Shoot</button>
+  </div>
+
+  <script>
+    // --- Canvas setup ---
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const hitIndicator = document.getElementById('hit-indicator');
+    const enemyHealthDisplay = document.getElementById('enemy-health');
+    const ammoDisplay = document.getElementById('ammo-count');
+    const weaponDisplay = document.getElementById('weapon-name');
+    
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize, { passive: true });
+    resize();
+    let w = canvas.width, h = canvas.height;
+
+    // --- Map (same as your original) ---
+    const worldMap = [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,2,2,2,2,2,0,0,0,0,3,0,3,0,3,0,0,0,1],
+      [1,0,0,0,0,0,2,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,2,0,0,0,2,0,0,0,0,3,0,0,0,3,0,0,0,1],
+      [1,0,0,0,0,0,2,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,2,2,0,2,2,0,0,0,0,3,0,3,0,3,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,4,0,4,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,4,0,0,0,0,5,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,4,0,4,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,4,0,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,4,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+    ];
+
+    // --- Player / camera ---
+    let posX = 22, posY = 12;
+    let dirX = -1, dirY = 0;
+    let planeX = 0, planeY = 0.66;
+    let moveSpeed = 0.1;
+    let rotSpeed = 0.05;
+
+    // --- Controls ---
+    let forward = false, backward = false, turnLeft = false, turnRight = false, firing = false;
+
+    const btnUp = document.getElementById('up');
+    const btnDown = document.getElementById('down');
+    const btnLeft = document.getElementById('left');
+    const btnRight = document.getElementById('right');
+    const btnShoot = document.getElementById('shoot');
+
+    function bindBtn(btn, setter) {
+      btn.addEventListener('touchstart', (e)=>{ e.preventDefault(); setter(true); }, {passive:false});
+      btn.addEventListener('touchend', (e)=>{ e.preventDefault(); setter(false); }, {passive:false});
+      btn.addEventListener('mousedown', ()=> setter(true));
+      btn.addEventListener('mouseup', ()=> setter(false));
+      btn.addEventListener('mouseleave', ()=> setter(false));
+    }
+    bindBtn(btnUp, v=>forward=v);
+    bindBtn(btnDown, v=>backward=v);
+    bindBtn(btnLeft, v=>turnLeft=v);
+    bindBtn(btnRight, v=>turnRight=v);
+    bindBtn(btnShoot, v=>{ if (v) shoot(); });
+
+    canvas.addEventListener('mousedown', shoot);
+
+    document.addEventListener("keydown", (e) => {
+      if(e.key === 'w' || e.key === 'ArrowUp') forward = true;
+      if(e.key === 's' || e.key === 'ArrowDown') backward = true;
+      if(e.key === 'a' || e.key === 'ArrowLeft') turnLeft = true;
+      if(e.key === 'd' || e.key === 'ArrowRight') turnRight = true;
+      if(e.key === ' ') shoot();
+    });
+    document.addEventListener("keyup", (e) => {
+      if(e.key === 'w' || e.key === 'ArrowUp') forward = false;
+      if(e.key === 's' || e.key === 'ArrowDown') backward = false;
+      if(e.key === 'a' || e.key === 'ArrowLeft') turnLeft = false;
+      if(e.key === 'd' || e.key === 'ArrowRight') turnRight = false;
+    }, { passive: true });
+
+    function rotate(angle) {
+      const oldDirX = dirX;
+      dirX = dirX * Math.cos(angle) - dirY * Math.sin(angle);
+      dirY = oldDirX * Math.sin(angle) + dirY * Math.cos(angle);
+      const oldPlaneX = planeX;
+      planeX = planeX * Math.cos(angle) - planeY * Math.sin(angle);
+      planeY = oldPlaneX * Math.sin(angle) + planeY * Math.cos(angle);
+    }
+
+    // --- Wall Textures (procedural) ---
+    const textureSize = 64;
+    function makeCanvas(size=textureSize) { const c=document.createElement('canvas'); c.width=c.height=size; return c; }
+    function texBrick(){const c=makeCanvas(),g=c.getContext('2d');g.fillStyle='#7a2d2d';g.fillRect(0,0,64,64);g.fillStyle='#8a3a3a';for(let y=0;y<64;y+=16){for(let x=(y/16)%2?0:-16;x<64;x+=32){g.fillRect(x+1,y+1,30,14);}}g.strokeStyle='#442020';g.lineWidth=2;for(let y=0;y<=64;y+=16){g.beginPath();g.moveTo(0,y);g.lineTo(64,y);g.stroke();}for(let y=0;y<64;y+=16){const off=(y/16)%2?0:16;for(let x=off;x<=64;x+=32){g.beginPath();g.moveTo(x,y);g.lineTo(x,y+16);g.stroke();}}return c;}
+    function texStone(){const c=makeCanvas(),g=c.getContext('2d');g.fillStyle='#6b6f72';g.fillRect(0,0,64,64);for(let i=0;i<120;i++){const r=Math.random()*6+2;g.fillStyle=`rgba(30,30,30,${Math.random()*0.2+0.05})`;g.beginPath();g.arc(Math.random()*64,Math.random()*64,r,0,Math.PI*2);g.fill();}g.strokeStyle='rgba(20,20,20,0.6)';for(let y=0;y<=64;y+=20){g.beginPath();g.moveTo(0,y);g.lineTo(64,y);g.stroke();}for(let x=0;x<=64;x+=22){g.beginPath();g.moveTo(x,0);g.lineTo(x,64);g.stroke();}return c;}
+    function texSteel(){const c=makeCanvas(),g=c.getContext('2d');const grd=g.createLinearGradient(0,0,64,0);grd.addColorStop(0,'#9aa3aa');grd.addColorStop(0.5,'#c9d0d6');grd.addColorStop(1,'#9aa3aa');g.fillStyle=grd;g.fillRect(0,0,64,64);g.fillStyle='#7f868c';for(let y=8;y<64;y+=16){for(let x=8;x<64;x+=16){g.beginPath();g.arc(x,y,2,0,Math.PI*2);g.fill();}}g.strokeStyle='#7f868c';for(let x=0;x<=64;x+=16){g.beginPath();g.moveTo(x,0);g.lineTo(x,64);g.stroke();}for(let y=0;y<=64;y+=16){g.beginPath();g.moveTo(0,y);g.lineTo(64,y);g.stroke();}return c;}
+    function texMarble(){const c=makeCanvas(),g=c.getContext('2d');g.fillStyle='#e5e5e5';g.fillRect(0,0,64,64);for(let i=0;i<90;i++){g.strokeStyle=`rgba(80,80,80,${Math.random()*0.3+0.2})`;g.beginPath();let x=Math.random()*64,y=Math.random()*64;for(let k=0;k<6;k++){const nx=x+(Math.random()*10-5),ny=y+(Math.random()*10-5);g.lineTo(nx,ny);x=nx;y=ny;}g.stroke();}return c;}
+    function texGold(){const c=makeCanvas(),g=c.getContext('2d');const grd=g.createLinearGradient(0,0,0,64);grd.addColorStop(0,'#f7e08c');grd.addColorStop(0.5,'#d9b652');grd.addColorStop(1,'#a8831f');g.fillStyle=grd;g.fillRect(0,0,64,64);for(let i=0;i<60;i++){g.fillStyle=`rgba(255,255,255,${Math.random()*0.25})`;g.fillRect(Math.random()*64,Math.random()*64,1,1);}return c;}
+    const textures = { 1: texBrick(), 2: texStone(), 3: texSteel(), 4: texMarble(), 5: texGold() };
+
+    // --- Sprites (enemy + weapon pickup) ---
+    // Types: 'enemy', 'weapon'
+    // Each sprite: {x,y, img, size, alive?, pickup?}
+    function makeEnemySprite() {
+      // Guard-like palette, transparent BG
+      const c = document.createElement('canvas'); c.width = 64; c.height = 64; const g = c.getContext('2d');
+      g.clearRect(0,0,64,64);
+      // body
+      g.fillStyle = '#2b3b7a'; g.fillRect(26,18,12,24); // torso
+      g.fillStyle = '#c9b090'; g.fillRect(28,14,8,6);   // face
+      g.fillStyle = '#0f162f'; g.fillRect(25,42,14,8);  // belt
+      g.fillStyle = '#7a5131'; g.fillRect(24,50,6,10);  // left leg
+      g.fillStyle = '#7a5131'; g.fillRect(34,50,6,10);  // right leg
+      g.fillStyle = '#2b3b7a'; g.fillRect(20,22,6,8);   // left arm
+      g.fillStyle = '#2b3b7a'; g.fillRect(38,22,6,8);   // right arm
+      // helmet
+      g.fillStyle = '#3a3f44'; g.fillRect(26,10,12,6);
+      // simple black outlines
+      g.strokeStyle = 'rgba(0,0,0,0.7)'; g.strokeRect(26,18,12,24);
+      return c;
+    }
+    function makeWeaponPickupSprite() {
+      // Floor pistol pickup (top-down looking), transparent BG
+      const c = document.createElement('canvas'); c.width=48; c.height=48; const g = c.getContext('2d');
+      g.clearRect(0,0,48,48);
+      g.fillStyle='#1f1f1f'; g.fillRect(10,22,28,6); // barrel
+      g.fillRect(24,26,8,8); // chamber
+      g.fillStyle='#3a3a3a'; g.fillRect(14,28,10,12); // grip
+      g.strokeStyle='#000'; g.strokeRect(10,22,28,6); g.strokeRect(14,28,10,12);
+      return c;
+    }
+    function makeWeaponHUD(frame=0) {
+      // Handgun at bottom center; 3 frames for muzzle flash anim
+      const c = document.createElement('canvas'); c.width = 256; c.height = 160; const g = c.getContext('2d');
+      g.clearRect(0,0,c.width,c.height);
+      // hands
+      g.fillStyle='#caa57a'; g.fillRect(112,120,32,28);
+      // gun body
+      g.fillStyle='#2a2a2a'; g.fillRect(120,80,16,40);
+      g.fillStyle='#3a3a3a'; g.fillRect(116,96,24,16);
+      g.fillStyle='#1a1a1a'; g.fillRect(112,118,16,22);
+      // muzzle flash
+      if (frame>0) {
+        g.fillStyle = frame===1 ? '#fff7a0' : '#ffd050';
+        g.beginPath();
+        g.moveTo(128,84); g.lineTo(150,90); g.lineTo(128,96); g.closePath(); g.fill();
+      }
+      return c;
+    }
+
+    const enemySpriteImg = makeEnemySprite();
+    const weaponPickupImg = makeWeaponPickupSprite();
+    const weaponHUDFrames = [ makeWeaponHUD(0), makeWeaponHUD(1), makeWeaponHUD(2) ];
+
+    // Place enemy and weapon in world coordinates
+    const sprites = [
+      { x: 20.5, y: 11.5, img: enemySpriteImg, type:'enemy', alive:true, size:0.8, health: 100 },
+      { x: 21.5, y: 12.5, img: weaponPickupImg, type:'weapon', pickup:true, size:0.6 }
+    ];
+    
+    let hasWeapon = false;
+    let muzzleFrame = 0;
+    let muzzleTimer = 0;
+    let ammo = 0;
+    
+    // Show weapon status
+    function updateWeaponHUD() {
+      weaponDisplay.textContent = hasWeapon ? 'PISTOL' : 'NONE';
+      ammoDisplay.textContent = ammo;
+    }
+    updateWeaponHUD();
+
+    // --- Z-buffer for proper sprite occlusion ---
+    let zBuffer = new Float32Array(w);
+
+    // --- Game loop ---
+    function gameLoop(ts) {
+      // Resize guard
+      if (w !== canvas.width || h !== canvas.height) { w = canvas.width; h = canvas.height; zBuffer = new Float32Array(w); }
+
+      // Movement
+      if (forward) {
+        if (worldMap[Math.floor(posX + dirX * moveSpeed)]?.[Math.floor(posY)] === 0) posX += dirX * moveSpeed;
+        if (worldMap[Math.floor(posX)]?.[Math.floor(posY + dirY * moveSpeed)] === 0) posY += dirY * moveSpeed;
+      }
+      if (backward) {
+        if (worldMap[Math.floor(posX - dirX * moveSpeed)]?.[Math.floor(posY)] === 0) posX -= dirX * moveSpeed;
+        if (worldMap[Math.floor(posX)]?.[Math.floor(posY - dirY * moveSpeed)] === 0) posY -= dirY * moveSpeed;
+      }
+      if (turnLeft)  rotate(+rotSpeed);
+      if (turnRight) rotate(-rotSpeed);
+
+      // Background
+      ctx.fillStyle = 'rgb(190,190,200)'; ctx.fillRect(0, 0, w, h/2);
+      ctx.fillStyle = 'rgb(80,80,85)';    ctx.fillRect(0, h/2, w, h/2);
+
+      // Walls
+      ctx.imageSmoothingEnabled = false;
+      for (let x = 0; x < w; x++) {
+        const cameraX = 2 * x / w - 1;
+        const rayDirX = dirX + planeX * cameraX;
+        const rayDirY = dirY + planeY * cameraX;
+
+        let mapX = Math.floor(posX);
+        let mapY = Math.floor(posY);
+
+        const deltaDistX = (rayDirX === 0) ? 1e30 : Math.abs(1 / rayDirX);
+        const deltaDistY = (rayDirY === 0) ? 1e30 : Math.abs(1 / rayDirY);
+        let sideDistX, sideDistY;
+        let stepX, stepY;
+        let hit = 0, side = 0;
+
+        if (rayDirX < 0) { stepX = -1; sideDistX = (posX - mapX) * deltaDistX; }
+        else { stepX = 1; sideDistX = (mapX + 1.0 - posX) * deltaDistX; }
+        if (rayDirY < 0) { stepY = -1; sideDistY = (posY - mapY) * deltaDistY; }
+        else { stepY = 1; sideDistY = (mapY + 1.0 - posY) * deltaDistY; }
+
+        while (hit === 0) {
+          if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; }
+          else { sideDistY += deltaDistY; mapY += stepY; side = 1; }
+          if (worldMap[mapX][mapY] > 0) hit = 1;
+        }
+
+        const perpWallDist = (side === 0) ? (sideDistX - deltaDistX) : (sideDistY - deltaDistY);
+        zBuffer[x] = perpWallDist; // store for sprites
+
+        let lineHeight = Math.floor(h / Math.max(perpWallDist, 0.0001));
+        let drawStart = Math.max(0, -lineHeight / 2 + h / 2);
+        let drawEnd = Math.min(h - 1, lineHeight / 2 + h / 2);
+
+        const texNum = worldMap[mapX][mapY];
+        const texture = textures[texNum] || textures[1];
+
+        // hit point on wall -> texture X
+        let wallX = (side===0) ? (posY + perpWallDist * rayDirY) : (posX + perpWallDist * rayDirX);
+        wallX -= Math.floor(wallX);
+        let texX = Math.floor(wallX * textureSize);
+        if (side === 0 && rayDirX > 0) texX = textureSize - texX - 1;
+        if (side === 1 && rayDirY < 0) texX = textureSize - texX - 1;
+
+        const destHeight = drawEnd - drawStart + 1;
+        if (destHeight > 0) {
+          ctx.drawImage(texture, texX, 0, 1, textureSize, x, drawStart, 1, destHeight);
+          if (side === 1) { // shading
+            ctx.globalAlpha = 0.35; ctx.fillStyle = '#000'; ctx.fillRect(x, drawStart, 1, destHeight); ctx.globalAlpha = 1.0;
+          }
+        }
+      }
+
+      // Pickups (weapon) detection
+      for (const s of sprites) {
+        if (s.type === 'weapon' && s.pickup) {
+          const dx = s.x - posX, dy = s.y - posY;
+          if (dx*dx + dy*dy < 0.5*0.5) { // close enough
+            hasWeapon = true;
+            s.pickup = false; // remove from world
+            ammo = 24; // Give player ammo
+            updateWeaponHUD();
+          }
+        }
+      }
+
+      // Sprites render (enemy + weapon pickup)
+      renderSprites();
+
+      // Crosshair
+      drawCrosshair();
+
+      // Weapon HUD
+      drawWeaponHUD();
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    function renderSprites() {
+      // Build list of visible sprites
+      const list = [];
+      for (const s of sprites) {
+        if (s.type === 'enemy' && !s.alive) continue;
+        if (s.type === 'weapon' && !s.pickup) continue;
+        const spriteX = s.x - posX;
+        const spriteY = s.y - posY;
+
+        // Inverse camera transform
+        const invDet = 1.0 / (planeX * dirY - dirX * planeY);
+        const transformX = invDet * (dirY * spriteX - dirX * spriteY);
+        const transformY = invDet * (-planeY * spriteX + planeX * spriteY);
+        if (transformY <= 0) continue; // behind player
+
+        const spriteScreenX = Math.floor((w / 2) * (1 + transformX / transformY));
+
+        const uScale = Math.max(0.0001, transformY); // use distance for scaling
+        const spriteHeight = Math.abs(Math.floor(h / uScale * (s.size || 1)));
+        const drawStartY = Math.max(0, -spriteHeight / 2 + h / 2);
+        const drawEndY = Math.min(h - 1, spriteHeight / 2 + h / 2);
+        const spriteWidth = spriteHeight; // square sprite
+        const drawStartX = Math.max(0, -spriteWidth / 2 + spriteScreenX);
+        const drawEndX = Math.min(w - 1, spriteWidth / 2 + spriteScreenX);
+
+        list.push({
+          s, transformY, spriteScreenX, drawStartX, drawEndX, drawStartY, drawEndY, spriteWidth, spriteHeight
+        });
+      }
+
+      // Sort far to near for correct overlap
+      list.sort((a,b)=> b.transformY - a.transformY);
+
+      // Draw each sprite column by column with zBuffer occlusion and transparency
+      for (const it of list) {
+        const { s, drawStartX, drawEndX, drawStartY, drawEndY, spriteWidth, spriteHeight, transformY } = it;
+        for (let stripe = Math.floor(drawStartX); stripe < Math.floor(drawEndX); stripe++) {
+          const texX = Math.floor((stripe - (-spriteWidth / 2 + it.spriteScreenX)) * s.img.width / spriteWidth);
+          if (transformY > 0 && stripe >= 0 && stripe < w && transformY < zBuffer[stripe]) {
+            // draw vertical slice with alpha
+            const sliceH = drawEndY - drawStartY + 1;
+            if (sliceH > 0) {
+              ctx.drawImage(s.img, texX, 0, 1, s.img.height, stripe, drawStartY, 1, sliceH);
+            }
+          }
+        }
+      }
+    }
+
+    // --- Shooting / hit detection ---
+    function shoot() {
+      if (!hasWeapon || ammo <= 0) return;
+      
+      // Consume ammo
+      ammo--;
+      updateWeaponHUD();
+      
+      // start muzzle flash
+      muzzleFrame = 2; muzzleTimer = performance.now();
+
+      // Check if enemy is centered and visible: test a small range around screen center
+      const centerX = (w/2)|0;
+      const hitWindow = Math.max(6, Math.floor(w * 0.02)); // few pixels around center
+      
+      // Find enemy screen projection and visibility
+      for (const s of sprites) {
+        if (s.type !== 'enemy' || !s.alive) continue;
+
+        // Project enemy
+        const spriteX = s.x - posX;
+        const spriteY = s.y - posY;
+        const invDet = 1.0 / (planeX * dirY - dirX * planeY);
+        const transformX = invDet * (dirY * spriteX - dirX * spriteY);
+        const transformY = invDet * (-planeY * spriteX + planeX * spriteY);
+        if (transformY <= 0) continue;
+        const screenX = Math.floor((w / 2) * (1 + transformX / transformY));
+        const spriteWidth = Math.abs(Math.floor(h / transformY * (s.size || 1)));
+        const left = screenX - spriteWidth/2;
+        const right = screenX + spriteWidth/2;
+
+        // Center ray is at column centerX. Check if enemy covers it and is in front of wall (zBuffer)
+        const onCrosshair = (centerX >= left - hitWindow && centerX <= right + hitWindow);
+        const visible = transformY < zBuffer[centerX] * 1.01; // small slack
+
+        // Also check distance so you can't snipe from super far (optional)
+        const dist2 = (spriteX*spriteX + spriteY*spriteY);
+        const inRange = dist2 < 400; // ~20 units
+
+        if (onCrosshair && visible && inRange) {
+          // Calculate distance from center for damage scaling
+          const distanceFromCenter = Math.abs(centerX - screenX);
+          const maxDistance = spriteWidth/2;
+          
+          // Damage decreases as you get farther from center (0.5-1.0)
+          const damageFactor = Math.max(0.5, 1 - (distanceFromCenter / maxDistance));
+          const damage = Math.round(35 * damageFactor);
+          
+          // Apply damage
+          s.health -= damage;
+          
+          // Show hit feedback
+          showHitFeedback(damage);
+          
+          // Enemy death
+          if (s.health <= 0) {
+            s.alive = false;
+          }
+        }
+      }
+    }
+    
+    function showHitFeedback(damage) {
+      // Show hit indicator
+      hitIndicator.style.opacity = '1';
+      hitIndicator.textContent = damage > 30 ? 'CRITICAL!' : 'HIT!';
+      
+      // Update enemy health display
+      const enemy = sprites.find(s => s.type === 'enemy');
+      if (enemy && enemy.alive) {
+        enemyHealthDisplay.textContent = `ENEMY HEALTH: ${Math.max(0, enemy.health)}`;
+        enemyHealthDisplay.style.opacity = '1';
+        
+        // Hide after delay
+        setTimeout(() => {
+          enemyHealthDisplay.style.opacity = '0';
+        }, 1500);
+      }
+      
+      // Hide hit indicator after delay
+      setTimeout(() => {
+        hitIndicator.style.opacity = '0';
+      }, 200);
+    }
+
+    // --- HUD & crosshair ---
+    function drawCrosshair() {
+      const cx = (w/2)|0, cy = (h/2)|0;
+      ctx.globalAlpha = 0.75;
+      ctx.fillStyle = '#000'; ctx.fillRect(cx-10, cy, 20, 2); ctx.fillRect(cx, cy-10, 2, 20);
+      ctx.globalAlpha = 1.0;
+      ctx.fillStyle = '#fff'; ctx.fillRect(cx-8, cy, 16, 1); ctx.fillRect(cx, cy-8, 1, 16);
+      
+      // Add dot in center for better aiming
+      ctx.fillStyle = '#ff5555';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 2, 0, Math.PI*2);
+      ctx.fill();
+    }
+    
+    function drawWeaponHUD() {
+      if (!hasWeapon) return;
+      // animate muzzle flash brief
+      if (muzzleFrame > 0) {
+        const dt = performance.now() - muzzleTimer;
+        if (dt > 70) { muzzleFrame--; muzzleTimer = performance.now(); }
+      }
+      const img = weaponHUDFrames[Math.max(0,muzzleFrame)];
+      const scale = Math.min(1.2, Math.max(0.8, w / 900)); // scale to screen width
+      const hudW = Math.floor(img.width * scale);
+      const hudH = Math.floor(img.height * scale);
+      const x = Math.floor(w/2 - hudW/2);
+      const y = Math.floor(h - hudH - 8);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, x, y, hudW, hudH);
+    }
+
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
