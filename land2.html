@@ -106,16 +106,26 @@
     border-radius: 3px;
   }
   
-  /* Cell types */
+  /* Cell types with proper color coding */
   .corner { background: #5d0e0e; color: var(--accent-color); }
-  .village { background: #295d7a; }
-  .forest { background: #2d5d29; }
-  .mountain { background: #5d5d5d; }
-  .castle { background: #7a2929; }
-  .stronghold { background: #5d295d; }
-  .artifact { background: #5d5d29; }
+  .village { background: #8B4513; } /* Brown - SaddleBrown */
+  .forest { background: #1E90FF; } /* Lightblue - DodgerBlue */
+  .mountain { background: #FF69B4; } /* Pink - HotPink */
+  .castle { background: #FFA500; } /* Orange - Orange */
+  .stronghold { background: #9370DB; } /* Purple - MediumPurple */
+  .artifact { background: #FFFF00; color: #333; } /* Yellow - Yellow */
   .tribute { background: #5d2929; }
   .quest { background: #29295d; }
+  
+  /* Color groups for territories */
+  .brown { background: #8B4513; } /* Haunted Hamlet, Ghostly Grove */
+  .lightblue { background: #1E90FF; } /* Whispering Woods, Mystic Marsh, Enchanted Glen */
+  .pink { background: #FF69B4; } /* Dragon's Peak, Griffin's Nest, Troll's Cave */
+  .orange { background: #FFA500; } /* Shadow Keep, Dread Fortress, Black Tower */
+  .red { background: #DC143C; } /* Necropolis, Plague City, Crypt */
+  .yellow { background: #FFFF00; color: #333; } /* Holy Temple, Divine Shrine, Sacred Grove */
+  .green { background: #228B22; } /* Arcane Spire, Wizard's Tower, Sorcerer's Citadel */
+  .darkblue { background: #00008B; } /* Dragon's Lair, Phoenix Roost */
   
   .ownerTag {
     position: absolute;
@@ -535,6 +545,7 @@ let doublesCount = 0;
 let gameOver = false;
 let isMoving = false; // Track if a player is currently moving
 let hasRolled = false; // Track if player has rolled this turn
+let currentCard = null; // Track the current card being displayed
 
 /* -------------------------
    Cards
@@ -645,7 +656,8 @@ function showNotification(message, duration = 3000) {
   }, duration);
 }
 
-function showCard(card, pile) {
+function showCard(card, pile, playerObj) {
+  currentCard = {card, playerObj};
   cardPileName.textContent = `${pile.toUpperCase()} Card`;
   cardText.textContent = card.text;
   cardDisplay.style.display = 'block';
@@ -689,7 +701,7 @@ function createBoardUI(){
       
       const sq = document.createElement('div');
       const base = board[idx];
-      sq.className = `cell ${base.type}`;
+      sq.className = `cell ${base.type} ${base.color || ''}`;
       sq.dataset.idx = idx;
       
       // Add name and price
@@ -784,7 +796,7 @@ function movePlayerAnimated(playerObj, steps, cb){
     if (step >= steps){ 
       clearInterval(pg); 
       isMoving = false; // Clear moving flag
-      cb && cb(); 
+  cb && cb(); 
     }
   }, 260);
 }
@@ -815,7 +827,7 @@ function handleLanding(playerObj, diceTotal){
   }
   if (sq.type==='quest'){
     const card = drawCard(sq.pile);
-    showCard(card, sq.pile);
+    showCard(card, sq.pile, playerObj);
     return;
   }
   if (['village','forest','mountain','castle','stronghold','artifact'].includes(sq.type)){
@@ -966,49 +978,79 @@ function enemyTurn(d1,d2,total){
    Garrisons & Fortifications UI actions
    ------------------------- */
 reinforceBtn.addEventListener('click', ()=>{
-  // show list of player's reinforceable territories
+  // Get the current territory
   const playerObj = currentPlayer==='hero' ? hero : enemy;
-  const reinforceable = playerObj.territories
-    .map(i=>board[i])
-    .filter(s=>["village","forest","mountain","castle"].includes(s.type) && !s.fortified);
-  if (reinforceable.length===0){
-    showNotification("You have no territories to reinforce.");
+  const currentSquare = board[playerObj.pos];
+  
+  // Check if this is a reinforceable territory
+  if (!["village","forest","mountain","castle"].includes(currentSquare.type)) {
+    showNotification("You can only reinforce villages, forests, mountains, and castles.");
     return;
   }
   
-  // For simplicity, we'll just reinforce the first available territory
-  const s = reinforceable[0];
+  // Check if player owns this territory
+  if (currentSquare.owner !== (playerObj===hero ? 'hero' : 'enemy')) {
+    showNotification("You can only reinforce territories you own.");
+    return;
+  }
   
-  // check full control
-  if (!s.color){ 
+  // Check if already fortified
+  if (currentSquare.fortified) {
+    showNotification("This territory is already fortified.");
+    return;
+  }
+  
+  // Check if already at maximum garrisons
+  if (currentSquare.garrisons >= 5) {
+    showNotification("This territory already has maximum garrisons.");
+    return;
+  }
+  
+  // Check full control of color group
+  if (!currentSquare.color) {
     showNotification("You can only reinforce colored territories.");
-    return; 
-  }
-  const sameColorIdxs = board.reduce((acc,s,i)=>{ if (s.color===s.color) acc.push(i); return acc;},[]);
-  // check ownership
-  if (!sameColorIdxs.every(i=>board[i].owner=== (playerObj===hero? 'hero':'enemy'))){
-    showNotification("You must control the full color set to reinforce.");
     return;
   }
-  const garrisonCost = Math.round(s.price * 0.5);
-  if (playerObj.army < garrisonCost){
-    showNotification("You don't have enough soldiers to reinforce.");
+  
+  // Find all territories of the same color
+  const sameColorTerritories = board.filter(s => s.color === currentSquare.color);
+  
+  // Check if player owns all territories of this color
+  const playerId = playerObj===hero ? 'hero' : 'enemy';
+  const ownsAll = sameColorTerritories.every(s => s.owner === playerId);
+  
+  if (!ownsAll) {
+    // Find which territories are missing
+    const missingTerritories = sameColorTerritories
+      .filter(s => s.owner !== playerId)
+      .map(s => s.name);
+    
+    showNotification(`You need to control all ${currentSquare.color} territories: ${missingTerritories.join(', ')}`);
     return;
   }
-  if (s.garrisons < 4){
-    s.garrisons++;
+  
+  // Calculate reinforcement cost
+  const garrisonCost = Math.round(currentSquare.price * 0.5);
+  
+  // Check if player has enough soldiers
+  if (playerObj.army < garrisonCost) {
+    showNotification(`You need ${fmtArmy(garrisonCost)} to reinforce this territory.`);
+    return;
+  }
+  
+  // Apply reinforcement
+  if (currentSquare.garrisons < 4) {
+    currentSquare.garrisons++;
     playerObj.army -= garrisonCost;
-    log(`${playerObj.name} reinforced ${s.name} with ${fmtArmy(garrisonCost)}.`);
-    showNotification(`${playerObj.name} reinforced ${s.name}`);
-  } else if (s.garrisons === 4){
-    s.garrisons = 5; // fortress
+    log(`${playerObj.name} reinforced ${currentSquare.name} with ${fmtArmy(garrisonCost)}.`);
+    showNotification(`${playerObj.name} reinforced ${currentSquare.name}`);
+  } else if (currentSquare.garrisons === 4) {
+    currentSquare.garrisons = 5; // fortress
     playerObj.army -= garrisonCost;
-    log(`${playerObj.name} built a fortress on ${s.name} for ${fmtArmy(garrisonCost)}.`);
-    showNotification(`${playerObj.name} built a fortress on ${s.name}`);
-  } else {
-    showNotification("No more reinforcement allowed on this territory.");
-    return;
+    log(`${playerObj.name} built a fortress on ${currentSquare.name} for ${fmtArmy(garrisonCost)}.`);
+    showNotification(`${playerObj.name} built a fortress on ${currentSquare.name}`);
   }
+  
   updateStats();
   updateBoardOwners();
 });
@@ -1016,36 +1058,32 @@ reinforceBtn.addEventListener('click', ()=>{
 /* Fortify / Abandon UI */
 fortifyBtn.addEventListener('click', ()=>{
   const playerObj = hero;
-  const fortifiable = playerObj.territories
-    .map(i=>board[i])
-    .filter(s=>["village","forest","mountain","castle","stronghold","artifact"].includes(s.type));
+  const currentSquare = board[playerObj.pos];
   
-  if (fortifiable.length === 0) {
-    showNotification("You have no territories to fortify.");
+  // Check if player owns this territory
+  if (currentSquare.owner !== 'hero') {
+    showNotification("You can only fortify territories you own.");
     return;
   }
   
-  // For simplicity, we'll just fortify/abandon the first available territory
-  const s = fortifiable[0];
-  
-  if (s.fortified) {
+  if (currentSquare.fortified) {
     // Abandon (unfortify)
-    const val = Math.round(s.price/2 * 0.9); // Get back 90% of the garrison value
-    s.fortified = false;
+    const val = Math.round(currentSquare.price/2 * 0.9); // Get back 90% of the garrison value
+    currentSquare.fortified = false;
     playerObj.army += val;
-    log(`${playerObj.name} abandoned ${s.name} for ${fmtArmy(val)}.`);
-    showNotification(`${playerObj.name} abandoned ${s.name}`);
+    log(`${playerObj.name} abandoned ${currentSquare.name} for ${fmtArmy(val)}.`);
+    showNotification(`${playerObj.name} abandoned ${currentSquare.name}`);
   } else {
     // Fortify
-    const val = Math.round(s.price/2);
+    const val = Math.round(currentSquare.price/2);
     if (playerObj.army < val){ 
       showNotification("Not enough soldiers to fortify.");
       return; 
     }
-    s.fortified = true;
+    currentSquare.fortified = true;
     playerObj.army -= val;
-    log(`${playerObj.name} fortified ${s.name} for ${fmtArmy(val)}.`);
-    showNotification(`${playerObj.name} fortified ${s.name}`);
+    log(`${playerObj.name} fortified ${currentSquare.name} for ${fmtArmy(val)}.`);
+    showNotification(`${playerObj.name} fortified ${currentSquare.name}`);
   }
   updateStats();
   updateBoardOwners();
@@ -1263,6 +1301,16 @@ endTurnBtn.addEventListener('click', ()=>{
    ------------------------- */
 cardClose.addEventListener('click', () => {
   cardDisplay.style.display = 'none';
+  
+  // Execute the card's function if available
+  if (currentCard && currentCard.card.exec) {
+    currentCard.card.exec(currentCard.playerObj);
+    updateStats();
+    updateTokenPosition(currentCard.playerObj);
+  }
+  
+  currentCard = null;
+  
   // Re-enable controls
   endTurnBtn.disabled = false;
 });
@@ -1290,12 +1338,12 @@ dungeonPay.addEventListener('click', () => {
     log("You sacrificed 50 soldiers to escape the Dungeon.");
     showNotification("You sacrificed 50 soldiers to escape the Dungeon.");
     dungeonManagement.style.display = 'none';
-    // Re-enable controls
-    rollBtn.disabled = false;
-    endTurnBtn.disabled = false;
   } else {
     showNotification("You don't have enough soldiers to sacrifice.");
   }
+  // Re-enable controls
+  rollBtn.disabled = false;
+  endTurnBtn.disabled = false;
 });
 
 dungeonRoll.addEventListener('click', () => {
