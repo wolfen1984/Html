@@ -1147,20 +1147,27 @@
             const consumablesElement = document.getElementById('battle-consumables');
             consumablesElement.innerHTML = '';
             
-            const potions = gameState.player.inventory.filter(item => item.type === 'potion');
+            // Create an array of potion indices in the main inventory
+            const potionIndices = [];
+            gameState.player.inventory.forEach((item, index) => {
+                if (item.type === 'potion') {
+                    potionIndices.push(index);
+                }
+            });
             
-            if (potions.length === 0) {
+            if (potionIndices.length === 0) {
                 consumablesElement.style.display = 'none';
                 return;
             }
             
             consumablesElement.style.display = 'flex';
             
-            potions.forEach((potion, index) => {
+            potionIndices.forEach(inventoryIndex => {
+                const potion = gameState.player.inventory[inventoryIndex];
                 const button = document.createElement('button');
                 button.className = 'consumable-btn';
                 button.textContent = `${potion.name}`;
-                button.onclick = () => useConsumable(index);
+                button.onclick = () => useConsumable(inventoryIndex);
                 consumablesElement.appendChild(button);
             });
         }
@@ -1221,7 +1228,7 @@
 
         // ============== ITEM MANAGEMENT ==============
         function useConsumable(index) {
-            // Fix: Make sure we're using the correct inventory item
+            // Fix: Use the actual inventory index passed from the UI
             const item = gameState.player.inventory[index];
             
             if (!item) {
@@ -1240,7 +1247,7 @@
                     addToLog(`You used ${item.name} and restored ${manaAmount} mana!`);
                 }
                 
-                // Remove from inventory
+                // Remove from inventory using the actual index
                 gameState.player.inventory.splice(index, 1);
                 
                 // Update UI
@@ -1325,14 +1332,21 @@
             const consumablesList = document.getElementById('consumables-list');
             consumablesList.innerHTML = '';
             
-            const potions = gameState.player.inventory.filter(item => item.type === 'potion');
+            // Create an array of potion indices in the main inventory
+            const potionIndices = [];
+            gameState.player.inventory.forEach((item, index) => {
+                if (item.type === 'potion') {
+                    potionIndices.push(index);
+                }
+            });
             
-            if (potions.length === 0) {
+            if (potionIndices.length === 0) {
                 consumablesList.innerHTML = '<div class="inventory-empty">No consumables in inventory</div>';
                 return;
             }
             
-            potions.forEach((potion, index) => {
+            potionIndices.forEach(inventoryIndex => {
+                const potion = gameState.player.inventory[inventoryIndex];
                 const itemElement = document.createElement('div');
                 itemElement.className = `inventory-item item-${potion.rarity}`;
                 
@@ -1347,7 +1361,7 @@
                 useButton.className = 'item-action-btn';
                 useButton.textContent = 'Use';
                 useButton.onclick = () => {
-                    useConsumable(index);
+                    useConsumable(inventoryIndex);
                 };
                 actionsElement.appendChild(useButton);
                 
@@ -1790,46 +1804,18 @@
             }
         }
 
-        function showVictoryScreen() {
-            // Fix: Use the current enemy's rewards directly
-            const xpReward = gameState.currentEnemy.xpReward;
-            const goldReward = gameState.currentEnemy.goldReward;
-            
-            document.getElementById('victory-xp').textContent = `XP Gained: ${xpReward}`;
-            document.getElementById('victory-gold').textContent = `Gold Gained: ${goldReward}`;
-            document.getElementById('victory-message').textContent = `You have defeated ${gameState.currentEnemy.name}!`;
-            
-            // Check if the player leveled up after the battle
-            if (gameState.player.xp >= gameState.player.nextLevel) {
-                document.getElementById('victory-level-up').style.display = 'block';
-                document.getElementById('new-level').textContent = gameState.player.level + 1;
-            } else {
-                document.getElementById('victory-level-up').style.display = 'none';
-            }
-            
-            showScreen('victory');
-        }
-
-        function showDefeatScreen() {
-            document.getElementById('defeat-enemy').textContent = `Defeated by: ${gameState.currentEnemy.name}`;
-            document.getElementById('defeat-level').textContent = `Your Level: ${gameState.player.level}`;
-            document.getElementById('defeat-xp').textContent = `Current XP: ${gameState.player.xp}`;
-            
-            showScreen('defeat');
-        }
-
         function endBattle(playerWon) {
             if (playerWon) {
                 addToLog(`You defeated ${gameState.currentEnemy.name}!`);
                 
-                // Fix: Use the current enemy's rewards directly instead of storing them
-                const xpReward = gameState.currentEnemy.xpReward;
-                const goldReward = gameState.currentEnemy.goldReward;
+                // Store rewards in gameState for display
+                gameState.currentXpReward = gameState.currentEnemy.xpReward;
+                gameState.currentGoldReward = gameState.currentEnemy.goldReward;
                 
                 // Add XP and gold to player
-                gameState.player.xp += xpReward;
-                gameState.player.gold += goldReward;
-                addToLog(`You gained ${xpReward} XP and ${goldReward} gold!`);
+                gameState.player.xp += gameState.currentXpReward;
+                gameState.player.gold += gameState.currentGoldReward;
+                addToLog(`You gained ${gameState.currentXpReward} XP and ${gameState.currentGoldReward} gold!`);
                 
                 // Check for first blood achievement
                 if (!gameState.achievements.first_blood.unlocked) {
@@ -1876,6 +1862,31 @@
                 addToLog("You have been defeated!");
                 setTimeout(() => showDefeatScreen(), 1500);
             }
+        }
+
+        function showVictoryScreen() {
+            // Use the stored rewards from the battle
+            document.getElementById('victory-xp').textContent = `XP Gained: ${gameState.currentXpReward}`;
+            document.getElementById('victory-gold').textContent = `Gold Gained: ${gameState.currentGoldReward}`;
+            document.getElementById('victory-message').textContent = `You have defeated ${gameState.currentEnemy.name}!`;
+            
+            // Check if the player leveled up after the battle
+            if (gameState.player.xp >= gameState.player.nextLevel) {
+                document.getElementById('victory-level-up').style.display = 'block';
+                document.getElementById('new-level').textContent = gameState.player.level + 1;
+            } else {
+                document.getElementById('victory-level-up').style.display = 'none';
+            }
+            
+            showScreen('victory');
+        }
+
+        function showDefeatScreen() {
+            document.getElementById('defeat-enemy').textContent = `Defeated by: ${gameState.currentEnemy.name}`;
+            document.getElementById('defeat-level').textContent = `Your Level: ${gameState.player.level}`;
+            document.getElementById('defeat-xp').textContent = `Current XP: ${gameState.player.xp}`;
+            
+            showScreen('defeat');
         }
 
         function applyUpgrade(upgradeType) {
