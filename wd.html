@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+           <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -679,6 +679,21 @@
             font-weight: bold;
         }
 
+        /* NEW: Sound controls */
+        .sound-controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+        }
+
+        .sound-btn {
+            width: auto;
+            padding: 5px;
+            min-height: auto;
+            font-size: 12px;
+        }
+
         @media (max-height: 700px) {
             .header {
                 padding: 5px;
@@ -793,21 +808,6 @@
                 margin: 1px 0;
                 min-height: 44px;
             }
-        }
-
-        /* NEW: Sound controls */
-        .sound-controls {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            z-index: 1000;
-        }
-
-        .sound-btn {
-            width: auto;
-            padding: 5px;
-            min-height: auto;
-            font-size: 12px;
         }
     </style>
 </head>
@@ -1014,6 +1014,7 @@
                 </div>
             </div>
             <div class="footer">
+                <button id="reset-skills" style="background-color: #600; margin-bottom: 5px;">RESET SKILL TREE</button>
                 <button id="back-from-skills">BACK</button>
             </div>
         </div>
@@ -1727,11 +1728,11 @@
         },
         // FIXED: Enhanced elemental system with rock-paper-scissors
         elementalAdvantages: {
-            fire: { strongVs: 'ice', weakVs: 'water' },
-            ice: { strongVs: 'storm', weakVs: 'fire' },
-            lightning: { strongVs: 'water', weakVs: 'earth' },
-            water: { strongVs: 'fire', weakVs: 'lightning' },
-            earth: { strongVs: 'lightning', weakVs: 'ice' }
+            fire: { strongVs: 'ice', weakVs: 'water', bonusDamage: 1.5, reducedDamage: 0.75 },
+            ice: { strongVs: 'storm', weakVs: 'fire', bonusDamage: 1.5, reducedDamage: 0.75 },
+            lightning: { strongVs: 'water', weakVs: 'earth', bonusDamage: 1.5, reducedDamage: 0.75 },
+            water: { strongVs: 'fire', weakVs: 'lightning', bonusDamage: 1.5, reducedDamage: 0.75 },
+            earth: { strongVs: 'lightning', weakVs: 'ice', bonusDamage: 1.5, reducedDamage: 0.75 }
         },
         statusEffects: {
             burn: { 
@@ -1931,25 +1932,26 @@
         };
     }
 
-    // ============== SKILL TREE FIXES ==============
+    // ============== FIXED SKILL TREE IMPLEMENTATION ==============
+
     function applySkillEffect(skillId) {
         const p = gameState.player;
         
         switch(skillId) {
             case 'fire_affinity':
-                // Fire spells deal 10% more damage - handled in damage calculation
+                // This skill is applied in calculateElementalBonus
                 addToLog("Fire spells now deal 10% more damage!");
                 break;
             case 'burning_rage':
-                // Burn effects last 1 additional turn - handled in status effect application
+                // This skill is applied in applyStatusEffect
                 addToLog("Burn effects now last 1 additional turn!");
                 break;
             case 'ice_affinity':
-                // Ice spells cost 1 less mana - handled in mana cost calculation
+                // This skill is applied in calculateManaCost
                 addToLog("Ice spells now cost 1 less mana!");
                 break;
             case 'deep_freeze':
-                // Frozen enemies skip turns more often - handled in enemy turn processing
+                // This skill is applied in enemyTurn freeze chance
                 addToLog("Frozen enemies now skip turns more often!");
                 break;
             case 'lightning_affinity':
@@ -1957,11 +1959,11 @@
                 addToLog("Lightning spells now have +5% critical chance!");
                 break;
             case 'chain_reaction':
-                // Lightning spells can jump to additional targets - handled in spell casting
+                // This skill enables chain lightning in processChainLightning
                 addToLog("Lightning spells can now chain to additional targets!");
                 break;
             case 'mana_efficiency':
-                // All spells cost 1 less mana - handled in mana cost calculation
+                // This skill is applied in calculateManaCost
                 addToLog("All spells now cost 1 less mana!");
                 break;
             case 'critical_thinking':
@@ -1973,29 +1975,11 @@
         updatePlayerProfile();
     }
 
-    // ============== ENHANCED ELEMENTAL SYSTEM ==============
-    function calculateElementalBonus(attackerElement, defenderElement) {
-        let multiplier = 1;
-        
-        if (gameState.elementalAdvantages[attackerElement]) {
-            if (gameState.elementalAdvantages[attackerElement].strongVs === defenderElement) {
-                multiplier = 1.5; // 50% bonus
-                if (attackerElement === "fire" && gameState.player.skills.fire_affinity) {
-                    multiplier *= 1.1; // Additional 10% for fire affinity
-                }
-            } else if (gameState.elementalAdvantages[attackerElement].weakVs === defenderElement) {
-                multiplier = 0.75; // 25% reduction
-            }
-        }
-        
-        return multiplier;
-    }
-
     // ============== ENHANCED MANA COST CALCULATION ==============
     function calculateManaCost(baseCost, element = null) {
         let cost = baseCost;
         
-        // Apply mana efficiency skill
+        // Apply mana efficiency skill (reduces all spell costs)
         if (gameState.player.skills.mana_efficiency) {
             cost = Math.max(1, cost - 1);
         }
@@ -2006,6 +1990,26 @@
         }
         
         return cost;
+    }
+
+    // ============== ENHANCED ELEMENTAL BONUS CALCULATION ==============
+    function calculateElementalBonus(attackerElement, defenderElement) {
+        let multiplier = 1;
+        
+        if (gameState.elementalAdvantages[attackerElement]) {
+            if (gameState.elementalAdvantages[attackerElement].strongVs === defenderElement) {
+                multiplier = gameState.elementalAdvantages[attackerElement].bonusDamage;
+            } else if (gameState.elementalAdvantages[attackerElement].weakVs === defenderElement) {
+                multiplier = gameState.elementalAdvantages[attackerElement].reducedDamage;
+            }
+        }
+        
+        // Apply fire affinity skill
+        if (attackerElement === "fire" && gameState.player.skills.fire_affinity) {
+            multiplier *= 1.1; // 10% additional damage
+        }
+        
+        return multiplier;
     }
 
     // ============== ENHANCED STATUS EFFECT APPLICATION ==============
@@ -2038,6 +2042,81 @@
         updateStatusEffectsDisplay();
     }
 
+    // ============== ENHANCED FREEZE MECHANICS ==============
+    function enemyTurn() {
+        processStatusEffects(gameState.currentEnemy);
+        
+        const frozen = gameState.currentEnemy.statusEffects.find(e => e.type === 'freeze');
+        let freezeChance = 0.5; // Base 50% chance to skip turn when frozen
+        
+        // Apply deep freeze skill
+        if (frozen && gameState.player.skills.deep_freeze) {
+            freezeChance = 0.75; // 75% chance with deep freeze skill
+        }
+        
+        if (frozen && Math.random() < freezeChance) {
+            addToLog(`${gameState.currentEnemy.name} is frozen and cannot move!`);
+            updateSpellButtons();
+            return;
+        }
+        
+        const spell = getEnemyAction();
+        
+        if (!spell) {
+            const positionBonus = getPositionBonus();
+            const damage = Math.max(1, Math.floor(
+                (gameState.currentEnemy.attack - gameState.player.defense) * positionBonus.physicalBonus
+            ));
+            gameState.player.health -= damage;
+            document.getElementById('battle-player-health').textContent = gameState.player.health;
+            document.getElementById('player-health-fill').style.width = 
+                `${(gameState.player.health / gameState.player.maxHealth) * 100}%`;
+            addToLog(`${gameState.currentEnemy.name} attacks and deals ${damage} damage.`);
+            soundEffects.damage();
+        } else {
+            gameState.currentEnemy.mana -= spell.cost;
+            document.getElementById('battle-enemy-mana').textContent = gameState.currentEnemy.mana;
+            document.getElementById('enemy-mana-fill').style.width = 
+                `${(gameState.currentEnemy.mana / gameState.currentEnemy.maxMana) * 100}%`;
+            
+            if (spell.heal) {
+                const healAmount = Math.min(spell.heal, gameState.currentEnemy.maxHealth - gameState.currentEnemy.health);
+                gameState.currentEnemy.health += healAmount;
+                document.getElementById('battle-enemy-health').textContent = gameState.currentEnemy.health;
+                document.getElementById('enemy-health-fill').style.width = 
+                    `${(gameState.currentEnemy.health / gameState.currentEnemy.maxHealth) * 100}%`;
+                addToLog(`${gameState.currentEnemy.name} casts ${spell.name} and heals ${healAmount} health.`);
+            } else if (spell.defense) {
+                applyStatusEffect(gameState.currentEnemy, "defense_buff", spell.duration);
+                addToLog(`${gameState.currentEnemy.name} casts ${spell.name} and gains +${spell.defense} defense.`);
+            } else {
+                const damage = Math.max(1, spell.damage + gameState.currentEnemy.attack - gameState.player.defense);
+                gameState.player.health -= damage;
+                document.getElementById('battle-player-health').textContent = gameState.player.health;
+                document.getElementById('player-health-fill').style.width = 
+                    `${(gameState.player.health / gameState.player.maxHealth) * 100}%`;
+                addToLog(`${gameState.currentEnemy.name} casts ${spell.name} and deals ${damage} damage.`);
+                soundEffects.damage();
+                
+                if (spell.statusEffect && Math.random() < 0.3) {
+                    applyStatusEffect(gameState.player, spell.statusEffect);
+                }
+                
+                if (spell.stun) {
+                    applyStatusEffect(gameState.player, "freeze", 1);
+                }
+            }
+        }
+        
+        if (gameState.player.health <= 0) {
+            endBattle(false);
+        } else {
+            processStatusEffects(gameState.player);
+            reduceCooldowns();
+            updateSpellButtons();
+        }
+    }
+
     // ============== CHAIN LIGHTNING IMPLEMENTATION ==============
     function processChainLightning(damage, enemy) {
         if (gameState.player.skills.chain_reaction && Math.random() < 0.3) {
@@ -2045,6 +2124,133 @@
             enemy.health -= chainDamage;
             addToLog(`Chain reaction! Additional ${chainDamage} damage!`);
             soundEffects.damage();
+            
+            // Update health bar
+            document.getElementById('battle-enemy-health').textContent = enemy.health;
+            document.getElementById('enemy-health-fill').style.width = 
+                `${(enemy.health / enemy.maxHealth) * 100}%`;
+        }
+    }
+
+    // ============== FIXED SKILL TREE DISPLAY ==============
+    function updateSkillTree() {
+        document.getElementById('available-skill-points').textContent = gameState.player.skillPoints;
+        
+        Object.keys(gameState.player.skills).forEach(skillId => {
+            const skillElement = document.getElementById(`skill-${skillId.replace('_', '-')}`);
+            if (!skillElement) return;
+            
+            const button = skillElement.querySelector('.skill-btn');
+            const cost = parseInt(button.dataset.cost);
+            
+            if (gameState.player.skills[skillId]) {
+                // Skill is already learned
+                skillElement.classList.add('unlocked');
+                skillElement.classList.remove('locked');
+                button.textContent = '✓ Learned';
+                button.disabled = true;
+                button.style.backgroundColor = '#0a0';
+                button.style.color = '#000';
+            } else {
+                // Skill is not learned yet
+                skillElement.classList.remove('unlocked');
+                skillElement.classList.add('locked');
+                
+                // Check if player has enough points and meets requirements
+                if (gameState.player.skillPoints >= cost) {
+                    button.disabled = false;
+                    button.textContent = `Learn (${cost} point${cost > 1 ? 's' : ''})`;
+                    button.style.backgroundColor = '';
+                    button.style.color = '';
+                } else {
+                    button.disabled = true;
+                    button.textContent = `Learn (${cost} point${cost > 1 ? 's' : ''})`;
+                    button.style.backgroundColor = '';
+                    button.style.color = '';
+                }
+            }
+        });
+    }
+
+    // ============== ENHANCED SKILL LEARNING ==============
+    function learnSkill(skillId) {
+        const button = document.querySelector(`[data-skill="${skillId}"]`);
+        const cost = parseInt(button.dataset.cost);
+        
+        if (gameState.player.skillPoints < cost) {
+            addToLog("Not enough skill points!");
+            soundEffects.damage(); // Error sound
+            return;
+        }
+        
+        gameState.player.skillPoints -= cost;
+        gameState.player.skills[skillId] = true;
+        
+        applySkillEffect(skillId);
+        
+        addToLog(`Learned skill: ${formatSkillName(skillId)}!`);
+        soundEffects.levelUp(); // Success sound
+        
+        // Update achievements
+        const learnedSkills = Object.values(gameState.player.skills).filter(s => s).length;
+        if (learnedSkills >= 5 && !gameState.achievements.skill_master.unlocked) {
+            unlockAchievement('skill_master');
+        }
+        
+        updatePlayerProfile();
+        updateSkillTree();
+        autoSave();
+    }
+
+    // ============== HELPER FUNCTION ==============
+    function formatSkillName(skillId) {
+        return skillId.replace(/_/g, ' ')
+            .split(' ')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+    }
+
+    // ============== SKILL POINT AWARD SYSTEM ==============
+    function awardSkillPoints(amount = 1) {
+        gameState.player.skillPoints += amount;
+        addToLog(`You gained ${amount} skill point${amount > 1 ? 's' : ''}!`);
+        updatePlayerProfile();
+        updateSkillTree();
+        
+        // Show notification
+        const notification = document.createElement('div');
+        notification.className = 'achievement-notification';
+        notification.innerHTML = `
+            <h3>Skill Point Earned!</h3>
+            <p>You now have ${gameState.player.skillPoints} skill point${gameState.player.skillPoints > 1 ? 's' : ''} available.</p>
+            <p>Visit the Skill Tree to learn new abilities!</p>
+            <button onclick="this.parentElement.remove(); showScreen('skillTree')">Go to Skill Tree</button>
+            <button onclick="this.parentElement.remove()">Continue</button>
+        `;
+        document.body.appendChild(notification);
+    }
+
+    // ============== SKILL TREE RESET FUNCTION ==============
+    function resetSkillTree() {
+        if (confirm("Reset your skill tree? This will refund all spent skill points but you'll need to relearn skills.")) {
+            // Count how many skills were learned
+            const learnedSkills = Object.values(gameState.player.skills).filter(s => s).length;
+            
+            // Refund points
+            gameState.player.skillPoints += learnedSkills;
+            
+            // Reset all skills
+            Object.keys(gameState.player.skills).forEach(skillId => {
+                gameState.player.skills[skillId] = false;
+            });
+            
+            // Reset player stats that were modified by skills
+            gameState.player.critical = 5; // Base critical chance
+            
+            addToLog(`Skill tree reset! ${learnedSkills} skill points refunded.`);
+            updatePlayerProfile();
+            updateSkillTree();
+            autoSave();
         }
     }
 
@@ -2103,8 +2309,7 @@
             addToLog(`Quest completed! Received ${quest.reward.xp} XP.`);
         }
         if (quest.reward.skillPoint) {
-            gameState.player.skillPoints += quest.reward.skillPoint;
-            addToLog(`Quest completed! Received ${quest.reward.skillPoint} skill point.`);
+            awardSkillPoints(quest.reward.skillPoint);
         }
         
         updatePlayerProfile();
@@ -2285,76 +2490,87 @@
     }
 
     // ============== ENHANCED ENEMY TURN ==============
-    function enemyTurn() {
-        processStatusEffects(gameState.currentEnemy);
+    function getEnemyAction() {
+        const enemy = gameState.currentEnemy;
+        const affordableSpells = enemy.spells.filter(spell => 
+            enemy.mana >= (spell.cost || 0)
+        );
         
-        const frozen = gameState.currentEnemy.statusEffects.find(e => e.type === 'freeze');
-        let freezeChance = 0.5; // Base 50% chance to skip turn when frozen
-        if (gameState.player.skills.deep_freeze) {
-            freezeChance = 0.75; // 75% chance with deep freeze skill
+        switch(enemy.aiBehavior) {
+            case "aggressive":
+                return getAggressiveAction(affordableSpells);
+            case "defensive":
+                return getDefensiveAction(affordableSpells);
+            case "tactical":
+                return getTacticalAction(affordableSpells);
+            case "strategic":
+                return getStrategicAction(affordableSpells);
+            case "adaptive":
+                return getAdaptiveAction(affordableSpells);
+            default:
+                return getDefaultAction(affordableSpells);
         }
-        
-        if (frozen && Math.random() < freezeChance) {
-            addToLog(`${gameState.currentEnemy.name} is frozen and cannot move!`);
-            updateSpellButtons();
-            return;
+    }
+
+    function getAggressiveAction(spells) {
+        const damageSpells = spells.filter(s => s.damage);
+        if (damageSpells.length > 0) {
+            return damageSpells.reduce((max, spell) => 
+                spell.damage > max.damage ? spell : max
+            );
         }
-        
-        const spell = getEnemyAction();
-        
-        if (!spell) {
-            const positionBonus = getPositionBonus();
-            const damage = Math.max(1, Math.floor(
-                (gameState.currentEnemy.attack - gameState.player.defense) * positionBonus.physicalBonus
-            ));
-            gameState.player.health -= damage;
-            document.getElementById('battle-player-health').textContent = gameState.player.health;
-            document.getElementById('player-health-fill').style.width = 
-                `${(gameState.player.health / gameState.player.maxHealth) * 100}%`;
-            addToLog(`${gameState.currentEnemy.name} attacks and deals ${damage} damage.`);
-            soundEffects.damage();
-        } else {
-            gameState.currentEnemy.mana -= spell.cost;
-            document.getElementById('battle-enemy-mana').textContent = gameState.currentEnemy.mana;
-            document.getElementById('enemy-mana-fill').style.width = 
-                `${(gameState.currentEnemy.mana / gameState.currentEnemy.maxMana) * 100}%`;
+        return spells[0] || null;
+    }
+
+    function getDefensiveAction(spells) {
+        if (gameState.currentEnemy.health < gameState.currentEnemy.maxHealth * 0.5) {
+            const healSpells = spells.filter(s => s.heal);
+            if (healSpells.length > 0) return healSpells[0];
             
-            if (spell.heal) {
-                const healAmount = Math.min(spell.heal, gameState.currentEnemy.maxHealth - gameState.currentEnemy.health);
-                gameState.currentEnemy.health += healAmount;
-                document.getElementById('battle-enemy-health').textContent = gameState.currentEnemy.health;
-                document.getElementById('enemy-health-fill').style.width = 
-                    `${(gameState.currentEnemy.health / gameState.currentEnemy.maxHealth) * 100}%`;
-                addToLog(`${gameState.currentEnemy.name} casts ${spell.name} and heals ${healAmount} health.`);
-            } else if (spell.defense) {
-                applyStatusEffect(gameState.currentEnemy, "defense_buff", spell.duration);
-                addToLog(`${gameState.currentEnemy.name} casts ${spell.name} and gains +${spell.defense} defense.`);
-            } else {
-                const damage = Math.max(1, spell.damage + gameState.currentEnemy.attack - gameState.player.defense);
-                gameState.player.health -= damage;
-                document.getElementById('battle-player-health').textContent = gameState.player.health;
-                document.getElementById('player-health-fill').style.width = 
-                    `${(gameState.player.health / gameState.player.maxHealth) * 100}%`;
-                addToLog(`${gameState.currentEnemy.name} casts ${spell.name} and deals ${damage} damage.`);
-                soundEffects.damage();
-                
-                if (spell.statusEffect && Math.random() < 0.3) {
-                    applyStatusEffect(gameState.player, spell.statusEffect);
-                }
-                
-                if (spell.stun) {
-                    applyStatusEffect(gameState.player, "freeze", 1);
-                }
-            }
+            const defenseSpells = spells.filter(s => s.defense);
+            if (defenseSpells.length > 0) return defenseSpells[0];
         }
         
-        if (gameState.player.health <= 0) {
-            endBattle(false);
-        } else {
-            processStatusEffects(gameState.player);
-            reduceCooldowns();
-            updateSpellButtons();
+        return spells[0] || null;
+    }
+
+    function getTacticalAction(spells) {
+        const playerHealthPercent = gameState.player.health / gameState.player.maxHealth;
+        const enemyHealthPercent = gameState.currentEnemy.health / gameState.currentEnemy.maxHealth;
+        
+        if (enemyHealthPercent < 0.3) {
+            const healSpells = spells.filter(s => s.heal);
+            if (healSpells.length > 0) return healSpells[0];
         }
+        
+        if (playerHealthPercent < 0.3) {
+            const finishingSpells = spells.filter(s => s.damage > 8);
+            if (finishingSpells.length > 0) return finishingSpells[0];
+        }
+        
+        return spells[Math.floor(Math.random() * spells.length)] || null;
+    }
+
+    function getStrategicAction(spells) {
+        const statusSpells = spells.filter(s => s.statusEffect);
+        if (statusSpells.length > 0 && Math.random() < 0.6) {
+            return statusSpells[Math.floor(Math.random() * statusSpells.length)];
+        }
+        
+        return spells[0] || null;
+    }
+
+    function getAdaptiveAction(spells) {
+        if (gameState.player.comboCount > 2) {
+            const disruptiveSpells = spells.filter(s => s.statusEffect === "freeze" || s.stun);
+            if (disruptiveSpells.length > 0) return disruptiveSpells[0];
+        }
+        
+        return getTacticalAction(spells);
+    }
+
+    function getDefaultAction(spells) {
+        return spells[0] || null;
     }
 
     // ============== ENHANCED VICTORY ==============
@@ -2379,10 +2595,10 @@
             gameState.player.gold += goldReward;
             gameState.gameStats.goldEarned += goldReward;
             
-            const skillPointChance = 0.2;
+            // Enhanced skill point chance - scales with enemy difficulty
+            const skillPointChance = 0.1 + (gameState.currentEnemy.level * 0.02); // 10% base + 2% per enemy level
             if (Math.random() < skillPointChance) {
-                gameState.player.skillPoints++;
-                addToLog(`You gained a skill point!`);
+                awardSkillPoints(1);
             }
             
             addToLog(`You gained ${xpReward} XP and ${goldReward} gold!`);
@@ -2658,12 +2874,12 @@
         // Back button for inventory screen
         document.getElementById('back-from-inventory').addEventListener('click', () => showScreen('playerProfile'));
 
+        // Reset skills button
+        document.getElementById('reset-skills').addEventListener('click', resetSkillTree);
+
         // Make functions globally available
         window.showScreen = showScreen;
     });
-
-    // Include all the original functions that haven't been modified...
-    // [The rest of the original functions remain the same but now use the enhanced systems]
 
     // ============== ORIGINAL FUNCTIONS (with minor enhancements) ==============
 
@@ -2741,12 +2957,28 @@
         
         gameState.player.unlockedSpells.forEach(spellIndex => {
             const spell = gameState.player.spells[spellIndex];
+            const manaCost = calculateManaCost(spell.cost, spell.element);
             
             const profileSpellElement = document.createElement('div');
             profileSpellElement.className = 'spell';
+            
+            let spellInfo = `${spell.heal ? `Heal: ${spell.heal}` : `DMG: ${spell.damage}`} | Cost: ${manaCost} MP | Element: ${spell.element || 'None'}`;
+            
+            // Show skill effects on spells
+            if (spell.element === "fire" && gameState.player.skills.fire_affinity) {
+                spellInfo += " <span style='color:#ff0;'>(+10% dmg)</span>";
+            }
+            if (spell.element === "ice" && gameState.player.skills.ice_affinity) {
+                spellInfo += " <span style='color:#0ff;'>(-1 cost)</span>";
+            }
+            if (spell.element === "lightning" && gameState.player.skills.lightning_affinity) {
+                spellInfo += " <span style='color:#ff0;'>(+5% crit)</span>";
+            }
+            
             profileSpellElement.innerHTML = `
-                <button>${spell.name}</button>
-                <div>${spell.heal ? `Heal: ${spell.heal}` : `DMG: ${spell.damage}`} | Cost: ${spell.cost} | Element: ${spell.element || 'None'}</div>
+                <button class="tooltip">${spell.name}
+                    <span class="tooltiptext">${spellInfo}</span>
+                </button>
             `;
             profileSpells.appendChild(profileSpellElement);
             
@@ -2758,9 +2990,19 @@
             if (spell.cooldown > 0) {
                 button.textContent = `${spell.name} (CD: ${spell.cooldown})`;
                 button.disabled = true;
+                button.style.backgroundColor = '#333';
             } else {
-                const manaCost = calculateManaCost(spell.cost, spell.element);
                 button.textContent = `${spell.name} (${manaCost} MP)`;
+                button.disabled = false;
+                
+                // Color code based on element
+                switch(spell.element) {
+                    case 'fire': button.style.backgroundColor = '#600'; break;
+                    case 'ice': button.style.backgroundColor = '#066'; break;
+                    case 'lightning': button.style.backgroundColor = '#660'; break;
+                    case 'holy': button.style.backgroundColor = '#660'; break;
+                    default: button.style.backgroundColor = '';
+                }
             }
             
             button.addEventListener('click', () => {
@@ -2850,59 +3092,6 @@
         }
     }
 
-    function updateSkillTree() {
-        document.getElementById('available-skill-points').textContent = gameState.player.skillPoints;
-        
-        Object.keys(gameState.player.skills).forEach(skillId => {
-            const skillElement = document.getElementById(`skill-${skillId.replace('_', '-')}`);
-            if (!skillElement) return;
-            
-            const button = skillElement.querySelector('.skill-btn');
-            
-            if (gameState.player.skills[skillId]) {
-                skillElement.classList.add('unlocked');
-                skillElement.classList.remove('locked');
-                button.textContent = 'Learned';
-                button.disabled = true;
-            } else {
-                const cost = parseInt(button.dataset.cost);
-                if (gameState.player.skillPoints >= cost) {
-                    button.disabled = false;
-                    button.textContent = `Learn (${cost} point${cost > 1 ? 's' : ''})`;
-                } else {
-                    button.disabled = true;
-                    button.textContent = `Learn (${cost} point${cost > 1 ? 's' : ''})`;
-                }
-            }
-        });
-    }
-
-    function learnSkill(skillId) {
-        const button = document.querySelector(`[data-skill="${skillId}"]`);
-        const cost = parseInt(button.dataset.cost);
-        
-        if (gameState.player.skillPoints < cost) {
-            addToLog("Not enough skill points!");
-            return;
-        }
-        
-        gameState.player.skillPoints -= cost;
-        gameState.player.skills[skillId] = true;
-        
-        applySkillEffect(skillId);
-        
-        addToLog(`Learned skill: ${skillId.replace('_', ' ').toUpperCase()}!`);
-        
-        const learnedSkills = Object.values(gameState.player.skills).filter(s => s).length;
-        if (learnedSkills >= 5 && !gameState.achievements.skill_master.unlocked) {
-            unlockAchievement('skill_master');
-        }
-        
-        updatePlayerProfile();
-        updateSkillTree();
-        autoSave();
-    }
-
     function changePosition(newPosition) {
         gameState.player.position = newPosition;
         document.getElementById('battle-player-position').textContent = newPosition.charAt(0).toUpperCase() + newPosition.slice(1);
@@ -2916,89 +3105,6 @@
     function calculateCriticalStrike() {
         const criticalChance = gameState.player.critical;
         return Math.random() * 100 < criticalChance;
-    }
-
-    function getEnemyAction() {
-        const enemy = gameState.currentEnemy;
-        const affordableSpells = enemy.spells.filter(spell => 
-            enemy.mana >= (spell.cost || 0)
-        );
-        
-        switch(enemy.aiBehavior) {
-            case "aggressive":
-                return getAggressiveAction(affordableSpells);
-            case "defensive":
-                return getDefensiveAction(affordableSpells);
-            case "tactical":
-                return getTacticalAction(affordableSpells);
-            case "strategic":
-                return getStrategicAction(affordableSpells);
-            case "adaptive":
-                return getAdaptiveAction(affordableSpells);
-            default:
-                return getDefaultAction(affordableSpells);
-        }
-    }
-
-    function getAggressiveAction(spells) {
-        const damageSpells = spells.filter(s => s.damage);
-        if (damageSpells.length > 0) {
-            return damageSpells.reduce((max, spell) => 
-                spell.damage > max.damage ? spell : max
-            );
-        }
-        return spells[0] || null;
-    }
-
-    function getDefensiveAction(spells) {
-        if (gameState.currentEnemy.health < gameState.currentEnemy.maxHealth * 0.5) {
-            const healSpells = spells.filter(s => s.heal);
-            if (healSpells.length > 0) return healSpells[0];
-            
-            const defenseSpells = spells.filter(s => s.defense);
-            if (defenseSpells.length > 0) return defenseSpells[0];
-        }
-        
-        return spells[0] || null;
-    }
-
-    function getTacticalAction(spells) {
-        const playerHealthPercent = gameState.player.health / gameState.player.maxHealth;
-        const enemyHealthPercent = gameState.currentEnemy.health / gameState.currentEnemy.maxHealth;
-        
-        if (enemyHealthPercent < 0.3) {
-            const healSpells = spells.filter(s => s.heal);
-            if (healSpells.length > 0) return healSpells[0];
-        }
-        
-        if (playerHealthPercent < 0.3) {
-            const finishingSpells = spells.filter(s => s.damage > 8);
-            if (finishingSpells.length > 0) return finishingSpells[0];
-        }
-        
-        return spells[Math.floor(Math.random() * spells.length)] || null;
-    }
-
-    function getStrategicAction(spells) {
-        const statusSpells = spells.filter(s => s.statusEffect);
-        if (statusSpells.length > 0 && Math.random() < 0.6) {
-            return statusSpells[Math.floor(Math.random() * statusSpells.length)];
-        }
-        
-        return spells[0] || null;
-    }
-
-    function getAdaptiveAction(spells) {
-        if (gameState.player.comboCount > 2) {
-            const disruptiveSpells = spells.filter(s => s.statusEffect === "freeze" || s.stun);
-            if (disruptiveSpells.length > 0) return disruptiveSpells[0];
-        }
-        
-        return getTacticalAction(spells);
-    }
-
-    function getDefaultAction(spells) {
-        return spells[0] || null;
     }
 
     function startBattle(enemyType) {
