@@ -2967,15 +2967,18 @@
         const criticalChance = gameState.player.critical;
         return Math.random() * 100 < criticalChance;
     }
-
-    
-        function enemyTurn() {
+  
+                
+                function enemyTurn() {
     processStatusEffects(gameState.currentEnemy);
     
     const spell = getEnemyAction();
     
-    if (!spell) {
-        // Enemy uses physical attack when no spells available
+    // Ensure we have a valid spell that the enemy can actually afford
+    const canCastSpell = spell && gameState.currentEnemy.mana >= (spell.cost || 0);
+    
+    if (!canCastSpell) {
+        // Enemy uses physical attack when no spells available or can't afford spell
         const damage = Math.max(1, Math.floor(
             gameState.currentEnemy.attack - gameState.player.defense
         ));
@@ -2986,64 +2989,48 @@
         addToLog(`${gameState.currentEnemy.name} attacks and deals ${damage} damage.`);
         soundEffects.damage();
     } else {
-        // Enemy casts spell if they have enough mana
-        if (gameState.currentEnemy.mana >= spell.cost) {
-            gameState.currentEnemy.mana -= spell.cost;
-            document.getElementById('battle-enemy-mana').textContent = gameState.currentEnemy.mana;
-            document.getElementById('enemy-mana-fill').style.width = 
-                `${(gameState.currentEnemy.mana / gameState.currentEnemy.maxMana) * 100}%`;
-            
-            if (spell.heal) {
-                const healAmount = Math.min(spell.heal, gameState.currentEnemy.maxHealth - gameState.currentEnemy.health);
-                gameState.currentEnemy.health += healAmount;
-                document.getElementById('battle-enemy-health').textContent = gameState.currentEnemy.health;
-                document.getElementById('enemy-health-fill').style.width = 
-                    `${(gameState.currentEnemy.health / gameState.currentEnemy.maxHealth) * 100}%`;
-                addToLog(`${gameState.currentEnemy.name} casts ${spell.name} and heals ${healAmount} health.`);
-            } else if (spell.defense) {
-                applyStatusEffect(gameState.currentEnemy, "defense_buff", spell.duration);
-                addToLog(`${gameState.currentEnemy.name} casts ${spell.name} and gains +${spell.defense} defense.`);
-            } else {
-                // Check for bonus vs undead
-                let bonusMultiplier = 1;
-                if (spell.bonusVsUndead && gameState.player.minions.length > 0) {
-                    bonusMultiplier = 1.5;
-                    addToLog(`${spell.name} is especially effective against undead!`);
-                }
-                
-                const damage = Math.max(1, Math.floor(
-                    (spell.damage + gameState.currentEnemy.attack - gameState.player.defense) * bonusMultiplier
-                ));
-                gameState.player.health -= damage;
-                document.getElementById('battle-player-health').textContent = gameState.player.health;
-                document.getElementById('player-health-fill').style.width = 
-                    `${(gameState.player.health / gameState.player.maxHealth) * 100}%`;
-                addToLog(`${gameState.currentEnemy.name} casts ${spell.name} and deals ${damage} damage.`);
-                soundEffects.damage();
-                
-                if (spell.stun) {
-                    // Skip player's next turn
-                    addToLog("You are stunned and will miss your next turn!");
-                    // In a full implementation, this would set a flag to skip the next player turn
-                }
-                
-                if (spell.removesStatus) {
-                    // Remove status effects from enemy
-                    gameState.currentEnemy.statusEffects = [];
-                    addToLog("The enemy's status effects are purged!");
-                }
-            }
+        // Enemy casts spell
+        gameState.currentEnemy.mana -= spell.cost;
+        document.getElementById('battle-enemy-mana').textContent = gameState.currentEnemy.mana;
+        document.getElementById('enemy-mana-fill').style.width = 
+            `${(gameState.currentEnemy.mana / gameState.currentEnemy.maxMana) * 100}%`;
+        
+        if (spell.heal) {
+            const healAmount = Math.min(spell.heal, gameState.currentEnemy.maxHealth - gameState.currentEnemy.health);
+            gameState.currentEnemy.health += healAmount;
+            document.getElementById('battle-enemy-health').textContent = gameState.currentEnemy.health;
+            document.getElementById('enemy-health-fill').style.width = 
+                `${(gameState.currentEnemy.health / gameState.currentEnemy.maxHealth) * 100}%`;
+            addToLog(`${gameState.currentEnemy.name} casts ${spell.name} and heals ${healAmount} health.`);
+        } else if (spell.defense) {
+            applyStatusEffect(gameState.currentEnemy, "defense_buff", spell.duration);
+            addToLog(`${gameState.currentEnemy.name} casts ${spell.name} and gains +${spell.defense} defense.`);
         } else {
-            // Enemy doesn't have enough mana for spell, use physical attack instead
+            // Check for bonus vs undead
+            let bonusMultiplier = 1;
+            if (spell.bonusVsUndead && gameState.player.minions.length > 0) {
+                bonusMultiplier = 1.5;
+                addToLog(`${spell.name} is especially effective against undead!`);
+            }
+            
             const damage = Math.max(1, Math.floor(
-                gameState.currentEnemy.attack - gameState.player.defense
+                (spell.damage + gameState.currentEnemy.attack - gameState.player.defense) * bonusMultiplier
             ));
             gameState.player.health -= damage;
             document.getElementById('battle-player-health').textContent = gameState.player.health;
             document.getElementById('player-health-fill').style.width = 
                 `${(gameState.player.health / gameState.player.maxHealth) * 100}%`;
-            addToLog(`${gameState.currentEnemy.name} attacks and deals ${damage} damage.`);
+            addToLog(`${gameState.currentEnemy.name} casts ${spell.name} and deals ${damage} damage.`);
             soundEffects.damage();
+            
+            if (spell.stun) {
+                addToLog("You are stunned and will miss your next turn!");
+            }
+            
+            if (spell.removesStatus) {
+                gameState.currentEnemy.statusEffects = [];
+                addToLog("The enemy's status effects are purged!");
+            }
         }
     }
     
@@ -3073,104 +3060,120 @@
         updateSpellButtons();
     }
 }
-            
+        
+       
+      function getEnemyAction() {
+    const enemy = gameState.currentEnemy;
+    const affordableSpells = enemy.spells.filter(spell => 
+        enemy.mana >= (spell.cost || 0)
+    );
+    
+    // If no affordable spells, return null to indicate physical attack
+    if (affordableSpells.length === 0) {
+        return null;
+    }
+    
+    switch(enemy.aiBehavior) {
+        case "aggressive":
+            return getAggressiveAction(affordableSpells);
+        case "defensive":
+            return getDefensiveAction(affordableSpells);
+        case "supportive":
+            return getSupportiveAction(affordableSpells);
+        case "tactical":
+            return getTacticalAction(affordableSpells);
+        case "adaptive":
+            return getAdaptiveAction(affordableSpells);
+        default:
+            return getDefaultAction(affordableSpells);
+    }
+}
 
-    function getEnemyAction() {
-        const enemy = gameState.currentEnemy;
-        const affordableSpells = enemy.spells.filter(spell => 
-            enemy.mana >= (spell.cost || 0)
+function getAggressiveAction(spells) {
+    if (spells.length === 0) return null;
+    
+    const damageSpells = spells.filter(s => s.damage);
+    if (damageSpells.length > 0) {
+        return damageSpells.reduce((max, spell) => 
+            spell.damage > max.damage ? spell : max
         );
-        
-        switch(enemy.aiBehavior) {
-            case "aggressive":
-                return getAggressiveAction(affordableSpells);
-            case "defensive":
-                return getDefensiveAction(affordableSpells);
-            case "supportive":
-                return getSupportiveAction(affordableSpells);
-            case "tactical":
-                return getTacticalAction(affordableSpells);
-            case "adaptive":
-                return getAdaptiveAction(affordableSpells);
-            default:
-                return getDefaultAction(affordableSpells);
-        }
     }
+    return spells[0] || null;
+}
 
-    function getAggressiveAction(spells) {
+function getDefensiveAction(spells) {
+    if (spells.length === 0) return null;
+    
+    if (gameState.currentEnemy.health < gameState.currentEnemy.maxHealth * 0.5) {
+        const healSpells = spells.filter(s => s.heal);
+        if (healSpells.length > 0) return healSpells[0];
+        
+        const defenseSpells = spells.filter(s => s.defense);
+        if (defenseSpells.length > 0) return defenseSpells[0];
+    }
+    
+    return spells[0] || null;
+}
+
+function getSupportiveAction(spells) {
+    if (spells.length === 0) return null;
+    
+    const playerHealthPercent = gameState.player.health / gameState.player.maxHealth;
+    const enemyHealthPercent = gameState.currentEnemy.health / gameState.currentEnemy.maxHealth;
+    
+    if (enemyHealthPercent < 0.6) {
+        const healSpells = spells.filter(s => s.heal);
+        if (healSpells.length > 0) return healSpells[0];
+    }
+    
+    if (playerHealthPercent > 0.7) {
         const damageSpells = spells.filter(s => s.damage);
-        if (damageSpells.length > 0) {
-            return damageSpells.reduce((max, spell) => 
-                spell.damage > max.damage ? spell : max
-            );
-        }
-        return spells[0] || null;
+        if (damageSpells.length > 0) return damageSpells[0];
     }
+    
+    return spells[Math.floor(Math.random() * spells.length)] || null;
+}
 
-    function getDefensiveAction(spells) {
-        if (gameState.currentEnemy.health < gameState.currentEnemy.maxHealth * 0.5) {
-            const healSpells = spells.filter(s => s.heal);
-            if (healSpells.length > 0) return healSpells[0];
-            
-            const defenseSpells = spells.filter(s => s.defense);
-            if (defenseSpells.length > 0) return defenseSpells[0];
-        }
-        
-        return spells[0] || null;
+function getTacticalAction(spells) {
+    if (spells.length === 0) return null;
+    
+    const playerHealthPercent = gameState.player.health / gameState.player.maxHealth;
+    const enemyHealthPercent = gameState.currentEnemy.health / gameState.currentEnemy.maxHealth;
+    
+    if (enemyHealthPercent < 0.3) {
+        const healSpells = spells.filter(s => s.heal);
+        if (healSpells.length > 0) return healSpells[0];
     }
+    
+    if (playerHealthPercent < 0.3) {
+        const finishingSpells = spells.filter(s => s.damage > 8);
+        if (finishingSpells.length > 0) return finishingSpells[0];
+    }
+    
+    // Use spells that are effective against undead if player has minions
+    if (gameState.player.minions.length > 0) {
+        const antiUndeadSpells = spells.filter(s => s.bonusVsUndead);
+        if (antiUndeadSpells.length > 0) return antiUndeadSpells[0];
+    }
+    
+    return spells[Math.floor(Math.random() * spells.length)] || null;
+}
 
-    function getSupportiveAction(spells) {
-        const playerHealthPercent = gameState.player.health / gameState.player.maxHealth;
-        const enemyHealthPercent = gameState.currentEnemy.health / gameState.currentEnemy.maxHealth;
-        
-        if (enemyHealthPercent < 0.6) {
-            const healSpells = spells.filter(s => s.heal);
-            if (healSpells.length > 0) return healSpells[0];
-        }
-        
-        if (playerHealthPercent > 0.7) {
-            const damageSpells = spells.filter(s => s.damage);
-            if (damageSpells.length > 0) return damageSpells[0];
-        }
-        
-        return spells[Math.floor(Math.random() * spells.length)] || null;
+function getAdaptiveAction(spells) {
+    if (spells.length === 0) return null;
+    
+    if (gameState.player.minions.length > 2) {
+        const areaSpells = spells.filter(s => s.area);
+        if (areaSpells.length > 0) return areaSpells[0];
     }
+    
+    return getTacticalAction(spells);
+}
 
-    function getTacticalAction(spells) {
-        const playerHealthPercent = gameState.player.health / gameState.player.maxHealth;
-        const enemyHealthPercent = gameState.currentEnemy.health / gameState.currentEnemy.maxHealth;
-        
-        if (enemyHealthPercent < 0.3) {
-            const healSpells = spells.filter(s => s.heal);
-            if (healSpells.length > 0) return healSpells[0];
-        }
-        
-        if (playerHealthPercent < 0.3) {
-            const finishingSpells = spells.filter(s => s.damage > 8);
-            if (finishingSpells.length > 0) return finishingSpells[0];
-        }
-        
-        // Use spells that are effective against undead if player has minions
-        if (gameState.player.minions.length > 0) {
-            const antiUndeadSpells = spells.filter(s => s.bonusVsUndead);
-            if (antiUndeadSpells.length > 0) return antiUndeadSpells[0];
-        }
-        
-        return spells[Math.floor(Math.random() * spells.length)] || null;
-    }
-
-    function getAdaptiveAction(spells) {
-        if (gameState.player.minions.length > 2) {
-            const areaSpells = spells.filter(s => s.area);
-            if (areaSpells.length > 0) return areaSpells[0];
-        }
-        
-        return getTacticalAction(spells);
-    }
-
-    function getDefaultAction(spells) {
-        return spells[0] || null;
-    }
+function getDefaultAction(spells) {
+    if (spells.length === 0) return null;
+    return spells[0] || null;
+}
 
     function applyStatusEffect(target, effectType, duration = null) {
         const effect = gameState.statusEffects[effectType];
