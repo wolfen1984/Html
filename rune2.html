@@ -1353,43 +1353,44 @@
             }
         };
 
-        // Enchantments
-        const enchantments = {
-            soulbound: {
-                name: "Soulbound",
-                cost: 50,
-                effect: "soul_gain_on_kill",
-                power: 5,
-                description: "Gain 5 souls when you kill an enemy"
-            },
-            vampiric: {
-                name: "Vampiric",
-                cost: 75,
-                effect: "life_steal",
-                power: 10,
-                description: "Heal for 10% of damage dealt"
-            },
-            necrotic: {
-                name: "Necrotic",
-                cost: 60,
-                effect: "bonus_undead_damage",
-                power: 15,
-                description: "Deal 15% more damage to undead enemies"
-            },
-            fortified: {
-                name: "Fortified",
-                cost: 40,
-                effect: "bonus_defense",
-                power: 8,
-                description: "Increase defense by 8"
-            }
-        };
+        // CORRECTED enchantments - power should be percentages
+const enchantments = {
+    soulbound: {
+        name: "Soulbound",
+        cost: 50,
+        effect: "soul_gain_on_kill",
+        power: 5, // This means +5 souls per kill
+        description: "Gain 5 souls when you kill an enemy"
+    },
+    vampiric: {
+        name: "Vampiric",
+        cost: 75,
+        effect: "life_steal",
+        power: 10, // This means 10% life steal
+        description: "Heal for 10% of damage dealt"
+    },
+    necrotic: {
+        name: "Necrotic",
+        cost: 60,
+        effect: "bonus_undead_damage",
+        power: 15, // This means 15% bonus damage
+        description: "Deal 15% more damage to undead enemies"
+    },
+    fortified: {
+        name: "Fortified",
+        cost: 40,
+        effect: "bonus_defense",
+        power: 8, // This means +8 defense
+        description: "Increase defense by 8"
+    }
+};
 
         // Enemies
         const enemies = {
             level1: [
                 { 
                     name: "Spectral Apparition", 
+                    type: "undead",
                     hp: 40, 
                     attack: 10, 
                     defense: 3, 
@@ -1401,6 +1402,7 @@
                 },
                 { 
                     name: "Grave Robber", 
+                    type: "human",
                     hp: 50, 
                     attack: 12, 
                     defense: 5, 
@@ -1412,6 +1414,7 @@
                 },
                 { 
                     name: "Cursed Guardian", 
+                    type: "undead",
                     hp: 45, 
                     attack: 14, 
                     defense: 6, 
@@ -1425,6 +1428,7 @@
             level2: [
                 { 
                     name: "Wraith", 
+                    type: "undead",
                     hp: 70, 
                     attack: 16, 
                     defense: 4, 
@@ -1437,6 +1441,7 @@
                 },
                 { 
                     name: "Necrotic Abomination", 
+                    type: "undead",
                     hp: 90, 
                     attack: 18, 
                     defense: 8, 
@@ -1450,6 +1455,7 @@
             bosses: [
                 {
                     name: "Lich King",
+                    type: "undead",
                     hp: 150,
                     attack: 25,
                     defense: 12,
@@ -2239,39 +2245,75 @@
             
             enemyAttack();
         }
-
-        function enemyAttack() {
-            if (!gameState.currentEnemy) return;
+        
+// NEW: Calculate total player defense including equipment and enchantments
+function calculatePlayerDefense() {
+    let totalDefense = gameState.player.defense;
+    
+    // Add defense from equipped items
+    Object.values(gameState.player.equipment).forEach(itemId => {
+        if (itemId && items[itemId]) {
+            const item = items[itemId];
             
-            const enemyAttack = gameState.currentEnemy.attack;
-            const baseDamage = Math.floor(Math.random() * 5) + enemyAttack - 2;
-            
-            const playerDefense = gameState.player.defense;
-            let damage = Math.max(1, baseDamage - Math.floor(playerDefense / 2));
-            
-            if (gameState.player.minions.length > 0) {
-                const minion = gameState.player.minions[0];
-                if (minion.hp > damage) {
-                    minion.hp -= damage;
-                    addToBattleLog(`Your ${minion.name} takes the blow for you!`);
-                    updateBattleMinionDisplay();
-                    return;
-                } else {
-                    damage -= minion.hp;
-                    addToBattleLog(`Your ${minion.name} is destroyed!`);
-                    gameState.player.minions.shift();
-                    updateBattleMinionDisplay();
-                }
+            // Add base defense from item
+            if (item.defense) {
+                totalDefense += item.defense;
             }
             
-            gameState.player.hp -= damage;
-            addToBattleLog(`The ${gameState.currentEnemy.name} attacks you for ${damage} damage!`);
-            updatePlayerHP();
-            
-            if (gameState.player.hp <= 0) {
-                playerDefeated();
+            // Add defense from fortified enchantment
+            if (item.enchants) {
+                item.enchants.forEach(enchantId => {
+                    const enchant = enchantments[enchantId];
+                    if (enchant.effect === 'bonus_defense') {
+                        totalDefense += enchant.power;
+                        console.log(`Fortified enchantment: +${enchant.power} defense from ${item.name}`);
+                    }
+                });
             }
         }
+    });
+    
+    return totalDefense;
+}
+        
+        function enemyAttack() {
+    if (!gameState.currentEnemy) return;
+    
+    const enemyAttack = gameState.currentEnemy.attack;
+    const baseDamage = Math.floor(Math.random() * 5) + enemyAttack - 2;
+    
+    // OLD: const playerDefense = gameState.player.defense;
+    // NEW: Use the enhanced defense calculation
+    const playerDefense = calculatePlayerDefense();
+    
+    let damage = Math.max(1, baseDamage - Math.floor(playerDefense / 2));
+    
+    // Optional: Add debug log to see defense in action
+    console.log(`Enemy attack: ${baseDamage} vs Player defense: ${playerDefense} = ${damage} damage`);
+    
+    if (gameState.player.minions.length > 0) {
+        const minion = gameState.player.minions[0];
+        if (minion.hp > damage) {
+            minion.hp -= damage;
+            addToBattleLog(`Your ${minion.name} takes the blow for you!`);
+            updateBattleMinionDisplay();
+            return;
+        } else {
+            damage -= minion.hp;
+            addToBattleLog(`Your ${minion.name} is destroyed!`);
+            gameState.player.minions.shift();
+            updateBattleMinionDisplay();
+        }
+    }
+    
+    gameState.player.hp -= damage;
+    addToBattleLog(`The ${gameState.currentEnemy.name} attacks you for ${damage} damage!`);
+    updatePlayerHP();
+    
+    if (gameState.player.hp <= 0) {
+        playerDefeated();
+    }
+}
 
         function castSpell(spellId) {
             const spell = spells[spellId];
