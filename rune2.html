@@ -2201,50 +2201,103 @@ const enchantments = {
         }
 
         function playerAttack() {
-            if (!gameState.currentEnemy) return;
+    if (!gameState.currentEnemy) return;
+    
+    const playerMagic = gameState.player.magic;
+    const weapon = gameState.player.equipment.mainhand ? items[gameState.player.equipment.mainhand] : null;
+    const baseDamage = weapon ? 
+        Math.floor(Math.random() * (weapon.damage.max - weapon.damage.min + 1)) + weapon.damage.min :
+        5;
+        
+    const magicBonus = Math.floor(playerMagic / 4);
+    let damage = baseDamage + magicBonus;
+    
+    // Apply rune bonuses
+    const runeBonuses = runeSystem.getRuneBonuses();
+    if (runeBonuses.damage > 0) {
+        damage = Math.floor(damage * (1 + runeBonuses.damage/100));
+    }
+    
+    // NEW: Apply weapon enchantments
+    let enchantmentHeal = 0;
+    let extraSouls = 0;
+    
+    if (weapon && weapon.enchants) {
+        weapon.enchants.forEach(enchantId => {
+            const enchant = enchantments[enchantId];
             
-            const playerMagic = gameState.player.magic;
-            const weapon = gameState.player.equipment.mainhand ? items[gameState.player.equipment.mainhand] : null;
-            const baseDamage = weapon ? 
-                Math.floor(Math.random() * (weapon.damage.max - weapon.damage.min + 1)) + weapon.damage.min :
-                5;
-                
-            const magicBonus = Math.floor(playerMagic / 4);
-            let damage = baseDamage + magicBonus;
-            
-            // Apply rune bonuses
-            const runeBonuses = runeSystem.getRuneBonuses();
-            if (runeBonuses.damage > 0) {
-                damage = Math.floor(damage * (1 + runeBonuses.damage/100));
+            switch(enchant.effect) {
+                case 'bonus_undead_damage':
+                    // Check if enemy is undead
+                    if (isEnemyUndead(gameState.currentEnemy.name)) {
+                        const bonusDamage = Math.floor(damage * (enchant.power/100));
+                        damage += bonusDamage;
+                        addToBattleLog(`Necrotic enchantment: +${bonusDamage} damage to undead!`);
+                        showFloatingText(bonusDamage, document.getElementById('enemy-display'), 'damage-text');
+                    }
+                    break;
+                    
+                case 'life_steal':
+                    enchantmentHeal += Math.floor(damage * (enchant.power/100));
+                    break;
+                    
+                case 'soul_gain_on_kill':
+                    extraSouls = enchant.power; // Store for when enemy is defeated
+                    break;
             }
-            
-            const enemyDefense = gameState.currentEnemy.defense;
-            damage = Math.max(1, damage - Math.floor(enemyDefense / 2));
-            
-            // Apply life steal from runes
-            if (runeBonuses.lifeSteal > 0) {
-                const lifeSteal = Math.floor(damage * (runeBonuses.lifeSteal/100));
-                gameState.player.hp = Math.min(gameState.player.maxHp, gameState.player.hp + lifeSteal);
-                if (lifeSteal > 0) {
-                    addToBattleLog(`Life steal: +${lifeSteal} HP!`);
-                    updatePlayerHP();
-                }
-            }
-            
-            gameState.currentEnemy.hp -= damage;
-            
-            addToBattleLog(`You strike the ${gameState.currentEnemy.name} with dark energy for ${damage} damage!`);
-            showFloatingText(damage, document.getElementById('enemy-display'), 'damage-text');
-            
-            updateEnemyHP();
-            
-            if (gameState.currentEnemy.hp <= 0) {
-                enemyDefeated();
-                return;
-            }
-            
-            enemyAttack();
+        });
+    }
+    
+    const enemyDefense = gameState.currentEnemy.defense;
+    damage = Math.max(1, damage - Math.floor(enemyDefense / 2));
+    
+    // Apply life steal from runes
+    if (runeBonuses.lifeSteal > 0) {
+        const lifeSteal = Math.floor(damage * (runeBonuses.lifeSteal/100));
+        gameState.player.hp = Math.min(gameState.player.maxHp, gameState.player.hp + lifeSteal);
+        if (lifeSteal > 0) {
+            addToBattleLog(`Life steal: +${lifeSteal} HP!`);
+            updatePlayerHP();
         }
+    }
+    
+    // NEW: Apply enchantment life steal
+    if (enchantmentHeal > 0) {
+        gameState.player.hp = Math.min(gameState.player.maxHp, gameState.player.hp + enchantmentHeal);
+        addToBattleLog(`Vampiric enchantment: You heal for ${enchantmentHeal} HP!`);
+        showFloatingText(enchantmentHeal, document.getElementById('battle-player-hp').parentElement, 'heal-text');
+        updatePlayerHP();
+    }
+    
+    gameState.currentEnemy.hp -= damage;
+    
+    addToBattleLog(`You strike the ${gameState.currentEnemy.name} with dark energy for ${damage} damage!`);
+    showFloatingText(damage, document.getElementById('enemy-display'), 'damage-text');
+    
+    updateEnemyHP();
+    
+    if (gameState.currentEnemy.hp <= 0) {
+        // NEW: Apply soul gain enchantment on kill
+        if (extraSouls > 0) {
+            gameState.player.souls = Math.min(gameState.player.maxSouls, gameState.player.souls + extraSouls);
+            addToBattleLog(`Soulbound enchantment: +${extraSouls} souls!`);
+            updatePlayerSouls();
+        }
+        enemyDefeated();
+        return;
+    }
+    
+    enemyAttack();
+}
+
+// NEW: Helper function to determine if enemy is undead
+function isEnemyUndead(enemyName) {
+    const undeadEnemies = [
+        'Spectral Apparition', 'Cursed Guardian', 'Wraith', 
+        'Necrotic Abomination', 'Lich King'
+    ];
+    return undeadEnemies.includes(enemyName);
+}
         
 // NEW: Calculate total player defense including equipment and enchantments
 function calculatePlayerDefense() {
@@ -2416,70 +2469,82 @@ function calculatePlayerDefense() {
         }
 
         function enemyDefeated() {
-            addToBattleLog(`You defeated the ${gameState.currentEnemy.name}!`);
-            
-            const expGained = gameState.currentEnemy.exp;
-            gameState.player.exp += expGained;
-            
-            // Apply soul gain bonus from runes
-            const runeBonuses = runeSystem.getRuneBonuses();
-            let soulsGained = gameState.currentEnemy.souls;
-            if (runeBonuses.soulGain > 0) {
-                soulsGained = Math.floor(soulsGained * (1 + runeBonuses.soulGain/100));
-                addToBattleLog(`Rune bonus: +${runeBonuses.soulGain}% souls!`);
+    addToBattleLog(`You defeated the ${gameState.currentEnemy.name}!`);
+    
+    const expGained = gameState.currentEnemy.exp;
+    gameState.player.exp += expGained;
+    
+    // Apply soul gain bonus from runes
+    const runeBonuses = runeSystem.getRuneBonuses();
+    let soulsGained = gameState.currentEnemy.souls;
+    if (runeBonuses.soulGain > 0) {
+        soulsGained = Math.floor(soulsGained * (1 + runeBonuses.soulGain/100));
+        addToBattleLog(`Rune bonus: +${runeBonuses.soulGain}% souls!`);
+    }
+    
+    // NEW: Apply soulbound enchantment from weapon
+    const weapon = gameState.player.equipment.mainhand ? items[gameState.player.equipment.mainhand] : null;
+    if (weapon && weapon.enchants) {
+        weapon.enchants.forEach(enchantId => {
+            const enchant = enchantments[enchantId];
+            if (enchant.effect === 'soul_gain_on_kill') {
+                soulsGained += enchant.power;
+                addToBattleLog(`Soulbound enchantment: +${enchant.power} souls!`);
             }
-            
-            gameState.player.souls = Math.min(gameState.player.maxSouls, gameState.player.souls + soulsGained);
-            
-            if (gameState.player.exp >= gameState.player.expNeeded) {
-                levelUp();
-            }
-            
-            const loot = getEnhancedLoot(gameState.currentEnemy);
-            
-            loot.forEach(itemId => {
-                if (itemId.startsWith('rune_')) {
-                    const runeId = itemId.replace('rune_', '');
-                    gameState.player.runes.push(runeId);
-                } else if (itemId.startsWith('artifact_')) {
-                    const artifactId = itemId.replace('artifact_', '');
-                    gameState.player.artifacts.push(artifactId);
-                } else {
-                    gameState.player.inventory.push(itemId);
-                }
-            });
-            
-            document.getElementById('exp-gained').textContent = expGained;
-            document.getElementById('souls-gained').textContent = soulsGained;
-            
-            const lootItemsElement = document.getElementById('loot-items');
-            lootItemsElement.innerHTML = '';
-            
-            loot.forEach(itemId => {
-                let itemName, itemRarity;
-                
-                if (itemId.startsWith('rune_')) {
-                    const runeId = itemId.replace('rune_', '');
-                    itemName = runes[runeId].name;
-                    itemRarity = runes[runeId].rarity;
-                } else if (itemId.startsWith('artifact_')) {
-                    const artifactId = itemId.replace('artifact_', '');
-                    itemName = artifacts[artifactId].name;
-                    itemRarity = artifacts[artifactId].rarity;
-                } else {
-                    itemName = items[itemId].name;
-                    itemRarity = items[itemId].rarity;
-                }
-                
-                const itemElement = document.createElement('div');
-                itemElement.className = `log-entry loot-item rarity-${itemRarity}`;
-                itemElement.textContent = itemName;
-                lootItemsElement.appendChild(itemElement);
-            });
-            
-            showScreen('loot');
-            createParticleEffect(document.getElementById('loot-screen'), 'soul-particle', 20);
+        });
+    }
+    
+    gameState.player.souls = Math.min(gameState.player.maxSouls, gameState.player.souls + soulsGained);
+    
+    if (gameState.player.exp >= gameState.player.expNeeded) {
+        levelUp();
+    }
+    
+    const loot = getEnhancedLoot(gameState.currentEnemy);
+    
+    loot.forEach(itemId => {
+        if (itemId.startsWith('rune_')) {
+            const runeId = itemId.replace('rune_', '');
+            gameState.player.runes.push(runeId);
+        } else if (itemId.startsWith('artifact_')) {
+            const artifactId = itemId.replace('artifact_', '');
+            gameState.player.artifacts.push(artifactId);
+        } else {
+            gameState.player.inventory.push(itemId);
         }
+    });
+    
+    document.getElementById('exp-gained').textContent = expGained;
+    document.getElementById('souls-gained').textContent = soulsGained;
+    
+    const lootItemsElement = document.getElementById('loot-items');
+    lootItemsElement.innerHTML = '';
+    
+    loot.forEach(itemId => {
+        let itemName, itemRarity;
+        
+        if (itemId.startsWith('rune_')) {
+            const runeId = itemId.replace('rune_', '');
+            itemName = runes[runeId].name;
+            itemRarity = runes[runeId].rarity;
+        } else if (itemId.startsWith('artifact_')) {
+            const artifactId = itemId.replace('artifact_', '');
+            itemName = artifacts[artifactId].name;
+            itemRarity = artifacts[artifactId].rarity;
+        } else {
+            itemName = items[itemId].name;
+            itemRarity = items[itemId].rarity;
+        }
+        
+        const itemElement = document.createElement('div');
+        itemElement.className = `log-entry loot-item rarity-${itemRarity}`;
+        itemElement.textContent = itemName;
+        lootItemsElement.appendChild(itemElement);
+    });
+    
+    showScreen('loot');
+    createParticleEffect(document.getElementById('loot-screen'), 'soul-particle', 20);
+}
 
         function playerDefeated() {
             addToBattleLog("You have been defeated...");
