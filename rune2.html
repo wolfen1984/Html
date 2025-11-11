@@ -927,7 +927,9 @@
             enchanting: {
                 selectedItem: null,
                 selectedMaterial: null
-            }
+            },
+             // NEW: Add phylactery tracking
+    phylacteryUsed: false
         };
 
         // Sound effects
@@ -2003,6 +2005,33 @@ const enchantments = {
             updateRitualsDisplay();
         }
 
+        // NEW: Apply artifact effects to gameplay
+function applyArtifactEffects() {
+    const effects = {
+        soulBoost: 0,
+        spellPower: 0,
+        autoRevive: false
+    };
+    
+    gameState.player.artifacts.forEach(artifactId => {
+        const artifact = artifacts[artifactId];
+        
+        switch(artifact.effect) {
+            case 'soul_boost':
+                effects.soulBoost += artifact.power;
+                break;
+            case 'spell_power':
+                effects.spellPower += artifact.power;
+                break;
+            case 'auto_revive':
+                effects.autoRevive = true;
+                break;
+        }
+    });
+    
+    return effects;
+}
+        
         // NEW: Enhanced Enchanting Display
         function updateEnchantingDisplay() {
             document.getElementById('enchant-souls').textContent = gameState.player.souls;
@@ -2171,34 +2200,37 @@ const enchantments = {
 
         // Battle system
         function startBattle() {
-            let enemyPool;
-            if (gameState.player.level <= 2) {
-                enemyPool = enemies.level1;
-            } else if (gameState.player.level <= 4) {
-                enemyPool = enemies.level2;
-            } else {
-                if (Math.random() < 0.2) {
-                    enemyPool = enemies.bosses;
-                } else {
-                    enemyPool = enemies.level2;
-                }
-            }
-            
-            const randomIndex = Math.floor(Math.random() * enemyPool.length);
-            gameState.currentEnemy = { ...enemyPool[randomIndex] };
-            gameState.enemyMaxHp = gameState.currentEnemy.hp;
-            
-            gameState.battleLog = [];
-            addToBattleLog(`A ${gameState.currentEnemy.name} appears from the shadows!`);
-            
-            updateBattleStats();
-            
-            const enemyDisplay = document.getElementById('enemy-display');
-            enemyDisplay.textContent = `[${gameState.currentEnemy.name.toUpperCase()}]`;
-            
-            showScreen('battle');
-            createParticleEffect(document.getElementById('battle-screen'), 'necrosis-particle', 10);
+    let enemyPool;
+    if (gameState.player.level <= 2) {
+        enemyPool = enemies.level1;
+    } else if (gameState.player.level <= 4) {
+        enemyPool = enemies.level2;
+    } else {
+        if (Math.random() < 0.2) {
+            enemyPool = enemies.bosses;
+        } else {
+            enemyPool = enemies.level2;
         }
+    }
+    
+    const randomIndex = Math.floor(Math.random() * enemyPool.length);
+    gameState.currentEnemy = { ...enemyPool[randomIndex] };
+    gameState.enemyMaxHp = gameState.currentEnemy.hp;
+    
+    gameState.battleLog = [];
+    addToBattleLog(`A ${gameState.currentEnemy.name} appears from the shadows!`);
+    
+    // NEW: Reset phylactery for new battle
+    gameState.phylacteryUsed = false;
+    
+    updateBattleStats();
+    
+    const enemyDisplay = document.getElementById('enemy-display');
+    enemyDisplay.textContent = `[${gameState.currentEnemy.name.toUpperCase()}]`;
+    
+    showScreen('battle');
+    createParticleEffect(document.getElementById('battle-screen'), 'necrosis-particle', 10);
+}
 
         function playerAttack() {
     if (!gameState.currentEnemy) return;
@@ -2369,73 +2401,81 @@ function calculatePlayerDefense() {
 }
 
         function castSpell(spellId) {
-            const spell = spells[spellId];
-            
-            if (gameState.player.mp < spell.cost) {
-                addToBattleLog(`Not enough mana to cast ${spell.name}!`);
-                showBattleScreen();
-                return;
-            }
-            
-            gameState.player.mp -= spell.cost;
-            updatePlayerMP();
-            
-            if (spell.type === 'attack') {
-                const minDamage = spell.damage.min + Math.floor(gameState.player.magic / 3);
-                const maxDamage = spell.damage.max + Math.floor(gameState.player.magic / 2);
-                let damage = Math.floor(Math.random() * (maxDamage - minDamage + 1)) + minDamage;
-                
-                gameState.currentEnemy.hp -= damage;
-                addToBattleLog(`You cast ${spell.name} for ${damage} damage!`);
-                showFloatingText(damage, document.getElementById('enemy-display'), 'damage-text');
-                updateEnemyHP();
-                
-                if (gameState.currentEnemy.hp <= 0) {
-                    enemyDefeated();
-                    return;
-                }
-            } else if (spell.type === 'defense') {
-                const healAmount = spell.power;
-                gameState.player.hp = Math.min(gameState.player.maxHp, gameState.player.hp + healAmount);
-                addToBattleLog(`You cast ${spell.name} and restore ${healAmount} HP!`);
-                showFloatingText(healAmount, document.getElementById('battle-player-hp').parentElement, 'heal-text');
-                updatePlayerHP();
-            } else if (spell.type === 'minion') {
-                if (gameState.player.souls < spell.souls) {
-                    addToBattleLog(`Not enough souls to summon!`);
-                    showBattleScreen();
-                    return;
-                }
-                
-                if (gameState.player.remains < minions[spell.minion].remains) {
-                    addToBattleLog(`Not enough remains to summon a ${minions[spell.minion].name}!`);
-                    showBattleScreen();
-                    return;
-                }
-                
-                gameState.player.souls -= spell.souls;
-                gameState.player.remains -= minions[spell.minion].remains;
-                
-                const newMinion = {
-                    ...minions[spell.minion],
-                    id: Date.now(),
-                    maxHp: minions[spell.minion].hp,
-                    level: 1,
-                    exp: 0,
-                    expNeeded: 100,
-                    type: spell.minion
-                };
-                
-                gameState.player.minions.push(newMinion);
-                addToBattleLog(`You summon a ${newMinion.name}!`);
-                updatePlayerSouls();
-                updateBattleMinionDisplay();
-                createParticleEffect(document.getElementById('battle-screen'), 'soul-particle', 10);
-            }
-            
-            enemyAttack();
-            showBattleScreen();
+    const spell = spells[spellId];
+    
+    if (gameState.player.mp < spell.cost) {
+        addToBattleLog(`Not enough mana to cast ${spell.name}!`);
+        showBattleScreen();
+        return;
+    }
+    
+    gameState.player.mp -= spell.cost;
+    updatePlayerMP();
+    
+    if (spell.type === 'attack') {
+        const minDamage = spell.damage.min + Math.floor(gameState.player.magic / 3);
+        const maxDamage = spell.damage.max + Math.floor(gameState.player.magic / 2);
+        let damage = Math.floor(Math.random() * (maxDamage - minDamage + 1)) + minDamage;
+        
+        // NEW: Apply artifact spell power boost
+        const artifactEffects = applyArtifactEffects();
+        if (artifactEffects.spellPower > 0) {
+            const bonusDamage = Math.floor(damage * (artifactEffects.spellPower/100));
+            damage += bonusDamage;
+            addToBattleLog(`Tome of the Undying: +${bonusDamage} spell damage!`);
         }
+        
+        gameState.currentEnemy.hp -= damage;
+        addToBattleLog(`You cast ${spell.name} for ${damage} damage!`);
+        showFloatingText(damage, document.getElementById('enemy-display'), 'damage-text');
+        updateEnemyHP();
+        
+        if (gameState.currentEnemy.hp <= 0) {
+            enemyDefeated();
+            return;
+        }
+    } else if (spell.type === 'defense') {
+        const healAmount = spell.power;
+        gameState.player.hp = Math.min(gameState.player.maxHp, gameState.player.hp + healAmount);
+        addToBattleLog(`You cast ${spell.name} and restore ${healAmount} HP!`);
+        showFloatingText(healAmount, document.getElementById('battle-player-hp').parentElement, 'heal-text');
+        updatePlayerHP();
+    } else if (spell.type === 'minion') {
+        if (gameState.player.souls < spell.souls) {
+            addToBattleLog(`Not enough souls to summon!`);
+            showBattleScreen();
+            return;
+        }
+        
+        if (gameState.player.remains < minions[spell.minion].remains) {
+            addToBattleLog(`Not enough remains to summon a ${minions[spell.minion].name}!`);
+            showBattleScreen();
+            return;
+        }
+        
+        gameState.player.souls -= spell.souls;
+        gameState.player.remains -= minions[spell.minion].remains;
+        
+        const newMinion = {
+            ...minions[spell.minion],
+            id: Date.now(),
+            maxHp: minions[spell.minion].hp,
+            level: 1,
+            exp: 0,
+            expNeeded: 100,
+            type: spell.minion
+        };
+        
+        gameState.player.minions.push(newMinion);
+        addToBattleLog(`You summon a ${newMinion.name}!`);
+        updatePlayerSouls();
+        updateBattleMinionDisplay();
+        createParticleEffect(document.getElementById('battle-screen'), 'soul-particle', 10);
+    }
+    
+    enemyAttack();
+    showBattleScreen();
+}
 
         function commandMinion(minionIndex, command) {
             const minion = gameState.player.minions[minionIndex];
@@ -2468,21 +2508,31 @@ function calculatePlayerDefense() {
             enemyAttack();
         }
 
-        function enemyDefeated() {
+        
+    function enemyDefeated() {
     addToBattleLog(`You defeated the ${gameState.currentEnemy.name}!`);
     
     const expGained = gameState.currentEnemy.exp;
     gameState.player.exp += expGained;
     
-    // Apply soul gain bonus from runes
+    // Apply soul gain bonuses
     const runeBonuses = runeSystem.getRuneBonuses();
     let soulsGained = gameState.currentEnemy.souls;
+    
+    // Apply rune bonuses
     if (runeBonuses.soulGain > 0) {
         soulsGained = Math.floor(soulsGained * (1 + runeBonuses.soulGain/100));
         addToBattleLog(`Rune bonus: +${runeBonuses.soulGain}% souls!`);
     }
     
-    // NEW: Apply soulbound enchantment from weapon
+    // NEW: Apply artifact soul boost
+    const artifactEffects = applyArtifactEffects();
+    if (artifactEffects.soulBoost > 0) {
+        soulsGained = Math.floor(soulsGained * (1 + artifactEffects.soulBoost));
+        addToBattleLog(`Soul Harvester: +${Math.floor(artifactEffects.soulBoost * 100)}% souls!`);
+    }
+    
+    // Apply soulbound enchantment from weapon
     const weapon = gameState.player.equipment.mainhand ? items[gameState.player.equipment.mainhand] : null;
     if (weapon && weapon.enchants) {
         weapon.enchants.forEach(enchantId => {
@@ -2547,23 +2597,45 @@ function calculatePlayerDefense() {
 }
 
         function playerDefeated() {
-            addToBattleLog("You have been defeated...");
-            addToBattleLog("Dark energy revives you at the cost of some souls.");
-            
-            gameState.player.hp = Math.floor(gameState.player.maxHp / 2);
-            gameState.player.mp = Math.floor(gameState.player.maxMp / 2);
-            
-            const soulsLost = Math.floor(gameState.player.souls * 0.3);
-            gameState.player.souls -= soulsLost;
-            
-            gameState.player.minions = [];
-            
-            setTimeout(() => {
-                addToGameLog(`You were defeated and lost ${soulsLost} souls.`);
-                showGameScreen();
-                updatePlayerStats();
-            }, 2000);
+    // NEW: Check for Lich's Phylactery auto-revive
+    const artifactEffects = applyArtifactEffects();
+    if (artifactEffects.autoRevive && !gameState.phylacteryUsed) {
+        gameState.phylacteryUsed = true;
+        gameState.player.hp = Math.floor(gameState.player.maxHp / 2);
+        gameState.player.mp = Math.floor(gameState.player.maxMp / 2);
+        
+        addToBattleLog("The Lich's Phylactery shatters, reviving you from death!");
+        addToBattleLog("You are revived with 50% HP and MP!");
+        
+        // Remove the artifact after use
+        const phylacteryIndex = gameState.player.artifacts.indexOf('lich_phylactery');
+        if (phylacteryIndex !== -1) {
+            gameState.player.artifacts.splice(phylacteryIndex, 1);
+            addToBattleLog("The Lich's Phylactery is consumed!");
         }
+        
+        updatePlayerHP();
+        updatePlayerMP();
+        return;
+    }
+    
+    addToBattleLog("You have been defeated...");
+    addToBattleLog("Dark energy revives you at the cost of some souls.");
+    
+    gameState.player.hp = Math.floor(gameState.player.maxHp / 2);
+    gameState.player.mp = Math.floor(gameState.player.maxMp / 2);
+    
+    const soulsLost = Math.floor(gameState.player.souls * 0.3);
+    gameState.player.souls -= soulsLost;
+    
+    gameState.player.minions = [];
+    
+    setTimeout(() => {
+        addToGameLog(`You were defeated and lost ${soulsLost} souls.`);
+        showGameScreen();
+        updatePlayerStats();
+    }, 2000);
+}
 
         function takeLoot() {
             showGameScreen();
