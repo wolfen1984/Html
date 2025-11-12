@@ -1293,7 +1293,7 @@ const necropolisSystem = {
             costMultiplier: 1.5,
             baseProduction: { souls: 2 },
             productionMultiplier: 1.2,
-            constructionTime: 1, // in battles
+            constructionTime: 1,
             unlockLevel: 1,
             maxLevel: 10
         },
@@ -1331,34 +1331,11 @@ const necropolisSystem = {
             unlockLevel: 4,
             maxLevel: 5,
             special: "increases_population"
-        },
-        dark_forge: {
-            name: "Dark Forge",
-            description: "Crafts weapons and armor from shadow and bone",
-            baseCost: 200,
-            costMultiplier: 2.2,
-            baseProduction: { materials: 1 },
-            productionMultiplier: 1.3,
-            constructionTime: 4,
-            unlockLevel: 5,
-            maxLevel: 4,
-            special: "generates_equipment"
-        },
-        sacrificial_altar: {
-            name: "Sacrificial Altar",
-            description: "Channel dark energies for powerful rituals",
-            baseCost: 300,
-            costMultiplier: 2.5,
-            baseProduction: { cityExp: 5 },
-            productionMultiplier: 1.4,
-            constructionTime: 5,
-            unlockLevel: 8,
-            maxLevel: 3,
-            special: "boosts_rituals"
         }
     },
 
     init: function() {
+        console.log("Initializing Necropolis system...");
         if (!gameState.necropolis) {
             gameState.necropolis = {
                 level: 1,
@@ -1373,7 +1350,7 @@ const necropolisSystem = {
             };
         }
         
-        // Initialize buildings if not exists
+        // Initialize all buildings
         Object.keys(this.buildings).forEach(buildingId => {
             if (!gameState.necropolis.buildings[buildingId]) {
                 gameState.necropolis.buildings[buildingId] = {
@@ -1383,6 +1360,7 @@ const necropolisSystem = {
                 };
             }
         });
+        console.log("Necropolis initialized:", gameState.necropolis);
     },
 
     getBuildingCost: function(buildingId, currentLevel) {
@@ -1508,12 +1486,6 @@ const necropolisSystem = {
                     this.unlockNewSpell();
                 }
                 break;
-            case 'generates_equipment':
-                if (level > 0) {
-                    // Chance to generate equipment
-                    this.generateEquipment();
-                }
-                break;
         }
     },
 
@@ -1528,15 +1500,6 @@ const necropolisSystem = {
             const randomSpell = availableSpells[Math.floor(Math.random() * availableSpells.length)];
             gameState.player.spells.push(randomSpell);
             addToGameLog(`Haunted Library uncovered ancient knowledge: ${spells[randomSpell].name}!`);
-        }
-    },
-
-    generateEquipment: function() {
-        if (Math.random() < 0.3) { // 30% chance per battle
-            const equipmentTypes = ['rusty_sword', 'bone_shield', 'minion_helmet'];
-            const randomEquipment = equipmentTypes[Math.floor(Math.random() * equipmentTypes.length)];
-            gameState.player.inventory.push(randomEquipment);
-            addToGameLog(`Dark Forge produced: ${items[randomEquipment].name}`);
         }
     },
 
@@ -1614,9 +1577,58 @@ const necropolisSystem = {
     },
 
     getTotalPassiveIncome: function() {
-        return this.collectIncome(); // This calculates without applying
+        let income = {
+            souls: 0,
+            remains: 0,
+            enchantingDust: 0,
+            materials: 0,
+            cityExp: 0
+        };
+
+        Object.keys(gameState.necropolis.buildings).forEach(buildingId => {
+            const buildingState = gameState.necropolis.buildings[buildingId];
+            if (buildingState.level > 0) {
+                const production = this.getBuildingProduction(buildingId, buildingState.level);
+                Object.keys(production).forEach(resource => {
+                    income[resource] += production[resource];
+                });
+            }
+        });
+
+        return income;
     }
 };
+
+// Initialize necropolis when game starts
+function initializeNecropolis() {
+    console.log("Setting up Necropolis system...");
+    necropolisSystem.init();
+    
+    // Add event listeners
+    const necropolisButton = document.getElementById('necropolis-button');
+    if (necropolisButton) {
+        console.log("Found necropolis button, adding event listener");
+        necropolisButton.addEventListener('click', function() {
+            console.log("Necropolis button clicked");
+            audioSystem.playSound('click');
+            showNecropolisScreen();
+        });
+    } else {
+        console.error("Necropolis button not found!");
+    }
+
+    const backButton = document.getElementById('back-from-necropolis');
+    if (backButton) {
+        console.log("Found necropolis back button, adding event listener");
+        backButton.addEventListener('click', function() {
+            console.log("Necropolis back button clicked");
+            audioSystem.playSound('click');
+            showGameScreen();
+        });
+    } else {
+        console.error("Necropolis back button not found!");
+    }
+}
 
 // Update the battle system to process necropolis after battles
 const originalEnemyDefeated = enemyDefeated;
@@ -1640,16 +1652,13 @@ enemyDefeated = function() {
     }
 };
 
-// Initialize necropolis when game starts
-const originalSelectClass = selectClass;
-selectClass = function(className) {
-    originalSelectClass.apply(this, arguments);
-    necropolisSystem.init();
-};
-
 // Display Functions
 function updateNecropolisDisplay() {
-    if (!gameState.necropolis) return;
+    console.log("Updating necropolis display...");
+    if (!gameState.necropolis) {
+        console.log("No necropolis state found, initializing...");
+        necropolisSystem.init();
+    }
 
     // Update stats
     document.getElementById('undead-population').textContent = necropolisSystem.calculateTotalPopulation();
@@ -1666,6 +1675,11 @@ function updateNecropolisDisplay() {
 
     // Update building grid
     const buildingGrid = document.getElementById('building-grid');
+    if (!buildingGrid) {
+        console.error("Building grid element not found!");
+        return;
+    }
+    
     buildingGrid.innerHTML = '';
 
     Object.keys(necropolisSystem.buildings).forEach(buildingId => {
@@ -1701,7 +1715,10 @@ function updateNecropolisDisplay() {
             buttonHTML = `<div class="button disabled">${canBuildCheck.reason}</div>`;
         }
 
-        const production = necropolisSystem.getBuildingProduction(buildingId, buildingState.level + 1);
+        const production = buildingState.level > 0 ? 
+            necropolisSystem.getBuildingProduction(buildingId, buildingState.level) :
+            necropolisSystem.getBuildingProduction(buildingId, 1);
+            
         let productionText = '';
         Object.keys(production).forEach(resource => {
             productionText += `+${production[resource]} ${resource}<br>`;
@@ -1735,23 +1752,26 @@ function updateNecropolisDisplay() {
     });
 
     passiveIncome.innerHTML = incomeHTML || '<div>No passive income yet. Build structures to generate resources!</div>';
+    
+    console.log("Necropolis display updated successfully");
 }
 
 function showNecropolisScreen() {
+    console.log("Showing necropolis screen...");
     showScreen('necropolis');
     updateNecropolisDisplay();
 }
 
-// Add event listeners
-document.addEventListener('DOMContentLoaded', function() {
-    // Add necropolis button listener
-    const necropolisButton = document.getElementById('necropolis-button');
-    if (necropolisButton) {
-        necropolisButton.addEventListener('click', () => {
-            audioSystem.playSound('click');
-            showNecropolisScreen();
-        });
-    }
+// Add to screens object (make sure this is in your screens definition)
+// Add this line to your existing screens object:
+// necropolis: document.getElementById('necropolis-screen')
+
+// Initialize when the page loads
+window.addEventListener('load', function() {
+    console.log("Page loaded, initializing necropolis...");
+    // Initialize after a short delay to ensure everything is loaded
+    setTimeout(initializeNecropolis, 100);
+});
 
     // Add back button listener
     const backButton = document.getElementById('back-from-necropolis');
@@ -3632,6 +3652,7 @@ const audioSystem = {
             minionCommand: document.getElementById('minion-command-screen'),
             minionManagement: document.getElementById('minion-management-screen'),
             enchanting: document.getElementById('enchanting-screen'),
+            necropolis: document.getElementById('necropolis-screen')
             raise: document.getElementById('raise-screen'),
             inventory: document.getElementById('inventory-screen'),
             rituals: document.getElementById('rituals-screen'),
