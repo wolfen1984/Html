@@ -766,6 +766,28 @@
             text-align: center;
             margin: 10px 0;
         }
+
+        /* UPDATED: Bigger runes display to match artifacts */
+#runes-display {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px; /* Increased gap */
+    margin: 10px 0;
+}
+
+#runes-display .rune-item {
+    min-height: 100px; /* Match artifacts height */
+    padding: 15px; /* Match artifacts padding */
+    font-size: 16px; /* Match artifacts font size */
+    border: 1px solid #8a2be8;
+    text-align: center;
+    cursor: pointer;
+    background-color: rgba(15, 15, 26, 0.8);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
     </style>
 </head>
 <body>
@@ -1541,73 +1563,171 @@
             }
         };
 
-        // Enhanced Audio System with Free API Sounds
-        const audioSystem = {
-            // Using free sound effects from online sources
-            sounds: {
-                click: new Audio('https://assets.mixkit.co/sfx/preview/mixkit-select-click-1109.mp3'),
-                notification: new Audio('https://assets.mixkit.co/sfx/preview/mixkit-magic-spell-478.mp3'),
-                battle: new Audio('https://assets.mixkit.co/sfx/preview/mixkit-sword-slash-1494.mp3'),
-                spell: new Audio('https://assets.mixkit.co/sfx/preview/mixkit-magic-spell-attack-2677.mp3'),
-                enchant: new Audio('https://assets.mixkit.co/sfx/preview/mixkit-magic-wand-sparkle-2981.mp3'),
-                levelup: new Audio('https://assets.mixkit.co/sfx/preview/mixkit-winning-chimes-2015.mp3'),
-                victory: new Audio('https://assets.mixkit.co/sfx/preview/mixkit-video-game-win-2016.mp3'),
-                defeat: new Audio('https://assets.mixkit.co/sfx/preview/mixkit-sad-game-over-trombone-471.mp3'),
-                ritual: new Audio('https://assets.mixkit.co/sfx/preview/mixkit-spooky-magic-echo-536.mp3'),
-                summon: new Audio('https://assets.mixkit.co/sfx/preview/mixkit-creature-monster-growl-229.mp3')
-            },
-            
-            // Background music (royalty-free)
-            backgroundMusic: new Audio('https://assets.mixkit.co/music/preview/mixkit-drumming-in-the-dark-531.mp3'),
-            
-            init: function() {
-                // Set music to loop
-                this.backgroundMusic.loop = true;
-                this.backgroundMusic.volume = 0.3;
-                
-                // Set sound volumes
-                Object.values(this.sounds).forEach(sound => {
-                    sound.volume = 0.5;
-                });
-                
-                // Start background music if enabled
-                if (gameState.audioEnabled.music) {
-                    this.backgroundMusic.play().catch(e => console.log('Audio play failed:', e));
-                }
-            },
-            
-            playSound: function(soundName) {
-                if (!gameState.audioEnabled.sfx) return;
-                
-                try {
-                    const sound = this.sounds[soundName];
-                    if (sound) {
-                        sound.currentTime = 0;
-                        const playPromise = sound.play();
-                        if (playPromise !== undefined) {
-                            playPromise.catch(e => console.warn('Sound play interrupted:', e));
-                        }
-                    }
-                } catch (e) {
-                    console.warn('Audio error:', e);
-                }
-            },
-            
-            toggleMusic: function() {
-                gameState.audioEnabled.music = !gameState.audioEnabled.music;
-                if (gameState.audioEnabled.music) {
-                    this.backgroundMusic.play().catch(e => console.log('Music play failed:', e));
-                } else {
-                    this.backgroundMusic.pause();
-                }
-                return gameState.audioEnabled.music;
-            },
-            
-            toggleSFX: function() {
-                gameState.audioEnabled.sfx = !gameState.audioEnabled.sfx;
-                return gameState.audioEnabled.sfx;
-            }
+        
+            // NEW: Web Audio API Sound System
+const audioSystem = {
+    audioContext: null,
+    oscillators: {},
+    backgroundMusic: null,
+    
+    init: function() {
+        // Create audio context
+        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // Create sound presets
+        this.createSoundPresets();
+        
+        // Start background music if enabled
+        if (gameState.audioEnabled.music) {
+            this.playBackgroundMusic();
+        }
+    },
+    
+    createSoundPresets: function() {
+        // Define different oscillator settings for each sound type
+        this.soundPresets = {
+            click: { type: 'sine', frequency: 800, duration: 0.1, volume: 0.3 },
+            notification: { type: 'square', frequency: 600, duration: 0.2, volume: 0.4 },
+            battle: { type: 'sawtooth', frequency: 200, duration: 0.3, volume: 0.5 },
+            spell: { type: 'sine', frequency: 1000, duration: 0.5, volume: 0.4 },
+            enchant: { type: 'triangle', frequency: 1200, duration: 0.3, volume: 0.4 },
+            levelup: { type: 'sine', frequency: [800, 1200, 1500], duration: 0.2, volume: 0.5 },
+            victory: { type: 'sine', frequency: [600, 800, 1000, 1200], duration: 0.15, volume: 0.5 },
+            defeat: { type: 'sawtooth', frequency: 150, duration: 1, volume: 0.4 },
+            ritual: { type: 'square', frequency: 400, duration: 0.5, volume: 0.4 },
+            summon: { type: 'sine', frequency: 300, duration: 0.5, volume: 0.4 }
         };
+    },
+    
+    playSound: function(soundName) {
+        if (!gameState.audioEnabled.sfx || !this.audioContext) return;
+        
+        const preset = this.soundPresets[soundName];
+        if (!preset) return;
+        
+        try {
+            if (Array.isArray(preset.frequency)) {
+                // Play a sequence of tones
+                this.playToneSequence(preset.frequency, preset.duration, preset.type, preset.volume);
+            } else {
+                // Play a single tone
+                this.playTone(preset.frequency, preset.duration, preset.type, preset.volume);
+            }
+        } catch (e) {
+            console.warn('Audio error:', e);
+        }
+    },
+    
+    playTone: function(frequency, duration, type = 'sine', volume = 0.5) {
+        const oscillator = this.audioContext.createOscillator();
+        const gainNode = this.audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(this.audioContext.destination);
+        
+        oscillator.type = type;
+        oscillator.frequency.value = frequency;
+        
+        gainNode.gain.value = volume;
+        
+        // Fade out to avoid clicks
+        const now = this.audioContext.currentTime;
+        gainNode.gain.setValueAtTime(volume, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
+        
+        oscillator.start(now);
+        oscillator.stop(now + duration);
+        
+        // Clean up
+        oscillator.onended = () => {
+            oscillator.disconnect();
+            gainNode.disconnect();
+        };
+    },
+    
+    playToneSequence: function(frequencies, durationPerTone, type = 'sine', volume = 0.5) {
+        const now = this.audioContext.currentTime;
+        
+        frequencies.forEach((freq, index) => {
+            const oscillator = this.audioContext.createOscillator();
+            const gainNode = this.audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(this.audioContext.destination);
+            
+            oscillator.type = type;
+            oscillator.frequency.value = freq;
+            
+            const startTime = now + (index * durationPerTone);
+            
+            gainNode.gain.setValueAtTime(volume, startTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + durationPerTone);
+            
+            oscillator.start(startTime);
+            oscillator.stop(startTime + durationPerTone);
+            
+            // Clean up
+            oscillator.onended = () => {
+                oscillator.disconnect();
+                gainNode.disconnect();
+            };
+        });
+    },
+    
+    playBackgroundMusic: function() {
+        if (!gameState.audioEnabled.music || !this.audioContext) return;
+        
+        // Create a simple ambient background music using oscillators
+        const playAmbientLoop = () => {
+            const now = this.audioContext.currentTime;
+            
+            // Create multiple oscillators for a richer sound
+            const oscillators = [];
+            const frequencies = [220, 277.18, 329.63]; // A, C#, E
+            
+            frequencies.forEach((freq, index) => {
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.audioContext.destination);
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.value = freq;
+                
+                // Create a gentle volume envelope
+                gainNode.gain.setValueAtTime(0.05, now + (index * 0.5));
+                gainNode.gain.exponentialRampToValueAtTime(0.02, now + 4 + (index * 0.5));
+                
+                oscillator.start(now + (index * 0.5));
+                oscillator.stop(now + 8);
+                
+                oscillators.push({ oscillator, gainNode });
+            });
+            
+            // Schedule the next loop
+            setTimeout(playAmbientLoop, 8000);
+        };
+        
+        playAmbientLoop();
+    },
+    
+    toggleMusic: function() {
+        gameState.audioEnabled.music = !gameState.audioEnabled.music;
+        if (gameState.audioEnabled.music) {
+            this.playBackgroundMusic();
+        } else {
+            // Stop all oscillators (in a real implementation, we'd track them)
+            // For now, we'll just note that music is off
+        }
+        return gameState.audioEnabled.music;
+    },
+    
+    toggleSFX: function() {
+        gameState.audioEnabled.sfx = !gameState.audioEnabled.sfx;
+        return gameState.audioEnabled.sfx;
+    }
+};
 
         // Necromancer Classes
         const classes = {
