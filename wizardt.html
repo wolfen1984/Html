@@ -1,0 +1,4007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WIZARD'S TOWER ADVENTURE</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; touch-action: manipulation; font-family: 'Arial', monospace; }
+body { background: #0a0a2a; color: #aaf; height: 100vh; overflow: hidden; display: flex; flex-direction: column; padding: 10px; }
+
+#game-container { flex: 1; display: flex; flex-direction: column; gap: 10px; width: 100%; }
+
+/* Stats */
+.stat-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+.stat-group { display: flex; flex-direction: column; min-width: 100px; }
+.bar { height: 5px; background: #1a1a3a; width: 100%; position: relative; overflow: hidden; }
+.bar-fill { height: 100%; transition: width 0.3s; }
+.health { background: #0f0; }
+.mana { background: #0af; }
+
+/* Content */
+#content-area { flex: 1; display: flex; flex-direction: column; max-width: 600px; width: 100%; margin: 0 auto; gap: 5px; }
+#scene-description { flex: 1; overflow-y: auto; border: 1px solid #aaf; padding: 8px; min-height: 150px; }
+#combat-log { min-height: 80px; border: 1px solid #aaf; padding: 8px; display: none; }
+
+/* Buttons */
+.button-container { display: grid; gap: 5px; }
+#footer-buttons { grid-template-columns: repeat(4, 1fr); margin-bottom: 70px; }
+button { background: #0a0a2a; color: #aaf; border: 1px solid #aaf; padding: 8px; cursor: pointer; transition: all 0.2s; }
+button:active { background: #aaf; color: #0a0a2a; }
+button:disabled { opacity: 0.5; }
+button:hover:not(:disabled) { background: #1a1a4a; }
+
+/* Mobile Controls */
+#mobile-controls { display: block; position: fixed; bottom: 0; left: 0; right: 0; background: rgba(10,10,42,0.9); padding: 10px; border-top: 1px solid #aaf; z-index: 50; }
+.mobile-control-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+.mobile-control-btn { flex: 1; margin: 0 2px; padding: 10px; font-size: 14px; }
+
+/* Modals */
+.modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(10,10,42,0.9); padding: 10px; display: none; z-index: 100; overflow-y: auto; }
+.modal-content { border: 1px solid #aaf; padding: 8px; height: 100%; display: flex; flex-direction: column; }
+.modal-header { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid #aaf; padding-bottom: 5px; }
+.modal-body { flex: 1; overflow-y: auto; }
+.close-modal { background: none; border: none; color: #aaf; cursor: pointer; }
+
+/* Animations */
+@keyframes shake { 0%,100% { transform: translateX(0); } 20%,60% { transform: translateX(-5px); } 40%,80% { transform: translateX(5px); } }
+.shake { animation: shake 0.4s; }
+@keyframes flash-blue { 0%,100% { background: #0a0a2a; } 50% { background: #0af; } }
+.flash-blue { animation: flash-blue 0.3s; }
+.critical { animation: critical 0.5s; }
+@keyframes critical { 0%,100% { color: #aaf; } 50% { color: yellow; } }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+.poisoned { color: #f0a; animation: pulse 1s infinite; }
+.burning { color: #f80; animation: pulse 0.5s infinite; }
+.cursed { color: #a0a; animation: pulse 2s infinite; }
+.protected { color: #0ff; animation: pulse 1.5s infinite; }
+@keyframes float-up {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-50px); opacity: 0; }
+}
+@keyframes victory-glow {
+  0% { box-shadow: 0 0 20px #ff0; }
+  100% { box-shadow: none; }
+}
+.victory { animation: victory-glow 2s ease-out; }
+
+/* Merchant */
+.merchant-item { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed #aaf; }
+
+/* Damage Numbers */
+.damage-number {
+  position: absolute;
+  font-weight: bold;
+  animation: float-up 1s forwards;
+}
+
+/* Enemy Weakness Display */
+.weakness-display {
+  margin: 5px 0;
+  padding: 3px;
+  border: 1px dashed #ff0;
+  background: #1a1a4a;
+}
+.weakness-item {
+  display: inline-block;
+  margin: 2px;
+  padding: 2px 5px;
+  background: #1a1a3a;
+  border: 1px solid #aaf;
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  #scene-description { min-height: 30vh; }
+  button { padding: 6px 2px; font-size: 12px; }
+  .stat-row { flex-direction: column; gap: 5px; }
+  .mobile-control-btn { padding: 8px 4px; font-size: 12px; }
+}
+
+/* Character Selection */
+.character-select {
+  border: 1px solid #aaf;
+  padding: 10px;
+  margin: 10px 0;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.character-select:hover {
+  background: #1a1a4a;
+}
+.character-select h2 {
+  color: #aaf;
+  margin-bottom: 5px;
+}
+
+/* Save slots */
+.save-slot {
+  border: 1px solid #aaf;
+  padding: 10px;
+  margin: 5px 0;
+  cursor: pointer;
+}
+.save-slot:hover {
+  background: #1a1a4a;
+}
+.save-slot.active {
+  background: #1a1a4a;
+  border-color: #aaf;
+}
+
+/* Visual improvements */
+.location-indicator {
+  text-align: center;
+  font-weight: bold;
+  padding: 5px;
+  background: #151540;
+  border: 1px solid #aaf;
+  margin-bottom: 5px;
+}
+
+.health-low { 
+  border: 2px solid #ff4444; 
+  animation: pulse 1s infinite;
+}
+.mana-low {
+  border: 2px solid #ff4444;
+  filter: hue-rotate(300deg);
+}
+
+/* ========== ENHANCED VISUAL FEEDBACK STYLES ========== */
+.floating-text {
+  position: absolute;
+  font-weight: bold;
+  pointer-events: none;
+  z-index: 1000;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+  font-size: 14px;
+}
+
+.xp-gain { color: #0ff; animation: float-xp 2s ease-out; }
+.gold-gain { color: gold; animation: float-gold 2s ease-out; }
+.heal-gain { color: #0f0; animation: float-heal 2s ease-out; }
+.mana-gain { color: #87ceeb; animation: float-mana 2s ease-out; }
+.damage-taken { color: #ff4444; animation: float-damage 2s ease-out; }
+.item-found { color: #ffa500; animation: float-item 2s ease-out; }
+
+@keyframes float-xp {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-50px) scale(1.2); opacity: 0; }
+}
+
+@keyframes float-gold {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-60px) scale(1.3); opacity: 0; }
+}
+
+@keyframes float-heal {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  50% { transform: translateY(-30px) scale(1.1); opacity: 1; }
+  100% { transform: translateY(-60px) scale(1.2); opacity: 0; }
+}
+
+@keyframes float-mana {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-40px) scale(1.1); opacity: 0; }
+}
+
+@keyframes float-damage {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  20% { transform: translateX(-5px) translateY(-10px) scale(1.1); }
+  40% { transform: translateX(5px) translateY(-20px) scale(1.2); }
+  100% { transform: translateY(-50px) scale(1.1); opacity: 0; }
+}
+
+@keyframes float-item {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-45px) scale(1.2) rotate(5deg); opacity: 0; }
+}
+
+/* Skill Tree Styles */
+.skill-tree-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+  margin: 15px 0;
+}
+
+.skill-category {
+  border: 1px solid #444;
+  padding: 10px;
+  border-radius: 4px;
+}
+
+.skill-category h3 {
+  text-align: center;
+  margin-bottom: 10px;
+  color: #aaf;
+  border-bottom: 1px dashed #aaf;
+  padding-bottom: 5px;
+}
+
+.skill-node {
+  border: 1px solid #444;
+  padding: 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: #111;
+  position: relative;
+  margin-bottom: 8px;
+}
+
+.skill-node.available {
+  border-color: #666;
+  background: #222;
+}
+
+.skill-node.available:hover {
+  border-color: gold;
+  background: #333;
+  transform: translateY(-2px);
+}
+
+.skill-node.unlocked {
+  border-color: #00ff00;
+  background: #1a2a1a;
+  box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+}
+
+.skill-node.locked {
+  border-color: #444;
+  background: #1a1a1a;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.skill-node.requires {
+  border-left: 3px solid gold;
+}
+
+.skill-cost {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  color: gold;
+  font-size: 0.8em;
+  background: rgba(0,0,0,0.7);
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+
+.skill-description {
+  font-size: 0.8em;
+  color: #ccc;
+  margin-top: 5px;
+}
+
+/* Interactive Map Styles */
+#interactive-map {
+  width: 100%;
+  height: 400px;
+  background: #0a0a1a;
+  position: relative;
+  border: 1px solid #aaf;
+  overflow: hidden;
+}
+
+.map-location {
+  position: absolute;
+  width: 80px;
+  height: 60px;
+  border: 2px solid #333;
+  background: #1a1a2a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.3s;
+  padding: 5px;
+}
+
+.map-location.visited {
+  border-color: #666;
+  background: #2a2a3a;
+}
+
+.map-location.current {
+  border-color: #aaf;
+  background: #2a2a4a;
+  box-shadow: 0 0 15px #aaf;
+  z-index: 10;
+  transform: scale(1.1);
+}
+
+.map-location.hidden {
+  border-color: #444;
+  background: #1a1a2a;
+  opacity: 0.4;
+}
+
+.map-location.discovered {
+  border-color: #ffa500;
+  background: #2a2a3a;
+}
+
+.map-location.accessible {
+  border-color: #00ff00;
+  background: #1a2a2a;
+  cursor: pointer;
+}
+
+.map-location.accessible:hover {
+  border-color: #ffff00;
+  background: #2a3a2a;
+  transform: scale(1.15);
+  box-shadow: 0 0 10px #ffff00;
+}
+
+.map-connection {
+  position: absolute;
+  background: #444;
+  transform-origin: 0 0;
+  z-index: -1;
+  height: 2px;
+}
+
+.map-tooltip {
+  position: absolute;
+  background: rgba(10,10,42,0.95);
+  border: 1px solid #aaf;
+  padding: 8px;
+  z-index: 100;
+  pointer-events: none;
+  font-size: 12px;
+  max-width: 200px;
+  box-shadow: 0 0 10px rgba(170,170,255,0.5);
+}
+
+.map-legend {
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  justify-content: center;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.legend-color {
+  width: 12px;
+  height: 12px;
+  border: 1px solid #fff;
+}
+
+/* Enhanced Button Feedback */
+.button-pulse {
+  animation: buttonPulse 0.3s ease-out;
+}
+
+@keyframes buttonPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(0.95); }
+  100% { transform: scale(1); }
+}
+
+/* Achievement Popups */
+.achievement-popup {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: linear-gradient(45deg, #1a1a2a, #2a1a3a);
+  border: 2px solid gold;
+  padding: 15px;
+  border-radius: 8px;
+  z-index: 1000;
+  animation: slideInRight 0.5s ease-out, slideOutRight 0.5s ease-out 2.5s forwards;
+  max-width: 300px;
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideOutRight {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(100%); opacity: 0; }
+}
+
+.achievement-icon {
+  font-size: 24px;
+  margin-right: 10px;
+  color: gold;
+}
+
+/* Sound Controls */
+.sound-controls {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 1000;
+  background: rgba(10,10,42,0.8);
+  padding: 5px;
+  border-radius: 4px;
+  border: 1px solid #aaf;
+}
+
+.sound-toggle {
+  background: #0a0a2a;
+  border: 1px solid #aaf;
+  color: #aaf;
+  padding: 5px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.sound-toggle:hover {
+  background: #1a1a4a;
+}
+
+/* Enhanced Combat Animations */
+.combat-float {
+  animation: combatFloat 0.6s ease-out;
+}
+
+@keyframes combatFloat {
+  0% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-20px) scale(1.1); }
+  100% { transform: translateY(-40px) scale(1); opacity: 0; }
+}
+
+/* Skill Points Display */
+.skill-points-display {
+  background: linear-gradient(45deg, #1a1a3a, #2a1a4a);
+  border: 1px solid #0ff;
+  padding: 5px 10px;
+  border-radius: 4px;
+  margin-left: 10px;
+  font-weight: bold;
+  color: #0ff;
+}
+
+/* Progress Indicators */
+.level-badge {
+  background: linear-gradient(45deg, #8B4513, #CD7F32);
+  border-radius: 50%;
+  width: 25px;
+  height: 25px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  border: 2px solid gold;
+  font-size: 12px;
+  margin-left: 5px;
+}
+
+/* Back Button Styles */
+.back-button {
+  background: #0a0a2a;
+  color: #aaf;
+  border: 1px solid #aaf;
+  padding: 8px 15px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: bold;
+  margin-top: 10px;
+  width: 100%;
+}
+
+.back-button:hover {
+  background: #1a1a4a;
+}
+
+.back-button:active {
+  background: #aaf;
+  color: #0a0a2a;
+}
+
+/* New Game Mode Styles */
+.game-mode-select {
+  border: 2px solid #aaf;
+  padding: 15px;
+  margin: 10px 0;
+  cursor: pointer;
+  transition: all 0.3s;
+  text-align: center;
+}
+
+.game-mode-select:hover {
+  background: #1a1a4a;
+  border-color: #0ff;
+}
+
+.game-mode-select h2 {
+  color: #aaf;
+  margin-bottom: 10px;
+}
+
+.game-mode-select.featured {
+  border-color: gold;
+  background: rgba(255,215,0,0.1);
+}
+
+/* Timer Display */
+.timer-display {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  background: rgba(10,10,42,0.8);
+  padding: 5px 10px;
+  border-radius: 4px;
+  border: 1px solid #aaf;
+  z-index: 1000;
+  font-weight: bold;
+}
+
+/* Elite Enemy Styles */
+.elite-enemy {
+  border: 2px solid gold !important;
+  background: linear-gradient(45deg, #2a2a1a, #3a2a1a) !important;
+}
+
+.elite-enemy::before {
+  content: "★";
+  color: gold;
+  position: absolute;
+  top: 5px;
+  left: 5px;
+}
+
+/* Boss Mechanics Display */
+.boss-mechanic {
+  background: #2a1a1a;
+  border: 1px solid #f00;
+  padding: 5px;
+  margin: 5px 0;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+/* Environmental Effects */
+.environmental-effect {
+  background: rgba(0,255,255,0.1);
+  border: 1px dashed #0ff;
+  padding: 5px;
+  margin: 5px 0;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+/* Quest Timer */
+.quest-timer {
+  color: #ff4444;
+  font-weight: bold;
+  animation: pulse 1s infinite;
+}
+
+/* Moral Choice */
+.moral-choice {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid #aaf;
+  padding: 10px;
+  margin: 10px 0;
+  border-radius: 4px;
+}
+
+.moral-option {
+  background: #1a1a3a;
+  border: 1px solid #aaf;
+  padding: 8px;
+  margin: 5px 0;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.moral-option:hover {
+  background: #2a2a4a;
+}
+
+.moral-option.good {
+  border-color: #0f0;
+}
+
+.moral-option.evil {
+  border-color: #f00;
+}
+
+.moral-option.neutral {
+  border-color: #ff0;
+}
+</style>
+</head>
+<body>
+<!-- Sound Controls -->
+<div class="sound-controls">
+  <button id="sound-toggle" class="sound-toggle">🔊 SOUND: ON</button>
+</div>
+
+<!-- Timer Display (for Speed Run Mode) -->
+<div id="timer-display" class="timer-display" style="display: none;">TIME: 00:00</div>
+
+<div id="game-container">
+  <!-- Game Mode Selection -->
+  <div id="game-mode-selection" style="display: none;">
+    <h1 style="text-align: center">SELECT GAME MODE</h1>
+    
+    <div class="game-mode-select" id="select-story-mode">
+      <h2>STORY MODE</h2>
+      <p>Experience the classic Wizard's Tower adventure with a compelling narrative and balanced progression.</p>
+      <p><strong>Features:</strong> Main story, character development, merchant, quests</p>
+    </div>
+    
+    <div class="game-mode-select" id="select-endless-mode">
+      <h2>ENDLESS MODE</h2>
+      <p>Climb an infinite tower with ever-increasing difficulty. How high can you go?</p>
+      <p><strong>Features:</strong> Infinite floors, scaling difficulty, leaderboards</p>
+    </div>
+    
+    <div class="game-mode-select" id="select-speedrun-mode">
+      <h2>SPEED RUN MODE</h2>
+      <p>Race against the clock to defeat the Archmage as quickly as possible!</p>
+      <p><strong>Features:</strong> Timer, optimized encounters, speed bonuses</p>
+    </div>
+    
+    <div class="game-mode-select" id="select-challenge-mode">
+      <h2>CHALLENGE MODE</h2>
+      <p>Test your skills with special restrictions and modified rules.</p>
+      <p><strong>Features:</strong> Permadeath, limited resources, special challenges</p>
+    </div>
+    
+    <button id="back-to-character" style="margin-top: 20px; width: 100%;">BACK TO CHARACTER SELECT</button>
+  </div>
+
+  <!-- Character Selection -->
+  <div id="character-selection">
+    <h1 style="text-align: center">WIZARD'S TOWER ADVENTURE</h1>
+    <p>The ancient Wizard's Tower stands tall against the sky, filled with magical creatures, powerful artifacts, and dangerous spells.</p>
+    <p style="text-align: center">CHOOSE YOUR WIZARD:</p>
+    
+    <div class="character-select" id="select-elementalist">
+      <h2>ELEMENTALIST</h2>
+      <p><strong>Focus:</strong> Elemental Magic | <strong>HP:</strong> 80 | <strong>MANA:</strong> 120</p>
+      <p><strong>Skills:</strong> Fireball (damage + burn), Ice Shard (damage + slow)</p>
+      <p><strong>Unlocks at Lvl 5:</strong> Chain Lightning (hits multiple enemies)</p>
+      <p><strong>Unlocks at Lvl 10:</strong> Meteor Shower (massive area damage)</p>
+    </div>
+    
+    <div class="character-select" id="select-illusionist">
+      <h2>ILLUSIONIST</h2>
+      <p><strong>Focus:</strong> Mind Magic | <strong>HP:</strong> 70 | <strong>MANA:</strong> 130</p>
+      <p><strong>Skills:</strong> Confusion (chance to skip enemy turn), Mirror Image (dodge chance)</p>
+      <p><strong>Unlocks at Lvl 5:</strong> Mass Confusion (affects all enemies)</p>
+      <p><strong>Unlocks at Lvl 10:</strong> Phantasmal Army (summon illusions to fight)</p>
+    </div>
+    
+    <div class="character-select" id="select-necromancer">
+      <h2>NECROMANCER</h2>
+      <p><strong>Focus:</strong> Death Magic | <strong>HP:</strong> 90 | <strong>MANA:</strong> 110</p>
+      <p><strong>Skills:</strong> Life Drain (damage + heal), Animate Dead (summon skeleton)</p>
+      <p><strong>Unlocks at Lvl 5:</strong> Death Curse (damage over time)</p>
+      <p><strong>Unlocks at Lvl 10:</strong> Army of the Dead (summon multiple undead)</p>
+    </div>
+
+    <div class="character-select" id="select-archmage">
+      <h2>ARCHMAGE</h2>
+      <p><strong>Focus:</strong> Arcane Magic | <strong>HP:</strong> 75 | <strong>MANA:</strong> 125</p>
+      <p><strong>Skills:</strong> Arcane Missile (guaranteed hit), Mana Shield (convert mana to HP)</p>
+      <p><strong>Unlocks at Lvl 5:</strong> Time Warp (extra turn)</p>
+      <p><strong>Unlocks at Lvl 10:</strong> Disintegrate (massive single target damage)</p>
+    </div>
+
+    <!-- New Character Classes -->
+    <div class="character-select" id="select-chronomancer">
+      <h2>CHRONOMANCER</h2>
+      <p><strong>Focus:</strong> Time Magic | <strong>HP:</strong> 70 | <strong>MANA:</strong> 130</p>
+      <p><strong>Skills:</strong> Time Slow (reduce enemy speed), Temporal Shift (dodge chance)</p>
+      <p><strong>Unlocks at Lvl 5:</strong> Time Stop (freeze all enemies for 1 turn)</p>
+      <p><strong>Unlocks at Lvl 10:</strong> Rewind Time (restore HP/mana to previous turn)</p>
+    </div>
+    
+    <div class="character-select" id="select-druid">
+      <h2>DRUID</h2>
+      <p><strong>Focus:</strong> Nature Magic | <strong>HP:</strong> 100 | <strong>MANA:</strong> 100</p>
+      <p><strong>Skills:</strong> Entangling Roots (damage + immobilize), Healing Bloom (heal over time)</p>
+      <p><strong>Unlocks at Lvl 5:</strong> Summon Wolf Companion</p>
+      <p><strong>Unlocks at Lvl 10:</strong> Storm Call (AOE lightning damage)</p>
+    </div>
+    
+    <div style="margin-top: 10px">
+      <label>DIFFICULTY:</label>
+      <select id="difficulty" style="background: #0a0a2a; color: #aaf; border: 1px solid #aaf; padding: 5px;">
+        <option value="easy">Easy</option>
+        <option value="normal" selected>Normal</option>
+        <option value="hard">Hard</option>
+        <option value="nightmare">Nightmare</option>
+      </select>
+    </div>
+    
+    <div style="display: flex; gap: 5px; margin-top: 10px;">
+      <button id="load-button" style="display: none;">LOAD GAME</button>
+      <button id="save-button" style="display: none;">SAVE GAME</button>
+      <button id="new-game-plus-button" style="display: none;">NEW GAME+</button>
+      <button id="settings-button">SETTINGS</button>
+    </div>
+  </div>
+
+  <!-- Main Game -->
+  <div id="main-game" style="display: none; height: 100%;">
+    <div id="content-area">
+      <!-- Stats -->
+      <div class="stat-row">
+        <div class="stat-group">
+          <div>HP: <span id="current-hp">100</span>/<span id="max-hp">100</span></div>
+          <div class="bar"><div id="player-health-fill" class="bar-fill health" style="width: 100%;"></div></div>
+        </div>
+        <div class="stat-group">
+          <div>MANA: <span id="current-mana">100</span>/<span id="max-mana">100</span></div>
+          <div class="bar"><div id="player-mana-fill" class="bar-fill mana" style="width: 100%;"></div></div>
+        </div>
+        <div class="stat-group">
+          <div>LVL: <span id="player-level">1</span><span id="level-badge" class="level-badge">1</span></div>
+          <div>SKILL: <span id="skill-points">0</span></div>
+        </div>
+      </div>
+      
+      <div class="stat-row">
+        <div class="stat-group"><div>GOLD: <span id="player-gold">50</span></div></div>
+        <div class="stat-group"><div>FLOOR: <span id="game-floor">1</span></div></div>
+        <div class="stat-group"><div>LOC: <span id="dungeon-level">ENTRANCE</span></div></div>
+      </div>
+
+      <!-- Game Mode Specific Info -->
+      <div id="game-mode-info" style="display: none; background: #151540; padding: 5px; border: 1px solid #aaf; margin-bottom: 5px;">
+        <div id="endless-floor-counter" style="display: none;">ENDLESS FLOOR: <span id="endless-floor">1</span></div>
+        <div id="challenge-restrictions" style="display: none;"></div>
+      </div>
+
+      <!-- Location -->
+      <div class="location-indicator">
+        <div id="location-name">TOWER ENTRANCE</div>
+        <div class="bar"><div id="level-progress" class="bar-fill health" style="width: 0%;"></div></div>
+      </div>
+
+      <!-- Environmental Effect Display -->
+      <div id="environmental-effect-display" style="display: none;" class="environmental-effect">
+        <strong>Environmental Effect:</strong> <span id="environmental-effect-text"></span>
+      </div>
+
+      <!-- Scene -->
+      <div id="scene-description">
+        <p>You stand before the ancient Wizard's Tower. The air hums with magical energy. An old wizard greets you at the entrance.</p>
+        <p>"Be careful, young mage," he warns. "The tower holds many dangers, but also great power for those who can conquer it."</p>
+      </div>
+
+      <div id="combat-log"></div>
+
+      <!-- Weapon -->
+      <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #aaf;">
+        <span>STAFF:</span>
+        <span id="equipped-weapon-name">BASIC STAFF</span> (<span id="equipped-weapon-dmg">3</span> DMG)
+      </div>
+
+      <!-- Status Effects -->
+      <div id="status-effects" style="min-height: 20px;"></div>
+
+      <!-- Footer -->
+      <div id="footer-buttons" class="button-container" style="display: none;">
+        <!-- This is now hidden as we're using mobile controls for all devices -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile Controls (Now used for all devices) -->
+  <div id="mobile-controls">
+    <div class="mobile-control-row">
+      <button class="mobile-control-btn" id="mobile-explore">EXPLORE</button>
+      <button class="mobile-control-btn" id="mobile-action">TALK</button>
+      <button class="mobile-control-btn" id="mobile-merchant">MERCHANT</button>
+      <button class="mobile-control-btn" id="mobile-rest">REST</button>
+    </div>
+    <div class="mobile-control-row">
+      <button class="mobile-control-btn" id="mobile-inventory">INV</button>
+      <button class="mobile-control-btn" id="mobile-quests">QUESTS</button>
+      <button class="mobile-control-btn" id="mobile-character">STATS</button>
+      <button class="mobile-control-btn" id="mobile-skills">SKILLS</button>
+      <button class="mobile-control-btn" id="mobile-map">MAP</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modals -->
+<div id="inventory-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>INVENTORY</h2>
+      <button id="close-inventory" class="close-modal">X</button>
+    </div>
+    <div class="modal-body">
+      <h3>STAVES</h3>
+      <div id="weapons-list"></div>
+      <h3 style="margin-top: 10px;">ITEMS</h3>
+      <div id="items-list"></div>
+      <button class="back-button" id="back-from-inventory">BACK TO GAME</button>
+    </div>
+  </div>
+</div>
+
+<!-- Merchant Modal -->
+<div id="merchant-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>MERCHANT</h2>
+      <button id="close-merchant" class="close-modal">X</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom: 10px;">GOLD: <span id="merchant-gold-amount">0</span></div>
+      
+      <h3>BUY ITEMS</h3>
+      <div id="merchant-buy-list"></div>
+      
+      <h3 style="margin-top: 10px;">SELL ITEMS</h3>
+      <div id="merchant-sell-list"></div>
+      <button class="back-button" id="back-from-merchant">BACK TO GAME</button>
+    </div>
+  </div>
+</div>
+
+<!-- Character Stats Modal -->
+<div id="character-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="character-name">CHARACTER</h2>
+      <button id="close-character" class="close-modal">X</button>
+    </div>
+    <div class="modal-body">
+      <div class="stat-row">
+        <span>CLASS:</span>
+        <span id="character-class">CLASS</span>
+      </div>
+      <div class="stat-row">
+        <span>LEVEL:</span>
+        <span id="character-level">1</span>
+      </div>
+      
+      <h3 style="margin-top: 10px;">ATTRIBUTES</h3>
+      <div class="stat-row">
+        <span>INTELLIGENCE:</span>
+        <span id="character-intelligence">5</span>
+      </div>
+      <div class="stat-row">
+        <span>WISDOM:</span>
+        <span id="character-wisdom">5</span>
+      </div>
+      <div class="stat-row">
+        <span>ARCANE POWER:</span>
+        <span id="character-arcane">5</span>
+      </div>
+      
+      <h3 style="margin-top: 10px;">SPELLS</h3>
+      <div id="character-skills"></div>
+
+      <h3 style="margin-top: 10px;">STATUS EFFECTS</h3>
+      <div id="character-status-effects"></div>
+      <button class="back-button" id="back-from-character">BACK TO GAME</button>
+    </div>
+  </div>
+</div>
+
+<!-- Skills Modal -->
+<div id="skills-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>SPELL BOOK</h2>
+      <button id="close-skills" class="close-modal">X</button>
+    </div>
+    <div class="modal-body">
+      <div style="display: flex; justify-content: space-between; margin-bottom: 15px; align-items: center;">
+        <div>Skill Points: <span id="skill-points-display" class="skill-points-display">0</span></div>
+        <div>Level: <span id="skills-level">1</span></div>
+      </div>
+      
+      <div class="skill-tree-container" id="skill-tree-container">
+        <!-- Skills will be populated by JavaScript -->
+      </div>
+      <button class="back-button" id="back-from-skills">BACK TO GAME</button>
+    </div>
+  </div>
+</div>
+
+<!-- Interactive Map Modal -->
+<div id="interactive-map-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>TOWER MAP</h2>
+      <button id="close-map" class="close-modal">X</button>
+    </div>
+    <div class="modal-body">
+      <div id="interactive-map">
+        <!-- Map will be generated by JavaScript -->
+      </div>
+      <div class="map-legend">
+        <div class="legend-item">
+          <div class="legend-color" style="background: #aaf;"></div>
+          <span>Current Location</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background: #00ff00;"></div>
+          <span>Accessible</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background: #666;"></div>
+          <span>Visited</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background: #ffa500;"></div>
+          <span>Discovered</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background: #444;"></div>
+          <span>Undiscovered</span>
+        </div>
+      </div>
+      <button class="back-button" id="back-from-map">BACK TO GAME</button>
+    </div>
+  </div>
+</div>
+
+<!-- Quests Modal -->
+<div id="quests-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>QUESTS</h2>
+      <button id="close-quests" class="close-modal">X</button>
+    </div>
+    <div class="modal-body">
+      <h3>ACTIVE QUESTS</h3>
+      <div id="active-quests"></div>
+      
+      <h3 style="margin-top: 10px;">COMPLETED QUESTS</h3>
+      <div id="completed-quests"></div>
+
+      <h3 style="margin-top: 10px;">SIDE QUESTS</h3>
+      <div id="side-quests"></div>
+      <button class="back-button" id="back-from-quests">BACK TO GAME</button>
+    </div>
+  </div>
+</div>
+
+<!-- Save/Load Modal -->
+<div id="save-load-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>SAVE & LOAD GAME</h2>
+      <button id="close-save-load" class="close-modal">X</button>
+    </div>
+    <div class="modal-body">
+      <h3>SAVE GAME</h3>
+      <div style="margin-bottom: 10px;">
+        <input type="text" id="save-name" placeholder="Save name" style="background: #0a0a2a; color: #aaf; border: 1px solid #aaf; padding: 5px; width: 100%;">
+        <button id="save-game-btn" style="width: 100%; margin-top: 5px;">SAVE CURRENT GAME</button>
+      </div>
+      
+      <h3 style="margin-top: 10px;">LOAD GAME</h3>
+      <div id="save-slots"></div>
+      <button class="back-button" id="back-from-save-load">BACK TO GAME</button>
+    </div>
+  </div>
+</div>
+
+<!-- Combat Modal -->
+<div id="combat-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="combat-title">COMBAT</h2>
+    </div>
+    <div class="modal-body">
+      <div id="enemy-display" style="border: 1px solid #aaf; padding: 8px; margin-bottom: 5px; position: relative;">
+        <h3 id="enemy-name">ENEMY</h3>
+        <div>HP: <span id="enemy-hp">30</span>/<span id="enemy-max-hp">30</span></div>
+        <div class="bar"><div id="enemy-hp-bar" class="bar-fill health" style="width: 100%;"></div></div>
+        <!-- Enemy Weakness Display -->
+        <div id="enemy-weakness-display" style="display: none;" class="weakness-display">
+          <strong>Weaknesses:</strong> <span id="enemy-weakness-list"></span>
+        </div>
+        <!-- Boss Mechanics Display -->
+        <div id="boss-mechanics" style="display: none;"></div>
+        <div id="enemy-status-effects"></div>
+      </div>
+
+      <div id="player-display" style="border: 1px solid #aaf; padding: 8px; margin-bottom: 5px;">
+        <h3 id="player-name">PLAYER</h3>
+        <div>HP: <span id="player-hp-combat">100</span>/<span id="player-max-hp-combat">100</span></div>
+        <div class="bar"><div id="player-hp-bar" class="bar-fill health" style="width: 100%;"></div></div>
+        <div>MANA: <span id="player-mana-combat">100</span>/<span id="player-max-mana-combat">100</span></div>
+        <div class="bar"><div id="player-mana-bar" class="bar-fill mana" style="width: 100%;"></div></div>
+        <div id="player-combat-status-effects"></div>
+      </div>
+
+      <div id="combat-log-modal" style="min-height: 80px; border: 1px solid #aaf; padding: 8px;"></div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 10px;">
+        <button id="attack-button">ATTACK</button>
+        <button id="special-button">SPELL</button>
+        <button id="use-item-button">ITEM</button>
+        <button id="flee-button">FLEE</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Game Over Modal -->
+<div id="game-over-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 style="text-align: center">GAME OVER</h2>
+    </div>
+    <div class="modal-body" style="text-align: center;">
+      <p id="game-over-text">You have been defeated!</p>
+      <p>The magical energies overwhelm you...</p>
+      <button id="try-again-button">TRY AGAIN</button>
+      <button id="main-menu-button">MAIN MENU</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Game Plus Modal -->
+<div id="new-game-plus-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 style="text-align: center">NEW GAME+</h2>
+    </div>
+    <div class="modal-body" style="text-align: center;">
+      <p>Congratulations on conquering the Wizard's Tower!</p>
+      <p>Start a new game with increased difficulty but keep your:</p>
+      <ul style="text-align: left; margin: 10px 0;">
+        <li>Level and stats</li>
+        <li>Inventory (except key items)</li>
+        <li>Gold</li>
+        <li>Unlocked abilities</li>
+      </ul>
+      <p>Enemies will be stronger and smarter!</p>
+      <button id="start-new-game-plus">BEGIN NEW GAME+</button>
+      <button id="regular-new-game">START NORMAL GAME</button>
+    </div>
+  </div>
+</div>
+
+<!-- Moral Choice Modal -->
+<div id="moral-choice-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="moral-choice-title">MORAL DILEMMA</h2>
+    </div>
+    <div class="modal-body">
+      <p id="moral-choice-description"></p>
+      <div id="moral-options"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Game State
+const game = {
+  player: null,
+  currentEnemy: null,
+  inCombat: false,
+  location: 0, // 0=entrance, 1=first floor, etc.
+  floor: 1,
+  difficulty: 'normal',
+  statusEffects: [],
+  enemyStatusEffects: [],
+  saveSlots: [],
+  visitedLocations: [0],
+  gameMode: 'story', // 'story', 'endless', 'speedrun', 'challenge'
+  challengeRules: {},
+  startTime: null,
+  elapsedTime: 0,
+  timerInterval: null,
+  endlessFloor: 1,
+  currentEnvironmentalEffect: null,
+  completedQuests: [],
+  activeTimedQuests: [],
+  
+  // Game Data
+  locations: [
+    { name: "ENTRANCE", desc: "You stand before the ancient Wizard's Tower. The air hums with magical energy.", enemies: [], environmentalEffect: null },
+    { name: "FIRST FLOOR", desc: "The first floor is filled with magical energy. Strange runes glow on the walls.", enemies: ["goblin", "imp", "animated-armor"], environmentalEffect: "arcane_overflow" },
+    { name: "LIBRARY", desc: "Ancient tomes line the walls. Dust motes dance in magical light.", enemies: ["book-wyrm", "arcane-eye", "animated-tome"], environmentalEffect: "knowledge_empowerment" },
+    { name: "ALCHEMY LAB", desc: "Bubbling potions and strange apparatus fill this room.", enemies: ["homunculus", "ooze", "potion-golem"], environmentalEffect: "volatile_mixtures" },
+    { name: "OBSERVATORY", desc: "The ceiling shows a starry sky, though it's daytime outside.", enemies: ["star-spawn", "void-walker", "cosmic-horror"], environmentalEffect: "cosmic_alignment" },
+    { name: "THRONE ROOM", desc: "The final chamber where the Archmage awaits.", enemies: ["archmage"], environmentalEffect: "arcane_supremacy" },
+    { name: "SECRET LAB", desc: "A hidden laboratory filled with forbidden experiments.", enemies: ["chimera", "flesh-golem"], hidden: true, environmentalEffect: "unstable_experiments" },
+    { name: "CRYSTAL CAVE", desc: "A cave of glowing crystals deep beneath the tower.", enemies: ["crystal-golem", "shard-beast"], hidden: true, environmentalEffect: "crystal_resonance" },
+    { name: "SPIRIT REALM", desc: "A plane of existence where spirits dwell.", enemies: ["ghost", "wraith", "specter"], hidden: true, environmentalEffect: "ethereal_plane" },
+    // New locations for content expansion
+    { name: "ELEMENTAL FORGE", desc: "A chamber where the four elements converge in perfect balance.", enemies: ["fire-elemental", "water-elemental", "earth-elemental", "air-elemental"], hidden: true, environmentalEffect: "elemental_convergence" },
+    { name: "DREAM REALM", desc: "A surreal landscape where thoughts become reality.", enemies: ["nightmare", "dream-weaver", "illusion-beast"], hidden: true, environmentalEffect: "dream_logic" },
+    { name: "ANCIENT CRYPT", desc: "Burial chambers of long-forgotten wizards.", enemies: ["lich", "bone-dragon", "tomb-guardian"], hidden: true, environmentalEffect: "necrotic_energy" },
+    { name: "FLOATING ISLANDS", desc: "Mystical islands suspended in the sky by powerful magic.", enemies: ["griffin", "sky-serpent", "storm-giant"], hidden: true, environmentalEffect: "aerial_supremacy" }
+  ],
+  
+  characters: {
+    elementalist: { 
+      name: "ELEMENTALIST", 
+      class: "Elemental Mage",
+      hp: 80, maxHp: 80, 
+      mana: 120, maxMana: 120,
+      intelligence: 8, wisdom: 5, arcane: 7,
+      skills: ["FIREBALL", "ICE SHARD"], 
+      perks: ["+20% fire damage", "Chance to freeze enemies"],
+      inventory: ["basic-staff"],
+      unlockedAbilities: [],
+      learnedSkills: []
+    },
+    illusionist: { 
+      name: "ILLUSIONIST", 
+      class: "Mind Mage",
+      hp: 70, maxHp: 70, 
+      mana: 130, maxMana: 130,
+      intelligence: 7, wisdom: 8, arcane: 5,
+      skills: ["CONFUSION", "MIRROR IMAGE"], 
+      perks: ["+25% dodge chance", "Chance to confuse enemies"],
+      inventory: ["basic-staff"],
+      unlockedAbilities: [],
+      learnedSkills: []
+    },
+    necromancer: { 
+      name: "NECROMANCER", 
+      class: "Death Mage",
+      hp: 90, maxHp: 90, 
+      mana: 110, maxMana: 110,
+      intelligence: 6, wisdom: 7, arcane: 7,
+      skills: ["LIFE DRAIN", "ANIMATE DEAD"], 
+      perks: ["Drain life from enemies", "Summon skeleton allies"],
+      inventory: ["basic-staff"],
+      unlockedAbilities: [],
+      learnedSkills: []
+    },
+    archmage: {
+      name: "ARCHMAGE",
+      class: "Arcane Mage",
+      hp: 75, maxHp: 75,
+      mana: 125, maxMana: 125,
+      intelligence: 9, wisdom: 6, arcane: 5,
+      skills: ["ARCANE MISSILE", "MANA SHIELD"],
+      perks: ["Guaranteed hit spells", "Convert mana to health"],
+      inventory: ["basic-staff"],
+      unlockedAbilities: [],
+      learnedSkills: []
+    },
+    // New character classes
+    chronomancer: {
+      name: "CHRONOMANCER",
+      class: "Time Mage",
+      hp: 70, maxHp: 70,
+      mana: 130, maxMana: 130,
+      intelligence: 8, wisdom: 7, arcane: 5,
+      skills: ["TIME SLOW", "TEMPORAL SHIFT"],
+      perks: ["Extra turns", "Dodge chance based on speed"],
+      inventory: ["basic-staff"],
+      unlockedAbilities: [],
+      learnedSkills: []
+    },
+    druid: {
+      name: "DRUID",
+      class: "Nature Mage",
+      hp: 100, maxHp: 100,
+      mana: 100, maxMana: 100,
+      intelligence: 6, wisdom: 9, arcane: 5,
+      skills: ["ENTANGLING ROOTS", "HEALING BLOOM"],
+      perks: ["Bonus healing", "Animal companion"],
+      inventory: ["basic-staff"],
+      unlockedAbilities: [],
+      learnedSkills: []
+    }
+  },
+  
+  enemies: {
+    "goblin": { name: "GOBLIN", hp: 25, maxHp: 25, damage: 4, xp: 20, gold: 10, weakness: ["fire"] },
+    "imp": { name: "IMP", hp: 20, maxHp: 20, damage: 6, xp: 25, gold: 15, weakness: ["holy"] },
+    "animated-armor": { name: "ANIMATED ARMOR", hp: 40, maxHp: 40, damage: 8, xp: 35, gold: 20, weakness: ["lightning"] },
+    "book-wyrm": { name: "BOOK WYRM", hp: 35, maxHp: 35, damage: 7, xp: 30, gold: 25, weakness: ["fire"] },
+    "arcane-eye": { name: "ARCANE EYE", hp: 30, maxHp: 30, damage: 9, xp: 40, gold: 30, weakness: ["physical"] },
+    "animated-tome": { name: "ANIMATED TOME", hp: 25, maxHp: 25, damage: 5, xp: 25, gold: 15, weakness: ["water"] },
+    "homunculus": { name: "HOMUNCULUS", hp: 45, maxHp: 45, damage: 8, xp: 45, gold: 35, weakness: ["fire"] },
+    "ooze": { name: "OOZE", hp: 50, maxHp: 50, damage: 6, xp: 40, gold: 25, weakness: ["ice"] },
+    "potion-golem": { name: "POTION GOLEM", hp: 60, maxHp: 60, damage: 10, xp: 55, gold: 40, weakness: ["lightning"] },
+    "star-spawn": { name: "STAR SPAWN", hp: 55, maxHp: 55, damage: 12, xp: 60, gold: 45, weakness: ["dark"] },
+    "void-walker": { name: "VOID WALKER", hp: 65, maxHp: 65, damage: 14, xp: 70, gold: 50, weakness: ["light"] },
+    "cosmic-horror": { name: "COSMIC HORROR", hp: 80, maxHp: 80, damage: 16, xp: 85, gold: 60, weakness: ["holy"] },
+    "archmage": { name: "ARCHMAGE", hp: 120, maxHp: 120, damage: 18, xp: 200, gold: 100, weakness: ["arcane"], boss: true, bossMechanics: ["arcane_shield", "spell_reflection"] },
+    "chimera": { name: "CHIMERA", hp: 90, maxHp: 90, damage: 15, xp: 100, gold: 70, weakness: ["all"] },
+    "flesh-golem": { name: "FLESH GOLEM", hp: 110, maxHp: 110, damage: 14, xp: 95, gold: 65, weakness: ["fire"] },
+    "crystal-golem": { name: "CRYSTAL GOLEM", hp: 85, maxHp: 85, damage: 13, xp: 80, gold: 55, weakness: ["physical"] },
+    "shard-beast": { name: "SHARD BEAST", hp: 70, maxHp: 70, damage: 11, xp: 65, gold: 45, weakness: ["lightning"] },
+    "ghost": { name: "GHOST", hp: 40, maxHp: 40, damage: 9, xp: 50, gold: 30, weakness: ["holy"] },
+    "wraith": { name: "WRAITH", hp: 55, maxHp: 55, damage: 12, xp: 70, gold: 45, weakness: ["light"] },
+    "specter": { name: "SPECTER", hp: 65, maxHp: 65, damage: 14, xp: 85, gold: 55, weakness: ["holy"] },
+    // New enemies for content expansion
+    "fire-elemental": { name: "FIRE ELEMENTAL", hp: 70, maxHp: 70, damage: 16, xp: 75, gold: 50, weakness: ["water"], resistance: ["fire"] },
+    "water-elemental": { name: "WATER ELEMENTAL", hp: 80, maxHp: 80, damage: 14, xp: 70, gold: 45, weakness: ["lightning"], resistance: ["water"] },
+    "earth-elemental": { name: "EARTH ELEMENTAL", hp: 100, maxHp: 100, damage: 12, xp: 80, gold: 55, weakness: ["ice"], resistance: ["physical"] },
+    "air-elemental": { name: "AIR ELEMENTAL", hp: 60, maxHp: 60, damage: 18, xp: 65, gold: 40, weakness: ["earth"], resistance: ["lightning"] },
+    "nightmare": { name: "NIGHTMARE", hp: 75, maxHp: 75, damage: 15, xp: 85, gold: 60, weakness: ["light"], special: "fear_attack" },
+    "dream-weaver": { name: "DREAM WEAVER", hp: 65, maxHp: 65, damage: 12, xp: 70, gold: 50, weakness: ["arcane"], special: "sleep_spell" },
+    "illusion-beast": { name: "ILLUSION BEAST", hp: 55, maxHp: 55, damage: 10, xp: 60, gold: 40, weakness: ["truth"], special: "mirror_image" },
+    "lich": { name: "LICH", hp: 120, maxHp: 120, damage: 20, xp: 150, gold: 100, weakness: ["holy"], boss: true, bossMechanics: ["undead_minions", "soul_drain"] },
+    "bone-dragon": { name: "BONE DRAGON", hp: 150, maxHp: 150, damage: 22, xp: 180, gold: 120, weakness: ["holy"], boss: true, bossMechanics: ["bone_armor", "fear_aura"] },
+    "tomb-guardian": { name: "TOMB GUARDIAN", hp: 90, maxHp: 90, damage: 16, xp: 95, gold: 70, weakness: ["lightning"] },
+    "griffin": { name: "GRIFFIN", hp: 85, maxHp: 85, damage: 18, xp: 90, gold: 65, weakness: ["lightning"] },
+    "sky-serpent": { name: "SKY SERPENT", hp: 95, maxHp: 95, damage: 17, xp: 100, gold: 75, weakness: ["ice"] },
+    "storm-giant": { name: "STORM GIANT", hp: 130, maxHp: 130, damage: 21, xp: 140, gold: 95, weakness: ["earth"], boss: true, bossMechanics: ["lightning_storm", "wind_wall"] }
+  },
+  
+  items: {
+    "basic-staff": { name: "BASIC STAFF", damage: 3 },
+    "fire-staff": { name: "FIRE STAFF", damage: 8, special: "fire" },
+    "ice-staff": { name: "ICE STAFF", damage: 7, special: "ice" },
+    "lightning-staff": { name: "LIGHTNING STAFF", damage: 9, special: "lightning" },
+    "health-potion": { name: "HEALTH POTION", heal: 20 },
+    "mana-potion": { name: "MANA POTION", mana: 30 },
+    "elixir": { name: "ELIXIR", heal: 40, mana: 40 },
+    "scroll-fireball": { name: "FIREBALL SCROLL", damage: 25, special: "fire", consumable: true },
+    "scroll-ice": { name: "ICE STORM SCROLL", damage: 20, special: "ice", consumable: true },
+    "scroll-lightning": { name: "LIGHTNING BOLT SCROLL", damage: 30, special: "lightning", consumable: true },
+    // New items for content expansion
+    "time-staff": { name: "STAFF OF TIME", damage: 10, special: "time" },
+    "nature-staff": { name: "STAFF OF NATURE", damage: 9, special: "nature" },
+    "greater-health-potion": { name: "GREATER HEALTH POTION", heal: 50 },
+    "greater-mana-potion": { name: "GREATER MANA POTION", mana: 60 },
+    "resurrection-phial": { name: "RESURRECTION PHIAL", resurrect: true, consumable: true }
+  },
+  
+  merchantItems: [
+    { id: "health-potion", name: "HEALTH POTION", price: 15, heal: 20 },
+    { id: "mana-potion", name: "MANA POTION", price: 20, mana: 30 },
+    { id: "elixir", name: "ELIXIR", price: 40, heal: 40, mana: 40 },
+    { id: "fire-staff", name: "FIRE STAFF", price: 50, damage: 8, special: "fire" },
+    { id: "ice-staff", name: "ICE STAFF", price: 45, damage: 7, special: "ice" },
+    { id: "lightning-staff", name: "LIGHTNING STAFF", price: 55, damage: 9, special: "lightning" },
+    { id: "scroll-fireball", name: "FIREBALL SCROLL", price: 30, damage: 25, special: "fire", consumable: true },
+    { id: "scroll-ice", name: "ICE STORM SCROLL", price: 25, damage: 20, special: "ice", consumable: true },
+    { id: "scroll-lightning", name: "LIGHTNING BOLT SCROLL", price: 35, damage: 30, special: "lightning", consumable: true },
+    // New merchant items
+    { id: "time-staff", name: "STAFF OF TIME", price: 80, damage: 10, special: "time" },
+    { id: "nature-staff", name: "STAFF OF NATURE", price: 75, damage: 9, special: "nature" },
+    { id: "greater-health-potion", name: "GREATER HEALTH POTION", price: 40, heal: 50 },
+    { id: "greater-mana-potion", name: "GREATER MANA POTION", price: 50, mana: 60 },
+    { id: "resurrection-phial", name: "RESURRECTION PHIAL", price: 200, resurrect: true, consumable: true }
+  ],
+  
+  quests: {
+    active: [
+      { id: "defeat-archmage", title: "DEFEAT THE ARCHMAGE", description: "Confront and defeat the Archmage at the top of the tower.", completed: false },
+      { id: "find-fire-staff", title: "FIND A FIRE STAFF", description: "Obtain a fire staff to enhance your magical abilities.", completed: false }
+    ],
+    completed: [],
+    side: [
+      { id: "explore-library", title: "EXPLORE THE LIBRARY", description: "Discover the secrets hidden in the tower's library.", completed: false, reward: "scroll-fireball" },
+      { id: "clear-alchemy-lab", title: "CLEAR THE ALCHEMY LAB", description: "Defeat the creatures in the alchemy lab.", completed: false, reward: "elixir" },
+      { id: "find-secret-lab", title: "FIND THE SECRET LAB", description: "Discover the hidden laboratory in the tower.", completed: false, reward: "lightning-staff", hidden: true },
+      { id: "explore-crystal-cave", title: "EXPLORE THE CRYSTAL CAVE", description: "Journey to the crystal cave beneath the tower.", completed: false, reward: "mana-potion", hidden: true },
+      { id: "visit-spirit-realm", title: "VISIT THE SPIRIT REALM", description: "Find the portal to the spirit realm.", completed: false, reward: "elixir", hidden: true }
+    ],
+    // New quests for content expansion
+    timed: [
+      { id: "rescue-apprentice", title: "RESCUE THE APPRENTICE", description: "Find and rescue the wizard's apprentice before time runs out!", completed: false, timeLimit: 10, reward: "time-staff", active: false },
+      { id: "stop-ritual", title: "STOP THE DARK RITUAL", description: "Prevent the cultists from completing their ritual!", completed: false, timeLimit: 15, reward: "greater-mana-potion", active: false }
+    ],
+    moral: [
+      { id: "help-villagers", title: "HELP THE VILLAGERS", description: "Villagers are being attacked by magical creatures. Do you help them or take advantage of the situation?", completed: false, choices: [
+        { text: "Help the villagers (Good)", reward: "reputation", consequence: "villagers_help" },
+        { text: "Demand payment first (Neutral)", reward: "gold", consequence: "villagers_neutral" },
+        { text: "Take their supplies (Evil)", reward: "items", consequence: "villagers_hostile" }
+      ]},
+      { id: "ancient-artifact", title: "ANCIENT ARTIFACT", description: "You found a powerful artifact. Do you destroy it, study it, or use it for personal gain?", completed: false, choices: [
+        { text: "Destroy it to prevent misuse (Good)", reward: "xp", consequence: "artifact_destroyed" },
+        { text: "Study it carefully (Neutral)", reward: "knowledge", consequence: "artifact_studied" },
+        { text: "Use its power for yourself (Evil)", reward: "power", consequence: "artifact_corruption" }
+      ]}
+    ]
+  },
+  
+  statusEffectTypes: {
+    "burning": { name: "BURNING", duration: 3, damage: 3, class: "burning" },
+    "frozen": { name: "FROZEN", duration: 1, skipTurn: true, class: "protected" },
+    "confused": { name: "CONFUSED", duration: 2, damageReduction: 0.5, class: "cursed" },
+    "drained": { name: "MANA DRAINED", duration: 3, manaLoss: 5, class: "cursed" },
+    "shielded": { name: "SHIELDED", duration: 2, damageReduction: 0.3, class: "protected" },
+    "empowered": { name: "EMPOWERED", duration: 3, damageBonus: 0.2, class: "protected" },
+    // New status effects
+    "slowed": { name: "SLOWED", duration: 2, speedReduction: 0.5, class: "cursed" },
+    "hasted": { name: "HASTED", duration: 3, extraTurns: 0.25, class: "protected" },
+    "regenerating": { name: "REGENERATING", duration: 3, heal: 5, class: "protected" }
+  },
+  
+  environmentalEffects: {
+    "arcane_overflow": { 
+      name: "Arcane Overflow", 
+      description: "Magical energy saturates the air. Spells cost 20% less mana but have a 10% chance to fizzle.",
+      effect: function() {
+        if (Math.random() < 0.1) {
+          return { type: "spell_fizzle", message: "The arcane energy disrupts your spell!" };
+        }
+        return { type: "mana_reduction", amount: 0.2 };
+      }
+    },
+    "knowledge_empowerment": {
+      name: "Knowledge Empowerment",
+      description: "Ancient knowledge empowers your mind. Intelligence-based spells deal 25% more damage.",
+      effect: function() {
+        return { type: "intelligence_boost", amount: 0.25 };
+      }
+    },
+    "volatile_mixtures": {
+      name: "Volatile Mixtures",
+      description: "Unstable alchemical reactions fill the air. All attacks have a 15% chance to cause an explosion.",
+      effect: function() {
+        if (Math.random() < 0.15) {
+          return { type: "explosion", damage: 10, message: "Volatile chemicals explode!" };
+        }
+        return null;
+      }
+    },
+    "cosmic_alignment": {
+      name: "Cosmic Alignment",
+      description: "The stars are perfectly aligned. Critical hit chance is doubled.",
+      effect: function() {
+        return { type: "critical_boost", amount: 2.0 };
+      }
+    },
+    "elemental_convergence": {
+      name: "Elemental Convergence",
+      description: "All four elements are in perfect balance. Elemental spells are 50% more effective.",
+      effect: function() {
+        return { type: "elemental_boost", amount: 0.5 };
+      }
+    }
+  },
+
+  // Skill trees for each character class
+  skillTrees: {
+    elementalist: {
+      "fire-mastery": {
+        name: "Fire Mastery",
+        skills: [
+          { id: "fireball-upgrade", name: "Enhanced Fireball", cost: 1, description: "Fireball deals 25% more damage", requires: [], effect: "fireball-damage" },
+          { id: "burning-intensity", name: "Burning Intensity", cost: 1, description: "Burning status deals 50% more damage", requires: ["fireball-upgrade"], effect: "burning-damage" },
+          { id: "fire-nova", name: "Fire Nova", cost: 2, description: "Unleash a nova of fire that hits all enemies", requires: ["burning-intensity"], effect: "fire-nova" }
+        ]
+      },
+      "ice-mastery": {
+        name: "Ice Mastery",
+        skills: [
+          { id: "ice-shard-upgrade", name: "Enhanced Ice Shard", cost: 1, description: "Ice Shard has 25% higher freeze chance", requires: [], effect: "ice-freeze" },
+          { id: "frozen-ground", name: "Frozen Ground", cost: 1, description: "Chance to freeze all enemies when casting ice spells", requires: ["ice-shard-upgrade"], effect: "frozen-ground" },
+          { id: "blizzard", name: "Blizzard", cost: 2, description: "Summon a blizzard that damages all enemies for 3 turns", requires: ["frozen-ground"], effect: "blizzard" }
+        ]
+      },
+      "lightning-mastery": {
+        name: "Lightning Mastery",
+        skills: [
+          { id: "chain-lightning", name: "Chain Lightning", cost: 2, description: "Lightning jumps to 2 additional enemies", requires: [], effect: "chain-lightning" },
+          { id: "static-charge", name: "Static Charge", cost: 1, description: "Chance to stun enemies with lightning attacks", requires: ["chain-lightning"], effect: "static-charge" },
+          { id: "storm-call", name: "Storm Call", cost: 3, description: "Summon a storm that strikes random enemies for 5 turns", requires: ["static-charge"], effect: "storm-call" }
+        ]
+      }
+    },
+    illusionist: {
+      "illusion-mastery": {
+        name: "Illusion Mastery",
+        skills: [
+          { id: "confusion-upgrade", name: "Enhanced Confusion", cost: 1, description: "Confusion lasts 1 additional turn", requires: [], effect: "confusion-duration" },
+          { id: "mirror-image-upgrade", name: "Enhanced Mirror Image", cost: 1, description: "Mirror Image provides 50% dodge chance", requires: [], effect: "mirror-image-dodge" },
+          { id: "mass-confusion", name: "Mass Confusion", cost: 2, description: "Confusion affects all enemies", requires: ["confusion-upgrade"], effect: "mass-confusion" }
+        ]
+      },
+      "mind-control": {
+        name: "Mind Control",
+        skills: [
+          { id: "mental-domination", name: "Mental Domination", cost: 2, description: "Chance to temporarily turn an enemy to your side", requires: [], effect: "mental-domination" },
+          { id: "psychic-scream", name: "Psychic Scream", cost: 1, description: "AOE damage that scales with intelligence", requires: ["mental-domination"], effect: "psychic-scream" },
+          { id: "mind-break", name: "Mind Break", cost: 3, description: "Instantly defeat an enemy with low health", requires: ["psychic-scream"], effect: "mind-break" }
+        ]
+      },
+      "phantasm-mastery": {
+        name: "Phantasm Mastery",
+        skills: [
+          { id: "phantom-warrior", name: "Phantom Warrior", cost: 2, description: "Summon a phantom warrior to fight for you", requires: [], effect: "phantom-warrior" },
+          { id: "ethereal-form", name: "Ethereal Form", cost: 1, description: "Become ethereal, avoiding all physical damage for 2 turns", requires: ["phantom-warrior"], effect: "ethereal-form" },
+          { id: "phantasmal-army", name: "Phantasmal Army", cost: 3, description: "Summon multiple phantoms to overwhelm your enemies", requires: ["ethereal-form"], effect: "phantasmal-army" }
+        ]
+      }
+    },
+    necromancer: {
+      "death-mastery": {
+        name: "Death Mastery",
+        skills: [
+          { id: "life-drain-upgrade", name: "Enhanced Life Drain", cost: 1, description: "Life Drain heals for 75% of damage dealt", requires: [], effect: "life-drain-heal" },
+          { id: "animate-dead-upgrade", name: "Enhanced Animate Dead", cost: 1, description: "Summoned skeletons are 50% stronger", requires: [], effect: "skeleton-strength" },
+          { id: "death-curse", name: "Death Curse", cost: 2, description: "Curse an enemy to take damage over time", requires: ["life-drain-upgrade"], effect: "death-curse" }
+        ]
+      },
+      "summoning-mastery": {
+        name: "Summoning Mastery",
+        skills: [
+          { id: "skeleton-archer", name: "Skeleton Archer", cost: 1, description: "Summon a skeleton archer that attacks from range", requires: [], effect: "skeleton-archer" },
+          { id: "bone-shield", name: "Bone Shield", cost: 1, description: "Create a shield of bones that absorbs damage", requires: ["skeleton-archer"], effect: "bone-shield" },
+          { id: "army-of-the-dead", name: "Army of the Dead", cost: 3, description: "Summon multiple undead minions to fight for you", requires: ["bone-shield"], effect: "army-of-the-dead" }
+        ]
+      },
+      "curse-mastery": {
+        name: "Curse Mastery",
+        skills: [
+          { id: "weakness-curse", name: "Weakness Curse", cost: 1, description: "Curse an enemy to deal 25% less damage", requires: [], effect: "weakness-curse" },
+          { id: "decay-curse", name: "Decay Curse", cost: 1, description: "Curse an enemy to lose HP and mana each turn", requires: ["weakness-curse"], effect: "decay-curse" },
+          { id: "soul-drain", name: "Soul Drain", cost: 2, description: "Drain the soul of a defeated enemy to restore HP and mana", requires: ["decay-curse"], effect: "soul-drain" }
+        ]
+      }
+    },
+    archmage: {
+      "arcane-mastery": {
+        name: "Arcane Mastery",
+        skills: [
+          { id: "arcane-missile-upgrade", name: "Enhanced Arcane Missile", cost: 1, description: "Arcane Missile fires 3 missiles instead of 1", requires: [], effect: "arcane-missile-count" },
+          { id: "mana-shield-upgrade", name: "Enhanced Mana Shield", cost: 1, description: "Mana Shield absorbs 50% more damage", requires: [], effect: "mana-shield-absorb" },
+          { id: "arcane-explosion", name: "Arcane Explosion", cost: 2, description: "AOE damage that scales with arcane power", requires: ["arcane-missile-upgrade"], effect: "arcane-explosion" }
+        ]
+      },
+      "time-mastery": {
+        name: "Time Mastery",
+        skills: [
+          { id: "time-warp", name: "Time Warp", cost: 2, description: "Gain an extra turn once per combat", requires: [], effect: "time-warp" },
+          { id: "temporal-shield", name: "Temporal Shield", cost: 1, description: "Shield that rewinds time to avoid damage", requires: ["time-warp"], effect: "temporal-shield" },
+          { id: "time-stop", name: "Time Stop", cost: 3, description: "Freeze time for all enemies for 1 turn", requires: ["temporal-shield"], effect: "time-stop" }
+        ]
+      },
+      "disintegration-mastery": {
+        name: "Disintegration Mastery",
+        skills: [
+          { id: "disintegrate", name: "Disintegrate", cost: 3, description: "Powerful single-target spell that ignores armor", requires: [], effect: "disintegrate" },
+          { id: "matter-break", name: "Matter Break", cost: 1, description: "Chance to instantly destroy non-boss enemies", requires: ["disintegrate"], effect: "matter-break" },
+          { id: "reality-tear", name: "Reality Tear", cost: 2, description: "Create a tear in reality that damages all enemies", requires: ["matter-break"], effect: "reality-tear" }
+        ]
+      }
+    },
+    // New skill trees for new classes
+    chronomancer: {
+      "time-manipulation": {
+        name: "Time Manipulation",
+        skills: [
+          { id: "time-slow-upgrade", name: "Enhanced Time Slow", cost: 1, description: "Time Slow affects all enemies", requires: [], effect: "time-slow-aoe" },
+          { id: "temporal-shift-upgrade", name: "Enhanced Temporal Shift", cost: 1, description: "Temporal Shift provides 75% dodge chance", requires: [], effect: "temporal-shift-dodge" },
+          { id: "time-stop", name: "Time Stop", cost: 3, description: "Freeze time for all enemies for 1 turn", requires: ["temporal-shift-upgrade"], effect: "time-stop" }
+        ]
+      },
+      "temporal-combat": {
+        name: "Temporal Combat",
+        skills: [
+          { id: "haste", name: "Haste", cost: 2, description: "Gain an extra action each turn for 3 turns", requires: [], effect: "haste" },
+          { id: "rewind", name: "Rewind", cost: 2, description: "Reverse time to undo damage taken last turn", requires: ["haste"], effect: "rewind" },
+          { id: "temporal-clone", name: "Temporal Clone", cost: 3, description: "Create a clone that fights alongside you", requires: ["rewind"], effect: "temporal-clone" }
+        ]
+      }
+    },
+    druid: {
+      "nature-magic": {
+        name: "Nature Magic",
+        skills: [
+          { id: "entangling-roots-upgrade", name: "Enhanced Entangling Roots", cost: 1, description: "Roots immobilize for 2 turns", requires: [], effect: "roots-duration" },
+          { id: "healing-bloom-upgrade", name: "Enhanced Healing Bloom", cost: 1, description: "Healing Bloom heals 50% more", requires: [], effect: "healing-bloom-power" },
+          { id: "summon-wolf", name: "Summon Wolf Companion", cost: 2, description: "Summon a wolf to fight by your side", requires: ["healing-bloom-upgrade"], effect: "summon-wolf" }
+        ]
+      },
+      "elemental-druid": {
+        name: "Elemental Druid",
+        skills: [
+          { id: "storm-call", name: "Storm Call", cost: 2, description: "Call upon a storm to damage all enemies", requires: [], effect: "storm-call" },
+          { id: "earth-shield", name: "Earth Shield", cost: 1, description: "Create a shield of earth that blocks damage", requires: ["storm-call"], effect: "earth-shield" },
+          { id: "nature-wrath", name: "Nature's Wrath", cost: 3, description: "Unleash the full power of nature on your enemies", requires: ["earth-shield"], effect: "nature-wrath" }
+        ]
+      }
+    }
+  },
+
+  // Game mode configurations
+  gameModes: {
+    story: {
+      name: "Story Mode",
+      description: "Experience the classic Wizard's Tower adventure",
+      rules: {
+        permadeath: false,
+        timeLimit: false,
+        infiniteFloors: false,
+        enemyScaling: "normal"
+      }
+    },
+    endless: {
+      name: "Endless Mode",
+      description: "Climb an infinite tower with ever-increasing difficulty",
+      rules: {
+        permadeath: true,
+        timeLimit: false,
+        infiniteFloors: true,
+        enemyScaling: "exponential",
+        startFloor: 1
+      }
+    },
+    speedrun: {
+      name: "Speed Run Mode",
+      description: "Race against the clock to defeat the Archmage",
+      rules: {
+        permadeath: false,
+        timeLimit: true,
+        infiniteFloors: false,
+        enemyScaling: "normal",
+        timerVisible: true
+      }
+    },
+    challenge: {
+      name: "Challenge Mode",
+      description: "Test your skills with special restrictions",
+      rules: {
+        permadeath: true,
+        timeLimit: false,
+        infiniteFloors: false,
+        enemyScaling: "hard",
+        restrictions: ["no_merchant", "limited_potions"]
+      }
+    }
+  },
+
+  // Challenge mode variations
+  challengeVariations: [
+    {
+      name: "Permadeath",
+      rules: { permadeath: true },
+      description: "One life - make it count!"
+    },
+    {
+      name: "No Merchant",
+      rules: { no_merchant: true },
+      description: "Cannot buy items from merchant"
+    },
+    {
+      name: "Limited Potions",
+      rules: { limited_potions: true, max_potions: 3 },
+      description: "Can only carry 3 potions at a time"
+    },
+    {
+      name: "Spells Only",
+      rules: { spells_only: true },
+      description: "Cannot use basic attacks"
+    },
+    {
+      name: "Mana Burn",
+      rules: { mana_burn: true },
+      description: "Spells cost 50% more mana"
+    }
+  ]
+};
+
+// Sound Manager
+const SoundManager = {
+  audioContext: null,
+  sounds: {},
+  enabled: true,
+  
+  init() {
+    try {
+      this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      this.createSounds();
+      
+      // Resume audio context on user interaction
+      document.addEventListener('click', () => {
+        if (this.audioContext.state === 'suspended') {
+          this.audioContext.resume();
+        }
+      });
+    } catch (e) {
+      console.warn("Web Audio API not supported:", e);
+      this.enabled = false;
+    }
+  },
+  
+  createSounds() {
+    // Button click sound
+    this.sounds.click = this.createBeep(523.25, 0.1, 'square');
+    
+    // Notification sound
+    this.sounds.notification = this.createBeep(1046.5, 0.3, 'sine');
+    
+    // Combat sounds
+    this.sounds.attack = this.createBeep(261.63, 0.2, 'square');
+    this.sounds.spell = this.createBeep(783.99, 0.3, 'sine');
+    this.sounds.damage = this.createBeep(220, 0.1, 'sawtooth');
+    this.sounds.heal = this.createBeep(659.25, 0.2, 'sine');
+    this.sounds.levelUp = this.createLevelUpSound();
+    this.sounds.victory = this.createVictorySound();
+  },
+  
+  createBeep(frequency, duration, type) {
+    return () => {
+      if (!this.enabled) return;
+      
+      const oscillator = this.audioContext.createOscillator();
+      const gainNode = this.audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(this.audioContext.destination);
+      
+      oscillator.frequency.value = frequency;
+      oscillator.type = type;
+      
+      gainNode.gain.setValueAtTime(0.1, this.audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + duration);
+      
+      oscillator.start(this.audioContext.currentTime);
+      oscillator.stop(this.audioContext.currentTime + duration);
+    };
+  },
+  
+  createLevelUpSound() {
+    return () => {
+      if (!this.enabled) return;
+      
+      const times = [0, 0.1, 0.2, 0.3];
+      const frequencies = [523.25, 659.25, 783.99, 1046.5];
+      
+      times.forEach((time, i) => {
+        setTimeout(() => {
+          const oscillator = this.audioContext.createOscillator();
+          const gainNode = this.audioContext.createGain();
+          
+          oscillator.connect(gainNode);
+          gainNode.connect(this.audioContext.destination);
+          
+          oscillator.frequency.value = frequencies[i];
+          oscillator.type = 'sine';
+          
+          gainNode.gain.setValueAtTime(0.2, this.audioContext.currentTime);
+          gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + 0.3);
+          
+          oscillator.start(this.audioContext.currentTime);
+          oscillator.stop(this.audioContext.currentTime + 0.3);
+        }, time * 1000);
+      });
+    };
+  },
+  
+  createVictorySound() {
+    return () => {
+      if (!this.enabled) return;
+      
+      const notes = [
+        { freq: 523.25, duration: 0.2 },
+        { freq: 659.25, duration: 0.2 },
+        { freq: 783.99, duration: 0.2 },
+        { freq: 1046.5, duration: 0.4 }
+      ];
+      
+      let time = 0;
+      notes.forEach(note => {
+        setTimeout(() => {
+          const oscillator = this.audioContext.createOscillator();
+          const gainNode = this.audioContext.createGain();
+          
+          oscillator.connect(gainNode);
+          gainNode.connect(this.audioContext.destination);
+          
+          oscillator.frequency.value = note.freq;
+          oscillator.type = 'sine';
+          
+          gainNode.gain.setValueAtTime(0.3, this.audioContext.currentTime);
+          gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + note.duration);
+          
+          oscillator.start(this.audioContext.currentTime);
+          oscillator.stop(this.audioContext.currentTime + note.duration);
+        }, time * 1000);
+        
+        time += note.duration;
+      });
+    };
+  },
+  
+  play(soundName) {
+    if (this.sounds[soundName] && this.enabled) {
+      this.sounds[soundName]();
+    }
+  },
+  
+  toggle() {
+    this.enabled = !this.enabled;
+    document.getElementById('sound-toggle').textContent = `🔊 SOUND: ${this.enabled ? 'ON' : 'OFF'}`;
+  }
+};
+
+// Initialize Game
+document.addEventListener('DOMContentLoaded', function() {
+  // Initialize sound manager
+  SoundManager.init();
+  
+  // Character selection
+  document.getElementById('select-elementalist').addEventListener('click', () => selectCharacter('elementalist'));
+  document.getElementById('select-illusionist').addEventListener('click', () => selectCharacter('illusionist'));
+  document.getElementById('select-necromancer').addEventListener('click', () => selectCharacter('necromancer'));
+  document.getElementById('select-archmage').addEventListener('click', () => selectCharacter('archmage'));
+  document.getElementById('select-chronomancer').addEventListener('click', () => selectCharacter('chronomancer'));
+  document.getElementById('select-druid').addEventListener('click', () => selectCharacter('druid'));
+  
+  // Game mode selection
+  document.getElementById('select-story-mode').addEventListener('click', () => startGame('story'));
+  document.getElementById('select-endless-mode').addEventListener('click', () => startGame('endless'));
+  document.getElementById('select-speedrun-mode').addEventListener('click', () => startGame('speedrun'));
+  document.getElementById('select-challenge-mode').addEventListener('click', () => startGame('challenge'));
+  document.getElementById('back-to-character').addEventListener('click', backToCharacterSelect);
+  
+  // Settings
+  document.getElementById('settings-button').addEventListener('click', () => {
+    openSaveLoadModal();
+    SoundManager.play('click');
+  });
+  
+  // Sound toggle
+  document.getElementById('sound-toggle').addEventListener('click', () => {
+    SoundManager.toggle();
+    SoundManager.play('click');
+  });
+  
+  // Mobile controls
+  document.getElementById('mobile-explore').addEventListener('click', explore);
+  document.getElementById('mobile-action').addEventListener('click', () => {
+    if (game.location === 0) {
+      talkToWizard();
+    } else {
+      returnToEntrance();
+    }
+  });
+  document.getElementById('mobile-merchant').addEventListener('click', openMerchant);
+  document.getElementById('mobile-rest').addEventListener('click', rest);
+  document.getElementById('mobile-inventory').addEventListener('click', openInventory);
+  document.getElementById('mobile-quests').addEventListener('click', openQuests);
+  document.getElementById('mobile-character').addEventListener('click', openCharacter);
+  document.getElementById('mobile-skills').addEventListener('click', openSkills);
+  document.getElementById('mobile-map').addEventListener('click', openMap);
+  
+  // Add sound to all buttons
+  document.addEventListener('click', function(e) {
+    if (e.target.tagName === 'BUTTON') {
+      SoundManager.play('click');
+    }
+  });
+  
+  // Initialize back buttons
+  document.getElementById('back-from-inventory').addEventListener('click', hideAllModals);
+  document.getElementById('back-from-merchant').addEventListener('click', hideAllModals);
+  document.getElementById('back-from-character').addEventListener('click', hideAllModals);
+  document.getElementById('back-from-skills').addEventListener('click', closeSkills);
+  document.getElementById('back-from-map').addEventListener('click', closeMap);
+  document.getElementById('back-from-quests').addEventListener('click', hideAllModals);
+  document.getElementById('back-from-save-load').addEventListener('click', hideAllModals);
+  
+  // Check for saved games
+  loadSaveSlots();
+});
+
+function selectCharacter(character) {
+  game.player = JSON.parse(JSON.stringify(game.characters[character]));
+  
+  // Show game mode selection
+  document.getElementById('character-selection').style.display = 'none';
+  document.getElementById('game-mode-selection').style.display = 'block';
+  
+  SoundManager.play('click');
+}
+
+function backToCharacterSelect() {
+  document.getElementById('game-mode-selection').style.display = 'none';
+  document.getElementById('character-selection').style.display = 'flex';
+  
+  SoundManager.play('click');
+}
+
+function startGame(gameMode) {
+  game.gameMode = gameMode;
+  game.challengeRules = { ...game.gameModes[gameMode].rules };
+  
+  // Apply challenge mode variations if applicable
+  if (gameMode === 'challenge') {
+    const randomChallenge = game.challengeVariations[Math.floor(Math.random() * game.challengeVariations.length)];
+    Object.assign(game.challengeRules, randomChallenge.rules);
+    game.challengeRules.description = randomChallenge.description;
+  }
+  
+  // Initialize player stats
+  game.player.gold = 50;
+  game.player.level = 1;
+  game.player.xp = 0;
+  game.player.nextLevelXp = 100;
+  game.player.equippedWeapon = "basic-staff";
+  game.player.inventory = game.player.inventory || [];
+  game.player.inventory.push("health-potion", "mana-potion");
+  game.player.unlockedAbilities = [];
+  game.player.learnedSkills = [];
+  
+  game.difficulty = document.getElementById('difficulty').value;
+  game.location = 0;
+  game.floor = 1;
+  game.statusEffects = [];
+  game.enemyStatusEffects = [];
+  game.visitedLocations = [0];
+  game.endlessFloor = 1;
+  game.currentEnvironmentalEffect = null;
+  game.completedQuests = [];
+  game.activeTimedQuests = [];
+  
+  // Initialize timer for speedrun mode
+  if (gameMode === 'speedrun') {
+    game.startTime = Date.now();
+    game.elapsedTime = 0;
+    document.getElementById('timer-display').style.display = 'block';
+    game.timerInterval = setInterval(updateTimer, 1000);
+  }
+  
+  // Show game UI
+  document.getElementById('game-mode-selection').style.display = 'none';
+  document.getElementById('main-game').style.display = 'flex';
+  document.getElementById('save-button').style.display = 'block';
+  
+  // Update UI based on game mode
+  updateGameModeUI();
+  
+  // Update UI
+  updateUI();
+  bindButtons();
+  
+  // Start game
+  updateLocation();
+  addToScene(`You enter the Wizard's Tower as ${game.player.name}, ready to face the magical challenges ahead.`);
+  addToScene(`Game Mode: ${game.gameModes[gameMode].name}`);
+  
+  if (gameMode === 'challenge') {
+    addToScene(`Challenge: ${game.challengeRules.description}`);
+  }
+  
+  SoundManager.play('notification');
+}
+
+function updateGameModeUI() {
+  const gameModeInfo = document.getElementById('game-mode-info');
+  const endlessFloorCounter = document.getElementById('endless-floor-counter');
+  const challengeRestrictions = document.getElementById('challenge-restrictions');
+  
+  gameModeInfo.style.display = 'block';
+  
+  switch (game.gameMode) {
+    case 'endless':
+      endlessFloorCounter.style.display = 'block';
+      challengeRestrictions.style.display = 'none';
+      break;
+    case 'challenge':
+      endlessFloorCounter.style.display = 'none';
+      challengeRestrictions.style.display = 'block';
+      challengeRestrictions.textContent = game.challengeRules.description;
+      break;
+    default:
+      endlessFloorCounter.style.display = 'none';
+      challengeRestrictions.style.display = 'none';
+  }
+}
+
+function updateTimer() {
+  if (game.gameMode === 'speedrun' && game.startTime) {
+    game.elapsedTime = Math.floor((Date.now() - game.startTime) / 1000);
+    const minutes = Math.floor(game.elapsedTime / 60);
+    const seconds = game.elapsedTime % 60;
+    document.getElementById('timer-display').textContent = `TIME: ${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  }
+}
+
+function updateUI() {
+  // Stats
+  document.getElementById('current-hp').textContent = game.player.hp;
+  document.getElementById('max-hp').textContent = game.player.maxHp;
+  document.getElementById('current-mana').textContent = game.player.mana;
+  document.getElementById('max-mana').textContent = game.player.maxMana;
+  document.getElementById('player-level').textContent = game.player.level;
+  document.getElementById('level-badge').textContent = game.player.level;
+  document.getElementById('player-gold').textContent = game.player.gold;
+  document.getElementById('game-floor').textContent = game.floor;
+  document.getElementById('dungeon-level').textContent = game.locations[game.location].name;
+  document.getElementById('skill-points').textContent = Math.max(0, game.player.level - 1 - (game.player.learnedSkills ? game.player.learnedSkills.length : 0));
+  
+  // Update endless floor counter
+  document.getElementById('endless-floor').textContent = game.endlessFloor;
+  
+  // Bars
+  document.getElementById('player-health-fill').style.width = `${(game.player.hp / game.player.maxHp) * 100}%`;
+  document.getElementById('player-mana-fill').style.width = `${(game.player.mana / game.player.maxMana) * 100}%`;
+  document.getElementById('level-progress').style.width = `${(game.player.xp / game.player.nextLevelXp) * 100}%`;
+  
+  // Weapon
+  const weapon = game.items[game.player.equippedWeapon] || game.items["basic-staff"];
+  document.getElementById('equipped-weapon-name').textContent = weapon.name;
+  document.getElementById('equipped-weapon-dmg').textContent = weapon.damage;
+  
+  // Status effects
+  updateStatusEffects();
+  
+  // Visual feedback for low health/mana
+  const sceneDesc = document.getElementById('scene-description');
+  if (game.player.hp / game.player.maxHp < 0.3) {
+    sceneDesc.classList.add('health-low');
+  } else {
+    sceneDesc.classList.remove('health-low');
+  }
+  
+  if (game.player.mana / game.player.maxMana < 0.3) {
+    sceneDesc.classList.add('mana-low');
+  } else {
+    sceneDesc.classList.remove('mana-low');
+  }
+  
+  // Update mobile control button text
+  document.getElementById('mobile-explore').textContent = game.location === 0 ? "ENTER" : "EXPLORE";
+  document.getElementById('mobile-action').textContent = game.location === 0 ? "TALK" : "RETURN";
+}
+
+function updateStatusEffects() {
+  const statusContainer = document.getElementById('status-effects');
+  statusContainer.innerHTML = '';
+  
+  game.statusEffects.forEach(effect => {
+    const effectType = game.statusEffectTypes[effect.type];
+    const span = document.createElement('span');
+    span.textContent = effectType.name;
+    span.className = effectType.class;
+    span.style.marginRight = '5px';
+    span.style.padding = '2px 5px';
+    span.style.fontSize = '0.8em';
+    statusContainer.appendChild(span);
+  });
+}
+
+function bindButtons() {
+  // Modals
+  document.getElementById('save-button').onclick = openSaveLoadModal;
+  
+  // Combat
+  document.getElementById('attack-button').onclick = playerAttack;
+  document.getElementById('special-button').onclick = specialAttack;
+  document.getElementById('use-item-button').onclick = useItemInCombat;
+  document.getElementById('flee-button').onclick = attemptFlee;
+  
+  // Close buttons
+  document.getElementById('close-inventory').onclick = hideAllModals;
+  document.getElementById('close-merchant').onclick = hideAllModals;
+  document.getElementById('close-character').onclick = hideAllModals;
+  document.getElementById('close-quests').onclick = hideAllModals;
+  document.getElementById('close-save-load').onclick = hideAllModals;
+  document.getElementById('close-skills').onclick = closeSkills;
+  document.getElementById('close-map').onclick = closeMap;
+  
+  // Save/Load
+  document.getElementById('save-game-btn').onclick = saveCurrentGame;
+  
+  // Game over
+  document.getElementById('try-again-button').onclick = tryAgain;
+  document.getElementById('main-menu-button').onclick = returnToMainMenu;
+}
+
+// Save System
+function openSaveLoadModal() {
+  document.getElementById('save-load-modal').style.display = 'block';
+  loadSaveSlots();
+}
+
+function loadSaveSlots() {
+  game.saveSlots = JSON.parse(localStorage.getItem('wizardsTowerSaveSlots') || '[]');
+  const saveSlotsContainer = document.getElementById('save-slots');
+  saveSlotsContainer.innerHTML = '';
+  
+  if (game.saveSlots.length === 0) {
+    saveSlotsContainer.innerHTML = '<p>No saved games found.</p>';
+    return;
+  }
+  
+  game.saveSlots.forEach((slot, index) => {
+    const slotElement = document.createElement('div');
+    slotElement.className = 'save-slot';
+    slotElement.innerHTML = `
+      <div><strong>${slot.name}</strong> - Floor ${slot.gameState.floor}</div>
+      <div>${slot.gameState.player.name} - Level ${slot.gameState.player.level}</div>
+      <div>Location: ${slot.gameState.locations[slot.gameState.location].name}</div>
+      <div>Saved: ${new Date(slot.timestamp).toLocaleString()}</div>
+      <button class="load-slot-btn" data-index="${index}">LOAD</button>
+      <button class="delete-slot-btn" data-index="${index}">DELETE</button>
+    `;
+    saveSlotsContainer.appendChild(slotElement);
+  });
+  
+  // Add event listeners
+  document.querySelectorAll('.load-slot-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const index = parseInt(this.dataset.index);
+      loadGameFromSlot(index);
+    });
+  });
+  
+  document.querySelectorAll('.delete-slot-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const index = parseInt(this.dataset.index);
+      deleteSaveSlot(index);
+    });
+  });
+}
+
+function saveCurrentGame() {
+  const saveName = document.getElementById('save-name').value || `Save_${new Date().toLocaleDateString()}`;
+  
+  const saveData = {
+    name: saveName,
+    timestamp: Date.now(),
+    gameState: {
+      player: JSON.parse(JSON.stringify(game.player)),
+      location: game.location,
+      floor: game.floor,
+      difficulty: game.difficulty,
+      statusEffects: JSON.parse(JSON.stringify(game.statusEffects)),
+      locations: JSON.parse(JSON.stringify(game.locations)),
+      quests: JSON.parse(JSON.stringify(game.quests)),
+      visitedLocations: JSON.parse(JSON.stringify(game.visitedLocations)),
+      gameMode: game.gameMode,
+      challengeRules: game.challengeRules,
+      endlessFloor: game.endlessFloor,
+      elapsedTime: game.elapsedTime
+    }
+  };
+  
+  // Check if we're updating an existing save
+  const existingIndex = game.saveSlots.findIndex(slot => slot.name === saveName);
+  if (existingIndex !== -1) {
+    game.saveSlots[existingIndex] = saveData;
+  } else {
+    game.saveSlots.push(saveData);
+  }
+  
+  // Limit to 10 save slots
+  if (game.saveSlots.length > 10) {
+    game.saveSlots = game.saveSlots.slice(-10);
+  }
+  
+  localStorage.setItem('wizardsTowerSaveSlots', JSON.stringify(game.saveSlots));
+  addToScene(`Game saved as "${saveName}"`);
+  loadSaveSlots();
+  hideAllModals();
+  
+  SoundManager.play('notification');
+}
+
+function loadGameFromSlot(index) {
+  const saveData = game.saveSlots[index];
+  if (!saveData) return;
+  
+  Object.assign(game, saveData.gameState);
+  
+  document.getElementById('character-selection').style.display = 'none';
+  document.getElementById('game-mode-selection').style.display = 'none';
+  document.getElementById('main-game').style.display = 'flex';
+  document.getElementById('save-button').style.display = 'block';
+  
+  // Restart timer if in speedrun mode
+  if (game.gameMode === 'speedrun') {
+    game.startTime = Date.now() - (game.elapsedTime * 1000);
+    document.getElementById('timer-display').style.display = 'block';
+    if (!game.timerInterval) {
+      game.timerInterval = setInterval(updateTimer, 1000);
+    }
+  }
+  
+  updateGameModeUI();
+  updateUI();
+  bindButtons();
+  updateLocation();
+  addToScene(`Game loaded: "${saveData.name}". Welcome back, ${game.player.name}!`);
+  hideAllModals();
+  
+  SoundManager.play('notification');
+}
+
+function deleteSaveSlot(index) {
+  game.saveSlots.splice(index, 1);
+  localStorage.setItem('wizardsTowerSaveSlots', JSON.stringify(game.saveSlots));
+  loadSaveSlots();
+  
+  SoundManager.play('click');
+}
+
+// Game Actions
+function explore() {
+  clearScene();
+  
+  // Check for timed quest updates
+  updateTimedQuests();
+  
+  // Check for random events
+  if (Math.random() < 0.1) {
+    triggerRandomEvent();
+    return;
+  }
+  
+  if (game.location === 0) {
+    game.location = 1;
+    game.floor = 1;
+    if (!game.visitedLocations.includes(1)) {
+      game.visitedLocations.push(1);
+    }
+    updateLocation();
+    addToScene(game.locations[1].desc);
+    setTimeout(() => startRandomEncounter(), 1000);
+  } else {
+    addToScene(`You explore the ${game.locations[game.location].name.toLowerCase()}...`);
+    
+    // Different exploration results based on game mode
+    let encounterChance = 0.7;
+    let itemChance = 0.5;
+    
+    if (game.gameMode === 'endless') {
+      encounterChance = 0.8;
+      itemChance = 0.6;
+    } else if (game.gameMode === 'speedrun') {
+      encounterChance = 0.9;
+      itemChance = 0.3;
+    }
+    
+    if (Math.random() < encounterChance) {
+      setTimeout(() => startRandomEncounter(), 1000);
+    } else if (Math.random() < itemChance) {
+      findItem();
+    } else {
+      setTimeout(() => addToScene("You find nothing of interest."), 1000);
+    }
+  }
+  
+  SoundManager.play('click');
+}
+
+function findItem() {
+  let possibleItems = ["health-potion", "mana-potion", "scroll-fireball"];
+  
+  // Higher level characters find better items
+  if (game.player.level > 3) {
+    possibleItems.push("fire-staff");
+  }
+  if (game.player.level > 5) {
+    possibleItems.push("ice-staff");
+  }
+  if (game.player.level > 7) {
+    possibleItems.push("lightning-staff");
+  }
+  if (game.player.level > 10) {
+    possibleItems.push("time-staff", "nature-staff");
+  }
+  
+  const foundItem = possibleItems[Math.floor(Math.random() * possibleItems.length)];
+  game.player.inventory.push(foundItem);
+  addToScene(`You found a ${game.items[foundItem].name}!`);
+  
+  SoundManager.play('notification');
+}
+
+function startRandomEncounter() {
+  const enemies = game.locations[game.location].enemies;
+  
+  // In endless mode, use scaled enemies
+  let enemyPool;
+  if (game.gameMode === 'endless') {
+    enemyPool = getScaledEnemiesForFloor(game.endlessFloor);
+  } else {
+    enemyPool = enemies;
+  }
+  
+  if (enemyPool.length === 0) {
+    addToScene("This area seems safe for now.");
+    return;
+  }
+  
+  const enemyType = enemyPool[Math.floor(Math.random() * enemyPool.length)];
+  startCombat(enemyType);
+}
+
+function getScaledEnemiesForFloor(floor) {
+  // Scale enemies based on endless floor
+  const baseEnemies = ["goblin", "imp", "animated-armor", "book-wyrm", "arcane-eye"];
+  const midEnemies = ["homunculus", "ooze", "potion-golem", "star-spawn", "void-walker"];
+  const highEnemies = ["cosmic-horror", "chimera", "flesh-golem", "crystal-golem", "shard-beast"];
+  const eliteEnemies = ["ghost", "wraith", "specter", "fire-elemental", "water-elemental"];
+  const bossEnemies = ["archmage", "lich", "bone-dragon", "storm-giant"];
+  
+  if (floor <= 5) return baseEnemies;
+  if (floor <= 10) return [...baseEnemies, ...midEnemies];
+  if (floor <= 15) return [...midEnemies, ...highEnemies];
+  if (floor <= 20) return [...highEnemies, ...eliteEnemies];
+  return [...eliteEnemies, ...bossEnemies];
+}
+
+function startCombat(enemyType) {
+  game.inCombat = true;
+  
+  // Create enemy with scaling based on game mode and difficulty
+  const baseEnemy = game.enemies[enemyType];
+  game.currentEnemy = JSON.parse(JSON.stringify(baseEnemy));
+  
+  // Apply scaling
+  scaleEnemyForGameMode(game.currentEnemy);
+  
+  game.enemyStatusEffects = [];
+  
+  // Update UI
+  document.getElementById('combat-title').textContent = `COMBAT: ${game.currentEnemy.name}`;
+  document.getElementById('enemy-name').textContent = game.currentEnemy.name;
+  document.getElementById('enemy-hp').textContent = game.currentEnemy.hp;
+  document.getElementById('enemy-max-hp').textContent = game.currentEnemy.maxHp;
+  document.getElementById('enemy-hp-bar').style.width = '100%';
+  
+  document.getElementById('player-name').textContent = game.player.name;
+  document.getElementById('player-hp-combat').textContent = game.player.hp;
+  document.getElementById('player-max-hp-combat').textContent = game.player.maxHp;
+  document.getElementById('player-hp-bar').style.width = `${(game.player.hp / game.player.maxHp) * 100}%`;
+  document.getElementById('player-mana-combat').textContent = game.player.mana;
+  document.getElementById('player-max-mana-combat').textContent = game.player.maxMana;
+  document.getElementById('player-mana-bar').style.width = `${(game.player.mana / game.player.maxMana) * 100}%`;
+  
+  // Set combat log
+  const combatLog = document.getElementById('combat-log-modal');
+  combatLog.innerHTML = `<p>A ${game.currentEnemy.name} ATTACKS!</p>`;
+  
+  // Show enemy weaknesses
+  if (game.currentEnemy.weakness && game.currentEnemy.weakness.length > 0) {
+    document.getElementById('enemy-weakness-display').style.display = 'block';
+    document.getElementById('enemy-weakness-list').innerHTML = '';
+    
+    game.currentEnemy.weakness.forEach(weakness => {
+      const weaknessElement = document.createElement('span');
+      weaknessElement.className = 'weakness-item';
+      weaknessElement.textContent = weakness.toUpperCase();
+      document.getElementById('enemy-weakness-list').appendChild(weaknessElement);
+    });
+  } else {
+    document.getElementById('enemy-weakness-display').style.display = 'none';
+  }
+  
+  // Show boss mechanics
+  if (game.currentEnemy.boss) {
+    const bossMechanics = document.getElementById('boss-mechanics');
+    bossMechanics.style.display = 'block';
+    bossMechanics.innerHTML = '<strong>Boss Mechanics:</strong>';
+    
+    game.currentEnemy.bossMechanics.forEach(mechanic => {
+      const mechanicElement = document.createElement('div');
+      mechanicElement.className = 'boss-mechanic';
+      mechanicElement.textContent = getBossMechanicDescription(mechanic);
+      bossMechanics.appendChild(mechanicElement);
+    });
+  } else {
+    document.getElementById('boss-mechanics').style.display = 'none';
+  }
+  
+  // Apply environmental effects
+  applyEnvironmentalEffect();
+  
+  // Special enemy intro
+  if (enemyType === "archmage") {
+    combatLog.innerHTML += `<p>"FOOLISH MAGE! YOU DARE CHALLENGE ME?"</p>`;
+  }
+  
+  // Show modal
+  document.getElementById('combat-modal').style.display = 'block';
+  updateCombatStatusEffects();
+  
+  SoundManager.play('notification');
+}
+
+function scaleEnemyForGameMode(enemy) {
+  let scaleFactor = 1;
+  
+  // Base difficulty scaling
+  switch (game.difficulty) {
+    case 'easy': scaleFactor = 0.8; break;
+    case 'normal': scaleFactor = 1; break;
+    case 'hard': scaleFactor = 1.3; break;
+    case 'nightmare': scaleFactor = 1.7; break;
+  }
+  
+  // Game mode scaling
+  switch (game.gameMode) {
+    case 'endless':
+      scaleFactor *= (1 + (game.endlessFloor * 0.1));
+      break;
+    case 'challenge':
+      scaleFactor *= 1.2;
+      break;
+    case 'speedrun':
+      scaleFactor *= 0.9; // Slightly easier for speedrunning
+      break;
+  }
+  
+  // Apply scaling
+  enemy.hp = Math.floor(enemy.hp * scaleFactor);
+  enemy.maxHp = Math.floor(enemy.maxHp * scaleFactor);
+  enemy.damage = Math.floor(enemy.damage * scaleFactor);
+  enemy.xp = Math.floor(enemy.xp * scaleFactor);
+  enemy.gold = Math.floor(enemy.gold * scaleFactor);
+  
+  // Mark as elite in endless mode after certain floors
+  if (game.gameMode === 'endless' && game.endlessFloor >= 10) {
+    enemy.elite = true;
+  }
+}
+
+function getBossMechanicDescription(mechanic) {
+  const descriptions = {
+    "arcane_shield": "Periodically creates a shield that reduces damage",
+    "spell_reflection": "Chance to reflect spells back at the caster",
+    "undead_minions": "Summons undead minions to fight for them",
+    "soul_drain": "Drains health and mana from the player",
+    "bone_armor": "Gains armor when damaged",
+    "fear_aura": "Reduces player damage output",
+    "lightning_storm": "Calls down lightning strikes on random targets",
+    "wind_wall": "Creates barriers that block projectiles"
+  };
+  
+  return descriptions[mechanic] || mechanic;
+}
+
+function applyEnvironmentalEffect() {
+  const location = game.locations[game.location];
+  if (location.environmentalEffect && game.environmentalEffects[location.environmentalEffect]) {
+    game.currentEnvironmentalEffect = location.environmentalEffect;
+    const effect = game.environmentalEffects[location.environmentalEffect];
+    
+    document.getElementById('environmental-effect-display').style.display = 'block';
+    document.getElementById('environmental-effect-text').textContent = effect.description;
+  } else {
+    document.getElementById('environmental-effect-display').style.display = 'none';
+    game.currentEnvironmentalEffect = null;
+  }
+}
+
+function playerAttack() {
+  if (!game.inCombat) return;
+  
+  const weapon = game.items[game.player.equippedWeapon] || game.items["basic-staff"];
+  let damage = weapon.damage + Math.floor(Math.random() * 4);
+  
+  // Intelligence bonus
+  damage += Math.floor(game.player.intelligence / 3);
+  
+  // Check for critical
+  let critChance = 0.05 + (game.player.arcane / 200);
+  
+  // Environmental effect modifications
+  if (game.currentEnvironmentalEffect === "cosmic_alignment") {
+    critChance *= 2;
+  }
+  
+  const isCritical = Math.random() < critChance;
+  if (isCritical) damage = Math.floor(damage * 1.5);
+  
+  // Check for weapon special effects
+  if (weapon.special && game.currentEnemy.weakness.includes(weapon.special)) {
+    damage = Math.floor(damage * 1.5);
+    addCombatLog(`${weapon.name} IS EFFECTIVE!`);
+  }
+  
+  // Apply environmental effect
+  if (game.currentEnvironmentalEffect) {
+    const effectResult = game.environmentalEffects[game.currentEnvironmentalEffect].effect();
+    if (effectResult) {
+      switch (effectResult.type) {
+        case "explosion":
+          damage += effectResult.damage;
+          addCombatLog(effectResult.message);
+          break;
+        case "intelligence_boost":
+          if (weapon.special) { // Elemental weapons benefit from intelligence boost
+            damage = Math.floor(damage * (1 + effectResult.amount));
+          }
+          break;
+      }
+    }
+  }
+  
+  // Apply damage
+  game.currentEnemy.hp -= damage;
+  
+  // Update UI
+  const hpPercent = (game.currentEnemy.hp / game.currentEnemy.maxHp) * 100;
+  document.getElementById('enemy-hp').textContent = Math.max(0, game.currentEnemy.hp);
+  document.getElementById('enemy-hp-bar').style.width = `${Math.max(0, hpPercent)}%`;
+  
+  // Animation
+  const enemyDisplay = document.getElementById('enemy-display');
+  enemyDisplay.classList.add('shake');
+  setTimeout(() => enemyDisplay.classList.remove('shake'), 400);
+  
+  // Elite enemy visual
+  if (game.currentEnemy.elite) {
+    enemyDisplay.classList.add('elite-enemy');
+  }
+  
+  addCombatLog(`YOU HIT FOR ${damage} DAMAGE!${isCritical ? ' <span class="critical">CRITICAL!</span>' : ''}`);
+  
+  SoundManager.play('attack');
+  
+  // Check if enemy defeated
+  if (game.currentEnemy.hp <= 0) {
+    enemyDefeated();
+    return;
+  }
+  
+  // Enemy counterattack
+  setTimeout(() => enemyAttack(), 1000);
+}
+
+function enemyAttack() {
+  if (!game.inCombat) return;
+  
+  let damage = game.currentEnemy.damage + Math.floor(Math.random() * 4);
+  
+  // Boss mechanics
+  if (game.currentEnemy.boss) {
+    // Chance to use special ability
+    if (Math.random() < 0.3) {
+      useBossAbility();
+      return;
+    }
+  }
+  
+  // Apply environmental effect
+  if (game.currentEnvironmentalEffect) {
+    const effectResult = game.environmentalEffects[game.currentEnvironmentalEffect].effect();
+    if (effectResult && effectResult.type === "spell_fizzle" && Math.random() < 0.1) {
+      addCombatLog("The environmental energy disrupts the enemy's attack!");
+      return;
+    }
+  }
+  
+  // Apply damage
+  game.player.hp -= damage;
+  updateUI();
+  
+  // Update combat UI
+  document.getElementById('player-hp-combat').textContent = game.player.hp;
+  document.getElementById('player-hp-bar').style.width = `${(game.player.hp / game.player.maxHp) * 100}%`;
+  
+  // Animation
+  document.getElementById('player-display').classList.add('flash-blue');
+  setTimeout(() => document.getElementById('player-display').classList.remove('flash-blue'), 300);
+  
+  addCombatLog(`${game.currentEnemy.name} HITS YOU FOR ${damage} DAMAGE!`);
+  
+  SoundManager.play('damage');
+  
+  // Check if player defeated
+  if (game.player.hp <= 0) {
+    playerDefeated();
+  }
+}
+
+function useBossAbility() {
+  if (!game.currentEnemy.bossMechanics) return;
+  
+  const ability = game.currentEnemy.bossMechanics[Math.floor(Math.random() * game.currentEnemy.bossMechanics.length)];
+  
+  switch (ability) {
+    case "arcane_shield":
+      applyEnemyStatusEffect("shielded");
+      addCombatLog(`${game.currentEnemy.name} creates an ARCANE SHIELD!`);
+      break;
+      
+    case "spell_reflection":
+      addCombatLog(`${game.currentEnemy.name} prepares to REFLECT spells!`);
+      // This would be handled when player casts spells
+      break;
+      
+    case "undead_minions":
+      addCombatLog(`${game.currentEnemy.name} summons undead minions!`);
+      // In a more complex implementation, this would add minions to combat
+      break;
+      
+    case "soul_drain":
+      const drainAmount = 10;
+      game.player.hp -= drainAmount;
+      game.player.mana = Math.max(0, game.player.mana - 15);
+      addCombatLog(`${game.currentEnemy.name} DRAINS YOUR SOUL for ${drainAmount} damage and 15 mana!`);
+      updateUI();
+      break;
+  }
+  
+  // Enemy still gets a normal attack after special ability
+  setTimeout(() => enemyAttack(), 1000);
+}
+
+function enemyDefeated() {
+  // Award XP and gold
+  let xpGained = game.currentEnemy.xp;
+  let goldGained = game.currentEnemy.gold;
+  
+  // Speedrun bonus
+  if (game.gameMode === 'speedrun') {
+    const timeBonus = Math.max(1, Math.floor(300 / (game.elapsedTime + 1)));
+    xpGained += timeBonus;
+    goldGained += timeBonus;
+    addCombatLog(`Speed Bonus: +${timeBonus} XP and Gold!`);
+  }
+  
+  game.player.xp += xpGained;
+  game.player.gold += goldGained;
+  
+  addCombatLog(`${game.currentEnemy.name} DEFEATED! +${xpGained} XP | +${goldGained} GOLD`);
+  
+  // Victory animation
+  document.getElementById('player-display').classList.add('victory');
+  setTimeout(() => {
+    document.getElementById('player-display').classList.remove('victory');
+  }, 2000);
+  
+  // Check for quest completion
+  if (game.currentEnemy.name === "ARCHMAGE") {
+    completeQuest("defeat-archmage");
+    if (game.gameMode === 'speedrun') {
+      endSpeedrun();
+    }
+  }
+  
+  // Check for level up
+  if (game.player.xp >= game.player.nextLevelXp) {
+    levelUp();
+  }
+  
+  updateUI();
+  
+  // End combat
+  setTimeout(() => {
+    game.inCombat = false;
+    game.statusEffects = [];
+    game.currentEnvironmentalEffect = null;
+    document.getElementById('combat-modal').style.display = 'none';
+    addToScene(`You defeated the ${game.currentEnemy.name}!`);
+    
+    SoundManager.play('victory');
+    
+    // Progress through locations
+    if (game.currentEnemy.name === "ARCHMAGE") {
+      // Game completed
+      if (game.gameMode === 'endless') {
+        addToScene("CONGRATULATIONS! You have defeated the Archmage!");
+        addToScene("The tower continues upward into infinity...");
+        game.endlessFloor++;
+        game.location = 1; // Return to first floor for next cycle
+        updateLocation();
+      } else {
+        addToScene("CONGRATULATIONS! You have defeated the Archmage and conquered the Wizard's Tower!");
+        addToScene("Your name will be remembered in magical history!");
+      }
+    } else if (game.gameMode === 'endless') {
+      // In endless mode, always progress to next floor
+      game.endlessFloor++;
+      if (game.endlessFloor % 5 === 0) {
+        addToScene(`You reach milestone floor ${game.endlessFloor}! Special rewards await...`);
+        // Grant special reward every 5 floors
+        game.player.gold += 100;
+        game.player.inventory.push("elixir");
+      }
+      updateLocation();
+      addToScene(`You ascend to floor ${game.endlessFloor}...`);
+    } else if (game.location < game.locations.length - 1 && Math.random() < 0.3) {
+      game.location++;
+      game.floor++;
+      if (!game.visitedLocations.includes(game.location)) {
+        game.visitedLocations.push(game.location);
+      }
+      updateLocation();
+      addToScene(`You ascend to the next floor...`);
+      addToScene(game.locations[game.location].desc);
+    }
+  }, 1500);
+}
+
+function endSpeedrun() {
+  if (game.timerInterval) {
+    clearInterval(game.timerInterval);
+    game.timerInterval = null;
+  }
+  
+  const finalTime = game.elapsedTime;
+  const minutes = Math.floor(finalTime / 60);
+  const seconds = finalTime % 60;
+  
+  addToScene(`SPEEDRUN COMPLETED! Final Time: ${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
+  
+  // Save to local storage for leaderboard
+  const leaderboard = JSON.parse(localStorage.getItem('speedrunLeaderboard') || '[]');
+  leaderboard.push({
+    name: game.player.name,
+    class: game.player.class,
+    time: finalTime,
+    date: new Date().toLocaleDateString()
+  });
+  
+  // Sort by time and keep top 10
+  leaderboard.sort((a, b) => a.time - b.time);
+  if (leaderboard.length > 10) leaderboard.length = 10;
+  
+  localStorage.setItem('speedrunLeaderboard', JSON.stringify(leaderboard));
+}
+
+function levelUp() {
+  game.player.level++;
+  game.player.xp -= game.player.nextLevelXp;
+  game.player.nextLevelXp = Math.floor(game.player.nextLevelXp * 1.5);
+  
+  // Stat increases
+  game.player.maxHp += 10;
+  game.player.hp = game.player.maxHp;
+  game.player.maxMana += 15;
+  game.player.mana = game.player.maxMana;
+  
+  // Random stat boost
+  const stat = ["intelligence", "wisdom", "arcane"][Math.floor(Math.random() * 3)];
+  game.player[stat]++;
+  
+  // Check for ability unlocks
+  if (game.player.level === 5) {
+    if (game.player.name === "ELEMENTALIST") {
+      game.player.unlockedAbilities.push("CHAIN LIGHTNING");
+      game.player.skills.push("CHAIN LIGHTNING");
+    } else if (game.player.name === "ILLUSIONIST") {
+      game.player.unlockedAbilities.push("MASS CONFUSION");
+      game.player.skills.push("MASS CONFUSION");
+    } else if (game.player.name === "NECROMANCER") {
+      game.player.unlockedAbilities.push("DEATH CURSE");
+      game.player.skills.push("DEATH CURSE");
+    } else if (game.player.name === "ARCHMAGE") {
+      game.player.unlockedAbilities.push("TIME WARP");
+      game.player.skills.push("TIME WARP");
+    } else if (game.player.name === "CHRONOMANCER") {
+      game.player.unlockedAbilities.push("TIME STOP");
+      game.player.skills.push("TIME STOP");
+    } else if (game.player.name === "DRUID") {
+      game.player.unlockedAbilities.push("SUMMON WOLF");
+      game.player.skills.push("SUMMON WOLF");
+    }
+  }
+  
+  if (game.player.level === 10) {
+    if (game.player.name === "ELEMENTALIST") {
+      game.player.unlockedAbilities.push("METEOR SHOWER");
+      game.player.skills.push("METEOR SHOWER");
+    } else if (game.player.name === "ILLUSIONIST") {
+      game.player.unlockedAbilities.push("PHANTASMAL ARMY");
+      game.player.skills.push("PHANTASMAL ARMY");
+    } else if (game.player.name === "NECROMANCER") {
+      game.player.unlockedAbilities.push("ARMY OF THE DEAD");
+      game.player.skills.push("ARMY OF THE DEAD");
+    } else if (game.player.name === "ARCHMAGE") {
+      game.player.unlockedAbilities.push("DISINTEGRATE");
+      game.player.skills.push("DISINTEGRATE");
+    } else if (game.player.name === "CHRONOMANCER") {
+      game.player.unlockedAbilities.push("TEMPORAL CLONE");
+      game.player.skills.push("TEMPORAL CLONE");
+    } else if (game.player.name === "DRUID") {
+      game.player.unlockedAbilities.push("NATURE'S WRATH");
+      game.player.skills.push("NATURE'S WRATH");
+    }
+  }
+  
+  addCombatLog(`LEVEL UP! NOW LEVEL ${game.player.level}`);
+  addCombatLog(`+10 MAX HP | +15 MAX MANA | +1 ${stat.toUpperCase()}`);
+  
+  if (game.player.level === 5 || game.player.level === 10) {
+    addCombatLog(`NEW ABILITY UNLOCKED: ${game.player.unlockedAbilities[game.player.unlockedAbilities.length - 1]}!`);
+  }
+  
+  updateUI();
+  
+  SoundManager.play('levelUp');
+}
+
+function specialAttack() {
+  if (!game.inCombat) return;
+  
+  // Check mana cost with potential modifications
+  let manaCost = 15;
+  if (game.challengeRules.mana_burn) {
+    manaCost = Math.floor(manaCost * 1.5);
+  }
+  
+  if (game.player.mana < manaCost) {
+    addCombatLog("NOT ENOUGH MANA!");
+    return;
+  }
+  
+  game.player.mana -= manaCost;
+  updateUI();
+  
+  // Handle different character skills
+  if (game.player.skills.includes("FIREBALL")) {
+    let damage = 20 + Math.floor(game.player.intelligence / 2);
+    
+    // Check for critical
+    let critChance = 0.1 + (game.player.arcane / 200);
+    if (game.currentEnvironmentalEffect === "cosmic_alignment") {
+      critChance *= 2;
+    }
+    
+    const isCritical = Math.random() < critChance;
+    if (isCritical) damage = Math.floor(damage * 1.5);
+    
+    // Check if effective
+    if (game.currentEnemy.weakness.includes("fire")) {
+      damage = Math.floor(damage * 1.5);
+      addCombatLog(`FIREBALL IS SUPER EFFECTIVE!`);
+      applyEnemyStatusEffect("burning");
+    }
+    
+    // Environmental boost
+    if (game.currentEnvironmentalEffect === "elemental_convergence") {
+      damage = Math.floor(damage * 1.5);
+      addCombatLog("Elemental convergence empowers your spell!");
+    }
+    
+    game.currentEnemy.hp -= damage;
+    document.getElementById('enemy-hp').textContent = Math.max(0, game.currentEnemy.hp);
+    document.getElementById('enemy-hp-bar').style.width = `${(game.currentEnemy.hp / game.currentEnemy.maxHp) * 100}%`;
+    
+    addCombatLog(`FIREBALL HITS FOR ${damage} DAMAGE!`);
+    
+    if (game.currentEnemy.hp <= 0) {
+      enemyDefeated();
+    } else {
+      setTimeout(() => enemyAttack(), 1000);
+    }
+  } else if (game.player.skills.includes("ICE SHARD")) {
+    let damage = 15 + Math.floor(game.player.intelligence / 2);
+    
+    // Check for critical
+    const critChance = 0.1 + (game.player.arcane / 200);
+    const isCritical = Math.random() < critChance;
+    if (isCritical) damage = Math.floor(damage * 1.5);
+    
+    // Check if effective
+    if (game.currentEnemy.weakness.includes("ice")) {
+      damage = Math.floor(damage * 1.5);
+      addCombatLog(`ICE SHARD IS SUPER EFFECTIVE!`);
+    }
+    
+    // Chance to freeze
+    if (Math.random() < 0.3) {
+      applyEnemyStatusEffect("frozen");
+      addCombatLog(`The enemy is frozen solid!`);
+    }
+    
+    game.currentEnemy.hp -= damage;
+    document.getElementById('enemy-hp').textContent = Math.max(0, game.currentEnemy.hp);
+    document.getElementById('enemy-hp-bar').style.width = `${(game.currentEnemy.hp / game.currentEnemy.maxHp) * 100}%`;
+    
+    addCombatLog(`ICE SHARD HITS FOR ${damage} DAMAGE!`);
+    
+    if (game.currentEnemy.hp <= 0) {
+      enemyDefeated();
+    } else {
+      setTimeout(() => enemyAttack(), 1000);
+    }
+  } else if (game.player.skills.includes("CONFUSION")) {
+    if (Math.random() < 0.6) {
+      applyEnemyStatusEffect("confused");
+      addCombatLog(`The enemy is confused and will deal less damage!`);
+      setTimeout(() => enemyAttack(), 1000);
+    } else {
+      addCombatLog("CONFUSION FAILED!");
+      setTimeout(() => enemyAttack(), 1000);
+    }
+  } else if (game.player.skills.includes("LIFE DRAIN")) {
+    let damage = 15 + Math.floor(game.player.intelligence / 2);
+    
+    // Check for critical
+    const critChance = 0.1 + (game.player.arcane / 200);
+    const isCritical = Math.random() < critChance;
+    if (isCritical) damage = Math.floor(damage * 1.5);
+    
+    game.currentEnemy.hp -= damage;
+    document.getElementById('enemy-hp').textContent = Math.max(0, game.currentEnemy.hp);
+    document.getElementById('enemy-hp-bar').style.width = `${(game.currentEnemy.hp / game.currentEnemy.maxHp) * 100}%`;
+    
+    // Heal for half damage
+    const healAmount = Math.floor(damage / 2);
+    game.player.hp = Math.min(game.player.maxHp, game.player.hp + healAmount);
+    updateUI();
+    
+    addCombatLog(`LIFE DRAIN HITS FOR ${damage} DAMAGE AND HEALS ${healAmount} HP!`);
+    
+    if (game.currentEnemy.hp <= 0) {
+      enemyDefeated();
+    } else {
+      setTimeout(() => enemyAttack(), 1000);
+    }
+  } else if (game.player.skills.includes("ARCANE MISSILE")) {
+    // Guaranteed hit
+    let damage = 12 + Math.floor(game.player.intelligence / 2);
+    
+    game.currentEnemy.hp -= damage;
+    document.getElementById('enemy-hp').textContent = Math.max(0, game.currentEnemy.hp);
+    document.getElementById('enemy-hp-bar').style.width = `${(game.currentEnemy.hp / game.currentEnemy.maxHp) * 100}%`;
+    
+    addCombatLog(`ARCANE MISSILE HITS FOR ${damage} DAMAGE!`);
+    
+    if (game.currentEnemy.hp <= 0) {
+      enemyDefeated();
+    } else {
+      setTimeout(() => enemyAttack(), 1000);
+    }
+  } else if (game.player.skills.includes("MANA SHIELD")) {
+    // Convert mana to temporary HP
+    const shieldAmount = Math.floor(game.player.mana * 0.3);
+    game.player.mana = Math.max(0, game.player.mana - shieldAmount);
+    applyStatusEffect("shielded");
+    addCombatLog(`MANA SHIELD: Created a shield absorbing ${shieldAmount} damage!`);
+    setTimeout(() => enemyAttack(), 1000);
+  } else if (game.player.skills.includes("TIME SLOW")) {
+    applyEnemyStatusEffect("slowed");
+    addCombatLog(`You slow time around the enemy!`);
+    setTimeout(() => enemyAttack(), 1000);
+  } else if (game.player.skills.includes("TEMPORAL SHIFT")) {
+    applyStatusEffect("hasted");
+    addCombatLog(`You shift through time, gaining speed!`);
+    setTimeout(() => enemyAttack(), 1000);
+  } else if (game.player.skills.includes("ENTANGLING ROOTS")) {
+    let damage = 10 + Math.floor(game.player.wisdom / 2);
+    applyEnemyStatusEffect("frozen"); // Using frozen as immobilized effect
+    addCombatLog(`ENTANGLING ROOTS deal ${damage} damage and immobilize the enemy!`);
+    game.currentEnemy.hp -= damage;
+    document.getElementById('enemy-hp').textContent = Math.max(0, game.currentEnemy.hp);
+    document.getElementById('enemy-hp-bar').style.width = `${(game.currentEnemy.hp / game.currentEnemy.maxHp) * 100}%`;
+    
+    if (game.currentEnemy.hp <= 0) {
+      enemyDefeated();
+    } else {
+      setTimeout(() => enemyAttack(), 1000);
+    }
+  } else if (game.player.skills.includes("HEALING BLOOM")) {
+    const healAmount = 20 + Math.floor(game.player.wisdom / 2);
+    game.player.hp = Math.min(game.player.maxHp, game.player.hp + healAmount);
+    applyStatusEffect("regenerating");
+    addCombatLog(`HEALING BLOOM restores ${healAmount} HP and begins regeneration!`);
+    updateUI();
+    setTimeout(() => enemyAttack(), 1000);
+  }
+  
+  SoundManager.play('spell');
+}
+
+function applyStatusEffect(type) {
+  const existing = game.statusEffects.find(e => e.type === type);
+  if (existing) {
+    existing.duration = game.statusEffectTypes[type].duration; // Refresh duration
+  } else {
+    game.statusEffects.push({
+      type: type,
+      duration: game.statusEffectTypes[type].duration
+    });
+  }
+  updateStatusEffects();
+}
+
+function applyEnemyStatusEffect(type) {
+  const existing = game.enemyStatusEffects.find(e => e.type === type);
+  if (existing) {
+    existing.duration = game.statusEffectTypes[type].duration; // Refresh duration
+  } else {
+    game.enemyStatusEffects.push({
+      type: type,
+      duration: game.statusEffectTypes[type].duration
+    });
+  }
+  updateCombatStatusEffects();
+}
+
+function updateCombatStatusEffects() {
+  const playerEffects = document.getElementById('player-combat-status-effects');
+  const enemyEffects = document.getElementById('enemy-status-effects');
+  
+  playerEffects.innerHTML = '';
+  enemyEffects.innerHTML = '';
+  
+  game.statusEffects.forEach(effect => {
+    const effectType = game.statusEffectTypes[effect.type];
+    const span = document.createElement('div');
+    span.textContent = `${effectType.name} (${effect.duration})`;
+    span.className = effectType.class;
+    playerEffects.appendChild(span);
+  });
+  
+  game.enemyStatusEffects.forEach(effect => {
+    const effectType = game.statusEffectTypes[effect.type];
+    const span = document.createElement('div');
+    span.textContent = `${effectType.name} (${effect.duration})`;
+    span.className = effectType.class;
+    enemyEffects.appendChild(span);
+  });
+}
+
+function playerDefeated() {
+  addCombatLog("YOU HAVE BEEN DEFEATED!");
+  
+  // Handle permadeath
+  if (game.challengeRules.permadeath || game.gameMode === 'endless') {
+    addCombatLog("PERMADEATH: This character is gone forever!");
+  }
+  
+  setTimeout(() => {
+    game.inCombat = false;
+    document.getElementById('combat-modal').style.display = 'none';
+    document.getElementById('game-over-modal').style.display = 'block';
+  }, 1500);
+  
+  SoundManager.play('damage');
+}
+
+function useItemInCombat() {
+  openInventory();
+}
+
+function attemptFlee() {
+  // Arcane affects flee chance
+  let fleeChance = 0.5 + (game.player.arcane / 100);
+  
+  // Reduced flee chance in challenge mode
+  if (game.gameMode === 'challenge') {
+    fleeChance *= 0.7;
+  }
+  
+  if (Math.random() < fleeChance) {
+    addCombatLog("YOU SUCCESSFULLY FLEE!");
+    setTimeout(() => {
+      game.inCombat = false;
+      document.getElementById('combat-modal').style.display = 'none';
+      addToScene(`You barely escape from the ${game.currentEnemy.name}!`);
+      
+      // Return to previous location when fleeing
+      if (game.location > 1) {
+        game.location--;
+        game.floor--;
+        updateLocation();
+      }
+    }, 1000);
+  } else {
+    addCombatLog("FAILED TO FLEE!");
+    setTimeout(() => enemyAttack(), 1000);
+  }
+  
+  SoundManager.play('click');
+}
+
+// Location Functions
+function updateLocation() {
+  document.getElementById('location-name').textContent = game.locations[game.location].name;
+  document.getElementById('dungeon-level').textContent = game.locations[game.location].name;
+  updateUI(); // This will update the mobile control button text
+}
+
+function talkToWizard() {
+  if (!game.player.inventory.includes("fire-staff")) {
+    addToScene(`"Take this," the old wizard says, handing you a FIRE STAFF. "It will help you on your journey."`);
+    game.player.inventory.push("fire-staff");
+    completeQuest("find-fire-staff");
+  } else {
+    // Random dialogue with new content
+    const dialogues = [
+      `"The tower holds many secrets. Be careful, young mage," the wizard advises.`,
+      `"I sense great power within you. Use it wisely," he says.`,
+      `"The merchant has magical items for sale, but be careful with your gold," he warns.`,
+      `"They say there's a library on the second floor filled with ancient knowledge."`,
+      `"The alchemy lab is dangerous but holds powerful potions."`,
+      `"Some say there's a secret laboratory hidden in the tower."`,
+      `"I've heard whispers of a crystal cave deep beneath the tower."`,
+      `"They say a portal to the spirit realm exists somewhere in the tower."`,
+      `"Rumors speak of an elemental forge where the four elements converge."`,
+      `"Ancient texts mention a dream realm accessible through powerful magic."`,
+      `"Beneath the tower lies an ancient crypt of forgotten wizards."`,
+      `"Some claim there are floating islands high above the tower, sustained by magic."`
+    ];
+    addToScene(dialogues[Math.floor(Math.random() * dialogues.length)]);
+  }
+  
+  SoundManager.play('click');
+}
+
+function returnToEntrance() {
+  game.location = 0;
+  game.floor = 1;
+  updateLocation();
+  clearScene();
+  addToScene(game.locations[0].desc);
+  
+  SoundManager.play('click');
+}
+
+function rest() {
+  // Can't rest in speedrun mode
+  if (game.gameMode === 'speedrun') {
+    addToScene("No time to rest in Speed Run Mode!");
+    return;
+  }
+  
+  const healAmount = Math.floor(game.player.maxHp * 0.3);
+  const manaAmount = Math.floor(game.player.maxMana * 0.4);
+  
+  game.player.hp = Math.min(game.player.maxHp, game.player.hp + healAmount);
+  game.player.mana = Math.min(game.player.maxMana, game.player.mana + manaAmount);
+  
+  // Rest cures some status effects
+  game.statusEffects = game.statusEffects.filter(e => !["burning", "drained"].includes(e.type));
+  updateStatusEffects();
+  
+  addToScene(`You rest and recover ${healAmount} HP and ${manaAmount} mana.`);
+  updateUI();
+  
+  SoundManager.play('heal');
+  
+  // Chance of ambush during rest
+  if (game.location > 0 && Math.random() < 0.2) {
+    setTimeout(() => {
+      addToScene(`You are ambushed while resting!`);
+      startRandomEncounter();
+    }, 1000);
+  }
+}
+
+// Merchant Functions
+function openMerchant() {
+  // Check if merchant is available in challenge mode
+  if (game.challengeRules.no_merchant) {
+    addToScene("The merchant is not available in this challenge mode!");
+    return;
+  }
+  
+  // Update gold display
+  document.getElementById('merchant-gold-amount').textContent = game.player.gold;
+  
+  // Create buy list
+  const buyList = document.getElementById('merchant-buy-list');
+  buyList.innerHTML = '';
+  
+  game.merchantItems.forEach(item => {
+    const itemElement = document.createElement('div');
+    itemElement.className = 'merchant-item';
+    itemElement.innerHTML = `
+      <span>${item.name} (${item.price} GOLD)</span>
+      <button class="buy-button" data-id="${item.id}" data-price="${item.price}">BUY</button>
+    `;
+    buyList.appendChild(itemElement);
+  });
+  
+  // Create sell list
+  const sellList = document.getElementById('merchant-sell-list');
+  sellList.innerHTML = '';
+  
+  // Count items
+  const itemCounts = {};
+  game.player.inventory.forEach(item => {
+    if (game.items[item] && item !== "basic-staff") {
+      itemCounts[item] = (itemCounts[item] || 0) + 1;
+    }
+  });
+  
+  // Add sellable items
+  Object.keys(itemCounts).forEach(itemId => {
+    const item = game.items[itemId];
+    const sellPrice = Math.floor((item.damage || item.heal || item.mana || 5) * 2);
+    
+    const itemElement = document.createElement('div');
+    itemElement.className = 'merchant-item';
+    itemElement.innerHTML = `
+      <span>${item.name} x${itemCounts[itemId]} (${sellPrice} GOLD)</span>
+      <button class="sell-button" data-id="${itemId}" data-price="${sellPrice}">SELL</button>
+    `;
+    sellList.appendChild(itemElement);
+  });
+  
+  // Add event listeners
+  document.querySelectorAll('.buy-button').forEach(button => {
+    button.addEventListener('click', function() {
+      const itemId = this.dataset.id;
+      const price = parseInt(this.dataset.price);
+      
+      if (game.player.gold >= price) {
+        game.player.gold -= price;
+        game.player.inventory.push(itemId);
+        updateUI();
+        document.getElementById('merchant-gold-amount').textContent = game.player.gold;
+        addToScene(`You bought a ${game.items[itemId].name} for ${price} gold.`);
+        openMerchant(); // Refresh
+        
+        SoundManager.play('click');
+      } else {
+        addToScene("Not enough gold!");
+        SoundManager.play('notification');
+      }
+    });
+  });
+  
+  document.querySelectorAll('.sell-button').forEach(button => {
+    button.addEventListener('click', function() {
+      const itemId = this.dataset.id;
+      const price = parseInt(this.dataset.price);
+      
+      // Remove from inventory
+      const index = game.player.inventory.indexOf(itemId);
+      if (index !== -1) {
+        game.player.inventory.splice(index, 1);
+        game.player.gold += price;
+        updateUI();
+        document.getElementById('merchant-gold-amount').textContent = game.player.gold;
+        addToScene(`You sold a ${game.items[itemId].name} for ${price} gold.`);
+        openMerchant(); // Refresh
+        
+        SoundManager.play('click');
+      }
+    });
+  });
+  
+  document.getElementById('merchant-modal').style.display = 'block';
+}
+
+// Inventory Functions
+function openInventory() {
+  // Weapons
+  const weaponsList = document.getElementById('weapons-list');
+  weaponsList.innerHTML = '';
+  
+  // Count weapons
+  const weaponCounts = {};
+  game.player.inventory.forEach(item => {
+    if (game.items[item]?.damage) {
+      weaponCounts[item] = (weaponCounts[item] || 0) + 1;
+    }
+  });
+  
+  // Add basic staff (always available)
+  weaponCounts["basic-staff"] = 1;
+  
+  // Display weapons
+  Object.keys(weaponCounts).forEach(weaponId => {
+    const weapon = game.items[weaponId];
+    const isEquipped = weaponId === game.player.equippedWeapon;
+    
+    const weaponElement = document.createElement('div');
+    weaponElement.className = 'item-row';
+    weaponElement.innerHTML = `
+      <span>${weapon.name} (${weapon.damage} DMG)${isEquipped ? ' [EQUIPPED]' : ''}</span>
+      <button class="equip-button" data-id="${weaponId}">${isEquipped ? 'UNEQUIP' : 'EQUIP'}</button>
+    `;
+    weaponsList.appendChild(weaponElement);
+  });
+  
+  // Items
+  const itemsList = document.getElementById('items-list');
+  itemsList.innerHTML = '';
+  
+  // Count items
+  const itemCounts = {};
+  game.player.inventory.forEach(item => {
+    if (game.items[item]?.heal || game.items[item]?.mana || game.items[item]?.consumable) {
+      itemCounts[item] = (itemCounts[item] || 0) + 1;
+    }
+  });
+  
+  // Check potion limit for challenge mode
+  if (game.challengeRules.limited_potions) {
+    const potionTypes = ["health-potion", "mana-potion", "elixir", "greater-health-potion", "greater-mana-potion"];
+    let totalPotions = 0;
+    
+    potionTypes.forEach(potion => {
+      totalPotions += itemCounts[potion] || 0;
+    });
+    
+    if (totalPotions >= game.challengeRules.max_potions) {
+      itemsList.innerHTML += `<div style="color: #ff4444; margin-bottom: 10px;">Potions limited to ${game.challengeRules.max_potions} in this challenge!</div>`;
+    }
+  }
+  
+  // Display items
+  Object.keys(itemCounts).forEach(itemId => {
+    const item = game.items[itemId];
+    
+    const itemElement = document.createElement('div');
+    itemElement.className = 'item-row';
+    itemElement.innerHTML = `
+      <span>${item.name} x${itemCounts[itemId]}</span>
+      <button class="use-button" data-id="${itemId}">USE</button>
+    `;
+    itemsList.appendChild(itemElement);
+  });
+  
+  // Add event listeners
+  document.querySelectorAll('.equip-button').forEach(button => {
+    button.addEventListener('click', function() {
+      const weaponId = this.dataset.id;
+      
+      if (game.player.equippedWeapon === weaponId) {
+        game.player.equippedWeapon = "basic-staff";
+        addToScene(`You unequip your staff.`);
+      } else {
+        game.player.equippedWeapon = weaponId;
+        addToScene(`You equip the ${game.items[weaponId].name}.`);
+      }
+      
+      updateUI();
+      openInventory(); // Refresh
+      
+      SoundManager.play('click');
+    });
+  });
+  
+  document.querySelectorAll('.use-button').forEach(button => {
+    button.addEventListener('click', function() {
+      const itemId = this.dataset.id;
+      const item = game.items[itemId];
+      
+      // Check potion limit for challenge mode
+      if (game.challengeRules.limited_potions) {
+        const potionTypes = ["health-potion", "mana-potion", "elixir", "greater-health-potion", "greater-mana-potion"];
+        if (potionTypes.includes(itemId)) {
+          let totalPotions = 0;
+          potionTypes.forEach(potion => {
+            totalPotions += (game.player.inventory.filter(i => i === potion).length || 0);
+          });
+          
+          if (totalPotions >= game.challengeRules.max_potions) {
+            addToScene(`You can only carry ${game.challengeRules.max_potions} potions in this challenge!`);
+            return;
+          }
+        }
+      }
+      
+      if (item.heal) {
+        const healAmount = Math.min(item.heal, game.player.maxHp - game.player.hp);
+        game.player.hp += healAmount;
+        
+        // Remove from inventory
+        const index = game.player.inventory.indexOf(itemId);
+        if (index !== -1) game.player.inventory.splice(index, 1);
+        
+        if (game.inCombat) {
+          addCombatLog(`YOU USE A ${item.name} AND HEAL ${healAmount} HP!`);
+          setTimeout(() => enemyAttack(), 1000);
+        } else {
+          addToScene(`You use a ${item.name} and heal ${healAmount} HP.`);
+        }
+        
+        updateUI();
+        openInventory(); // Refresh
+        
+        SoundManager.play('heal');
+      } else if (item.mana) {
+        const manaAmount = Math.min(item.mana, game.player.maxMana - game.player.mana);
+        game.player.mana += manaAmount;
+        
+        // Remove from inventory
+        const index = game.player.inventory.indexOf(itemId);
+        if (index !== -1) game.player.inventory.splice(index, 1);
+        
+        if (game.inCombat) {
+          addCombatLog(`YOU USE A ${item.name} AND RESTORE ${manaAmount} MANA!`);
+          setTimeout(() => enemyAttack(), 1000);
+        } else {
+          addToScene(`You use a ${item.name} and restore ${manaAmount} mana.`);
+        }
+        
+        updateUI();
+        openInventory(); // Refresh
+        
+        SoundManager.play('heal');
+      } else if (item.consumable) {
+        // Scrolls - use in combat only
+        if (game.inCombat) {
+          let damage = item.damage;
+          
+          // Check if effective
+          if (item.special && game.currentEnemy.weakness.includes(item.special)) {
+            damage = Math.floor(damage * 1.5);
+            addCombatLog(`${item.name} IS SUPER EFFECTIVE!`);
+          }
+          
+          game.currentEnemy.hp -= damage;
+          document.getElementById('enemy-hp').textContent = Math.max(0, game.currentEnemy.hp);
+          document.getElementById('enemy-hp-bar').style.width = `${(game.currentEnemy.hp / game.currentEnemy.maxHp) * 100}%`;
+          
+          // Remove from inventory
+          const index = game.player.inventory.indexOf(itemId);
+          if (index !== -1) game.player.inventory.splice(index, 1);
+          
+          addCombatLog(`YOU USE A ${item.name} FOR ${damage} DAMAGE!`);
+          
+          if (game.currentEnemy.hp <= 0) {
+            enemyDefeated();
+          } else {
+            setTimeout(() => enemyAttack(), 1000);
+          }
+          
+          updateUI();
+          openInventory(); // Refresh
+          
+          SoundManager.play('spell');
+        } else {
+          addToScene("Scrolls can only be used in combat.");
+        }
+      } else if (item.resurrect) {
+        addToScene("The resurrection phial glows with powerful magic. Save this for when you really need it!");
+      }
+    });
+  });
+  
+  document.getElementById('inventory-modal').style.display = 'block';
+}
+
+// Character Stats
+function openCharacter() {
+  document.getElementById('character-name').textContent = game.player.name;
+  document.getElementById('character-class').textContent = game.player.class;
+  document.getElementById('character-level').textContent = game.player.level;
+  
+  document.getElementById('character-intelligence').textContent = game.player.intelligence;
+  document.getElementById('character-wisdom').textContent = game.player.wisdom;
+  document.getElementById('character-arcane').textContent = game.player.arcane;
+  
+  const skillsList = document.getElementById('character-skills');
+  skillsList.innerHTML = '';
+  
+  game.player.skills.forEach(skill => {
+    const skillElement = document.createElement('div');
+    skillElement.textContent = `• ${skill}`;
+    skillsList.appendChild(skillElement);
+  });
+  
+  const statusEffectsList = document.getElementById('character-status-effects');
+  statusEffectsList.innerHTML = '';
+  
+  game.statusEffects.forEach(effect => {
+    const effectType = game.statusEffectTypes[effect.type];
+    const effectElement = document.createElement('div');
+    effectElement.textContent = `• ${effectType.name} (${effect.duration} turns)`;
+    effectElement.className = effectType.class;
+    statusEffectsList.appendChild(effectElement);
+  });
+  
+  document.getElementById('character-modal').style.display = 'block';
+}
+
+// Skills
+function openSkills() {
+  const skillPoints = Math.max(0, game.player.level - 1 - game.player.learnedSkills.length);
+  document.getElementById('skill-points-display').textContent = skillPoints;
+  document.getElementById('skills-level').textContent = game.player.level;
+  
+  const skillTreeContainer = document.getElementById('skill-tree-container');
+  skillTreeContainer.innerHTML = '';
+  
+  const characterClass = game.player.name.toLowerCase();
+  const skillTree = game.skillTrees[characterClass];
+  
+  if (!skillTree) {
+    skillTreeContainer.innerHTML = '<p>No skills available for this class.</p>';
+    return;
+  }
+  
+  // Create skill categories
+  Object.keys(skillTree).forEach(categoryKey => {
+    const category = skillTree[categoryKey];
+    const categoryElement = document.createElement('div');
+    categoryElement.className = 'skill-category';
+    
+    const categoryTitle = document.createElement('h3');
+    categoryTitle.textContent = category.name;
+    categoryElement.appendChild(categoryTitle);
+    
+    // Create skill nodes
+    category.skills.forEach(skill => {
+      const skillNode = document.createElement('div');
+      
+      // Check if skill is unlocked, available, or locked
+      const isUnlocked = game.player.learnedSkills.includes(skill.id);
+      const hasRequirements = skill.requires.every(req => game.player.learnedSkills.includes(req));
+      const canAfford = skillPoints >= skill.cost;
+      
+      if (isUnlocked) {
+        skillNode.className = 'skill-node unlocked';
+      } else if (hasRequirements && canAfford) {
+        skillNode.className = 'skill-node available';
+      } else {
+        skillNode.className = 'skill-node locked';
+      }
+      
+      // Add requirement indicator
+      if (skill.requires.length > 0) {
+        skillNode.classList.add('requires');
+      }
+      
+      skillNode.innerHTML = `
+        <div style="font-weight: bold;">${skill.name}</div>
+        <div class="skill-cost">${skill.cost} SP</div>
+        <div class="skill-description">${skill.description}</div>
+      `;
+      
+      // Add click event
+      if (!isUnlocked && hasRequirements && canAfford) {
+        skillNode.addEventListener('click', () => {
+          learnSkill(skill.id, skill.cost);
+        });
+      }
+      
+      categoryElement.appendChild(skillNode);
+    });
+    
+    skillTreeContainer.appendChild(categoryElement);
+  });
+  
+  document.getElementById('skills-modal').style.display = 'block';
+}
+
+function learnSkill(skillId, cost) {
+  if (game.player.learnedSkills.includes(skillId)) {
+    addToScene("You already know this skill!");
+    return;
+  }
+  
+  const skillPoints = Math.max(0, game.player.level - 1 - game.player.learnedSkills.length);
+  if (skillPoints < cost) {
+    addToScene("Not enough skill points!");
+    return;
+  }
+  
+  game.player.learnedSkills.push(skillId);
+  addToScene(`You learned a new skill!`);
+  
+  // Apply skill effects
+  applySkillEffect(skillId);
+  
+  // Close and reopen skills modal to refresh
+  closeSkills();
+  openSkills();
+  
+  SoundManager.play('notification');
+}
+
+function applySkillEffect(skillId) {
+  // This is where we would implement the actual skill effects
+  // For now, we'll just add a message
+  addToScene(`Skill ${skillId} is now active!`);
+}
+
+function closeSkills() {
+  document.getElementById('skills-modal').style.display = 'none';
+}
+
+// Map
+function openMap() {
+  const mapContainer = document.getElementById('interactive-map');
+  mapContainer.innerHTML = '';
+  
+  // Create a simple grid layout for the map
+  const mapWidth = mapContainer.offsetWidth;
+  const mapHeight = mapContainer.offsetHeight;
+  
+  // Define positions for each location
+  const locationPositions = [
+    { x: mapWidth / 2 - 40, y: mapHeight - 70 }, // Entrance (bottom center)
+    { x: mapWidth / 2 - 40, y: mapHeight - 140 }, // First Floor
+    { x: mapWidth / 2 - 120, y: mapHeight - 210 }, // Library (left)
+    { x: mapWidth / 2 + 40, y: mapHeight - 210 }, // Alchemy Lab (right)
+    { x: mapWidth / 2 - 40, y: mapHeight - 280 }, // Observatory
+    { x: mapWidth / 2 - 40, y: mapHeight - 350 }, // Throne Room (top center)
+    { x: mapWidth / 2 - 120, y: mapHeight - 350 }, // Secret Lab (top left)
+    { x: mapWidth / 2 + 40, y: mapHeight - 350 }, // Crystal Cave (top right)
+    { x: mapWidth / 2 - 40, y: mapHeight - 420 }, // Spirit Realm (very top)
+    { x: mapWidth / 2 - 200, y: mapHeight - 280 }, // Elemental Forge (far left)
+    { x: mapWidth / 2 + 120, y: mapHeight - 280 }, // Dream Realm (far right)
+    { x: mapWidth / 2 - 40, y: mapHeight - 490 }, // Ancient Crypt (very top)
+    { x: mapWidth / 2 + 200, y: mapHeight - 210 }  // Floating Islands (far right)
+  ];
+  
+  // Create connections between locations
+  const connections = [
+    [0, 1], // Entrance to First Floor
+    [1, 2], // First Floor to Library
+    [1, 3], // First Floor to Alchemy Lab
+    [2, 4], // Library to Observatory
+    [3, 4], // Alchemy Lab to Observatory
+    [4, 5], // Observatory to Throne Room
+    [5, 6], // Throne Room to Secret Lab
+    [5, 7], // Throne Room to Crystal Cave
+    [5, 8], // Throne Room to Spirit Realm
+    [4, 9], // Observatory to Elemental Forge
+    [4, 10], // Observatory to Dream Realm
+    [5, 11], // Throne Room to Ancient Crypt
+    [3, 12]  // Alchemy Lab to Floating Islands
+  ];
+  
+  // Draw connections
+  connections.forEach(connection => {
+    const start = locationPositions[connection[0]];
+    const end = locationPositions[connection[1]];
+    
+    const connectionElement = document.createElement('div');
+    connectionElement.className = 'map-connection';
+    
+    // Calculate position and rotation
+    const length = Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2));
+    const angle = Math.atan2(end.y - start.y, end.x - start.x) * 180 / Math.PI;
+    
+    connectionElement.style.width = `${length}px`;
+    connectionElement.style.left = `${start.x + 40}px`;
+    connectionElement.style.top = `${start.y + 30}px`;
+    connectionElement.style.transform = `rotate(${angle}deg)`;
+    
+    mapContainer.appendChild(connectionElement);
+  });
+  
+  // Create location markers
+  game.locations.forEach((location, index) => {
+    const position = locationPositions[index];
+    if (!position) return;
+    
+    const locationElement = document.createElement('div');
+    locationElement.className = 'map-location';
+    locationElement.textContent = location.name;
+    locationElement.style.left = `${position.x}px`;
+    locationElement.style.top = `${position.y}px`;
+    
+    // Set location state
+    if (index === game.location) {
+      locationElement.classList.add('current');
+    } else if (game.visitedLocations.includes(index)) {
+      locationElement.classList.add('visited');
+    } else if (location.hidden) {
+      locationElement.classList.add('hidden');
+    } else {
+      locationElement.classList.add('discovered');
+    }
+    
+    // Make accessible locations clickable
+    if (game.visitedLocations.includes(index) || 
+        (index > 0 && game.visitedLocations.includes(index - 1))) {
+      locationElement.classList.add('accessible');
+      locationElement.addEventListener('click', () => {
+        if (index !== game.location) {
+          game.location = index;
+          game.floor = index;
+          updateLocation();
+          closeMap();
+          addToScene(`You travel to the ${location.name}.`);
+          addToScene(location.desc);
+        }
+      });
+    }
+    
+    // Add tooltip
+    locationElement.addEventListener('mouseenter', (e) => {
+      const tooltip = document.createElement('div');
+      tooltip.className = 'map-tooltip';
+      tooltip.textContent = location.desc;
+      tooltip.style.left = `${e.pageX + 10}px`;
+      tooltip.style.top = `${e.pageY + 10}px`;
+      document.body.appendChild(tooltip);
+      
+      locationElement._tooltip = tooltip;
+    });
+    
+    locationElement.addEventListener('mouseleave', () => {
+      if (locationElement._tooltip) {
+        document.body.removeChild(locationElement._tooltip);
+        locationElement._tooltip = null;
+      }
+    });
+    
+    mapContainer.appendChild(locationElement);
+  });
+  
+  document.getElementById('interactive-map-modal').style.display = 'block';
+}
+
+function closeMap() {
+  document.getElementById('interactive-map-modal').style.display = 'none';
+}
+
+// Quests
+function openQuests() {
+  const activeQuests = document.getElementById('active-quests');
+  activeQuests.innerHTML = '';
+  
+  // Main quests
+  game.quests.active.forEach(quest => {
+    const questElement = document.createElement('div');
+    questElement.style.padding = '5px 0';
+    questElement.style.borderBottom = '1px dashed #aaf';
+    questElement.innerHTML = `
+      <div style="font-weight: bold;">${quest.title}</div>
+      <div>${quest.description}</div>
+      <div>${quest.completed ? '(Completed)' : '(Active)'}</div>
+    `;
+    activeQuests.appendChild(questElement);
+  });
+  
+  // Timed quests
+  game.quests.timed.forEach(quest => {
+    if (quest.active) {
+      const questElement = document.createElement('div');
+      questElement.style.padding = '5px 0';
+      questElement.style.borderBottom = '1px dashed #aaf';
+      const timeLeft = quest.timeLimit - (game.elapsedTime - quest.startTime);
+      questElement.innerHTML = `
+        <div style="font-weight: bold;">${quest.title} <span class="quest-timer">[${timeLeft}s]</span></div>
+        <div>${quest.description}</div>
+        <div>(Timed Quest - Active)</div>
+      `;
+      activeQuests.appendChild(questElement);
+    }
+  });
+  
+  const completedQuests = document.getElementById('completed-quests');
+  completedQuests.innerHTML = '';
+  
+  game.quests.completed.forEach(quest => {
+    const questElement = document.createElement('div');
+    questElement.style.padding = '5px 0';
+    questElement.style.borderBottom = '1px dashed #aaf';
+    questElement.innerHTML = `
+      <div style="font-weight: bold; color: #0f0;">${quest.title}</div>
+      <div>${quest.description}</div>
+    `;
+    completedQuests.appendChild(questElement);
+  });
+  
+  const sideQuests = document.getElementById('side-quests');
+  sideQuests.innerHTML = '';
+  
+  game.quests.side.forEach(quest => {
+    if (!quest.hidden || game.player.level >= 5) {
+      const questElement = document.createElement('div');
+      questElement.style.padding = '5px 0';
+      questElement.style.borderBottom = '1px dashed #aaf';
+      questElement.innerHTML = `
+        <div style="font-weight: bold;">${quest.title}</div>
+        <div>${quest.description}</div>
+        <div>${quest.completed ? '(Completed)' : '(Active)'}</div>
+      `;
+      sideQuests.appendChild(questElement);
+    }
+  });
+  
+  // Moral quests
+  game.quests.moral.forEach(quest => {
+    if (!quest.completed) {
+      const questElement = document.createElement('div');
+      questElement.style.padding = '5px 0';
+      questElement.style.borderBottom = '1px dashed #aaf';
+      questElement.innerHTML = `
+        <div style="font-weight: bold;">${quest.title}</div>
+        <div>${quest.description}</div>
+        <div>(Moral Choice - Pending)</div>
+      `;
+      sideQuests.appendChild(questElement);
+    }
+  });
+  
+  document.getElementById('quests-modal').style.display = 'block';
+}
+
+function completeQuest(questId) {
+  // Main quests
+  const mainQuestIndex = game.quests.active.findIndex(q => q.id === questId);
+  if (mainQuestIndex !== -1) {
+    const quest = game.quests.active[mainQuestIndex];
+    quest.completed = true;
+    
+    // Move to completed
+    game.quests.completed.push(quest);
+    game.quests.active.splice(mainQuestIndex, 1);
+    
+    addToScene(`QUEST COMPLETED: ${quest.title}`);
+  }
+  
+  // Side quests
+  const sideQuestIndex = game.quests.side.findIndex(q => q.id === questId);
+  if (sideQuestIndex !== -1) {
+    const quest = game.quests.side[sideQuestIndex];
+    quest.completed = true;
+    
+    // Give reward
+    if (quest.reward) {
+      game.player.inventory.push(quest.reward);
+      addToScene(`You received ${game.items[quest.reward].name} as a reward!`);
+    }
+    
+    addToScene(`SIDE QUEST COMPLETED: ${quest.title}`);
+  }
+  
+  // Timed quests
+  const timedQuestIndex = game.quests.timed.findIndex(q => q.id === questId);
+  if (timedQuestIndex !== -1) {
+    const quest = game.quests.timed[timedQuestIndex];
+    quest.completed = true;
+    quest.active = false;
+    
+    // Give reward
+    if (quest.reward) {
+      game.player.inventory.push(quest.reward);
+      addToScene(`You received ${game.items[quest.reward].name} as a reward!`);
+    }
+    
+    addToScene(`TIMED QUEST COMPLETED: ${quest.title}`);
+  }
+  
+  // Refresh if open
+  if (document.getElementById('quests-modal').style.display === 'block') {
+    openQuests();
+  }
+  
+  SoundManager.play('notification');
+}
+
+function updateTimedQuests() {
+  game.quests.timed.forEach(quest => {
+    if (quest.active && !quest.completed) {
+      const timeElapsed = game.elapsedTime - quest.startTime;
+      if (timeElapsed >= quest.timeLimit) {
+        // Quest failed due to timeout
+        quest.active = false;
+        addToScene(`TIMED QUEST FAILED: ${quest.title} - You ran out of time!`);
+      }
+    }
+  });
+}
+
+function triggerRandomEvent() {
+  const events = [
+    {
+      name: "Mysterious Fountain",
+      description: "You find a magical fountain glowing with soft light. Do you drink from it?",
+      options: [
+        { text: "Drink from the fountain", effect: () => {
+          if (Math.random() < 0.7) {
+            const healAmount = Math.floor(game.player.maxHp * 0.5);
+            game.player.hp = Math.min(game.player.maxHp, game.player.hp + healAmount);
+            addToScene(`The fountain water heals you for ${healAmount} HP!`);
+          } else {
+            game.player.hp = Math.floor(game.player.hp * 0.8);
+            addToScene("The fountain water was cursed! You lose 20% of your health!");
+          }
+          updateUI();
+        }},
+        { text: "Ignore the fountain", effect: () => {
+          addToScene("You decide not to risk drinking from the mysterious fountain.");
+        }},
+        { text: "Study the fountain's magic", effect: () => {
+          game.player.mana = Math.min(game.player.maxMana, game.player.mana + 30);
+          addToScene("You learn from the fountain's magic and restore 30 mana.");
+          updateUI();
+        }}
+      ]
+    },
+    {
+      name: "Ancient Tome",
+      description: "You discover an ancient magical tome. What do you do?",
+      options: [
+        { text: "Read the tome carefully", effect: () => {
+          game.player.intelligence++;
+          addToScene("The ancient knowledge increases your Intelligence by 1!");
+          updateUI();
+        }},
+        { text: "Take the tome for later", effect: () => {
+          game.player.inventory.push("scroll-fireball");
+          addToScene("You take the tome. It contains a Fireball Scroll!");
+        }},
+        { text: "Destroy the dangerous tome", effect: () => {
+          game.player.gold += 25;
+          addToScene("You destroy the tome and find 25 gold hidden inside!");
+          updateUI();
+        }}
+      ]
+    },
+    {
+      name: "Wounded Adventurer",
+      description: "You find a wounded adventurer leaning against a wall. They need help.",
+      options: [
+        { text: "Heal them with your magic", effect: () => {
+          const manaCost = 20;
+          if (game.player.mana >= manaCost) {
+            game.player.mana -= manaCost;
+            game.player.gold += 50;
+            addToScene(`You heal the adventurer. They reward you with 50 gold!`);
+            updateUI();
+          } else {
+            addToScene("You don't have enough mana to heal them properly.");
+          }
+        }},
+        { text: "Give them a health potion", effect: () => {
+          if (game.player.inventory.includes("health-potion")) {
+            const index = game.player.inventory.indexOf("health-potion");
+            game.player.inventory.splice(index, 1);
+            game.player.inventory.push("scroll-lightning");
+            addToScene("You give them a health potion. They thank you with a Lightning Bolt Scroll!");
+          } else {
+            addToScene("You don't have any health potions to give.");
+          }
+        }},
+        { text: "Take their belongings", effect: () => {
+          game.player.gold += 30;
+          addToScene("You take the adventurer's gold pouch (30 gold). They curse you as you leave.");
+          updateUI();
+        }}
+      ]
+    }
+  ];
+  
+  const event = events[Math.floor(Math.random() * events.length)];
+  
+  addToScene(`RANDOM EVENT: ${event.name}`);
+  addToScene(event.description);
+  
+  // Create event options
+  event.options.forEach((option, index) => {
+    setTimeout(() => {
+      addToScene(`${index + 1}. ${option.text}`);
+    }, 1000 * (index + 1));
+  });
+  
+  // In a more complex implementation, we would create a proper event UI
+  // For now, we'll just execute a random option
+  setTimeout(() => {
+    const chosenOption = event.options[Math.floor(Math.random() * event.options.length)];
+    addToScene(`You choose: ${chosenOption.text}`);
+    chosenOption.effect();
+  }, 1000 * (event.options.length + 1));
+}
+
+function triggerMoralChoice(questId) {
+  const quest = game.quests.moral.find(q => q.id === questId);
+  if (!quest || quest.completed) return;
+  
+  document.getElementById('moral-choice-title').textContent = quest.title;
+  document.getElementById('moral-choice-description').textContent = quest.description;
+  
+  const optionsContainer = document.getElementById('moral-options');
+  optionsContainer.innerHTML = '';
+  
+  quest.choices.forEach((choice, index) => {
+    const optionElement = document.createElement('div');
+    optionElement.className = `moral-option ${choice.text.includes('Good') ? 'good' : choice.text.includes('Evil') ? 'evil' : 'neutral'}`;
+    optionElement.textContent = choice.text;
+    optionElement.addEventListener('click', () => {
+      makeMoralChoice(questId, index);
+    });
+    optionsContainer.appendChild(optionElement);
+  });
+  
+  document.getElementById('moral-choice-modal').style.display = 'block';
+}
+
+function makeMoralChoice(questId, choiceIndex) {
+  const quest = game.quests.moral.find(q => q.id === questId);
+  if (!quest) return;
+  
+  const choice = quest.choices[choiceIndex];
+  quest.completed = true;
+  
+  // Apply rewards and consequences
+  switch (choice.reward) {
+    case "reputation":
+      game.player.wisdom++;
+      addToScene("Your wisdom increases from helping others!");
+      break;
+    case "gold":
+      game.player.gold += 75;
+      addToScene("You receive 75 gold for your services.");
+      break;
+    case "items":
+      game.player.inventory.push("elixir", "elixir");
+      addToScene("You take valuable supplies from the villagers.");
+      break;
+    case "xp":
+      game.player.xp += 100;
+      addToScene("You gain 100 XP from your virtuous action.");
+      break;
+    case "knowledge":
+      game.player.intelligence++;
+      addToScene("Your studies increase your intelligence!");
+      break;
+    case "power":
+      game.player.arcane++;
+      addToScene("The artifact's power enhances your arcane abilities!");
+      break;
+  }
+  
+  // Apply consequences (would be more complex in a full implementation)
+  addToScene(`Consequence: ${choice.consequence}`);
+  
+  document.getElementById('moral-choice-modal').style.display = 'none';
+  updateUI();
+}
+
+// Utility Functions
+function addToScene(text) {
+  const scene = document.getElementById('scene-description');
+  scene.innerHTML += `<p>${text}</p>`;
+  scene.scrollTop = scene.scrollHeight;
+}
+
+function addCombatLog(text) {
+  const log = document.getElementById('combat-log-modal');
+  log.innerHTML += `<p>${text}</p>`;
+  log.scrollTop = log.scrollHeight;
+}
+
+function clearScene() {
+  document.getElementById('scene-description').innerHTML = '';
+}
+
+function hideAllModals() {
+  document.querySelectorAll('.modal').forEach(modal => {
+    modal.style.display = 'none';
+  });
+  
+  // If in combat, return to combat modal
+  if (game.inCombat) {
+    document.getElementById('combat-modal').style.display = 'block';
+  }
+}
+
+function tryAgain() {
+  document.getElementById('game-over-modal').style.display = 'none';
+  
+  // Reset player for another attempt
+  if (game.challengeRules.permadeath || game.gameMode === 'endless') {
+    // Permadeath - return to main menu
+    returnToMainMenu();
+  } else {
+    // Normal game over - reset health and mana
+    game.player.hp = game.player.maxHp;
+    game.player.mana = game.player.maxMana;
+    game.statusEffects = [];
+    updateUI();
+  }
+  
+  SoundManager.play('click');
+}
+
+function returnToMainMenu() {
+  // Stop timer if running
+  if (game.timerInterval) {
+    clearInterval(game.timerInterval);
+    game.timerInterval = null;
+  }
+  
+  document.getElementById('game-over-modal').style.display = 'none';
+  document.getElementById('main-game').style.display = 'none';
+  document.getElementById('character-selection').style.display = 'flex';
+  document.getElementById('save-button').style.display = 'none';
+  document.getElementById('timer-display').style.display = 'none';
+  
+  SoundManager.play('click');
+}
+</script>
+</body>
+</html>
