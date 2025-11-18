@@ -1,0 +1,2536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>ASCII Dungeon Crawl</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            touch-action: manipulation;
+        }
+
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            background-color: #000;
+            color: #0f0;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            font-size: 14px;
+        }
+
+        #header {
+            background-color: #111;
+            padding: 8px 12px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        #stats {
+            font-size: 14px;
+        }
+
+        .stat-bar {
+            width: 100px;
+            height: 12px;
+            background-color: #333;
+            border-radius: 6px;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+
+        .stat-fill {
+            height: 100%;
+            transition: width 0.3s;
+        }
+
+        #health-fill {
+            background-color: #0f0;
+        }
+
+        #xp-fill {
+            background-color: #00f;
+        }
+
+        #game-container {
+            flex-grow: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #game-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+        }
+
+        #message-log {
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 8px;
+            height: 80px;
+            overflow-y: auto;
+            font-size: 12px;
+            border-top: 1px solid #333;
+            flex-shrink: 0;
+            color: #0f0;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        #controls {
+            padding: 12px;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-rows: auto auto auto;
+            gap: 8px;
+            background-color: #111;
+            border-top: 1px solid #333;
+            flex-shrink: 0;
+        }
+
+        .control-btn {
+            background-color: #222;
+            border: 1px solid #333;
+            border-radius: 4px;
+            color: #0f0;
+            padding: 14px 5px;
+            font-size: 18px;
+            touch-action: manipulation;
+            min-height: 50px;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .control-btn:active {
+            background-color: #333;
+        }
+
+        #btn-up {
+            grid-column: 2;
+            grid-row: 1;
+        }
+
+        #btn-left {
+            grid-column: 1;
+            grid-row: 2;
+        }
+
+        #btn-right {
+            grid-column: 3;
+            grid-row: 2;
+        }
+
+        #btn-down {
+            grid-column: 2;
+            grid-row: 3;
+        }
+
+        #btn-pickup {
+            grid-column: 1;
+            grid-row: 1;
+            font-size: 14px;
+        }
+
+        #btn-inventory {
+            grid-column: 3;
+            grid-row: 1;
+            font-size: 14px;
+        }
+
+        #btn-wait {
+            grid-column: 2;
+            grid-row: 2;
+            font-size: 14px;
+        }
+
+        #btn-interact {
+            grid-column: 1;
+            grid-row: 3;
+            font-size: 14px;
+        }
+
+        .modal {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: #111;
+            border: 2px solid #333;
+            border-radius: 4px;
+            padding: 15px;
+            z-index: 10;
+            width: 80%;
+            max-width: 300px;
+            display: none;
+            color: #0f0;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .modal-title {
+            text-align: center;
+            margin-bottom: 10px;
+            color: #0f0;
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+        }
+
+        .modal-list {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-bottom: 10px;
+        }
+
+        .modal-item {
+            padding: 8px;
+            border-bottom: 1px solid #333;
+            cursor: pointer;
+        }
+
+        .modal-item:hover {
+            background-color: #222;
+        }
+
+        .modal-btn {
+            width: 100%;
+            padding: 8px;
+            background-color: #222;
+            border: 1px solid #333;
+            border-radius: 4px;
+            color: #0f0;
+            margin-top: 5px;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .equipped {
+            color: #0f0;
+            font-weight: bold;
+        }
+
+        #game-over {
+            background-color: rgba(0, 0, 0, 0.9);
+            z-index: 20;
+            text-align: center;
+        }
+
+        #game-over h2 {
+            color: #f00;
+            margin-bottom: 15px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 8px;
+            z-index: 30;
+            text-align: center;
+            color: #0f0;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        #player-combat-stats {
+            margin-top: 5px;
+            font-size: 12px;
+        }
+
+        #floor-indicator {
+            font-size: 12px;
+            background-color: rgba(0,0,0,0.7);
+            padding: 5px 10px;
+            border-radius: 10px;
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 5;
+            color: #0f0;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .item-details {
+            font-size: 11px;
+            color: #0a0;
+            margin-top: 3px;
+        }
+
+        .damage-stat {
+            color: #f00;
+        }
+
+        .defense-stat {
+            color: #00f;
+        }
+
+        .health-stat {
+            color: #0f0;
+        }
+
+        .special-stat {
+            color: #f0f;
+        }
+
+        #auto-pickup-toggle {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: #0f0;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 5px 10px;
+            font-size: 12px;
+            z-index: 5;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .tooltip {
+            position: absolute;
+            background-color: rgba(0, 0, 0, 0.85);
+            border: 1px solid #333;
+            border-radius: 5px;
+            padding: 8px;
+            font-size: 12px;
+            z-index: 100;
+            max-width: 200px;
+            display: none;
+            color: #0f0;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .boss-health-bar {
+            position: absolute;
+            top: 60px;
+            left: 10px;
+            right: 10px;
+            height: 20px;
+            background-color: #333;
+            border-radius: 10px;
+            overflow: hidden;
+            z-index: 5;
+            display: none;
+        }
+
+        .boss-health-fill {
+            height: 100%;
+            background: linear-gradient(to right, #f00, #f90);
+            transition: width 0.3s;
+        }
+
+        .boss-name {
+            position: absolute;
+            top: 40px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            font-weight: bold;
+            z-index: 5;
+            display: none;
+            color: #f00;
+            font-family: 'Courier New', Courier, monospace;
+        }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <div id="stats">
+            <div>Health: <span id="health">20</span>/<span id="max-health">20</span></div>
+            <div class="stat-bar">
+                <div id="health-fill" class="stat-fill"></div>
+            </div>
+            <div>Level: <span id="player-level">1</span> XP: <span id="xp">0</span>/<span id="next-level-xp">10</span></div>
+            <div class="stat-bar">
+                <div id="xp-fill" class="stat-fill"></div>
+            </div>
+            <div id="player-combat-stats">
+                <div>DMG: <span id="player-dmg">2-4</span> DEF: <span id="player-def">1</span></div>
+            </div>
+        </div>
+        <div>Floor: <span id="floor">1</span></div>
+        <div>Turn: <span id="turn">0</span></div>
+    </div>
+    
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+        <div id="floor-indicator">Floor 1</div>
+        <div id="boss-health-bar" class="boss-health-bar">
+            <div id="boss-health-fill" class="boss-health-fill"></div>
+        </div>
+        <div id="boss-name" class="boss-name"></div>
+        <button id="auto-pickup-toggle">Auto-Pickup: ON</button>
+        <div id="loading">Generating dungeon...</div>
+        <div id="inventory-modal" class="modal">
+            <h3 class="modal-title">Inventory</h3>
+            <div id="inventory-list" class="modal-list"></div>
+            <div id="equipped-items">
+                <div class="modal-title">Equipped</div>
+                <div id="equipped-list" class="modal-list"></div>
+            </div>
+            <button id="close-inventory" class="modal-btn">Close</button>
+        </div>
+        <div id="game-over" class="modal">
+            <h2>Game Over</h2>
+            <p>You reached floor <span id="final-floor">1</span> and achieved level <span id="final-level">1</span>!</p>
+            <p>Monsters slain: <span id="monsters-slain">0</span></p>
+            <button id="restart-btn" class="modal-btn">Play Again</button>
+        </div>
+    </div>
+    
+    <div id="message-log"></div>
+    
+    <div id="controls">
+        <button class="control-btn" id="btn-pickup">Pick Up</button>
+        <button class="control-btn" id="btn-up">↑</button>
+        <button class="control-btn" id="btn-inventory">Inv</button>
+        <button class="control-btn" id="btn-left">←</button>
+        <button class="control-btn" id="btn-wait">Wait</button>
+        <button class="control-btn" id="btn-right">→</button>
+        <button class="control-btn" id="btn-interact">Use</button>
+        <button class="control-btn" id="btn-down">↓</button>
+    </div>
+
+    <div id="tooltip" class="tooltip"></div>
+
+    <script>
+        // Game constants
+        const TILE_SIZE = 20;
+        const MAP_WIDTH = 50;
+        const MAP_HEIGHT = 30;
+        const FOV_RADIUS = 6;
+
+        // ASCII Characters for different entities
+        const ASCII_WALL = '#';
+        const ASCII_FLOOR = '.';
+        const ASCII_PLAYER = '@';
+        const ASCII_STAIRS = '>';
+        const ASCII_TRAP = '^';
+        const ASCII_LEVER = '=';
+        const ASCII_SECRET_DOOR = '+';
+        const ASCII_PROJECTILE = '*';
+        
+        // Colors for ASCII
+        const COLOR_WALL = '#555';
+        const COLOR_FLOOR = '#222';
+        const COLOR_PLAYER = '#0f0';
+        const COLOR_MONSTER = '#f00';
+        const COLOR_ITEM = '#ff0';
+        const COLOR_STAIRS = '#90f';
+        const COLOR_VISIBLE_WALL = '#777';
+        const COLOR_VISIBLE_FLOOR = '#444';
+        const COLOR_EXPLORED_WALL = '#333';
+        const COLOR_EXPLORED_FLOOR = '#222';
+        const COLOR_UNEXPLORED = '#000';
+        const COLOR_TRAP = '#f50';
+        const COLOR_LEVER = '#a52';
+        const COLOR_SECRET_DOOR = '#852';
+        const COLOR_TREASURE_ROOM = '#fd0';
+        const COLOR_SHRINE = '#a5f';
+        const COLOR_SHOP = '#0aa';
+
+        // Game state
+        let game = {
+            map: [],
+            player: {
+                x: 0,
+                y: 0,
+                health: 20,
+                maxHealth: 20,
+                minAttack: 2,
+                maxAttack: 4,
+                defense: 1,
+                level: 1,
+                xp: 0,
+                nextLevelXp: 10,
+                inventory: [],
+                weapon: null,
+                armor: null,
+                baseMinAttack: 2,
+                baseMaxAttack: 4,
+                baseDefense: 1,
+                gold: 25,
+                buffs: [],
+                discoveredSecrets: 0
+            },
+            monsters: [],
+            items: [],
+            stairs: { x: 0, y: 0 },
+            turn: 0,
+            floor: 1,
+            messages: [],
+            monstersSlain: 0,
+            gameOver: false,
+            autoPickup: true,
+            specialRooms: [],
+            traps: [],
+            levers: [],
+            secretDoors: [],
+            projectiles: [],
+            bossActive: false
+        };
+
+        // Canvas setup
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Initialize canvas size
+        function resizeCanvas() {
+            const container = document.getElementById('game-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Tile class
+        class Tile {
+            constructor(blocked, blockSight = null) {
+                this.blocked = blocked;
+                this.blockSight = blockSight !== null ? blockSight : blocked;
+                this.explored = false;
+                this.visible = false;
+                this.specialType = null;
+            }
+        }
+
+        // Room class
+        class Room {
+            constructor(x, y, width, height, type = 'normal') {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.centerX = x + Math.floor(width / 2);
+                this.centerY = y + Math.floor(height / 2);
+                this.type = type;
+            }
+
+            // Check if this room intersects with another room
+            intersects(other) {
+                return (this.x <= other.x + other.width &&
+                        this.x + this.width >= other.x &&
+                        this.y <= other.y + other.height &&
+                        this.y + this.height >= other.y);
+            }
+        }
+
+        // Improved dungeon generator with special rooms and multiple paths
+        class DungeonGenerator {
+            constructor() {
+                this.rooms = [];
+                this.map = [];
+            }
+
+            generate() {
+                // Show loading
+                document.getElementById('loading').style.display = 'block';
+                
+                // Try multiple times to generate a valid dungeon
+                let attempts = 0;
+                let maxAttempts = 10;
+                
+                while (attempts < maxAttempts) {
+                    attempts++;
+                    this.initializeMap();
+                    
+                    // Generate rooms
+                    this.generateRooms();
+                    
+                    // Connect all rooms
+                    this.connectRooms();
+                    
+                    // Add special rooms
+                    this.addSpecialRooms();
+                    
+                    // Add environmental features
+                    this.addEnvironmentalFeatures();
+                    
+                    // Check if dungeon is fully connected
+                    if (this.isFullyConnected()) {
+                        document.getElementById('loading').style.display = 'none';
+                        return this.map;
+                    }
+                }
+                
+                // If we couldn't generate a valid dungeon after max attempts, use a fallback
+                document.getElementById('loading').style.display = 'none';
+                return this.createFallbackDungeon();
+            }
+
+            initializeMap() {
+                this.map = [];
+                for (let x = 0; x < MAP_WIDTH; x++) {
+                    this.map[x] = [];
+                    for (let y = 0; y < MAP_HEIGHT; y++) {
+                        this.map[x][y] = new Tile(true);
+                    }
+                }
+                this.rooms = [];
+            }
+
+            generateRooms() {
+                const MAX_ROOMS = 15;
+                const MIN_ROOM_SIZE = 4;
+                const MAX_ROOM_SIZE = 8;
+
+                for (let i = 0; i < MAX_ROOMS; i++) {
+                    const width = Math.floor(Math.random() * (MAX_ROOM_SIZE - MIN_ROOM_SIZE + 1)) + MIN_ROOM_SIZE;
+                    const height = Math.floor(Math.random() * (MAX_ROOM_SIZE - MIN_ROOM_SIZE + 1)) + MIN_ROOM_SIZE;
+                    
+                    const x = Math.floor(Math.random() * (MAP_WIDTH - width - 1)) + 1;
+                    const y = Math.floor(Math.random() * (MAP_HEIGHT - height - 1)) + 1;
+                    
+                    const newRoom = new Room(x, y, width, height);
+                    
+                    let failed = false;
+                    for (const otherRoom of this.rooms) {
+                        if (newRoom.intersects(otherRoom)) {
+                            failed = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!failed) {
+                        this.createRoom(newRoom);
+                        this.rooms.push(newRoom);
+                    }
+                }
+            }
+
+            createRoom(room) {
+                for (let x = room.x; x < room.x + room.width; x++) {
+                    for (let y = room.y; y < room.y + room.height; y++) {
+                        this.map[x][y].blocked = false;
+                        this.map[x][y].blockSight = false;
+                        
+                        // Mark special rooms
+                        if (room.type !== 'normal') {
+                            this.map[x][y].specialType = room.type;
+                        }
+                    }
+                }
+            }
+
+            connectRooms() {
+                // Connect each room to the next one
+                for (let i = 0; i < this.rooms.length - 1; i++) {
+                    const room1 = this.rooms[i];
+                    const room2 = this.rooms[i + 1];
+                    
+                    this.createCorridorBetweenRooms(room1, room2);
+                }
+                
+                // Also connect some random rooms to create loops
+                const extraConnections = Math.floor(this.rooms.length / 3);
+                for (let i = 0; i < extraConnections; i++) {
+                    const room1 = this.rooms[Math.floor(Math.random() * this.rooms.length)];
+                    const room2 = this.rooms[Math.floor(Math.random() * this.rooms.length)];
+                    
+                    if (room1 !== room2) {
+                        this.createCorridorBetweenRooms(room1, room2);
+                    }
+                }
+            }
+
+            createCorridorBetweenRooms(room1, room2) {
+                // 50% chance to go horizontally first, then vertically
+                if (Math.random() > 0.5) {
+                    this.createHTunnel(room1.centerX, room2.centerX, room1.centerY);
+                    this.createVTunnel(room1.centerY, room2.centerY, room2.centerX);
+                } else {
+                    this.createVTunnel(room1.centerY, room2.centerY, room1.centerX);
+                    this.createHTunnel(room1.centerX, room2.centerX, room2.centerY);
+                }
+            }
+
+            createHTunnel(x1, x2, y) {
+                const start = Math.min(x1, x2);
+                const end = Math.max(x1, x2);
+                for (let x = start; x <= end; x++) {
+                    this.map[x][y].blocked = false;
+                    this.map[x][y].blockSight = false;
+                }
+            }
+
+            createVTunnel(y1, y2, x) {
+                const start = Math.min(y1, y2);
+                const end = Math.max(y1, y2);
+                for (let y = start; y <= end; y++) {
+                    this.map[x][y].blocked = false;
+                    this.map[x][y].blockSight = false;
+                }
+            }
+
+            addSpecialRooms() {
+                // Convert some rooms to special rooms
+                const specialRoomCount = Math.min(3, Math.floor(this.rooms.length / 3));
+                
+                for (let i = 0; i < specialRoomCount; i++) {
+                    const roomIndex = Math.floor(Math.random() * this.rooms.length);
+                    const room = this.rooms[roomIndex];
+                    
+                    // Skip the first room (player start) and last room (stairs)
+                    if (roomIndex === 0 || roomIndex === this.rooms.length - 1) continue;
+                    
+                    const roomTypes = ['treasure', 'shrine', 'shop'];
+                    room.type = roomTypes[Math.floor(Math.random() * roomTypes.length)];
+                    
+                    // Update map tiles to reflect special room type
+                    this.createRoom(room);
+                    
+                    game.specialRooms.push({
+                        x: room.x,
+                        y: room.y,
+                        width: room.width,
+                        height: room.height,
+                        type: room.type
+                    });
+                }
+            }
+
+            addEnvironmentalFeatures() {
+                // Add traps
+                const trapCount = 5 + Math.floor(game.floor / 2);
+                for (let i = 0; i < trapCount; i++) {
+                    let x, y;
+                    let attempts = 0;
+                    do {
+                        x = Math.floor(Math.random() * MAP_WIDTH);
+                        y = Math.floor(Math.random() * MAP_HEIGHT);
+                        attempts++;
+                    } while ((this.map[x][y].blocked || 
+                             (x === game.player.x && y === game.player.y) ||
+                             game.traps.some(t => t.x === x && t.y === y)) && attempts < 50);
+                    
+                    if (attempts < 50) {
+                        game.traps.push({
+                            x: x,
+                            y: y,
+                            visible: false,
+                            triggered: false
+                        });
+                    }
+                }
+                
+                // Add levers
+                const leverCount = 2;
+                for (let i = 0; i < leverCount; i++) {
+                    let x, y;
+                    let attempts = 0;
+                    do {
+                        x = Math.floor(Math.random() * MAP_WIDTH);
+                        y = Math.floor(Math.random() * MAP_HEIGHT);
+                        attempts++;
+                    } while ((this.map[x][y].blocked || 
+                             (x === game.player.x && y === game.player.y) ||
+                             game.levers.some(l => l.x === x && l.y === y)) && attempts < 50);
+                    
+                    if (attempts < 50) {
+                        game.levers.push({
+                            x: x,
+                            y: y,
+                            activated: false
+                        });
+                    }
+                }
+                
+                // Add secret doors
+                const secretDoorCount = 3;
+                for (let i = 0; i < secretDoorCount; i++) {
+                    // Find a wall that could be a secret door
+                    let x, y;
+                    let attempts = 0;
+                    do {
+                        x = Math.floor(Math.random() * MAP_WIDTH);
+                        y = Math.floor(Math.random() * MAP_HEIGHT);
+                        attempts++;
+                    } while ((!this.map[x][y].blocked || 
+                             !this.isPotentialSecretDoorLocation(x, y)) && attempts < 100);
+                    
+                    if (attempts < 100) {
+                        game.secretDoors.push({
+                            x: x,
+                            y: y,
+                            revealed: false
+                        });
+                        // Mark as a secret door in the map
+                        this.map[x][y].blocked = true;
+                        this.map[x][y].blockSight = true;
+                        this.map[x][y].secretDoor = true;
+                    }
+                }
+            }
+
+            isPotentialSecretDoorLocation(x, y) {
+                // Check if this wall location has floor on at least one side
+                const directions = [[0,1], [1,0], [0,-1], [-1,0]];
+                for (const [dx, dy] of directions) {
+                    const newX = x + dx;
+                    const newY = y + dy;
+                    if (newX >= 0 && newX < MAP_WIDTH && newY >= 0 && newY < MAP_HEIGHT) {
+                        if (!this.map[newX][newY].blocked) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+
+            isFullyConnected() {
+                if (this.rooms.length === 0) return false;
+                
+                // Use BFS to check if all rooms are connected
+                const visited = new Set();
+                const queue = [this.rooms[0]];
+                visited.add(this.rooms[0]);
+                
+                while (queue.length > 0) {
+                    const room = queue.shift();
+                    
+                    // Find all rooms connected to this room
+                    for (const otherRoom of this.rooms) {
+                        if (!visited.has(otherRoom) && this.areRoomsConnected(room, otherRoom)) {
+                            visited.add(otherRoom);
+                            queue.push(otherRoom);
+                        }
+                    }
+                }
+                
+                return visited.size === this.rooms.length;
+            }
+
+            areRoomsConnected(room1, room2) {
+                // Check if there's a path between the centers of the two rooms
+                const start = { x: room1.centerX, y: room1.centerY };
+                const end = { x: room2.centerX, y: room2.centerY };
+                
+                return this.hasPath(start, end);
+            }
+
+            hasPath(start, end) {
+                const visited = new Set();
+                const queue = [start];
+                visited.add(`${start.x},${start.y}`);
+                
+                const directions = [
+                    { dx: 1, dy: 0 },  // right
+                    { dx: -1, dy: 0 }, // left
+                    { dx: 0, dy: 1 },  // down
+                    { dx: 0, dy: -1 }  // up
+                ];
+                
+                while (queue.length > 0) {
+                    const current = queue.shift();
+                    
+                    if (current.x === end.x && current.y === end.y) {
+                        return true;
+                    }
+                    
+                    for (const dir of directions) {
+                        const newX = current.x + dir.dx;
+                        const newY = current.y + dir.dy;
+                        
+                        if (newX >= 0 && newX < MAP_WIDTH && newY >= 0 && newY < MAP_HEIGHT) {
+                            const key = `${newX},${newY}`;
+                            if (!visited.has(key) && !this.map[newX][newY].blocked) {
+                                visited.add(key);
+                                queue.push({ x: newX, y: newY });
+                            }
+                        }
+                    }
+                }
+                
+                return false;
+            }
+
+            createFallbackDungeon() {
+                // Create a simple guaranteed-valid dungeon
+                this.initializeMap();
+                
+                // Create a central room
+                const centerX = Math.floor(MAP_WIDTH / 2);
+                const centerY = Math.floor(MAP_HEIGHT / 2);
+                const roomSize = 7;
+                
+                const mainRoom = new Room(
+                    centerX - Math.floor(roomSize / 2),
+                    centerY - Math.floor(roomSize / 2),
+                    roomSize,
+                    roomSize
+                );
+                
+                this.createRoom(mainRoom);
+                this.rooms.push(mainRoom);
+                
+                // Create 4 smaller rooms around the center
+                const directions = [
+                    { dx: -roomSize - 2, dy: 0 },  // left
+                    { dx: roomSize + 2, dy: 0 },   // right
+                    { dx: 0, dy: -roomSize - 2 },  // up
+                    { dx: 0, dy: roomSize + 2 }    // down
+                ];
+                
+                for (const dir of directions) {
+                    const room = new Room(
+                        centerX + dir.dx - 3,
+                        centerY + dir.dy - 3,
+                        5,
+                        5
+                    );
+                    
+                    this.createRoom(room);
+                    this.rooms.push(room);
+                    this.createCorridorBetweenRooms(mainRoom, room);
+                }
+                
+                return this.map;
+            }
+
+            getRooms() {
+                return this.rooms;
+            }
+        }
+
+        // Initialize the game map
+        function initializeMap() {
+            const generator = new DungeonGenerator();
+            game.map = generator.generate();
+            const rooms = generator.getRooms();
+            
+            if (rooms.length === 0) {
+                console.error("No rooms generated!");
+                return;
+            }
+            
+            // Place player in the first room
+            const startRoom = rooms[0];
+            game.player.x = startRoom.centerX;
+            game.player.y = startRoom.centerY;
+
+            // Place stairs in the last room
+            const endRoom = rooms[rooms.length - 1];
+            game.stairs.x = endRoom.centerX;
+            game.stairs.y = endRoom.centerY;
+
+            // Place monsters and items
+            placeMonsters(rooms);
+            placeItems(rooms);
+
+            // Initialize FOV
+            updateFOV();
+            
+            // Update floor indicator
+            document.getElementById('floor-indicator').textContent = `Floor ${game.floor}`;
+            
+            // Check for boss floor
+            if (game.floor % 5 === 0) {
+                placeBoss(endRoom);
+            }
+        }
+
+        // Monster types with better scaling and new varieties
+        const monsterTypes = {
+            'rat': { name: 'Rat', health: 4, minAttack: 1, maxAttack: 2, defense: 0, xp: 3, color: '#8B4513', melee: true, ascii: 'r' },
+            'goblin': { name: 'Goblin', health: 6, minAttack: 1, maxAttack: 3, defense: 0, xp: 5, color: '#8bc34a', melee: true, ascii: 'g' },
+            'orc': { name: 'Orc', health: 10, minAttack: 2, maxAttack: 4, defense: 1, xp: 8, color: '#4caf50', melee: true, ascii: 'o' },
+            'troll': { name: 'Troll', health: 15, minAttack: 3, maxAttack: 5, defense: 2, xp: 12, color: '#795548', melee: true, ascii: 'T' },
+            'archer': { name: 'Goblin Archer', health: 8, minAttack: 2, maxAttack: 3, defense: 0, xp: 7, color: '#8bc34a', melee: false, range: 4, ascii: 'a' },
+            'shaman': { name: 'Goblin Shaman', health: 12, minAttack: 1, maxAttack: 2, defense: 1, xp: 10, color: '#7E57C2', melee: false, range: 5, healer: true, ascii: 's' },
+            'dragon': { name: 'Dragon', health: 25, minAttack: 5, maxAttack: 8, defense: 3, xp: 20, color: '#f44336', melee: true, ascii: 'D' }
+        };
+
+        // Boss types
+        const bossTypes = {
+            'minotaur': { name: 'Minotaur Lord', health: 50, minAttack: 6, maxAttack: 10, defense: 4, xp: 50, color: '#8B0000', special: 'charge', ascii: 'M' },
+            'lich': { name: 'Lich King', health: 40, minAttack: 4, maxAttack: 8, defense: 2, xp: 60, color: '#4A235A', special: 'summon', ascii: 'L' },
+            'behemoth': { name: 'Cave Behemoth', health: 70, minAttack: 8, maxAttack: 12, defense: 5, xp: 70, color: '#2F4F4F', special: 'stomp', ascii: 'B' }
+        };
+
+        function placeMonsters(rooms) {
+            game.monsters = [];
+            
+            // Skip the first room (player's starting room)
+            for (let i = 1; i < rooms.length; i++) {
+                const room = rooms[i];
+                // Adjust monster count based on floor level
+                const numMonsters = Math.floor(Math.random() * (1 + Math.floor(game.floor/2))) + 1;
+                
+                for (let j = 0; j < numMonsters; j++) {
+                    let x, y;
+                    let attempts = 0;
+                    // Find a valid position in the room
+                    do {
+                        x = room.x + Math.floor(Math.random() * room.width);
+                        y = room.y + Math.floor(Math.random() * room.height);
+                        attempts++;
+                    } while ((game.map[x][y].blocked || 
+                             (x === game.player.x && y === game.player.y) ||
+                             (x === game.stairs.x && y === game.stairs.y) ||
+                             game.monsters.some(m => m.x === x && m.y === y)) && attempts < 50);
+                    
+                    if (attempts >= 50) continue; // Skip if we couldn't find a valid position
+                    
+                    // Choose a monster type based on floor level
+                    let types = [];
+                    if (game.floor === 1) {
+                        types = ['rat', 'goblin'];
+                    } else if (game.floor <= 3) {
+                        types = ['rat', 'goblin', 'orc', 'archer'];
+                    } else if (game.floor <= 5) {
+                        types = ['goblin', 'orc', 'troll', 'archer', 'shaman'];
+                    } else {
+                        types = ['orc', 'troll', 'archer', 'shaman', 'dragon'];
+                    }
+                    
+                    const type = types[Math.floor(Math.random() * types.length)];
+                    
+                    // Scale monster stats with floor level
+                    const levelScale = 1 + (game.floor - 1) * 0.15;
+                    const health = Math.floor(monsterTypes[type].health * levelScale);
+                    const minAttack = Math.floor(monsterTypes[type].minAttack * levelScale);
+                    const maxAttack = Math.floor(monsterTypes[type].maxAttack * levelScale);
+                    const defense = Math.floor(monsterTypes[type].defense * levelScale);
+                    
+                    game.monsters.push({
+                        type: type,
+                        name: monsterTypes[type].name,
+                        health: health,
+                        maxHealth: health,
+                        minAttack: minAttack,
+                        maxAttack: maxAttack,
+                        defense: defense,
+                        xp: Math.floor(monsterTypes[type].xp * levelScale),
+                        x: x,
+                        y: y,
+                        color: monsterTypes[type].color,
+                        lastPlayerX: game.player.x,
+                        lastPlayerY: game.player.y,
+                        melee: monsterTypes[type].melee,
+                        range: monsterTypes[type].range || 1,
+                        healer: monsterTypes[type].healer || false,
+                        ascii: monsterTypes[type].ascii
+                    });
+                }
+            }
+        }
+
+        function placeBoss(room) {
+            const bossNames = Object.keys(bossTypes);
+            const bossType = bossNames[Math.floor(Math.random() * bossNames.length)];
+            const boss = bossTypes[bossType];
+            
+            game.monsters.push({
+                type: bossType,
+                name: boss.name,
+                health: boss.health,
+                maxHealth: boss.health,
+                minAttack: boss.minAttack,
+                maxAttack: boss.maxAttack,
+                defense: boss.defense,
+                xp: boss.xp,
+                x: room.centerX,
+                y: room.centerY,
+                color: boss.color,
+                lastPlayerX: game.player.x,
+                lastPlayerY: game.player.y,
+                melee: true,
+                range: 1,
+                boss: true,
+                special: boss.special,
+                ascii: boss.ascii
+            });
+            
+            game.bossActive = true;
+            document.getElementById('boss-name').textContent = boss.name;
+            document.getElementById('boss-name').style.display = 'block';
+            document.getElementById('boss-health-bar').style.display = 'block';
+            updateBossHealthBar();
+            
+            logMessage(`A powerful ${boss.name} appears!`);
+        }
+
+        function updateBossHealthBar() {
+            const boss = game.monsters.find(m => m.boss);
+            if (boss) {
+                const healthPercent = (boss.health / boss.maxHealth) * 100;
+                document.getElementById('boss-health-fill').style.width = `${healthPercent}%`;
+            }
+        }
+
+        // Expanded item system
+        const itemTypes = {
+            'healthPotion': { 
+                name: 'Health Potion', 
+                type: 'potion', 
+                color: '#f00',
+                use: function(player) {
+                    const heal = 10 + Math.floor(player.level * 1.5);
+                    player.health = Math.min(player.maxHealth, player.health + heal);
+                    logMessage(`You drink the health potion and recover ${heal} HP.`);
+                    return true; // Item consumed
+                },
+                description: "Restores HP",
+                identified: true,
+                ascii: '!'
+            },
+            'manaPotion': { 
+                name: 'Mana Potion', 
+                type: 'potion', 
+                color: '#00f',
+                use: function(player) {
+                    logMessage("You drink the mana potion. It tingles!");
+                    return true;
+                },
+                description: "Mysterious effects",
+                identified: true,
+                ascii: '!'
+            },
+            'strengthPotion': { 
+                name: 'Potion of Strength', 
+                type: 'potion', 
+                color: '#f50',
+                use: function(player) {
+                    player.buffs.push({
+                        type: 'strength',
+                        duration: 20,
+                        value: 2
+                    });
+                    logMessage("You feel stronger! +2 attack for 20 turns.");
+                    return true;
+                },
+                description: "Temporarily boosts attack",
+                identified: true,
+                ascii: '!'
+            },
+            'defensePotion': { 
+                name: 'Potion of Defense', 
+                type: 'potion', 
+                color: '#05f',
+                use: function(player) {
+                    player.buffs.push({
+                        type: 'defense',
+                        duration: 20,
+                        value: 2
+                    });
+                    logMessage("Your skin hardens! +2 defense for 20 turns.");
+                    return true;
+                },
+                description: "Temporarily boosts defense",
+                identified: true,
+                ascii: '!'
+            },
+            'scrollIdentify': { 
+                name: 'Scroll of Identify', 
+                type: 'scroll', 
+                color: '#a0f',
+                use: function(player) {
+                    // Identify all unidentified items in inventory
+                    let identifiedCount = 0;
+                    player.inventory.forEach(item => {
+                        if (!item.identified) {
+                            item.identified = true;
+                            identifiedCount++;
+                        }
+                    });
+                    if (identifiedCount > 0) {
+                        logMessage(`The scroll glows and reveals the nature of ${identifiedCount} items.`);
+                    } else {
+                        logMessage("The scroll glows but you have no unidentified items.");
+                    }
+                    return true;
+                },
+                description: "Reveals the nature of unknown items",
+                identified: true,
+                ascii: '?'
+            },
+            'scrollTeleport': { 
+                name: 'Scroll of Teleportation', 
+                type: 'scroll', 
+                color: '#0aa',
+                use: function(player) {
+                    // Find a random safe position
+                    let newX, newY;
+                    let attempts = 0;
+                    do {
+                        newX = Math.floor(Math.random() * MAP_WIDTH);
+                        newY = Math.floor(Math.random() * MAP_HEIGHT);
+                        attempts++;
+                    } while ((game.map[newX][newY].blocked || 
+                             game.monsters.some(m => m.x === newX && m.y === newY)) && attempts < 100);
+                    
+                    if (attempts < 100) {
+                        player.x = newX;
+                        player.y = newY;
+                        logMessage("You are teleported to a random location!");
+                        updateFOV();
+                        render();
+                    } else {
+                        logMessage("The scroll fizzles. No safe location found.");
+                    }
+                    return true;
+                },
+                description: "Teleports you to a random location",
+                identified: true,
+                ascii: '?'
+            },
+            'bomb': { 
+                name: 'Explosive Bomb', 
+                type: 'bomb', 
+                color: '#f80',
+                use: function(player) {
+                    // Damage all monsters in a 3x3 area
+                    let monstersHit = 0;
+                    for (let dx = -1; dx <= 1; dx++) {
+                        for (let dy = -1; dy <= 1; dy++) {
+                            const x = player.x + dx;
+                            const y = player.y + dy;
+                            const monsterIndex = game.monsters.findIndex(m => m.x === x && m.y === y);
+                            if (monsterIndex !== -1) {
+                                const damage = Math.floor(Math.random() * 6) + 5; // 5-10 damage
+                                game.monsters[monsterIndex].health -= damage;
+                                logMessage(`The bomb hits ${game.monsters[monsterIndex].name} for ${damage} damage!`);
+                                monstersHit++;
+                                
+                                if (game.monsters[monsterIndex].health <= 0) {
+                                    game.monsters.splice(monsterIndex, 1);
+                                    if (game.bossActive) updateBossHealthBar();
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (monstersHit === 0) {
+                        logMessage("The bomb explodes but hits nothing.");
+                    }
+                    
+                    return true;
+                },
+                description: "Damages all enemies in an area",
+                identified: true,
+                ascii: '*'
+            },
+            'dagger': { 
+                name: 'Dagger', 
+                type: 'weapon', 
+                color: '#aaa',
+                minAttack: 1,
+                maxAttack: 2,
+                description: "DMG: 1-2",
+                identified: true,
+                set: null,
+                ascii: '/'
+            },
+            'sword': { 
+                name: 'Sword', 
+                type: 'weapon', 
+                color: '#888',
+                minAttack: 2,
+                maxAttack: 4,
+                description: "DMG: 2-4",
+                identified: true,
+                set: null,
+                ascii: '/'
+            },
+            'greatsword': { 
+                name: 'Greatsword', 
+                type: 'weapon', 
+                color: '#666',
+                minAttack: 4,
+                maxAttack: 7,
+                description: "DMG: 4-7",
+                identified: true,
+                set: null,
+                ascii: '/'
+            },
+            'leatherArmor': { 
+                name: 'Leather Armor', 
+                type: 'armor', 
+                color: '#a85',
+                defense: 2,
+                description: "DEF: +2",
+                identified: true,
+                set: 'traveler',
+                ascii: '['
+            },
+            'chainmail': { 
+                name: 'Chainmail', 
+                type: 'armor', 
+                color: '#888',
+                defense: 4,
+                description: "DEF: +4",
+                identified: true,
+                set: 'soldier',
+                ascii: '['
+            },
+            'plateArmor': { 
+                name: 'Plate Armor', 
+                type: 'armor', 
+                color: '#666',
+                defense: 6,
+                description: "DEF: +6",
+                identified: true,
+                set: 'knight',
+                ascii: '['
+            },
+            'travelerBoots': { 
+                name: 'Traveler\'s Boots', 
+                type: 'boots', 
+                color: '#a85',
+                defense: 1,
+                description: "DEF: +1",
+                identified: true,
+                set: 'traveler',
+                ascii: ']'
+            },
+            'soldierHelmet': { 
+                name: 'Soldier\'s Helmet', 
+                type: 'helmet', 
+                color: '#888',
+                defense: 1,
+                description: "DEF: +1",
+                identified: true,
+                set: 'soldier',
+                ascii: ']'
+            },
+            'knightShield': { 
+                name: 'Knight\'s Shield', 
+                type: 'shield', 
+                color: '#666',
+                defense: 2,
+                description: "DEF: +2",
+                identified: true,
+                set: 'knight',
+                ascii: ')'
+            },
+            // Unidentified items
+            'mysteryPotion': { 
+                name: 'Mystery Potion', 
+                type: 'potion', 
+                color: '#a0a',
+                use: function(player) {
+                    // Random effect
+                    const effects = [
+                        { type: 'heal', value: 15, message: "You feel refreshed! +15 HP." },
+                        { type: 'damage', value: 10, message: "It was poison! You take 10 damage." },
+                        { type: 'buff', stat: 'minAttack', value: 3, message: "You feel stronger! +3 attack permanently." },
+                        { type: 'debuff', stat: 'defense', value: 2, message: "You feel weaker! -2 defense permanently." }
+                    ];
+                    
+                    const effect = effects[Math.floor(Math.random() * effects.length)];
+                    
+                    switch (effect.type) {
+                        case 'heal':
+                            player.health = Math.min(player.maxHealth, player.health + effect.value);
+                            break;
+                        case 'damage':
+                            player.health -= effect.value;
+                            if (player.health <= 0) {
+                                logMessage("The poison was fatal!");
+                                gameOver();
+                            }
+                            break;
+                        case 'buff':
+                            player[effect.stat] += effect.value;
+                            player[`base${effect.stat.charAt(0).toUpperCase() + effect.stat.slice(1)}`] += effect.value;
+                            break;
+                        case 'debuff':
+                            player[effect.stat] = Math.max(0, player[effect.stat] - effect.value);
+                            player[`base${effect.stat.charAt(0).toUpperCase() + effect.stat.slice(1)}`] = Math.max(0, player[`base${effect.stat.charAt(0).toUpperCase() + effect.stat.slice(1)}`] - effect.value);
+                            break;
+                    }
+                    
+                    logMessage(effect.message);
+                    return true;
+                },
+                description: "???",
+                identified: false,
+                ascii: '!'
+            },
+            'mysteryWeapon': { 
+                name: 'Mysterious Weapon', 
+                type: 'weapon', 
+                color: '#852',
+                minAttack: 1,
+                maxAttack: 3,
+                description: "???",
+                identified: false,
+                set: null,
+                ascii: '/'
+            },
+            'mysteryArmor': { 
+                name: 'Mysterious Armor', 
+                type: 'armor', 
+                color: '#852',
+                defense: 2,
+                description: "???",
+                identified: false,
+                set: null,
+                ascii: '['
+            }
+        };
+
+        // Equipment set bonuses
+        const setBonuses = {
+            'traveler': {
+                name: "Traveler's Set",
+                pieces: 2,
+                bonus: "Health +10"
+            },
+            'soldier': {
+                name: "Soldier's Set",
+                pieces: 2,
+                bonus: "Attack +2"
+            },
+            'knight': {
+                name: "Knight's Set",
+                pieces: 2,
+                bonus: "Defense +3"
+            }
+        };
+
+        function placeItems(rooms) {
+            game.items = [];
+            
+            // First room always has a health potion and a basic weapon
+            const startRoom = rooms[0];
+            if (game.floor === 1) {
+                // Place health potion in starting room
+                let x, y;
+                let attempts = 0;
+                do {
+                    x = startRoom.x + Math.floor(Math.random() * startRoom.width);
+                    y = startRoom.y + Math.floor(Math.random() * startRoom.height);
+                    attempts++;
+                } while ((game.map[x][y].blocked || 
+                         (x === game.player.x && y === game.player.y) ||
+                         (x === game.stairs.x && y === game.stairs.y)) && attempts < 50);
+                
+                if (attempts < 50) {
+                    game.items.push({
+                        type: 'healthPotion',
+                        name: itemTypes['healthPotion'].name,
+                        x: x,
+                        y: y,
+                        color: itemTypes['healthPotion'].color,
+                        identified: true,
+                        ascii: itemTypes['healthPotion'].ascii
+                    });
+                }
+                
+                // Place dagger in starting room
+                attempts = 0;
+                do {
+                    x = startRoom.x + Math.floor(Math.random() * startRoom.width);
+                    y = startRoom.y + Math.floor(Math.random() * startRoom.height);
+                    attempts++;
+                } while ((game.map[x][y].blocked || 
+                         (x === game.player.x && y === game.player.y) ||
+                         (x === game.stairs.x && y === game.stairs.y) ||
+                         game.items.some(item => item.x === x && item.y === y)) && attempts < 50);
+                
+                if (attempts < 50) {
+                    game.items.push({
+                        type: 'dagger',
+                        name: itemTypes['dagger'].name,
+                        x: x,
+                        y: y,
+                        color: itemTypes['dagger'].color,
+                        identified: true,
+                        ascii: itemTypes['dagger'].ascii
+                    });
+                }
+            }
+            
+            // Other rooms - place items based on room type
+            for (let i = 1; i < rooms.length; i++) {
+                const room = rooms[i];
+                let numItems = Math.floor(Math.random() * 2) + 1; // 1-2 items per room
+                
+                // Special rooms get more/better items
+                if (room.type === 'treasure') {
+                    numItems = Math.floor(Math.random() * 3) + 3; // 3-5 items
+                } else if (room.type === 'shop') {
+                    numItems = Math.floor(Math.random() * 2) + 2; // 2-3 items
+                }
+                
+                for (let j = 0; j < numItems; j++) {
+                    let x, y;
+                    let attempts = 0;
+                    // Find a valid position in the room
+                    do {
+                        x = room.x + Math.floor(Math.random() * room.width);
+                        y = room.y + Math.floor(Math.random() * room.height);
+                        attempts++;
+                    } while ((game.map[x][y].blocked || 
+                             (x === game.player.x && y === game.player.y) ||
+                             (x === game.stairs.x && y === game.stairs.y) ||
+                             game.monsters.some(m => m.x === x && m.y === y) ||
+                             game.items.some(item => item.x === x && item.y === y)) && attempts < 50);
+                    
+                    if (attempts >= 50) continue; // Skip if we couldn't find a valid position
+                    
+                    // Choose item based on room type and floor
+                    let itemPool = Object.keys(itemTypes);
+                    
+                    // Filter based on floor
+                    if (game.floor < 3) itemPool = itemPool.filter(t => !['greatsword', 'plateArmor', 'knightShield'].includes(t));
+                    if (game.floor < 5) itemPool = itemPool.filter(t => !['plateArmor'].includes(t));
+                    
+                    // Special room adjustments
+                    if (room.type === 'treasure') {
+                        // Treasure rooms have better items
+                        itemPool = itemPool.filter(t => 
+                            !['mysteryPotion', 'mysteryWeapon', 'mysteryArmor', 'healthPotion', 'dagger'].includes(t)
+                        );
+                    } else if (room.type === 'shrine') {
+                        // Shrines have potions and scrolls
+                        itemPool = itemPool.filter(t => 
+                            itemTypes[t].type === 'potion' || itemTypes[t].type === 'scroll'
+                        );
+                    } else if (room.type === 'shop') {
+                        // Shops have a variety of items
+                        itemPool = itemPool.filter(t => 
+                            !['mysteryPotion', 'mysteryWeapon', 'mysteryArmor'].includes(t)
+                        );
+                    } else {
+                        // Normal rooms can have unidentified items
+                        if (Math.random() < 0.3) {
+                            itemPool = ['mysteryPotion', 'mysteryWeapon', 'mysteryArmor'];
+                        }
+                    }
+                    
+                    // Higher chance for health potions on early floors
+                    let weights = itemPool.map(t => t === 'healthPotion' ? 3 : 1);
+                    
+                    // Calculate weighted random
+                    let totalWeight = weights.reduce((a, b) => a + b, 0);
+                    let random = Math.random() * totalWeight;
+                    let typeIndex = 0;
+                    for (let i = 0; i < weights.length; i++) {
+                        random -= weights[i];
+                        if (random <= 0) {
+                            typeIndex = i;
+                            break;
+                        }
+                    }
+                    
+                    const type = itemPool[typeIndex];
+                    
+                    game.items.push({
+                        type: type,
+                        name: itemTypes[type].name,
+                        x: x,
+                        y: y,
+                        color: itemTypes[type].color,
+                        identified: itemTypes[type].identified,
+                        ascii: itemTypes[type].ascii
+                    });
+                }
+                
+                // Shrines also give a permanent buff
+                if (room.type === 'shrine') {
+                    const buffs = [
+                        { stat: 'maxHealth', value: 5, message: "The shrine blesses you with +5 maximum health!" },
+                        { stat: 'baseMinAttack', value: 1, message: "The shrine blesses you with +1 attack!" },
+                        { stat: 'baseMaxAttack', value: 1, message: "The shrine blesses you with +1 attack!" },
+                        { stat: 'baseDefense', value: 1, message: "The shrine blesses you with +1 defense!" }
+                    ];
+                    
+                    const buff = buffs[Math.floor(Math.random() * buffs.length)];
+                    game.player[buff.stat] += buff.value;
+                    if (buff.stat === 'maxHealth') {
+                        game.player.health += buff.value;
+                    }
+                    logMessage(buff.message);
+                }
+            }
+        }
+
+        // Simple FOV implementation
+        function updateFOV() {
+            // Reset visibility
+            for (let x = 0; x < MAP_WIDTH; x++) {
+                for (let y = 0; y < MAP_HEIGHT; y++) {
+                    game.map[x][y].visible = false;
+                }
+            }
+            
+            // Mark tiles in a circular area around player as visible
+            for (let dx = -FOV_RADIUS; dx <= FOV_RADIUS; dx++) {
+                for (let dy = -FOV_RADIUS; dy <= FOV_RADIUS; dy++) {
+                    const x = game.player.x + dx;
+                    const y = game.player.y + dy;
+                    
+                    if (x >= 0 && x < MAP_WIDTH && y >= 0 && y < MAP_HEIGHT) {
+                        // Simple distance check
+                        if (Math.sqrt(dx*dx + dy*dy) <= FOV_RADIUS) {
+                            game.map[x][y].visible = true;
+                            game.map[x][y].explored = true;
+                        }
+                    }
+                }
+            }
+            
+            // Always make player's tile visible
+            game.map[game.player.x][game.player.y].visible = true;
+            game.map[game.player.x][game.player.y].explored = true;
+            
+            // Reveal secret doors that are adjacent to player
+            for (const door of game.secretDoors) {
+                if (!door.revealed) {
+                    const dx = Math.abs(door.x - game.player.x);
+                    const dy = Math.abs(door.y - game.player.y);
+                    if (dx <= 1 && dy <= 1) {
+                        door.revealed = true;
+                        game.map[door.x][door.y].blocked = false;
+                        game.map[door.x][door.y].blockSight = false;
+                        game.player.discoveredSecrets++;
+                        logMessage("You discover a secret door!");
+                    }
+                }
+            }
+            
+            // Reveal traps that are in FOV (with a chance)
+            for (const trap of game.traps) {
+                if (game.map[trap.x][trap.y].visible && !trap.visible && Math.random() < 0.3) {
+                    trap.visible = true;
+                    logMessage("You spot a trap on the floor!");
+                }
+            }
+        }
+
+        // Rendering
+        function render() {
+            // Clear canvas
+            ctx.fillStyle = COLOR_UNEXPLORED;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Set font for ASCII rendering
+            ctx.font = `${TILE_SIZE}px 'Courier New', Courier, monospace`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Calculate viewport
+            const viewportWidth = Math.floor(canvas.width / TILE_SIZE);
+            const viewportHeight = Math.floor(canvas.height / TILE_SIZE);
+            const offsetX = Math.max(0, Math.min(game.player.x - Math.floor(viewportWidth / 2), MAP_WIDTH - viewportWidth));
+            const offsetY = Math.max(0, Math.min(game.player.y - Math.floor(viewportHeight / 2), MAP_HEIGHT - viewportHeight));
+            
+            // Draw map
+            for (let x = offsetX; x < offsetX + viewportWidth && x < MAP_WIDTH; x++) {
+                for (let y = offsetY; y < offsetY + viewportHeight && y < MAP_HEIGHT; y++) {
+                    const tile = game.map[x][y];
+                    const screenX = (x - offsetX) * TILE_SIZE + TILE_SIZE/2;
+                    const screenY = (y - offsetY) * TILE_SIZE + TILE_SIZE/2;
+                    
+                    if (tile.visible) {
+                        // Draw visible tiles with special room colors
+                        if (tile.specialType === 'treasure') {
+                            ctx.fillStyle = COLOR_TREASURE_ROOM;
+                        } else if (tile.specialType === 'shrine') {
+                            ctx.fillStyle = COLOR_SHRINE;
+                        } else if (tile.specialType === 'shop') {
+                            ctx.fillStyle = COLOR_SHOP;
+                        } else {
+                            ctx.fillStyle = tile.blocked ? COLOR_VISIBLE_WALL : COLOR_VISIBLE_FLOOR;
+                        }
+                        
+                        // Draw ASCII character
+                        ctx.fillText(tile.blocked ? ASCII_WALL : ASCII_FLOOR, screenX, screenY);
+                    } else if (tile.explored) {
+                        // Draw explored but not visible tiles (fog of war)
+                        ctx.fillStyle = tile.blocked ? COLOR_EXPLORED_WALL : COLOR_EXPLORED_FLOOR;
+                        ctx.fillText(tile.blocked ? ASCII_WALL : ASCII_FLOOR, screenX, screenY);
+                    }
+                    // Unexplored tiles remain black
+                }
+            }
+            
+            // Draw traps
+            for (const trap of game.traps) {
+                if (game.map[trap.x][trap.y].visible && trap.visible && !trap.triggered) {
+                    const screenX = (trap.x - offsetX) * TILE_SIZE + TILE_SIZE/2;
+                    const screenY = (trap.y - offsetY) * TILE_SIZE + TILE_SIZE/2;
+                    ctx.fillStyle = COLOR_TRAP;
+                    ctx.fillText(ASCII_TRAP, screenX, screenY);
+                }
+            }
+            
+            // Draw levers
+            for (const lever of game.levers) {
+                if (game.map[lever.x][lever.y].visible) {
+                    const screenX = (lever.x - offsetX) * TILE_SIZE + TILE_SIZE/2;
+                    const screenY = (lever.y - offsetY) * TILE_SIZE + TILE_SIZE/2;
+                    ctx.fillStyle = COLOR_LEVER;
+                    ctx.fillText(ASCII_LEVER, screenX, screenY);
+                }
+            }
+            
+            // Draw secret doors
+            for (const door of game.secretDoors) {
+                if (door.revealed && game.map[door.x][door.y].visible) {
+                    const screenX = (door.x - offsetX) * TILE_SIZE + TILE_SIZE/2;
+                    const screenY = (door.y - offsetY) * TILE_SIZE + TILE_SIZE/2;
+                    ctx.fillStyle = COLOR_SECRET_DOOR;
+                    ctx.fillText(ASCII_SECRET_DOOR, screenX, screenY);
+                }
+            }
+            
+            // Draw projectiles
+            for (const projectile of game.projectiles) {
+                if (game.map[projectile.x][projectile.y].visible) {
+                    const screenX = (projectile.x - offsetX) * TILE_SIZE + TILE_SIZE/2;
+                    const screenY = (projectile.y - offsetY) * TILE_SIZE + TILE_SIZE/2;
+                    ctx.fillStyle = projectile.color;
+                    ctx.fillText(ASCII_PROJECTILE, screenX, screenY);
+                }
+            }
+            
+            // Draw stairs
+            if (game.map[game.stairs.x][game.stairs.y].visible) {
+                const screenX = (game.stairs.x - offsetX) * TILE_SIZE + TILE_SIZE/2;
+                const screenY = (game.stairs.y - offsetY) * TILE_SIZE + TILE_SIZE/2;
+                ctx.fillStyle = COLOR_STAIRS;
+                ctx.fillText(ASCII_STAIRS, screenX, screenY);
+            }
+            
+            // Draw items
+            for (const item of game.items) {
+                if (game.map[item.x][item.y].visible) {
+                    const screenX = (item.x - offsetX) * TILE_SIZE + TILE_SIZE/2;
+                    const screenY = (item.y - offsetY) * TILE_SIZE + TILE_SIZE/2;
+                    
+                    ctx.fillStyle = item.color;
+                    ctx.fillText(item.ascii, screenX, screenY);
+                }
+            }
+            
+            // Draw monsters
+            for (const monster of game.monsters) {
+                if (game.map[monster.x][monster.y].visible) {
+                    const screenX = (monster.x - offsetX) * TILE_SIZE + TILE_SIZE/2;
+                    const screenY = (monster.y - offsetY) * TILE_SIZE + TILE_SIZE/2;
+                    
+                    ctx.fillStyle = monster.color;
+                    ctx.fillText(monster.ascii, screenX, screenY);
+                    
+                    // Draw health bar (simplified for ASCII)
+                    const healthPercent = monster.health / monster.maxHealth;
+                    if (healthPercent < 1) {
+                        ctx.fillStyle = '#333';
+                        ctx.fillRect((monster.x - offsetX) * TILE_SIZE, (monster.y - offsetY) * TILE_SIZE - 5, TILE_SIZE, 3);
+                        ctx.fillStyle = healthPercent > 0.5 ? '#0f0' : healthPercent > 0.25 ? '#f80' : '#f00';
+                        ctx.fillRect((monster.x - offsetX) * TILE_SIZE, (monster.y - offsetY) * TILE_SIZE - 5, TILE_SIZE * healthPercent, 3);
+                    }
+                }
+            }
+            
+            // Draw player
+            const playerScreenX = (game.player.x - offsetX) * TILE_SIZE + TILE_SIZE/2;
+            const playerScreenY = (game.player.y - offsetY) * TILE_SIZE + TILE_SIZE/2;
+            ctx.fillStyle = COLOR_PLAYER;
+            ctx.fillText(ASCII_PLAYER, playerScreenX, playerScreenY);
+        }
+
+        // Calculate player's total attack and defense
+        function getPlayerAttack() {
+            let minAttack = game.player.baseMinAttack;
+            let maxAttack = game.player.baseMaxAttack;
+            if (game.player.weapon) {
+                minAttack += itemTypes[game.player.weapon.type].minAttack;
+                maxAttack += itemTypes[game.player.weapon.type].maxAttack;
+            }
+            
+            // Apply buffs
+            const strengthBuff = game.player.buffs.find(buff => buff.type === 'strength');
+            if (strengthBuff) {
+                minAttack += strengthBuff.value;
+                maxAttack += strengthBuff.value;
+            }
+            
+            return { min: minAttack, max: maxAttack };
+        }
+
+        function getPlayerDefense() {
+            let defense = game.player.baseDefense;
+            if (game.player.armor) {
+                defense += itemTypes[game.player.armor.type].defense;
+            }
+            
+            // Apply set bonuses
+            defense += getSetBonusDefense();
+            
+            // Apply buffs
+            const defenseBuff = game.player.buffs.find(buff => buff.type === 'defense');
+            if (defenseBuff) {
+                defense += defenseBuff.value;
+            }
+            
+            return defense;
+        }
+
+        function getSetBonusDefense() {
+            let bonus = 0;
+            const equippedItems = [game.player.weapon, game.player.armor].filter(item => item !== null);
+            const setCounts = {};
+            
+            // Count items from each set
+            for (const item of equippedItems) {
+                const itemSet = itemTypes[item.type].set;
+                if (itemSet) {
+                    setCounts[itemSet] = (setCounts[itemSet] || 0) + 1;
+                }
+            }
+            
+            // Apply set bonuses
+            for (const [setName, count] of Object.entries(setCounts)) {
+                const setBonus = setBonuses[setName];
+                if (setBonus && count >= setBonus.pieces) {
+                    if (setName === 'knight') {
+                        bonus += 3; // Knight set gives +3 defense
+                    }
+                }
+            }
+            
+            return bonus;
+        }
+
+        function getSetBonusAttack() {
+            let bonus = 0;
+            const equippedItems = [game.player.weapon, game.player.armor].filter(item => item !== null);
+            const setCounts = {};
+            
+            // Count items from each set
+            for (const item of equippedItems) {
+                const itemSet = itemTypes[item.type].set;
+                if (itemSet) {
+                    setCounts[itemSet] = (setCounts[itemSet] || 0) + 1;
+                }
+            }
+            
+            // Apply set bonuses
+            for (const [setName, count] of Object.entries(setCounts)) {
+                const setBonus = setBonuses[setName];
+                if (setBonus && count >= setBonus.pieces) {
+                    if (setName === 'soldier') {
+                        bonus += 2; // Soldier set gives +2 attack
+                    }
+                }
+            }
+            
+            return bonus;
+        }
+
+        function getSetBonusHealth() {
+            let bonus = 0;
+            const equippedItems = [game.player.weapon, game.player.armor].filter(item => item !== null);
+            const setCounts = {};
+            
+            // Count items from each set
+            for (const item of equippedItems) {
+                const itemSet = itemTypes[item.type].set;
+                if (itemSet) {
+                    setCounts[itemSet] = (setCounts[itemSet] || 0) + 1;
+                }
+            }
+            
+            // Apply set bonuses
+            for (const [setName, count] of Object.entries(setCounts)) {
+                const setBonus = setBonuses[setName];
+                if (setBonus && count >= setBonus.pieces) {
+                    if (setName === 'traveler') {
+                        bonus += 10; // Traveler set gives +10 health
+                    }
+                }
+            }
+            
+            return bonus;
+        }
+
+        // Auto-pickup function
+        function autoPickup() {
+            if (!game.autoPickup) return;
+            
+            const itemIndex = game.items.findIndex(i => i.x === game.player.x && i.y === game.player.y);
+            if (itemIndex !== -1) {
+                const item = game.items[itemIndex];
+                
+                // Check inventory capacity
+                if (game.player.inventory.length >= 26) {
+                    logMessage("Your inventory is full! Couldn't auto-pickup " + item.name);
+                    return;
+                }
+                
+                game.player.inventory.push(item);
+                game.items.splice(itemIndex, 1);
+                logMessage(`Auto-picked up ${item.name}.`);
+                updateUI();
+            }
+        }
+
+        // Game logic
+        function movePlayer(dx, dy) {
+            if (game.gameOver) return;
+            
+            const newX = game.player.x + dx;
+            const newY = game.player.y + dy;
+            
+            // Check boundaries and walls
+            if (newX < 0 || newX >= MAP_WIDTH || newY < 0 || newY >= MAP_HEIGHT || 
+                game.map[newX][newY].blocked) {
+                return;
+            }
+            
+            // Check for traps
+            const trapIndex = game.traps.findIndex(t => t.x === newX && t.y === newY && !t.triggered);
+            if (trapIndex !== -1) {
+                const trap = game.traps[trapIndex];
+                trap.triggered = true;
+                const damage = Math.floor(Math.random() * 4) + 3; // 3-6 damage
+                game.player.health -= damage;
+                logMessage(`You trigger a trap and take ${damage} damage!`);
+                
+                if (game.player.health <= 0) {
+                    gameOver();
+                    return;
+                }
+            }
+            
+            // Check for stairs
+            if (newX === game.stairs.x && newY === game.stairs.y) {
+                nextFloor();
+                return;
+            }
+            
+            // Check for monsters
+            const monsterIndex = game.monsters.findIndex(m => m.x === newX && m.y === newY);
+            if (monsterIndex !== -1) {
+                combat(game.player, game.monsters[monsterIndex]);
+                if (game.monsters[monsterIndex].health <= 0) {
+                    game.monsters.splice(monsterIndex, 1);
+                    if (game.bossActive) {
+                        updateBossHealthBar();
+                        // Check if boss is defeated
+                        if (!game.monsters.some(m => m.boss)) {
+                            game.bossActive = false;
+                            document.getElementById('boss-name').style.display = 'none';
+                            document.getElementById('boss-health-bar').style.display = 'none';
+                            logMessage("You have defeated the boss!");
+                        }
+                    }
+                } else {
+                    // Monster counterattacks if it survived
+                    combat(game.monsters[monsterIndex], game.player);
+                }
+                game.turn++;
+                updateUI();
+                updateFOV();
+                render();
+                return;
+            }
+            
+            // Move player
+            game.player.x = newX;
+            game.player.y = newY;
+            game.turn++;
+            
+            // Auto-pickup items
+            autoPickup();
+            
+            // Move monsters
+            moveMonsters();
+            
+            // Update buff durations
+            updateBuffs();
+            
+            // Update UI and render
+            updateFOV();
+            updateUI();
+            render();
+        }
+
+        function updateBuffs() {
+            for (let i = game.player.buffs.length - 1; i >= 0; i--) {
+                game.player.buffs[i].duration--;
+                if (game.player.buffs[i].duration <= 0) {
+                    const buff = game.player.buffs[i];
+                    if (buff.type === 'strength') {
+                        logMessage("Your strength boost wears off.");
+                    } else if (buff.type === 'defense') {
+                        logMessage("Your defense boost wears off.");
+                    }
+                    game.player.buffs.splice(i, 1);
+                }
+            }
+        }
+
+        function wait() {
+            if (game.gameOver) return;
+            
+            game.turn++;
+            // Move monsters
+            moveMonsters();
+            
+            // Update buff durations
+            updateBuffs();
+            
+            updateUI();
+            render();
+        }
+
+        function interact() {
+            if (game.gameOver) return;
+            
+            // Check for levers
+            for (const lever of game.levers) {
+                const dx = Math.abs(lever.x - game.player.x);
+                const dy = Math.abs(lever.y - game.player.y);
+                if (dx <= 1 && dy <= 1 && !lever.activated) {
+                    lever.activated = true;
+                    logMessage("You pull the lever. You hear a mechanism click somewhere.");
+                    
+                    // Activate a random secret door
+                    const inactiveDoors = game.secretDoors.filter(d => !d.revealed);
+                    if (inactiveDoors.length > 0) {
+                        const door = inactiveDoors[Math.floor(Math.random() * inactiveDoors.length)];
+                        door.revealed = true;
+                        game.map[door.x][door.y].blocked = false;
+                        game.map[door.x][door.y].blockSight = false;
+                        game.player.discoveredSecrets++;
+                        logMessage("A secret door opens nearby!");
+                    }
+                    
+                    updateFOV();
+                    render();
+                    return;
+                }
+            }
+            
+            logMessage("There's nothing to interact with here.");
+        }
+
+        function moveMonsters() {
+            for (const monster of game.monsters) {
+                // Skip if dead
+                if (monster.health <= 0) continue;
+                
+                // Simple AI: move toward player if in sight, otherwise wander
+                if (game.map[monster.x][monster.y].visible) {
+                    // Remember player position
+                    monster.lastPlayerX = game.player.x;
+                    monster.lastPlayerY = game.player.y;
+                    
+                    // Healers try to heal other monsters
+                    if (monster.healer) {
+                        const injuredMonster = game.monsters.find(m => 
+                            m !== monster && 
+                            m.health < m.maxHealth * 0.7 &&
+                            Math.abs(m.x - monster.x) <= 3 && 
+                            Math.abs(m.y - monster.y) <= 3
+                        );
+                        
+                        if (injuredMonster) {
+                            const heal = Math.floor(Math.random() * 4) + 3; // 3-6 healing
+                            injuredMonster.health = Math.min(injuredMonster.maxHealth, injuredMonster.health + heal);
+                            logMessage(`The ${monster.name} heals the ${injuredMonster.name} for ${heal} health!`);
+                            continue; // Skip movement this turn
+                        }
+                    }
+                    
+                    // Ranged enemies attack from distance
+                    if (!monster.melee) {
+                        const distance = Math.max(Math.abs(monster.x - game.player.x), Math.abs(monster.y - game.player.y));
+                        if (distance <= monster.range && distance > 1) {
+                            // Shoot projectile
+                            game.projectiles.push({
+                                x: monster.x,
+                                y: monster.y,
+                                targetX: game.player.x,
+                                targetY: game.player.y,
+                                color: monster.color,
+                                damage: Math.floor(Math.random() * (monster.maxAttack - monster.minAttack + 1)) + monster.minAttack,
+                                source: monster
+                            });
+                            continue; // Skip movement this turn
+                        }
+                    }
+                    
+                    // Calculate direction to player
+                    const dx = Math.sign(game.player.x - monster.x);
+                    const dy = Math.sign(game.player.y - monster.y);
+                    
+                    // Try to move toward player
+                    const newX = monster.x + dx;
+                    const newY = monster.y + dy;
+                    
+                    // Check if move is valid and not into another monster
+                    if (!game.map[newX][newY].blocked && 
+                        !game.monsters.some(m => m !== monster && m.x === newX && m.y === newY) &&
+                        !(newX === game.stairs.x && newY === game.stairs.y)) {
+                        
+                        // Check if moving into player
+                        if (newX === game.player.x && newY === game.player.y) {
+                            combat(monster, game.player);
+                        } else {
+                            monster.x = newX;
+                            monster.y = newY;
+                        }
+                    }
+                } else {
+                    // Wander randomly
+                    if (Math.random() < 0.3) { // 30% chance to move
+                        const directions = [[0,1], [1,0], [0,-1], [-1,0]];
+                        const [dx, dy] = directions[Math.floor(Math.random() * directions.length)];
+                        const newX = monster.x + dx;
+                        const newY = monster.y + dy;
+                        
+                        if (!game.map[newX][newY].blocked && 
+                            !game.monsters.some(m => m !== monster && m.x === newX && m.y === newY) &&
+                            !(newX === game.stairs.x && newY === game.stairs.y) &&
+                            newX !== game.player.x && newY !== game.player.y) {
+                            monster.x = newX;
+                            monster.y = newY;
+                        }
+                    }
+                }
+            }
+            
+            // Update projectiles
+            for (let i = game.projectiles.length - 1; i >= 0; i--) {
+                const projectile = game.projectiles[i];
+                const dx = Math.sign(projectile.targetX - projectile.x);
+                const dy = Math.sign(projectile.targetY - projectile.y);
+                
+                projectile.x += dx;
+                projectile.y += dy;
+                
+                // Check if projectile hit player
+                if (projectile.x === game.player.x && projectile.y === game.player.y) {
+                    game.player.health -= projectile.damage;
+                    logMessage(`The ${projectile.source.name} hits you with a projectile for ${projectile.damage} damage!`);
+                    game.projectiles.splice(i, 1);
+                    
+                    if (game.player.health <= 0) {
+                        gameOver();
+                    }
+                }
+                // Check if projectile hit a wall or went out of bounds
+                else if (projectile.x < 0 || projectile.x >= MAP_WIDTH || 
+                         projectile.y < 0 || projectile.y >= MAP_HEIGHT ||
+                         game.map[projectile.x][projectile.y].blocked) {
+                    game.projectiles.splice(i, 1);
+                }
+                // Check if projectile reached target position
+                else if (projectile.x === projectile.targetX && projectile.y === projectile.targetY) {
+                    game.projectiles.splice(i, 1);
+                }
+            }
+        }
+
+        function combat(attacker, defender) {
+            let minAttack, maxAttack, defense;
+            
+            if (attacker === game.player) {
+                const playerAttack = getPlayerAttack();
+                minAttack = playerAttack.min + getSetBonusAttack();
+                maxAttack = playerAttack.max + getSetBonusAttack();
+                defense = defender.defense;
+            } else {
+                // Monster is attacking
+                minAttack = attacker.minAttack;
+                maxAttack = attacker.maxAttack;
+                defense = getPlayerDefense();
+            }
+            
+            // Calculate damage (random between min and max attack, reduced by defense)
+            const damage = Math.max(1, Math.floor(Math.random() * (maxAttack - minAttack + 1)) + minAttack - defense);
+            defender.health -= damage;
+            
+            if (attacker === game.player) {
+                logMessage(`You hit the ${defender.name} for ${damage} damage.`);
+                if (defender.health <= 0) {
+                    logMessage(`You killed the ${defender.name}!`);
+                    game.player.xp += defender.xp;
+                    game.monstersSlain++;
+                    checkLevelUp();
+                }
+            } else {
+                logMessage(`The ${attacker.name} hits you for ${damage} damage.`);
+                if (defender.health <= 0) {
+                    logMessage("You have been defeated!");
+                    gameOver();
+                }
+            }
+        }
+
+        function checkLevelUp() {
+            if (game.player.xp >= game.player.nextLevelXp) {
+                game.player.level++;
+                game.player.xp -= game.player.nextLevelXp;
+                game.player.nextLevelXp = Math.floor(game.player.nextLevelXp * 1.5);
+                
+                // Increase stats
+                game.player.maxHealth += 5 + getSetBonusHealth();
+                game.player.health = game.player.maxHealth;
+                game.player.baseMinAttack += 1;
+                game.player.baseMaxAttack += 1;
+                game.player.baseDefense += 1;
+                
+                logMessage(`You reached level ${game.player.level}!`);
+                logMessage(`Your health increased to ${game.player.maxHealth}!`);
+                logMessage(`Your attack and defense improved!`);
+            }
+        }
+
+        function nextFloor() {
+            game.floor++;
+            logMessage(`You descend to floor ${game.floor}...`);
+            
+            // Increase player stats slightly when going down stairs
+            game.player.maxHealth += 2 + getSetBonusHealth();
+            game.player.health = Math.min(game.player.health + 2, game.player.maxHealth);
+            
+            // Update floor indicator
+            document.getElementById('floor-indicator').textContent = `Floor ${game.floor}`;
+            
+            // Reset boss UI
+            game.bossActive = false;
+            document.getElementById('boss-name').style.display = 'none';
+            document.getElementById('boss-health-bar').style.display = 'none';
+            
+            // Clear projectiles
+            game.projectiles = [];
+            
+            // Generate new level
+            initializeMap();
+            updateUI();
+            render();
+        }
+
+        function gameOver() {
+            game.gameOver = true;
+            document.getElementById('final-floor').textContent = game.floor;
+            document.getElementById('final-level').textContent = game.player.level;
+            document.getElementById('monsters-slain').textContent = game.monstersSlain;
+            document.getElementById('game-over').style.display = 'block';
+        }
+
+        function restartGame() {
+            // Reset game state
+            game = {
+                map: [],
+                player: {
+                    x: 0,
+                    y: 0,
+                    health: 20,
+                    maxHealth: 20,
+                    minAttack: 2,
+                    maxAttack: 4,
+                    defense: 1,
+                    level: 1,
+                    xp: 0,
+                    nextLevelXp: 10,
+                    inventory: [],
+                    weapon: null,
+                    armor: null,
+                    baseMinAttack: 2,
+                    baseMaxAttack: 4,
+                    baseDefense: 1,
+                    gold: 25,
+                    buffs: [],
+                    discoveredSecrets: 0
+                },
+                monsters: [],
+                items: [],
+                stairs: { x: 0, y: 0 },
+                turn: 0,
+                floor: 1,
+                messages: [],
+                monstersSlain: 0,
+                gameOver: false,
+                autoPickup: true,
+                specialRooms: [],
+                traps: [],
+                levers: [],
+                secretDoors: [],
+                projectiles: [],
+                bossActive: false
+            };
+            
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('auto-pickup-toggle').textContent = 'Auto-Pickup: ON';
+            
+            initializeMap();
+            updateUI();
+            logMessage("Welcome to ASCII Dungeon Crawl!");
+            logMessage("Move with the directional buttons.");
+            logMessage("Pick up items with 'Pick Up' and check inventory with 'Inv'.");
+            logMessage("Find the '>' stairs to go deeper!");
+            logMessage("Use the 'Use' button to interact with levers.");
+            render();
+        }
+
+        function pickupItem() {
+            if (game.gameOver) return;
+            
+            const itemIndex = game.items.findIndex(i => i.x === game.player.x && i.y === game.player.y);
+            if (itemIndex !== -1) {
+                const item = game.items[itemIndex];
+                
+                // Check inventory capacity
+                if (game.player.inventory.length >= 26) {
+                    logMessage("Your inventory is full!");
+                    return;
+                }
+                
+                game.player.inventory.push(item);
+                game.items.splice(itemIndex, 1);
+                logMessage(`You pick up the ${item.name}.`);
+                updateUI();
+            } else {
+                logMessage("There's nothing here to pick up.");
+            }
+        }
+
+        function toggleAutoPickup() {
+            game.autoPickup = !game.autoPickup;
+            document.getElementById('auto-pickup-toggle').textContent = `Auto-Pickup: ${game.autoPickup ? 'ON' : 'OFF'}`;
+            logMessage(`Auto-pickup ${game.autoPickup ? 'enabled' : 'disabled'}.`);
+        }
+
+        function useItem(index) {
+            if (index < 0 || index >= game.player.inventory.length) return;
+            
+            const item = game.player.inventory[index];
+            const itemType = itemTypes[item.type];
+            
+            if (itemType.type === 'potion' || itemType.type === 'scroll' || itemType.type === 'bomb') {
+                if (itemType.use(game.player)) {
+                    game.player.inventory.splice(index, 1); // Remove consumed item
+                    updateUI();
+                    render();
+                }
+            } else if (itemType.type === 'weapon') {
+                // Equip weapon
+                if (game.player.weapon) {
+                    // Put current weapon back in inventory
+                    game.player.inventory.push(game.player.weapon);
+                }
+                game.player.weapon = item;
+                game.player.inventory.splice(index, 1); // Remove from inventory
+                logMessage(`You equip the ${item.name}.`);
+                updateUI();
+            } else if (itemType.type === 'armor' || itemType.type === 'helmet' || itemType.type === 'shield' || itemType.type === 'boots') {
+                // Equip armor
+                if (game.player.armor) {
+                    // Put current armor back in inventory
+                    game.player.inventory.push(game.player.armor);
+                }
+                game.player.armor = item;
+                game.player.inventory.splice(index, 1); // Remove from inventory
+                logMessage(`You equip the ${item.name}.`);
+                updateUI();
+            }
+        }
+
+        function unequipItem(slot) {
+            if (slot === 'weapon' && game.player.weapon) {
+                if (game.player.inventory.length >= 26) {
+                    logMessage("Your inventory is full!");
+                    return;
+                }
+                game.player.inventory.push(game.player.weapon);
+                logMessage(`You unequip the ${game.player.weapon.name}.`);
+                game.player.weapon = null;
+                updateUI();
+            } else if (slot === 'armor' && game.player.armor) {
+                if (game.player.inventory.length >= 26) {
+                    logMessage("Your inventory is full!");
+                    return;
+                }
+                game.player.inventory.push(game.player.armor);
+                logMessage(`You unequip the ${game.player.armor.name}.`);
+                game.player.armor = null;
+                updateUI();
+            }
+        }
+
+        function showInventory() {
+            if (game.gameOver) return;
+            
+            const inventoryList = document.getElementById('inventory-list');
+            const equippedList = document.getElementById('equipped-list');
+            
+            inventoryList.innerHTML = '';
+            equippedList.innerHTML = '';
+            
+            if (game.player.inventory.length === 0) {
+                inventoryList.innerHTML = '<div class="modal-item">Inventory is empty</div>';
+            } else {
+                game.player.inventory.forEach((item, index) => {
+                    const itemElement = document.createElement('div');
+                    itemElement.className = 'modal-item';
+                    
+                    const itemType = itemTypes[item.type];
+                    let itemHTML = item.name;
+                    
+                    if (item.identified) {
+                        if (itemType.type === 'weapon') {
+                            itemHTML += ` <span class="item-details damage-stat">DMG: ${itemType.minAttack}-${itemType.maxAttack}</span>`;
+                        } else if (itemType.type === 'armor' || itemType.type === 'helmet' || itemType.type === 'shield' || itemType.type === 'boots') {
+                            itemHTML += ` <span class="item-details defense-stat">DEF: +${itemType.defense}</span>`;
+                        } else if (itemType.description) {
+                            itemHTML += ` <span class="item-details">${itemType.description}</span>`;
+                        }
+                        
+                        // Show set information
+                        if (itemType.set) {
+                            itemHTML += ` <span class="item-details special-stat">${setBonuses[itemType.set].name}</span>`;
+                        }
+                    } else {
+                        itemHTML += ` <span class="item-details">???</span>`;
+                    }
+                    
+                    itemElement.innerHTML = itemHTML;
+                    itemElement.addEventListener('click', () => {
+                        useItem(index);
+                        hideInventory();
+                    });
+                    inventoryList.appendChild(itemElement);
+                });
+            }
+            
+            // Show equipped items
+            if (game.player.weapon) {
+                const weaponElement = document.createElement('div');
+                weaponElement.className = 'modal-item equipped';
+                const weaponType = itemTypes[game.player.weapon.type];
+                let weaponHTML = `Weapon: ${game.player.weapon.name} <span class="item-details damage-stat">DMG: ${weaponType.minAttack}-${weaponType.maxAttack}</span>`;
+                if (weaponType.set) {
+                    weaponHTML += ` <span class="item-details special-stat">${setBonuses[weaponType.set].name}</span>`;
+                }
+                weaponElement.innerHTML = weaponHTML;
+                weaponElement.addEventListener('click', () => unequipItem('weapon'));
+                equippedList.appendChild(weaponElement);
+            }
+            
+            if (game.player.armor) {
+                const armorElement = document.createElement('div');
+                armorElement.className = 'modal-item equipped';
+                const armorType = itemTypes[game.player.armor.type];
+                let armorHTML = `Armor: ${game.player.armor.name} <span class="item-details defense-stat">DEF: +${armorType.defense}</span>`;
+                if (armorType.set) {
+                    armorHTML += ` <span class="item-details special-stat">${setBonuses[armorType.set].name}</span>`;
+                }
+                armorElement.innerHTML = armorHTML;
+                armorElement.addEventListener('click', () => unequipItem('armor'));
+                equippedList.appendChild(armorElement);
+            }
+            
+            // Show set bonuses if applicable
+            const equippedItems = [game.player.weapon, game.player.armor].filter(item => item !== null);
+            const setCounts = {};
+            
+            for (const item of equippedItems) {
+                const itemSet = itemTypes[item.type].set;
+                if (itemSet) {
+                    setCounts[itemSet] = (setCounts[itemSet] || 0) + 1;
+                }
+            }
+            
+            for (const [setName, count] of Object.entries(setCounts)) {
+                const setBonus = setBonuses[setName];
+                if (setBonus && count >= setBonus.pieces) {
+                    const bonusElement = document.createElement('div');
+                    bonusElement.className = 'modal-item equipped';
+                    bonusElement.innerHTML = `<span class="item-details special-stat">${setBonus.name} Bonus: ${setBonus.bonus}</span>`;
+                    equippedList.appendChild(bonusElement);
+                }
+            }
+            
+            if (!game.player.weapon && !game.player.armor) {
+                equippedList.innerHTML = '<div class="modal-item">Nothing equipped</div>';
+            }
+            
+            document.getElementById('inventory-modal').style.display = 'block';
+        }
+
+        function hideInventory() {
+            document.getElementById('inventory-modal').style.display = 'none';
+        }
+
+        function logMessage(message) {
+            game.messages.push(message);
+            if (game.messages.length > 5) {
+                game.messages.shift();
+            }
+            
+            const messageLog = document.getElementById('message-log');
+            messageLog.innerHTML = '';
+            game.messages.forEach(msg => {
+                const msgElement = document.createElement('div');
+                msgElement.textContent = msg;
+                messageLog.appendChild(msgElement);
+            });
+            messageLog.scrollTop = messageLog.scrollHeight;
+        }
+
+        function updateUI() {
+            document.getElementById('health').textContent = game.player.health;
+            document.getElementById('max-health').textContent = game.player.maxHealth;
+            document.getElementById('health-fill').style.width = `${(game.player.health / game.player.maxHealth) * 100}%`;
+            document.getElementById('player-level').textContent = game.player.level;
+            document.getElementById('xp').textContent = game.player.xp;
+            document.getElementById('next-level-xp').textContent = game.player.nextLevelXp;
+            document.getElementById('xp-fill').style.width = `${(game.player.xp / game.player.nextLevelXp) * 100}%`;
+            document.getElementById('floor').textContent = game.floor;
+            document.getElementById('turn').textContent = game.turn;
+            
+            // Update player combat stats
+            const playerAttack = getPlayerAttack();
+            document.getElementById('player-dmg').textContent = `${playerAttack.min}-${playerAttack.max}`;
+            document.getElementById('player-def').textContent = getPlayerDefense();
+            
+            // Update boss health bar if boss is active
+            if (game.bossActive) {
+                updateBossHealthBar();
+            }
+        }
+
+        // Event listeners
+        document.getElementById('btn-up').addEventListener('click', () => movePlayer(0, -1));
+        document.getElementById('btn-down').addEventListener('click', () => movePlayer(0, 1));
+        document.getElementById('btn-left').addEventListener('click', () => movePlayer(-1, 0));
+        document.getElementById('btn-right').addEventListener('click', () => movePlayer(1, 0));
+        document.getElementById('btn-wait').addEventListener('click', wait);
+        document.getElementById('btn-pickup').addEventListener('click', pickupItem);
+        document.getElementById('btn-interact').addEventListener('click', interact);
+        document.getElementById('btn-inventory').addEventListener('click', showInventory);
+        document.getElementById('close-inventory').addEventListener('click', hideInventory);
+        document.getElementById('restart-btn').addEventListener('click', restartGame);
+        document.getElementById('auto-pickup-toggle').addEventListener('click', toggleAutoPickup);
+
+        // Initialize and start the game
+        initializeMap();
+        updateUI();
+        logMessage("Welcome to ASCII Dungeon Crawl!");
+        logMessage("Move with the directional buttons.");
+        logMessage("Pick up items with 'Pick Up' and check inventory with 'Inv'.");
+        logMessage("Find the '>' stairs to go deeper!");
+        logMessage("Use the 'Use' button to interact with levers.");
+        render();
+    </script>
+</body>
+</html>
