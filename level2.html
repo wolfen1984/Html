@@ -365,20 +365,26 @@
     </div>
 
     <script>
-        // Game state (loaded from localStorage)
-        let gameState = JSON.parse(localStorage.getItem('dreadwoodGameState')) || {
-            playerClass: 'warrior',
-            skill: 10,
-            maxStamina: 18,
-            stamina: 18,
-            luck: 10,
-            gold: 20,
-            inventory: ['Dagger', 'Leather Armor'],
-            weapons: [{name: 'Dagger', damage: '1d6'}],
-            armor: [{name: 'Leather Armor', defense: 1}],
-            currentSection: 0,
-            gameComplete: false
-        };
+        // In level2.html, update the default gameState:
+let gameState = JSON.parse(localStorage.getItem('dreadwoodGameState')) || {
+    playerClass: 'warrior',
+    skill: 10,
+    maxStamina: 18,
+    stamina: 18,
+    luck: 10,
+    gold: 20,
+    inventory: ['Dagger', 'Leather Armor'],
+    weapons: [{name: 'Dagger', damage: '1d6'}],
+    armor: [{name: 'Leather Armor', defense: 1}],
+    currentWeaponIndex: 0,  // NEW: Track which weapon is equipped
+    currentArmorIndex: 0,   // NEW: Track which armor is equipped
+    currentSection: 0,
+    gameComplete: false
+};
+
+// When loading from save, ensure these indices exist
+if (!gameState.currentWeaponIndex) gameState.currentWeaponIndex = gameState.weapons.length - 1;
+if (!gameState.currentArmorIndex) gameState.currentArmorIndex = gameState.armor.length - 1;
         
         // Level 2 story sections - COMPLETE ADVENTURE
         const storySections = {
@@ -1661,35 +1667,40 @@
             document.getElementById('stat-gold').textContent = gameState.gold;
         }
         
-        // Update inventory display
         function updateInventoryDisplay() {
-            const inventoryDiv = document.getElementById('inventory');
-            inventoryDiv.innerHTML = '';
+    const inventoryDiv = document.getElementById('inventory');
+    inventoryDiv.innerHTML = '';
+    
+    // Show current equipped weapon
+    if (gameState.weapons && gameState.weapons.length > 0 && gameState.currentWeaponIndex >= 0) {
+        const weapon = gameState.weapons[gameState.currentWeaponIndex];
+        inventoryDiv.innerHTML += `<span class="inventory-item">${weapon.name} (${weapon.damage})</span>`;
+    }
+    
+    // Show current equipped armor
+    if (gameState.armor && gameState.armor.length > 0 && gameState.currentArmorIndex >= 0) {
+        const armor = gameState.armor[gameState.currentArmorIndex];
+        inventoryDiv.innerHTML += `<span class="inventory-item">${armor.name} (${armor.defense} DEF)</span>`;
+    }
+    
+    // Show gold
+    inventoryDiv.innerHTML += `<span class="inventory-item">${gameState.gold} Gold</span>`;
+    
+    // Show other inventory items
+    if (gameState.inventory) {
+        gameState.inventory.forEach(item => {
+            // Check if this item is currently equipped as a weapon or armor
+            const isEquippedWeapon = gameState.weapons[gameState.currentWeaponIndex] && 
+                gameState.weapons[gameState.currentWeaponIndex].name === item;
+            const isEquippedArmor = gameState.armor[gameState.currentArmorIndex] && 
+                gameState.armor[gameState.currentArmorIndex].name === item;
             
-            // Show current weapon
-            if (gameState.weapons && gameState.weapons.length > 0) {
-                const weapon = gameState.weapons[gameState.weapons.length - 1];
-                inventoryDiv.innerHTML += `<span class="inventory-item">${weapon.name} (${weapon.damage})</span>`;
+            if (!isEquippedWeapon && !isEquippedArmor) {
+                inventoryDiv.innerHTML += `<span class="inventory-item">${item}</span>`;
             }
-            
-            // Show armor
-            if (gameState.armor && gameState.armor.length > 0) {
-                const armor = gameState.armor[gameState.armor.length - 1];
-                inventoryDiv.innerHTML += `<span class="inventory-item">${armor.name} (${armor.defense} DEF)</span>`;
-            }
-            
-            // Show gold
-            inventoryDiv.innerHTML += `<span class="inventory-item">${gameState.gold} Gold</span>`;
-            
-            // Show other inventory items
-            if (gameState.inventory) {
-                gameState.inventory.forEach(item => {
-                    if (item !== 'Dagger' && item !== 'Leather Armor') {
-                        inventoryDiv.innerHTML += `<span class="inventory-item">${item}</span>`;
-                    }
-                });
-            }
-        }
+        });
+    }
+}
         
         // Load story section
         function loadSection(sectionId) {
@@ -1770,18 +1781,19 @@
             resultText += `You attack with ${playerAttack} vs enemy's ${enemyAttack}.<br>`;
             
             if (playerAttack > enemyAttack) {
-                // Calculate damage based on current weapon
-                let damage = 0;
-                if (gameState.weapons && gameState.weapons.length > 0) {
-                    const weapon = gameState.weapons[gameState.weapons.length - 1];
-                    if (weapon.damage === '1d6') damage = rollDiceHelper(1, 6);
-                    else if (weapon.damage === '1d6+1') damage = rollDiceHelper(1, 6) + 1;
-                    else if (weapon.damage === '2d6') damage = rollDiceHelper(2, 6);
-                    else if (weapon.damage === '3d6') damage = rollDiceHelper(3, 6);
-                    else damage = rollDiceHelper(1, 6); // Default
-                } else {
-                    damage = rollDiceHelper(1, 6);
-                }
+                // In startCombat function, replace the damage calculation with:
+let damage = 0;
+if (gameState.weapons && gameState.weapons.length > 0 && gameState.currentWeaponIndex >= 0) {
+    const weapon = gameState.weapons[gameState.currentWeaponIndex];
+    if (weapon.damage === '1d6') damage = rollDiceHelper(1, 6);
+    else if (weapon.damage === '1d6+1') damage = rollDiceHelper(1, 6) + 1;
+    else if (weapon.damage === '1d6+2') damage = rollDiceHelper(1, 6) + 2;
+    else if (weapon.damage === '2d6') damage = rollDiceHelper(2, 6);
+    else if (weapon.damage === '3d6') damage = rollDiceHelper(3, 6);
+    else damage = rollDiceHelper(1, 6);
+} else {
+    damage = rollDiceHelper(1, 6);
+}
                 
                 resultText += `<span class="success">You hit for ${damage} damage!</span>`;
                 
@@ -1906,35 +1918,69 @@
             updateInventoryDisplay();
         }
         
-        // Check inventory
         function checkInventory() {
-            let inventoryText = "<h3>Your Inventory:</h3>";
-            
-            if (gameState.weapons && gameState.weapons.length > 0) {
-                const weapon = gameState.weapons[gameState.weapons.length - 1];
-                inventoryText += `<p><strong>Weapon:</strong> ${weapon.name} (${weapon.damage} damage)</p>`;
-            }
-            
-            if (gameState.armor && gameState.armor.length > 0) {
-                const armor = gameState.armor[gameState.armor.length - 1];
-                inventoryText += `<p><strong>Armor:</strong> ${armor.name} (${armor.defense} DEF)</p>`;
-            }
-            
-            inventoryText += `<p><strong>Gold:</strong> ${gameState.gold}</p>`;
-            
-            if (gameState.inventory && gameState.inventory.length > 0) {
-                inventoryText += `<p><strong>Other Items:</strong> `;
-                const otherItems = gameState.inventory.filter(item => 
-                    item !== 'Dagger' && item !== 'Leather Armor' && 
-                    !gameState.weapons.some(w => w.name === item) &&
-                    !gameState.armor.some(a => a.name === item)
-                );
-                inventoryText += otherItems.join(', ') || 'None';
-                inventoryText += `</p>`;
-            }
-            
-            document.getElementById('story-text').innerHTML += `<div class="dice-roll">${inventoryText}</div>`;
+    let inventoryText = "<h3>Your Inventory:</h3>";
+    
+    // Show all weapons with option to equip
+    inventoryText += "<p><strong>Weapons:</strong><br>";
+    gameState.weapons.forEach((weapon, index) => {
+        const isEquipped = index === gameState.currentWeaponIndex;
+        inventoryText += `${isEquipped ? "→ " : ""}${weapon.name} (${weapon.damage} damage)`;
+        if (!isEquipped) {
+            inventoryText += ` <button onclick="equipWeapon(${index})" style="font-size:10px; padding:2px 5px;">Equip</button>`;
         }
+        inventoryText += "<br>";
+    });
+    inventoryText += "</p>";
+    
+    // Show all armor with option to equip
+    inventoryText += "<p><strong>Armor:</strong><br>";
+    gameState.armor.forEach((armor, index) => {
+        const isEquipped = index === gameState.currentArmorIndex;
+        inventoryText += `${isEquipped ? "→ " : ""}${armor.name} (${armor.defense} DEF)`;
+        if (!isEquipped) {
+            inventoryText += ` <button onclick="equipArmor(${index})" style="font-size:10px; padding:2px 5px;">Equip</button>`;
+        }
+        inventoryText += "<br>";
+    });
+    inventoryText += "</p>";
+    
+    inventoryText += `<p><strong>Gold:</strong> ${gameState.gold}</p>`;
+    
+    // Show other items
+    if (gameState.inventory && gameState.inventory.length > 0) {
+        inventoryText += `<p><strong>Other Items:</strong> `;
+        const otherItems = gameState.inventory.filter(item => {
+            // Don't show items that are weapons/armor
+            const isWeapon = gameState.weapons.some(w => w.name === item);
+            const isArmor = gameState.armor.some(a => a.name === item);
+            return !isWeapon && !isArmor;
+        });
+        inventoryText += otherItems.join(', ') || 'None';
+        inventoryText += `</p>`;
+    }
+    
+    document.getElementById('story-text').innerHTML += `<div class="dice-roll">${inventoryText}</div>`;
+}
+
+// New functions to equip items
+function equipWeapon(index) {
+    if (index >= 0 && index < gameState.weapons.length) {
+        gameState.currentWeaponIndex = index;
+        updateInventoryDisplay();
+        document.getElementById('story-text').innerHTML += `<div class="dice-roll">Equipped ${gameState.weapons[index].name}!</div>`;
+        saveGame();
+    }
+}
+
+function equipArmor(index) {
+    if (index >= 0 && index < gameState.armor.length) {
+        gameState.currentArmorIndex = index;
+        updateInventoryDisplay();
+        document.getElementById('story-text').innerHTML += `<div class="dice-roll">Equipped ${gameState.armor[index].name}!</div>`;
+        saveGame();
+    }
+}
         
         // Save game
         function saveGame() {
