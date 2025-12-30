@@ -1640,12 +1640,28 @@ const continueExploring = document.getElementById('continueExploring');
 // Sound manager instance
 const soundManager = new SoundManager();
 
-// Initialize game
+// Initialize game - UPDATED VERSION
 function initGame() {
-    console.log("Initializing game...");
+    console.log("Initializing Level 1...");
     
-    // Check for saved game state
-    loadGameState();
+    // First try to load saved game state
+    if (!loadGameState()) {
+        // If no save exists, start fresh with default Level 1 state
+        gameState.currentLevel = 1;
+        gameState.currentSection = 1;
+        gameState.fear = 0;
+        gameState.stamina = 20;
+        gameState.skill = 7;
+        gameState.luck = 12;
+        gameState.inventory = [];
+        gameState.equippedWeapon = null;
+        gameState.gold = 0;
+        gameState.visitedSections = [];
+        gameState.levelsCompleted = [];
+        
+        // Save initial state
+        saveGameState();
+    }
     
     // Initialize sound manager on first user interaction
     document.addEventListener('click', () => {
@@ -1657,7 +1673,6 @@ function initGame() {
     simulateLoading();
     setupEventListeners();
 }
-
 // Simulate loading
 function simulateLoading() {
     let progress = 0;
@@ -1792,7 +1807,7 @@ function setupEventListeners() {
 // MULTI-PAGE SYSTEM FUNCTIONS
 // ============================================
 
-// Save game state to localStorage
+// Save game state to localStorage - ENSURE THIS WORKS
 function saveGameState() {
     try {
         const saveData = {
@@ -1811,29 +1826,30 @@ function saveGameState() {
         };
         
         localStorage.setItem('houseOfHellSave', JSON.stringify(saveData));
-        console.log("Game state saved to localStorage");
+        console.log("Game state saved to localStorage for Level", gameState.currentLevel);
         return true;
     } catch (e) {
         console.error("Failed to save game state:", e);
+        showNotification("Save Error", "Could not save game progress", "info");
         return false;
     }
 }
 
-// Load game state from localStorage
+// Load game state from localStorage - FIXED VERSION
 function loadGameState() {
     try {
         const saved = localStorage.getItem('houseOfHellSave');
         if (saved) {
             const saveData = JSON.parse(saved);
             
-            // Only load if we're on the same level or lower
-            if (saveData.currentLevel >= gameState.currentLevel) {
-                Object.assign(gameState, saveData);
-                console.log("Game state loaded from localStorage");
-                return true;
-            } else {
-                console.log("Save data is for a different level, starting fresh");
-            }
+            // REMOVE the level check - always load saved state
+            Object.assign(gameState, saveData);
+            
+            // Ensure we're on the right level for this page
+            gameState.currentLevel = 1;
+            
+            console.log("Game state loaded from localStorage");
+            return true;
         }
     } catch (e) {
         console.error("Failed to load game state:", e);
@@ -1863,21 +1879,28 @@ function completeLevel() {
     levelComplete.classList.remove('hidden');
 }
 
-// Go to next level
+// Go to next level - UPDATED VERSION
 function goToNextLevel() {
     const nextLevel = gameState.currentLevel + 1;
+    
+    // Make sure Level 1 is marked as completed
+    if (!gameState.levelsCompleted.includes(1)) {
+        gameState.levelsCompleted.push(1);
+    }
     
     // Save current state before navigating
     saveGameState();
     
     // Navigate to next level page
     soundManager.play('menu_open');
+    showNotification("Progress Saved", `Moving to Level ${nextLevel}...`, "info");
+    
     setTimeout(() => {
         window.location.href = `level${nextLevel}.html`;
-    }, 500);
+    }, 1000);
 }
 
-// Show level selector
+// Show level selector - IMPROVED VERSION
 function showLevelSelector() {
     const dialogTitle = document.getElementById('dialogTitle');
     const dialogText = document.getElementById('dialogText');
@@ -1889,13 +1912,31 @@ function showLevelSelector() {
     
     dialogOptions.innerHTML = '';
     
+    // Load the latest saved state first to check progress
+    const saved = localStorage.getItem('houseOfHellSave');
+    let savedLevelsCompleted = [];
+    if (saved) {
+        try {
+            const saveData = JSON.parse(saved);
+            savedLevelsCompleted = saveData.levelsCompleted || [];
+        } catch (e) {
+            console.error("Error reading save data:", e);
+        }
+    }
+    
     // Create level buttons (for up to 4 levels)
     for (let i = 1; i <= 4; i++) {
         const levelBtn = document.createElement('button');
         levelBtn.className = 'dialog-option';
-        levelBtn.innerHTML = `<i class="fas fa-map"></i> Level ${i} ${gameState.levelsCompleted.includes(i) ? '(Completed)' : ''}`;
         
-        if (i > gameState.currentLevel && !gameState.levelsCompleted.includes(i-1)) {
+        // Check if level is unlocked
+        const isUnlocked = i === 1 || savedLevelsCompleted.includes(i-1);
+        
+        if (isUnlocked) {
+            levelBtn.innerHTML = `<i class="fas fa-map"></i> Level ${i} ${savedLevelsCompleted.includes(i) ? '(Completed)' : ''}`;
+            levelBtn.disabled = false;
+        } else {
+            levelBtn.innerHTML = `<i class="fas fa-map"></i> Level ${i} (Locked)`;
             levelBtn.disabled = true;
             levelBtn.title = "Complete previous level first";
         }
@@ -1903,18 +1944,17 @@ function showLevelSelector() {
         if (!levelBtn.disabled) {
             levelBtn.addEventListener('click', () => {
                 soundManager.play('click');
-                if (i !== gameState.currentLevel) {
-                    // Save current game
+                if (i !== 1) { // If not current level
+                    // Save current game state
                     saveGameState();
                     
                     // Navigate to selected level
                     setTimeout(() => {
-                        if (i === 1) {
-                            window.location.href = 'level1.html';
-                        } else {
-                            window.location.href = `level${i}.html`;
-                        }
+                        window.location.href = `level${i}.html`;
                     }, 300);
+                } else {
+                    // If clicking current level, just close dialog
+                    showNotification("Already Here", "You are already on Level 1", "info");
                 }
                 dialogPanel.classList.add('hidden');
             });
@@ -2793,10 +2833,14 @@ function showHint() {
     showNotification("Hint", randomHint, "info");
 }
 
-// Restart game
-function restartGame() {
-    if (confirm("Are you sure you want to restart? All progress for this level will be lost.")) {
-        // Reset game state for this level
+// Initialize game - UPDATED VERSION
+function initGame() {
+    console.log("Initializing Level 1...");
+    
+    // First try to load saved game state
+    if (!loadGameState()) {
+        // If no save exists, start fresh with default Level 1 state
+        gameState.currentLevel = 1;
         gameState.currentSection = 1;
         gameState.fear = 0;
         gameState.stamina = 20;
@@ -2805,29 +2849,22 @@ function restartGame() {
         gameState.inventory = [];
         gameState.equippedWeapon = null;
         gameState.gold = 0;
-        gameState.inCombat = false;
-        gameState.inDialog = false;
-        gameState.combatData = null;
-        gameState.npcData = null;
-        gameState.inventoryOpen = false;
         gameState.visitedSections = [];
+        gameState.levelsCompleted = [];
         
-        // Close panels
-        combatPanel.classList.add('hidden');
-        inventoryPanel.classList.add('hidden');
-        levelComplete.classList.add('hidden');
-        
-        // Clear localStorage for this level only
-        localStorage.removeItem('houseOfHellSave');
-        
-        // Reload first section
-        loadSection(1);
-        updateInventoryDisplay();
-        updateStats();
-        
-        showNotification("Game Restarted", "Your adventure begins anew.", "info");
-        soundManager.play('menu_open');
+        // Save initial state
+        saveGameState();
     }
+    
+    // Initialize sound manager on first user interaction
+    document.addEventListener('click', () => {
+        if (!soundManager.initialized) {
+            soundManager.init();
+        }
+    }, { once: true });
+    
+    simulateLoading();
+    setupEventListeners();
 }
 
 // Start the game
