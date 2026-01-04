@@ -1,0 +1,3814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tower of Terror (1982) - Nightfalls Games</title>
+    <link href="https://fonts.googleapis.com/css?family=Press+Start+2P" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            font-family: 'Press Start 2P', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+            background-color: #0a0a0a;
+            color: #ff4444;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            padding: 5px;
+            touch-action: manipulation;
+        }
+        #header {
+            text-align: center;
+            border-bottom: 2px solid #ff4444;
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+            flex-shrink: 0;
+        }
+        #game-container {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+        #output {
+            flex-grow: 1;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            border: 1px solid #ff4444;
+            padding: 8px;
+            margin-bottom: 8px;
+            background-color: #111;
+            -webkit-overflow-scrolling: touch;
+        }
+        #input-line {
+            display: flex;
+            flex-shrink: 0;
+            align-items: center;
+        }
+        #prompt {
+            margin-right: 8px;
+            white-space: nowrap;
+        }
+        #input {
+            flex-grow: 1;
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid #ff4444;
+            color: #ff4444;
+            font-family: inherit;
+            font-size: inherit;
+            outline: none;
+            padding: 4px 0;
+        }
+        #status {
+            border-top: 1px solid #ff4444;
+            padding-top: 8px;
+            margin-top: 8px;
+            flex-shrink: 0;
+            white-space: pre;
+            font-size: 10px;
+        }
+        .command {
+            color: #ff69b4;
+        }
+        .error {
+            color: #ff0000;
+        }
+        .item {
+            color: #00ffff;
+        }
+        .enemy {
+            color: #ff4444;
+        }
+        .npc {
+            color: #ffd700;
+        }
+        .success {
+            color: #7cfc00;
+        }
+        .quest {
+            color: #ff69b4;
+        }
+        .loot {
+            color: #ffa500;
+        }
+        .system {
+            color: #888;
+        }
+        .damage {
+            color: #ff4500;
+        }
+        .heal {
+            color: #32cd32;
+        }
+        .puzzle {
+            color: #9370db;
+        }
+        .equipped {
+            color: #00ff7f;
+            font-weight: bold;
+        }
+        .secret {
+            color: #da70d6;
+            font-style: italic;
+        }
+        .trap {
+            color: #ff1493;
+        }
+        .corpse {
+            color: #8b4513;
+        }
+        .ghost {
+            color: #e6e6fa;
+        }
+        #sound-toggle {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: #000;
+            border: 1px solid #ff4444;
+            color: #ff4444;
+            padding: 4px 8px;
+            font-size: 10px;
+            cursor: pointer;
+            z-index: 1000;
+        }
+        .quick-command {
+            display: inline-block;
+            background: #222;
+            border: 1px solid #ff4444;
+            color: #ff4444;
+            padding: 2px 6px;
+            margin: 2px;
+            cursor: pointer;
+            font-size: 10px;
+        }
+        #quick-commands {
+            margin-top: 8px;
+            text-align: center;
+        }
+        #volume-control {
+            position: fixed;
+            top: 40px;
+            right: 10px;
+            background: #000;
+            border: 1px solid #ff4444;
+            color: #ff4444;
+            padding: 4px;
+            font-size: 10px;
+            z-index: 999;
+        }
+        #volume-slider {
+            width: 80px;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <button id="sound-toggle">🔊 ON</button>
+    <div id="volume-control">
+        <div>Volume:</div>
+        <input type="range" id="volume-slider" min="0" max="100" value="70">
+    </div>
+    <div id="header">
+        <h1>TOWER OF TERROR</h1>
+        <div>1982 • NIGHTFALLS GAMES</div>
+    </div>
+    <div id="game-container">
+        <div id="output">Welcome to Tower of Terror! Type 'help' for commands.</div>
+        <div id="input-line">
+            <span id="prompt">&gt;</span>
+            <input type="text" id="input" autocomplete="off" autofocus>
+        </div>
+        <div id="quick-commands">
+            <span class="quick-command" onclick="quickCommand('n')">N</span>
+            <span class="quick-command" onclick="quickCommand('s')">S</span>
+            <span class="quick-command" onclick="quickCommand('e')">E</span>
+            <span class="quick-command" onclick="quickCommand('w')">W</span>
+            <span class="quick-command" onclick="quickCommand('look')">LOOK</span>
+            <span class="quick-command" onclick="quickCommand('inventory')">INV</span>
+            <span class="quick-command" onclick="quickCommand('stats')">STATS</span>
+        </div>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        // ==================== TOWER SOUND SYSTEM ====================
+        class TowerSoundSystem {
+            constructor() {
+                this.audioContext = null;
+                this.masterGain = null;
+                this.bgGain = null;
+                this.sfxGain = null;
+                this.enabled = true;
+                this.currentBg = null;
+                this.currentBgSource = null;
+                this.currentBgName = null;
+                
+                this.init();
+            }
+            
+            init() {
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.masterGain = this.audioContext.createGain();
+                    this.bgGain = this.audioContext.createGain();
+                    this.sfxGain = this.audioContext.createGain();
+                    
+                    // Set initial volumes
+                    this.masterGain.gain.value = 0.7;
+                    this.bgGain.gain.value = 0.2;
+                    this.sfxGain.gain.value = 0.5;
+                    
+                    // Connect nodes
+                    this.bgGain.connect(this.masterGain);
+                    this.sfxGain.connect(this.masterGain);
+                    this.masterGain.connect(this.audioContext.destination);
+                    
+                    // Volume control
+                    document.getElementById('volume-slider').addEventListener('input', (e) => {
+                        const volume = e.target.value / 100;
+                        this.setMasterVolume(volume);
+                    });
+                    
+                } catch (e) {
+                    console.log('Web Audio API not supported:', e);
+                    this.enabled = false;
+                }
+            }
+            
+            // ==================== TOWER HORROR MUSIC ====================
+            playBackground(musicName, loop = true) {
+                if (!this.enabled || !musicName) return;
+                
+                // Don't restart same music
+                if (this.currentBgName === musicName && this.currentBgSource) {
+                    return;
+                }
+                
+                // Stop current background
+                this.stopBackground();
+                
+                this.currentBgName = musicName;
+                
+                // Generate tower horror music based on name
+                switch(musicName) {
+                    case 'main_theme':
+                        this.playTowerTheme(loop);
+                        break;
+                    case 'lobby':
+                        this.playLobbyMusic(loop);
+                        break;
+                    case 'stairwell':
+                        this.playStairwellMusic(loop);
+                        break;
+                    case 'library':
+                        this.playLibraryMusic(loop);
+                        break;
+                    case 'laboratory':
+                        this.playLaboratoryMusic(loop);
+                        break;
+                    case 'observatory':
+                        this.playObservatoryMusic(loop);
+                        break;
+                    case 'dungeon':
+                        this.playDungeonMusic(loop);
+                        break;
+                    case 'escape_theme':
+                        this.playEscapeTheme(loop);
+                        break;
+                    case 'victory':
+                        this.playVictoryMusic(loop);
+                        break;
+                    default:
+                        this.playTowerTheme(loop);
+                }
+            }
+            
+            playTowerTheme(loop) {
+                const melody = [
+                    {note: 87.31, duration: 0.5},
+                    {note: 65.41, duration: 0.25},
+                    {note: 77.78, duration: 0.5},
+                    {note: 58.27, duration: 0.25},
+                    {note: 69.30, duration: 1.0},
+                ];
+                
+                this.playTowerMelody(melody, 'sawtooth', loop, 0.15);
+            }
+            
+            playLobbyMusic(loop) {
+                const melody = [
+                    {note: 82.41, duration: 0.3},
+                    {note: 73.42, duration: 0.3},
+                    {note: 61.74, duration: 0.3},
+                    {note: 77.78, duration: 0.6},
+                ];
+                
+                this.playTowerMelody(melody, 'triangle', loop, 0.12);
+            }
+            
+            playStairwellMusic(loop) {
+                const melody = [
+                    {note: 98.00, duration: 0.2},
+                    {note: 87.31, duration: 0.2},
+                    {note: 77.78, duration: 0.2},
+                    {note: 73.42, duration: 0.2},
+                    {note: 65.41, duration: 0.2},
+                ];
+                
+                this.playTowerMelody(melody, 'sine', loop, 0.1);
+            }
+            
+            playLibraryMusic(loop) {
+                const melody = [
+                    {note: 110.00, duration: 0.4},
+                    {note: 103.83, duration: 0.2},
+                    {note: 92.50, duration: 0.4},
+                    {note: 87.31, duration: 0.2},
+                    {note: 82.41, duration: 0.8},
+                ];
+                
+                this.playTowerMelody(melody, 'square', loop, 0.13);
+            }
+            
+            playLaboratoryMusic(loop) {
+                const melody = [
+                    {note: 130.81, duration: 0.15},
+                    {note: 123.47, duration: 0.15},
+                    {note: 116.54, duration: 0.15},
+                    {note: 110.00, duration: 0.15},
+                    {note: 103.83, duration: 0.15},
+                ];
+                
+                this.playTowerMelody(melody, 'sawtooth', loop, 0.14);
+            }
+            
+            playObservatoryMusic(loop) {
+                const melody = [
+                    {note: 196.00, duration: 0.3},
+                    {note: 174.61, duration: 0.2},
+                    {note: 155.56, duration: 0.3},
+                    {note: 146.83, duration: 0.2},
+                    {note: 130.81, duration: 0.6},
+                ];
+                
+                this.playTowerMelody(melody, 'sine', loop, 0.15);
+            }
+            
+            playDungeonMusic(loop) {
+                const melody = [
+                    {note: 73.42, duration: 0.4},
+                    {note: 65.41, duration: 0.4},
+                    {note: 58.27, duration: 0.4},
+                    {note: 51.91, duration: 0.8},
+                ];
+                
+                this.playTowerMelody(melody, 'square', loop, 0.16);
+            }
+            
+            playEscapeTheme(loop) {
+                const melody = [
+                    {note: 261.63, duration: 0.2},
+                    {note: 329.63, duration: 0.2},
+                    {note: 392.00, duration: 0.2},
+                    {note: 493.88, duration: 0.3},
+                    {note: 523.25, duration: 0.4},
+                ];
+                
+                this.playTowerMelody(melody, 'sine', loop, 0.2);
+            }
+            
+            playVictoryMusic(loop) {
+                const melody = [
+                    {note: 392.00, duration: 0.2},
+                    {note: 493.88, duration: 0.2},
+                    {note: 587.33, duration: 0.2},
+                    {note: 659.25, duration: 0.3},
+                    {note: 783.99, duration: 0.4},
+                ];
+                
+                this.playTowerMelody(melody, 'sine', loop, 0.25);
+            }
+            
+            playTowerMelody(melody, waveType, loop, volume) {
+                if (!this.enabled) return;
+                
+                const now = this.audioContext.currentTime;
+                const source = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                source.type = waveType;
+                gainNode.connect(this.bgGain);
+                source.connect(gainNode);
+                
+                let currentTime = now;
+                melody.forEach((note, index) => {
+                    source.frequency.setValueAtTime(note.note, currentTime);
+                    
+                    gainNode.gain.setValueAtTime(0, currentTime);
+                    gainNode.gain.linearRampToValueAtTime(volume, currentTime + 0.08);
+                    gainNode.gain.exponentialRampToValueAtTime(volume * 0.2, currentTime + note.duration - 0.08);
+                    gainNode.gain.linearRampToValueAtTime(0, currentTime + note.duration);
+                    
+                    currentTime += note.duration;
+                });
+                
+                if (loop) {
+                    source.start(now);
+                    source.stop(now + currentTime - now);
+                    
+                    this.currentBg = setTimeout(() => {
+                        this.playTowerMelody(melody, waveType, loop, volume);
+                    }, (currentTime - now) * 1000);
+                } else {
+                    source.start(now);
+                    source.stop(now + currentTime - now);
+                }
+                
+                this.currentBgSource = source;
+            }
+            
+            stopBackground() {
+                if (this.currentBg) {
+                    clearTimeout(this.currentBg);
+                    this.currentBg = null;
+                }
+                if (this.currentBgSource) {
+                    try {
+                        this.currentBgSource.stop();
+                    } catch (e) {}
+                    this.currentBgSource = null;
+                }
+                this.currentBgName = null;
+            }
+            
+            // ==================== TOWER SOUND EFFECTS ====================
+            playSound(soundName, volume = 1.0) {
+                if (!this.enabled) return;
+                
+                switch(soundName) {
+                    case 'click':
+                        this.playTowerClick(volume);
+                        break;
+                    case 'notification':
+                        this.playTowerNotification(volume);
+                        break;
+                    case 'attack':
+                        this.playTowerAttack(volume);
+                        break;
+                    case 'enemyHit':
+                        this.playTowerEnemyHit(volume);
+                        break;
+                    case 'playerHit':
+                        this.playTowerPlayerHit(volume);
+                        break;
+                    case 'victory':
+                        this.playTowerVictory(volume);
+                        break;
+                    case 'pickup':
+                        this.playTowerPickup(volume);
+                        break;
+                    case 'door':
+                        this.playTowerDoor(volume);
+                        break;
+                    case 'step':
+                        this.playTowerStep(volume);
+                        break;
+                    case 'puzzle':
+                        this.playTowerPuzzle(volume);
+                        break;
+                    case 'error':
+                        this.playTowerError(volume);
+                        break;
+                    case 'equip':
+                        this.playTowerEquip(volume);
+                        break;
+                    case 'trap':
+                        this.playTowerTrapSound(volume);
+                        break;
+                    case 'chains':
+                        this.playChainsSound(volume);
+                        break;
+                    case 'moan':
+                        this.playGhostMoan(volume);
+                        break;
+                    case 'wind':
+                        this.playTowerWind(volume);
+                        break;
+                    case 'creak':
+                        this.playFloorCreak(volume);
+                        break;
+                    case 'thunder':
+                        this.playThunder(volume);
+                        break;
+                    case 'clock':
+                        this.playClockTick(volume);
+                        break;
+                    case 'elevator':
+                        this.playElevator(volume);
+                        break;
+                    case 'spell':
+                        this.playWizardSpell(volume);
+                        break;
+                    case 'secret':
+                        this.playSecretReveal(volume);
+                        break;
+                    case 'machine':
+                        this.playMachineHum(volume);
+                        break;
+                    case 'whisper':
+                        this.playGhostWhisper(volume);
+                        break;
+                }
+            }
+            
+            playTowerClick(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(800, now);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+            }
+            
+            playTowerNotification(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(400, now);
+                oscillator.frequency.exponentialRampToValueAtTime(600, now + 0.3);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+            }
+            
+            playTowerAttack(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(400, now);
+                oscillator.frequency.exponentialRampToValueAtTime(150, now + 0.2);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.5, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.2);
+            }
+            
+            playTowerEnemyHit(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(200, now);
+                oscillator.frequency.exponentialRampToValueAtTime(80, now + 0.3);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.6, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+            }
+            
+            playTowerPlayerHit(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(260, now);
+                oscillator.frequency.exponentialRampToValueAtTime(150, now + 0.2);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.5, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.2);
+            }
+            
+            playTowerVictory(volume) {
+                const now = this.audioContext.currentTime;
+                
+                const notes = [
+                    {freq: 659.25, time: 0.0, duration: 0.2},
+                    {freq: 783.99, time: 0.2, duration: 0.2},
+                    {freq: 987.77, time: 0.4, duration: 0.2},
+                    {freq: 1318.51, time: 0.6, duration: 0.5},
+                ];
+                
+                notes.forEach(note => {
+                    const oscillator = this.audioContext.createOscillator();
+                    const gainNode = this.audioContext.createGain();
+                    
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(note.freq, now + note.time);
+                    
+                    gainNode.gain.setValueAtTime(0, now + note.time);
+                    gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + note.time + 0.05);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + note.time + note.duration);
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(this.sfxGain);
+                    
+                    oscillator.start(now + note.time);
+                    oscillator.stop(now + note.time + note.duration);
+                });
+            }
+            
+            playTowerPickup(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(1200, now);
+                oscillator.frequency.exponentialRampToValueAtTime(1800, now + 0.1);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+            }
+            
+            playTowerDoor(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(240, now);
+                oscillator.frequency.exponentialRampToValueAtTime(130, now + 0.5);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.1);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.5);
+            }
+            
+            playTowerStep(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(500, now);
+                oscillator.frequency.exponentialRampToValueAtTime(250, now + 0.1);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.2, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+            }
+            
+            playTowerPuzzle(volume) {
+                const now = this.audioContext.currentTime;
+                
+                const notes = [349, 440, 523, 698];
+                
+                notes.forEach((note, index) => {
+                    const oscillator = this.audioContext.createOscillator();
+                    const gainNode = this.audioContext.createGain();
+                    
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(note, now + (index * 0.15));
+                    
+                    gainNode.gain.setValueAtTime(0, now + (index * 0.15));
+                    gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + (index * 0.15) + 0.05);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + (index * 0.15) + 0.2);
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(this.sfxGain);
+                    
+                    oscillator.start(now + (index * 0.15));
+                    oscillator.stop(now + (index * 0.15) + 0.2);
+                });
+            }
+            
+            playTowerError(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(140, now);
+                oscillator.frequency.setValueAtTime(120, now + 0.1);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+            }
+            
+            playTowerEquip(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(750, now);
+                oscillator.frequency.exponentialRampToValueAtTime(550, now + 0.2);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.2);
+            }
+            
+            playTowerTrapSound(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(100, now);
+                oscillator.frequency.exponentialRampToValueAtTime(60, now + 0.3);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.6, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+            }
+            
+            playChainsSound(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator1 = this.audioContext.createOscillator();
+                const oscillator2 = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator1.type = 'square';
+                oscillator2.type = 'square';
+                oscillator1.frequency.setValueAtTime(240, now);
+                oscillator2.frequency.setValueAtTime(243, now);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                
+                oscillator1.connect(gainNode);
+                oscillator2.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator1.start(now);
+                oscillator2.start(now);
+                oscillator1.stop(now + 0.5);
+                oscillator2.stop(now + 0.5);
+            }
+            
+            playGhostMoan(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(220, now);
+                oscillator.frequency.exponentialRampToValueAtTime(170, now + 1.0);
+                oscillator.frequency.setValueAtTime(200, now + 1.2);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.2);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 2.0);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 2.0);
+            }
+            
+            playTowerWind(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(170, now);
+                oscillator.frequency.exponentialRampToValueAtTime(270, now + 3.0);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.2, now + 0.5);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 3.0);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 3.0);
+            }
+            
+            playFloorCreak(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(120, now);
+                oscillator.frequency.exponentialRampToValueAtTime(80, now + 0.3);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.5);
+            }
+            
+            playThunder(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(60, now);
+                oscillator.frequency.exponentialRampToValueAtTime(30, now + 1.0);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.7, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 1.5);
+            }
+            
+            playClockTick(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(1000, now);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.2, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.05);
+            }
+            
+            playElevator(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(300, now);
+                oscillator.frequency.exponentialRampToValueAtTime(150, now + 2.0);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.2);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 2.0);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 2.0);
+            }
+            
+            playWizardSpell(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(900, now);
+                oscillator.frequency.exponentialRampToValueAtTime(1800, now + 0.5);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.5, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.5);
+            }
+            
+            playSecretReveal(volume) {
+                const now = this.audioContext.currentTime;
+                
+                const notes = [698, 830, 1046, 1396];
+                
+                notes.forEach((note, index) => {
+                    const oscillator = this.audioContext.createOscillator();
+                    const gainNode = this.audioContext.createGain();
+                    
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(note, now + (index * 0.1));
+                    
+                    gainNode.gain.setValueAtTime(0, now + (index * 0.1));
+                    gainNode.gain.linearRampToValueAtTime(volume * 0.2, now + (index * 0.1) + 0.05);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + (index * 0.1) + 0.15);
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(this.sfxGain);
+                    
+                    oscillator.start(now + (index * 0.1));
+                    oscillator.stop(now + (index * 0.1) + 0.15);
+                });
+            }
+            
+            playMachineHum(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(110, now);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.15, now + 0.5);
+                gainNode.gain.setValueAtTime(volume * 0.15, now + 2.0);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 2.5);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 2.5);
+            }
+            
+            playGhostWhisper(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(500, now);
+                oscillator.frequency.exponentialRampToValueAtTime(300, now + 1.0);
+                oscillator.frequency.setValueAtTime(400, now + 1.5);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.3);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 2.0);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 2.0);
+            }
+            
+            // ==================== UTILITY METHODS ====================
+            setMasterVolume(volume) {
+                if (this.masterGain) {
+                    this.masterGain.gain.value = Math.max(0, Math.min(1, volume));
+                }
+            }
+            
+            toggle() {
+                this.enabled = !this.enabled;
+                const toggleBtn = document.getElementById('sound-toggle');
+                toggleBtn.textContent = this.enabled ? '🔊 ON' : '🔇 OFF';
+                
+                if (!this.enabled) {
+                    this.stopBackground();
+                } else if (gameStarted) {
+                    this.playBackground(currentBackground);
+                }
+                
+                this.playSound('click');
+            }
+            
+            resumeAudioContext() {
+                if (this.audioContext && this.audioContext.state === 'suspended') {
+                    this.audioContext.resume();
+                }
+            }
+        }
+
+        // ==================== SURVIVOR CLASSES ====================
+        const classes = {
+            soldier: { 
+                hp: 50, mp: 10, str: 10, def: 8, int: 2,
+                desc: "A military survivor who entered the tower on a rescue mission. Strong and heavily armored.",
+                startingItems: ['combat_knife', 'flashlight']
+            },
+            explorer: { 
+                hp: 40, mp: 20, str: 7, def: 5, int: 7,
+                desc: "An urban explorer who came to investigate the haunted tower. Agile and perceptive.",
+                startingItems: ['lockpick_set', 'climbing_rope']
+            },
+            scientist: { 
+                hp: 35, mp: 40, str: 4, def: 4, int: 10,
+                desc: "A paranormal researcher studying the tower's anomalies. Weak but knowledgeable.",
+                startingItems: ['emf_reader', 'chemical_flare']
+            }
+        };
+
+        // ==================== 30 TOWER FLOORS ====================
+        const rooms = [
+            { // Floor 0: Entrance Lobby
+                id: 0,
+                name: "ENTRANCE LOBBY",
+                desc: "The grand lobby of the tower. Dust covers everything. The elevator is broken, stairs lead up.",
+                sound: 'main_theme',
+                exits: { n: 1, s: null, e: null, w: null },
+                items: ['broken_elevator_button'],
+                npc: null,
+                enemy: 'lobby_ghoul',
+                container: 'reception_desk',
+                puzzle: 'stair_access',
+                dark: false,
+                locked: false,
+                trap: 'collapsing_chandelier',
+                secret: null,
+                floor: 0
+            },
+            { // Floor 1: Abandoned Offices
+                id: 1,
+                name: "ABANDONED OFFICES",
+                desc: "Empty cubicles and overturned chairs. Papers are scattered everywhere.",
+                sound: 'lobby',
+                exits: { n: 2, s: 0, e: 3, w: 4 },
+                items: ['paperweight'],
+                npc: 'office_ghost',
+                enemy: null,
+                container: 'filing_cabinet',
+                puzzle: null,
+                dark: true,
+                locked: false,
+                trap: 'collapsing_ceiling',
+                secret: null,
+                floor: 1
+            },
+            { // Floor 2: Maintenance Level
+                id: 2,
+                name: "MAINTENANCE LEVEL",
+                desc: "Pipes and machinery line the walls. The air smells of rust and ozone.",
+                sound: 'lobby',
+                exits: { n: 5, s: 1, e: null, w: null },
+                items: ['wrench'],
+                npc: null,
+                enemy: 'maintenance_demon',
+                container: 'tool_locker',
+                puzzle: 'power_restoration',
+                dark: true,
+                locked: true,
+                trap: 'steam_blast',
+                secret: null,
+                floor: 2
+            },
+            { // Floor 3: Library
+                id: 3,
+                name: "FORBIDDEN LIBRARY",
+                desc: "Ancient books line dusty shelves. Some glow with eerie energy.",
+                sound: 'library',
+                exits: { n: 6, s: null, e: null, w: 1 },
+                items: ['forbidden_tome'],
+                npc: 'librarian_ghost',
+                enemy: null,
+                container: 'study_desk',
+                puzzle: 'book_riddle',
+                dark: true,
+                locked: false,
+                trap: 'animated_books',
+                secret: 'secret_passage',
+                floor: 3
+            },
+            { // Floor 4: Storage Rooms
+                id: 4,
+                name: "STORAGE ROOMS",
+                desc: "Rows of storage lockers and crates. Something moves in the shadows.",
+                sound: 'lobby',
+                exits: { n: 7, s: null, e: 1, w: 8 },
+                items: ['crowbar'],
+                npc: null,
+                enemy: 'storage_phantom',
+                container: 'storage_locker',
+                puzzle: null,
+                dark: true,
+                locked: false,
+                trap: 'falling_crates',
+                secret: null,
+                floor: 4
+            },
+            { // Floor 5: Laboratory
+                id: 5,
+                name: "ALCHEMY LABORATORY",
+                desc: "Beakers bubble with strange liquids. The air is thick with chemical smells.",
+                sound: 'laboratory',
+                exits: { n: 9, s: 2, e: 6, w: 7 },
+                items: ['healing_potion'],
+                npc: 'mad_scientist',
+                enemy: null,
+                container: 'lab_table',
+                puzzle: 'potion_mixing',
+                dark: false,
+                locked: false,
+                trap: 'chemical_explosion',
+                secret: null,
+                floor: 5
+            },
+            { // Floor 6: Observatory
+                id: 6,
+                name: "CELESTIAL OBSERVATORY",
+                desc: "A dome with telescopes pointing at unnatural stars. The windows show impossible constellations.",
+                sound: 'observatory',
+                exits: { n: 10, s: 3, e: null, w: 5 },
+                items: ['star_chart'],
+                npc: 'astronomer_ghost',
+                enemy: null,
+                container: 'telescope_base',
+                puzzle: 'constellation_alignment',
+                dark: false,
+                locked: false,
+                trap: 'gravity_shift',
+                secret: 'cosmic_key',
+                floor: 6
+            },
+            { // Floor 7: Arcane Workshop
+                id: 7,
+                name: "ARCANE WORKSHOP",
+                desc: "Magic circles are etched into the floor. Floating crystals hum with power.",
+                sound: 'laboratory',
+                exits: { n: 11, s: 4, e: 5, w: 12 },
+                items: ['enchanted_crystal'],
+                npc: 'arcane_apprentice',
+                enemy: null,
+                container: 'ritual_circle',
+                puzzle: 'crystal_charging',
+                dark: false,
+                locked: false,
+                trap: 'magic_backlash',
+                secret: 'spell_scroll',
+                floor: 7
+            },
+            { // Floor 8: Prison Cells
+                id: 8,
+                name: "PRISON CELLS",
+                desc: "Rusted bars and manacles. Echoes of past prisoners still haunt this place.",
+                sound: 'dungeon',
+                exits: { n: 12, s: null, e: 4, w: 13 },
+                items: ['rusty_key'],
+                npc: 'prisoner_ghost',
+                enemy: null,
+                container: 'prisoner_bed',
+                puzzle: 'cell_escape',
+                dark: true,
+                locked: false,
+                trap: 'slamming_cells',
+                secret: null,
+                floor: 8
+            },
+            { // Floor 9: Clock Tower
+                id: 9,
+                name: "CLOCK TOWER",
+                desc: "A massive clock mechanism ticks erratically. The hands move backwards sometimes.",
+                sound: 'lobby',
+                exits: { n: 14, s: 5, e: 10, w: 11 },
+                items: ['clock_gear'],
+                npc: 'clockmaker_ghost',
+                enemy: null,
+                container: 'clock_mechanism',
+                puzzle: 'time_puzzle',
+                dark: true,
+                locked: false,
+                trap: 'clock_trap',
+                secret: null,
+                floor: 9
+            },
+            { // Floor 10: Art Gallery
+                id: 10,
+                name: "CURSED ART GALLERY",
+                desc: "Paintings that watch you. Some portraits change when you look away.",
+                sound: 'library',
+                exits: { n: 15, s: 6, e: null, w: 9 },
+                items: ['portrait_fragment'],
+                npc: 'artist_ghost',
+                enemy: null,
+                container: 'artist_easel',
+                puzzle: 'gallery_riddle',
+                dark: false,
+                locked: false,
+                trap: 'living_paintings',
+                secret: 'hidden_portrait',
+                floor: 10
+            },
+            { // Floor 11: Ritual Chamber
+                id: 11,
+                name: "RITUAL CHAMBER",
+                desc: "A massive room with a pentagram on the floor. The air feels heavy with dark energy.",
+                sound: 'laboratory',
+                exits: { n: 16, s: 7, e: 9, w: 17 },
+                items: ['ritual_knife'],
+                npc: 'cult_leader',
+                enemy: null,
+                container: 'sacrificial_altar',
+                puzzle: 'ritual_disruption',
+                dark: true,
+                locked: false,
+                trap: 'demonic_summoning',
+                secret: 'cult_tome',
+                floor: 11
+            },
+            { // Floor 12: Torture Room
+                id: 12,
+                name: "TORTURE ROOM",
+                desc: "Ancient torture devices line the walls. Some are still stained with blood.",
+                sound: 'dungeon',
+                exits: { n: 17, s: 8, e: 7, w: 18 },
+                items: ['iron_shackle'],
+                npc: 'torturer_ghost',
+                enemy: null,
+                container: 'torture_rack',
+                puzzle: 'device_deactivation',
+                dark: true,
+                locked: false,
+                trap: 'activated_devices',
+                secret: 'escape_tunnel',
+                floor: 12
+            },
+            { // Floor 13: Boiler Room
+                id: 13,
+                name: "BOILER ROOM",
+                desc: "Massive boilers hiss with steam. The heat is unbearable.",
+                sound: 'lobby',
+                exits: { n: 18, s: null, e: 8, w: 19 },
+                items: ['steam_valve'],
+                npc: null,
+                enemy: 'boiler_demon',
+                container: 'boiler_controls',
+                puzzle: 'pressure_regulation',
+                dark: true,
+                locked: false,
+                trap: 'steam_explosion',
+                secret: null,
+                floor: 13
+            },
+            { // Floor 14: Music Hall
+                id: 14,
+                name: "HAUNTED MUSIC HALL",
+                desc: "A grand hall with musical instruments that play themselves.",
+                sound: 'library',
+                exits: { n: 20, s: 9, e: 15, w: 16 },
+                items: ['music_box'],
+                npc: 'composer_ghost',
+                enemy: null,
+                container: 'piano_bench',
+                puzzle: 'musical_puzzle',
+                dark: false,
+                locked: false,
+                trap: 'deafening_cacophony',
+                secret: 'sheet_music',
+                floor: 14
+            },
+            { // Floor 15: Botanical Lab
+                id: 15,
+                name: "BOTANICAL LABORATORY",
+                desc: "Overgrown with strange plants that move and glow. Some seem to watch you.",
+                sound: 'laboratory',
+                exits: { n: 21, s: 10, e: 22, w: 14 },
+                items: ['glowing_mushroom'],
+                npc: 'botanist_ghost',
+                enemy: null,
+                container: 'plant_table',
+                puzzle: 'plant_harvest',
+                dark: false,
+                locked: false,
+                trap: 'venomous_plants',
+                secret: 'healing_herb',
+                floor: 15
+            },
+            { // Floor 16: Armory
+                id: 16,
+                name: "ANCIENT ARMORY",
+                desc: "Weapons and armor from different eras. Some are magical, others cursed.",
+                sound: 'dungeon',
+                exits: { n: 23, s: 11, e: 14, w: 24 },
+                items: ['enchanted_sword'],
+                npc: 'blacksmith_ghost',
+                enemy: null,
+                container: 'weapon_rack',
+                puzzle: 'weapon_selection',
+                dark: true,
+                locked: true,
+                trap: 'animated_armor',
+                secret: null,
+                floor: 16
+            },
+            { // Floor 17: Crypt
+                id: 17,
+                name: "TOWER CRYPT",
+                desc: "Stone coffins line the walls. The tower's previous owners rest here.",
+                sound: 'dungeon',
+                exits: { n: 24, s: 12, e: 11, w: 25 },
+                items: ['ancient_bone'],
+                npc: 'crypt_keeper',
+                enemy: null,
+                container: 'stone_coffin',
+                puzzle: 'crypt_riddle',
+                dark: true,
+                locked: false,
+                trap: 'rising_dead',
+                secret: 'crypt_key',
+                floor: 17
+            },
+            { // Floor 18: Archives
+                id: 18,
+                name: "FORGOTTEN ARCHIVES",
+                desc: "Endless shelves of scrolls and documents. Some contain dangerous knowledge.",
+                sound: 'library',
+                exits: { n: 25, s: 13, e: 12, w: 26 },
+                items: ['ancient_scroll'],
+                npc: 'archivist_ghost',
+                enemy: null,
+                container: 'archive_desk',
+                puzzle: 'document_search',
+                dark: true,
+                locked: false,
+                trap: 'collapsing_shelves',
+                secret: 'tower_blueprint',
+                floor: 18
+            },
+            { // Floor 19: Generator Room
+                id: 19,
+                name: "GENERATOR ROOM",
+                desc: "Massive generators that power the tower. They hum with unnatural energy.",
+                sound: 'lobby',
+                exits: { n: 26, s: null, e: 13, w: 27 },
+                items: ['power_cell'],
+                npc: null,
+                enemy: 'electrical_wraith',
+                container: 'generator_controls',
+                puzzle: 'power_redirect',
+                dark: false,
+                locked: false,
+                trap: 'electrical_surge',
+                secret: null,
+                floor: 19
+            },
+            { // Floor 20: Master Bedroom
+                id: 20,
+                name: "MASTER BEDROOM",
+                desc: "Luxurious but decayed. The bed is large enough for a giant.",
+                sound: 'library',
+                exits: { n: null, s: 14, e: 21, w: 23 },
+                items: ['silver_mirror'],
+                npc: 'tower_master_ghost',
+                enemy: null,
+                container: 'bedside_table',
+                puzzle: 'mirror_puzzle',
+                dark: true,
+                locked: true,
+                trap: 'nightmare_curse',
+                secret: 'master_key',
+                floor: 20
+            },
+            { // Floor 21: Greenhouse
+                id: 21,
+                name: "CURSED GREENHOUSE",
+                desc: "Plants that shouldn't exist. Some whisper, others reach for you.",
+                sound: 'laboratory',
+                exits: { n: null, s: 15, e: 22, w: 20 },
+                items: ['carnivorous_plant_seed'],
+                npc: null,
+                enemy: 'plant_abomination',
+                container: 'gardening_tools',
+                puzzle: null,
+                dark: false,
+                locked: false,
+                trap: 'grasping_vines',
+                secret: 'rare_flower',
+                floor: 21
+            },
+            { // Floor 22: Astronomy Room
+                id: 22,
+                name: "ASTRONOMY ROOM",
+                desc: "Star charts cover the walls. A orrery shows impossible planetary alignments.",
+                sound: 'observatory',
+                exits: { n: null, s: null, e: null, w: 21 },
+                items: ['planetary_orb'],
+                npc: 'astronomer_ghost',
+                enemy: null,
+                container: 'star_chart_table',
+                puzzle: 'planet_alignment',
+                dark: false,
+                locked: false,
+                trap: 'reality_distortion',
+                secret: 'star_key',
+                floor: 22
+            },
+            { // Floor 23: Throne Room
+                id: 23,
+                name: "THRONE ROOM",
+                desc: "A massive throne made of bone and obsidian. Shadows dance on the walls.",
+                sound: 'dungeon',
+                exits: { n: null, s: 16, e: 20, w: 24 },
+                items: ['obsidian_shard'],
+                npc: null,
+                enemy: 'shadow_king',
+                container: 'throne',
+                puzzle: 'shadow_puzzle',
+                dark: true,
+                locked: true,
+                trap: 'shadow_grasp',
+                secret: null,
+                floor: 23
+            },
+            { // Floor 24: Summoning Circle
+                id: 24,
+                name: "SUMMONING CIRCLE",
+                desc: "A massive summoning circle with runes that glow with infernal light.",
+                sound: 'laboratory',
+                exits: { n: null, s: 17, e: 23, w: 25 },
+                items: ['demonic_rune'],
+                npc: 'summoner_ghost',
+                enemy: null,
+                container: 'ritual_circle_center',
+                puzzle: 'circle_disruption',
+                dark: true,
+                locked: false,
+                trap: 'demon_summoning',
+                secret: 'forbidden_knowledge',
+                floor: 24
+            },
+            { // Floor 25: Treasure Vault
+                id: 25,
+                name: "TREASURE VAULT",
+                desc: "Piles of gold and jewels, but all are cursed or trapped.",
+                sound: 'lobby',
+                exits: { n: null, s: 18, e: 24, w: 26 },
+                items: ['cursed_gold_coin'],
+                npc: null,
+                enemy: 'vault_guardian',
+                container: 'treasure_chest',
+                puzzle: 'vault_lock',
+                dark: false,
+                locked: true,
+                trap: 'golden_trap',
+                secret: 'philosopher_stone',
+                floor: 25
+            },
+            { // Floor 26: Machine Room
+                id: 26,
+                name: "CENTRAL MACHINE ROOM",
+                desc: "A massive engine that powers the entire tower. Gears the size of houses turn slowly.",
+                sound: 'lobby',
+                exits: { n: null, s: 19, e: 25, w: 27 },
+                items: ['main_gear'],
+                npc: 'engineer_ghost',
+                enemy: null,
+                container: 'control_panel',
+                puzzle: 'engine_shutdown',
+                dark: false,
+                locked: false,
+                trap: 'gear_crush',
+                secret: null,
+                floor: 26
+            },
+            { // Floor 27: Roof Access
+                id: 27,
+                name: "ROOF ACCESS",
+                desc: "Stairs lead to the roof. Wind howls through broken windows.",
+                sound: 'lobby',
+                exits: { n: null, s: null, e: 26, w: 28 },
+                items: ['roof_access_key'],
+                npc: null,
+                enemy: 'wind_demon',
+                container: 'maintenance_closet',
+                puzzle: 'final_ascent',
+                dark: true,
+                locked: true,
+                trap: 'collapsing_stairs',
+                secret: null,
+                floor: 27
+            },
+            { // Floor 28: Tower Roof
+                id: 28,
+                name: "TOWER ROOF",
+                desc: "The highest point of the tower. A storm rages, and lightning strikes nearby.",
+                sound: 'escape_theme',
+                exits: { n: null, s: null, e: 27, w: 29 },
+                items: [],
+                npc: null,
+                enemy: 'storm_elemental',
+                container: 'helicopter_pad',
+                puzzle: 'final_escape',
+                dark: false,
+                locked: false,
+                trap: 'lightning_strike',
+                secret: null,
+                floor: 28
+            },
+            { // Floor 29: ESCAPE HELIPAD
+                id: 29,
+                name: "ESCAPE HELIPAD",
+                desc: "A helicopter awaits! The final challenge stands between you and freedom!",
+                sound: 'escape_theme',
+                exits: { n: null, s: null, e: 28, w: null },
+                items: [],
+                npc: null,
+                enemy: 'tower_master',
+                container: null,
+                puzzle: null,
+                dark: false,
+                locked: true,
+                trap: null,
+                secret: null,
+                floor: 29
+            }
+        ];
+
+        // ==================== TOWER ITEMS ====================
+        const items = {
+            // Starting items
+            combat_knife: {
+                name: "Combat Knife",
+                desc: "A military-grade knife. Sharp and reliable.",
+                type: "weapon",
+                damage: 8,
+                value: 40,
+                keywords: ["knife", "combat knife", "weapon"]
+            },
+            flashlight: {
+                name: "Military Flashlight",
+                desc: "A powerful flashlight with a focused beam.",
+                type: "tool",
+                usable: true,
+                effect: "lights dark areas",
+                value: 30,
+                keywords: ["flashlight", "light", "tool"]
+            },
+            lockpick_set: {
+                name: "Lockpick Set",
+                desc: "Professional lockpicks for expert thieves.",
+                type: "tool",
+                usable: true,
+                effect: "opens most locks",
+                value: 35,
+                keywords: ["lockpick", "lockpicks", "tool"]
+            },
+            climbing_rope: {
+                name: "Climbing Rope",
+                desc: "50 feet of strong nylon rope with grappling hook.",
+                type: "tool",
+                usable: true,
+                effect: "climb to certain areas",
+                value: 25,
+                keywords: ["rope", "climbing rope", "tool"]
+            },
+            emf_reader: {
+                name: "EMF Reader",
+                desc: "Detects supernatural energy fluctuations.",
+                type: "tool",
+                usable: true,
+                effect: "detects ghosts and anomalies",
+                value: 45,
+                keywords: ["emf", "reader", "detector"]
+            },
+            chemical_flare: {
+                name: "Chemical Flare",
+                desc: "Burns bright green light. Repels some creatures.",
+                type: "consumable",
+                usable: true,
+                effect: "lights area and repels monsters",
+                value: 30,
+                keywords: ["flare", "chemical flare", "light"]
+            },
+            
+            // Common tower items
+            broken_elevator_button: {
+                name: "Broken Elevator Button",
+                desc: "A button from the elevator control panel.",
+                type: "component",
+                value: 10,
+                keywords: ["button", "elevator button"]
+            },
+            paperweight: {
+                name: "Crystal Paperweight",
+                desc: "A heavy crystal paperweight. Could be used as a weapon.",
+                type: "weapon",
+                damage: 5,
+                value: 15,
+                keywords: ["paperweight", "crystal", "weapon"]
+            },
+            wrench: {
+                name: "Heavy Wrench",
+                desc: "A large, heavy wrench. Good for hitting things.",
+                type: "weapon",
+                damage: 7,
+                value: 20,
+                keywords: ["wrench", "tool", "weapon"]
+            },
+            forbidden_tome: {
+                name: "Forbidden Tome",
+                desc: "An ancient book containing dangerous knowledge.",
+                type: "consumable",
+                usable: true,
+                effect: "grants temporary dark vision",
+                value: 50,
+                keywords: ["tome", "book", "forbidden"]
+            },
+            crowbar: {
+                name: "Crowbar",
+                desc: "A sturdy crowbar. Useful for prying things open.",
+                type: "tool",
+                usable: true,
+                effect: "opens sealed doors and containers",
+                value: 25,
+                keywords: ["crowbar", "tool", "pry"]
+            },
+            healing_potion: {
+                name: "Healing Potion",
+                desc: "A red potion that restores health.",
+                type: "consumable",
+                usable: true,
+                effect: "restores 30 HP",
+                value: 40,
+                keywords: ["potion", "healing", "heal"]
+            },
+            star_chart: {
+                name: "Star Chart",
+                desc: "A chart showing unnatural constellations.",
+                type: "document",
+                value: 35,
+                keywords: ["chart", "star chart", "map"]
+            },
+            enchanted_crystal: {
+                name: "Enchanted Crystal",
+                desc: "A crystal that glows with magical energy.",
+                type: "component",
+                value: 45,
+                keywords: ["crystal", "enchanted", "magic"]
+            },
+            rusty_key: {
+                name: "Rusty Key",
+                desc: "An old, rusted key. Might still work.",
+                type: "key",
+                value: 20,
+                keywords: ["key", "rusty key"]
+            },
+            clock_gear: {
+                name: "Clock Gear",
+                desc: "A gear from the clock tower mechanism.",
+                type: "component",
+                value: 25,
+                keywords: ["gear", "clock gear", "component"]
+            },
+            portrait_fragment: {
+                name: "Portrait Fragment",
+                desc: "A piece of a cursed painting.",
+                type: "component",
+                value: 30,
+                keywords: ["portrait", "fragment", "painting"]
+            },
+            ritual_knife: {
+                name: "Ritual Knife",
+                desc: "A silver knife used in dark rituals.",
+                type: "weapon",
+                damage: 10,
+                value: 60,
+                keywords: ["knife", "ritual knife", "weapon"]
+            },
+            iron_shackle: {
+                name: "Iron Shackle",
+                desc: "A heavy iron shackle from the prison.",
+                type: "component",
+                value: 15,
+                keywords: ["shackle", "iron", "chain"]
+            },
+            steam_valve: {
+                name: "Steam Valve",
+                desc: "A valve from the boiler system.",
+                type: "component",
+                value: 20,
+                keywords: ["valve", "steam valve", "boiler"]
+            },
+            music_box: {
+                name: "Haunted Music Box",
+                desc: "A music box that plays by itself.",
+                type: "artifact",
+                value: 55,
+                keywords: ["music box", "haunted", "artifact"]
+            },
+            glowing_mushroom: {
+                name: "Glowing Mushroom",
+                desc: "A mushroom that emits a soft blue light.",
+                type: "consumable",
+                usable: true,
+                effect: "restores 20 MP",
+                value: 35,
+                keywords: ["mushroom", "glowing", "magic"]
+            },
+            enchanted_sword: {
+                name: "Enchanted Sword",
+                desc: "A sword that glows with magical energy.",
+                type: "weapon",
+                damage: 18,
+                value: 100,
+                keywords: ["sword", "enchanted", "weapon"]
+            },
+            ancient_bone: {
+                name: "Ancient Bone",
+                desc: "A bone from the tower crypt.",
+                type: "component",
+                value: 30,
+                keywords: ["bone", "ancient", "crypt"]
+            },
+            ancient_scroll: {
+                name: "Ancient Scroll",
+                desc: "A scroll with forgotten knowledge.",
+                type: "document",
+                value: 40,
+                keywords: ["scroll", "ancient", "document"]
+            },
+            power_cell: {
+                name: "Power Cell",
+                desc: "A cell that stores electrical energy.",
+                type: "component",
+                value: 35,
+                keywords: ["power", "cell", "energy"]
+            },
+            silver_mirror: {
+                name: "Silver Mirror",
+                desc: "A mirror that reflects more than just light.",
+                type: "tool",
+                usable: true,
+                effect: "reveals hidden things",
+                value: 65,
+                keywords: ["mirror", "silver", "tool"]
+            },
+            carnivorous_plant_seed: {
+                name: "Carnivorous Plant Seed",
+                desc: "A seed from a dangerous plant.",
+                type: "component",
+                value: 45,
+                keywords: ["seed", "plant", "carnivorous"]
+            },
+            planetary_orb: {
+                name: "Planetary Orb",
+                desc: "A glass orb showing a miniature planet.",
+                type: "artifact",
+                value: 75,
+                keywords: ["orb", "planetary", "artifact"]
+            },
+            obsidian_shard: {
+                name: "Obsidian Shard",
+                desc: "A sharp piece of volcanic glass.",
+                type: "weapon",
+                damage: 9,
+                value: 45,
+                keywords: ["obsidian", "shard", "weapon"]
+            },
+            demonic_rune: {
+                name: "Demonic Rune",
+                desc: "A stone with a demonic symbol carved into it.",
+                type: "component",
+                value: 55,
+                keywords: ["rune", "demonic", "symbol"]
+            },
+            cursed_gold_coin: {
+                name: "Cursed Gold Coin",
+                desc: "A gold coin that brings bad luck.",
+                type: "treasure",
+                value: 100,
+                keywords: ["coin", "gold", "cursed"]
+            },
+            main_gear: {
+                name: "Main Gear",
+                desc: "The central gear from the tower's engine.",
+                type: "component",
+                value: 60,
+                keywords: ["gear", "main", "engine"]
+            },
+            roof_access_key: {
+                name: "Roof Access Key",
+                desc: "A key to the roof access door.",
+                type: "key",
+                value: 40,
+                keywords: ["key", "roof key", "access"]
+            },
+            
+            // Special items
+            master_key: {
+                name: "Master Key",
+                desc: "A key that opens any door in the tower.",
+                type: "key",
+                value: 150,
+                keywords: ["key", "master key"]
+            },
+            shadow_cloak: {
+                name: "Shadow Cloak",
+                desc: "A cloak that blends with shadows.",
+                type: "armor",
+                defense: 3,
+                value: 120,
+                keywords: ["cloak", "shadow", "armor"]
+            },
+            lightning_rod: {
+                name: "Lightning Rod",
+                desc: "A rod that attracts and channels lightning.",
+                type: "weapon",
+                damage: 25,
+                value: 180,
+                keywords: ["rod", "lightning", "weapon"]
+            },
+filing_cabinet_key: {
+    name: "Filing Cabinet Key",
+    desc: "A small key for a filing cabinet.",
+    type: "key",
+    value: 15,
+    keywords: ["key", "filing key", "cabinet key"]
+},
+
+tool_locker_key: {
+    name: "Tool Locker Key",
+    desc: "A key to the maintenance tool locker.",
+    type: "key",
+    value: 20,
+    keywords: ["key", "tool key", "locker key"]
+},
+
+secret_note: {
+    name: "Secret Note",
+    desc: "A note with cryptic writing about the tower's secrets.",
+    type: "document",
+    value: 25,
+    keywords: ["note", "secret note", "document"]
+},
+
+lab_notes: {
+    name: "Laboratory Notes",
+    desc: "Detailed notes from the mad scientist's experiments.",
+    type: "document",
+    value: 35,
+    keywords: ["notes", "lab notes", "document"]
+},
+
+hidden_shiv: {
+    name: "Hidden Shiv",
+    desc: "A crude but sharp weapon hidden by a prisoner.",
+    type: "weapon",
+    damage: 6,
+    value: 20,
+    keywords: ["shiv", "hidden shiv", "weapon"]
+},
+
+            tower_blueprint: {
+                name: "Tower Blueprint",
+                desc: "The complete blueprint of the tower.",
+                type: "document",
+                value: 200,
+                keywords: ["blueprint", "tower", "map"]
+            }
+        };
+
+        // ==================== TOWER NPCS ====================
+        const npcs = {
+            office_ghost: {
+                name: "Office Ghost",
+                desc: "The ghost of a former office worker.",
+                dialog: "The reports... they're never finished... Need to file... forever...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "find",
+                    target: "paperweight",
+                    reward: "filing_cabinet_key"
+                },
+                trade: null
+            },
+            librarian_ghost: {
+                name: "Librarian Ghost",
+                desc: "The ghost of the tower's librarian.",
+                dialog: "The books must be arranged by author's date of death, not birth...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "arrange",
+                    target: "book_order",
+                    reward: "forbidden_tome"
+                },
+                trade: null
+            },
+            mad_scientist: {
+                name: "Mad Scientist",
+                desc: "A scientist who went insane in the laboratory.",
+                dialog: "The formula! It needs three drops of ghost essence and a crow's feather!",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "brew",
+                    target: ["ghost_essence", "crow_feather"],
+                    reward: "healing_potion"
+                },
+                trade: {
+                    buy: ["healing_potion", "chemical_flare"],
+                    sell: true
+                }
+            },
+            astronomer_ghost: {
+                name: "Astronomer Ghost",
+                desc: "The ghost of an astronomer who studied the tower's stars.",
+                dialog: "The stars are wrong... they show a pattern that shouldn't exist...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "chart",
+                    target: "star_pattern",
+                    reward: "star_chart"
+                },
+                trade: null
+            },
+            arcane_apprentice: {
+                name: "Arcane Apprentice",
+                desc: "A wizard's apprentice trapped in the tower.",
+                dialog: "Master will be angry... I broke his favorite crystal...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "repair",
+                    target: "crystal",
+                    reward: "enchanted_crystal"
+                },
+                trade: null
+            },
+            prisoner_ghost: {
+                name: "Prisoner Ghost",
+                desc: "A ghost who died in the prison cells.",
+                dialog: "The key... the guard has it... he comes at midnight...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "wait",
+                    target: "midnight",
+                    reward: "rusty_key"
+                },
+                trade: null
+            },
+            clockmaker_ghost: {
+                name: "Clockmaker Ghost",
+                desc: "The ghost of the tower's clockmaker.",
+                dialog: "The clock is broken... time flows backwards here... Fix the gears...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "repair",
+                    target: "clock_gears",
+                    reward: "clock_gear"
+                },
+                trade: null
+            },
+            artist_ghost: {
+                name: "Artist Ghost",
+                desc: "A ghost who painted the cursed portraits.",
+                dialog: "My masterpiece... it's incomplete... The final portrait piece is missing...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "find",
+                    target: "portrait_fragment",
+                    reward: "art_key"
+                },
+                trade: null
+            },
+            cult_leader: {
+                name: "Cult Leader",
+                desc: "The leader of a cult that occupies the tower.",
+                dialog: "Join us! The great awakening is near! Bring us a sacrifice...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "refuse",
+                    target: "sacrifice",
+                    reward: "ritual_knife"
+                },
+                trade: {
+                    buy: ["ritual_knife", "demonic_rune"],
+                    sell: true
+                }
+            },
+            torturer_ghost: {
+                name: "Torturer Ghost",
+                desc: "The ghost of the tower's torturer.",
+                dialog: "The devices need maintenance... The rack's mechanism is stuck...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "repair",
+                    target: "torture_rack",
+                    reward: "iron_shackle"
+                },
+                trade: null
+            },
+            composer_ghost: {
+                name: "Composer Ghost",
+                desc: "The ghost of a composer who died in the music hall.",
+                dialog: "My magnum opus... the final notes are missing... Listen to the melody...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "listen",
+                    target: "ghost_melody",
+                    reward: "music_box"
+                },
+                trade: null
+            },
+            botanist_ghost: {
+                name: "Botanist Ghost",
+                desc: "The ghost of the tower's botanist.",
+                dialog: "The rare nightshade blooms at midnight... but beware its poison...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "harvest",
+                    target: "nightshade",
+                    reward: "glowing_mushroom"
+                },
+                trade: null
+            },
+            blacksmith_ghost: {
+                name: "Blacksmith Ghost",
+                desc: "The ghost of the tower's blacksmith.",
+                dialog: "A true warrior knows his weapon... Choose wisely from the rack...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "choose",
+                    target: "correct_weapon",
+                    reward: "enchanted_sword"
+                },
+                trade: null
+            },
+            crypt_keeper: {
+                name: "Crypt Keeper",
+                desc: "The ghost who tends the tower crypt.",
+                dialog: "The dead tell no tales... unless you ask the right questions...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "ask",
+                    target: "three_questions",
+                    reward: "ancient_bone"
+                },
+                trade: null
+            },
+            archivist_ghost: {
+                name: "Archivist Ghost",
+                desc: "The ghost of the tower's archivist.",
+                dialog: "The records must be kept... Find document T-42 in section 7...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "find",
+                    target: "document_t42",
+                    reward: "ancient_scroll"
+                },
+                trade: null
+            },
+            engineer_ghost: {
+                name: "Engineer Ghost",
+                desc: "The ghost of the tower's engineer.",
+                dialog: "The engine is failing! Shut down the main reactor before it overloads!",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "shutdown",
+                    target: "main_reactor",
+                    reward: "main_gear"
+                },
+                trade: null
+            },
+            summoner_ghost: {
+                name: "Summoner Ghost",
+                desc: "The ghost of a summoner who died in the ritual.",
+                dialog: "The circle must be broken! Scatter the runes in reverse order!",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "break",
+                    target: "summoning_circle",
+                    reward: "demonic_rune"
+                },
+                trade: null
+            },
+            tower_master_ghost: {
+                name: "Tower Master Ghost",
+                desc: "The ghost of the tower's former master.",
+                dialog: "To claim my key, you must prove you can see what others cannot...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "prove",
+                    target: "mirror_test",
+                    reward: "master_key"
+                },
+                trade: null
+            }
+        };
+
+        // ==================== TOWER ENEMIES ====================
+        const enemies = {
+            lobby_ghoul: {
+                name: "Lobby Ghoul",
+                hp: 45,
+                damage: 10,
+                desc: "A ghoul that haunts the entrance lobby. Hungry and aggressive.",
+                weak: "light",
+                loot: ["broken_elevator_button"],
+                sound: 'main_theme'
+            },
+            maintenance_demon: {
+                name: "Maintenance Demon",
+                hp: 60,
+                damage: 13,
+                desc: "A demon that inhabits the machinery. Covered in grease and rust.",
+                weak: "water",
+                loot: ["wrench"],
+                sound: 'lobby'
+            },
+            storage_phantom: {
+                name: "Storage Phantom",
+                hp: 55,
+                damage: 12,
+                desc: "A phantom that haunts the storage rooms. Can phase through walls.",
+                weak: "silver",
+                loot: ["crowbar"],
+                sound: 'lobby'
+            },
+            boiler_demon: {
+                name: "Boiler Demon",
+                hp: 70,
+                damage: 15,
+                desc: "A demon born from the boiler's heat and steam.",
+                weak: "cold",
+                loot: ["steam_valve"],
+                sound: 'lobby'
+            },
+            wind_demon: {
+                name: "Wind Demon",
+                hp: 65,
+                damage: 14,
+                desc: "A demon of air and storm that haunts the roof access.",
+                weak: "earth",
+                loot: ["roof_access_key"],
+                sound: 'lobby'
+            },
+            vault_guardian: {
+                name: "Vault Guardian",
+                hp: 90,
+                damage: 18,
+                desc: "A magical construct that guards the treasure vault.",
+                weak: "magic",
+                loot: ["cursed_gold_coin"],
+                sound: 'lobby'
+            },
+            electrical_wraith: {
+                name: "Electrical Wraith",
+                hp: 75,
+                damage: 16,
+                desc: "A wraith made of electricity. Flashes with blue energy.",
+                weak: "rubber",
+                loot: ["power_cell"],
+                sound: 'lobby'
+            },
+            plant_abomination: {
+                name: "Plant Abomination",
+                hp: 80,
+                damage: 17,
+                desc: "A monstrous plant creature from the greenhouse.",
+                weak: "fire",
+                loot: ["carnivorous_plant_seed"],
+                sound: 'laboratory'
+            },
+            shadow_king: {
+                name: "Shadow King",
+                hp: 120,
+                damage: 22,
+                desc: "The ruler of the throne room. Made of living shadow.",
+                weak: "light",
+                loot: ["obsidian_shard"],
+                sound: 'dungeon'
+            },
+            storm_elemental: {
+                name: "Storm Elemental",
+                hp: 100,
+                damage: 20,
+                desc: "An elemental of storm and lightning on the tower roof.",
+                weak: "grounding",
+                loot: ["lightning_rod"],
+                sound: 'escape_theme'
+            },
+            tower_master: {
+                name: "Tower Master",
+                hp: 200,
+                damage: 30,
+                desc: "The ultimate ruler of the tower. A being of immense power.",
+                weak: "all_weaknesses",
+                loot: ["escape_key"],
+                sound: 'escape_theme'
+            }
+        };
+
+        // ==================== TOWER PUZZLES ====================
+        const puzzles = {
+            stair_access: {
+                room: 0,
+                type: "defeat",
+                description: "The lobby ghoul blocks access to the stairs. Defeat it to proceed.",
+                solution: "defeat lobby_ghoul",
+                solved: false,
+                reward: "access"
+            },
+            power_restoration: {
+                room: 2,
+                type: "repair",
+                description: "The maintenance level power is out. Repair the generator to proceed.",
+                solution: "use wrench on generator",
+                solved: false,
+                reward: "access"
+            },
+            book_riddle: {
+                room: 3,
+                type: "riddle",
+                description: "The librarian ghost asks a riddle about books.",
+                solution: "answer: knowledge",
+                solved: false,
+                reward: "secret_passage"
+            },
+            potion_mixing: {
+                room: 5,
+                type: "brew",
+                description: "Mix the correct potion to unlock the next floor.",
+                solution: "mix three ingredients",
+                solved: false,
+                reward: "access"
+            },
+            constellation_alignment: {
+                room: 6,
+                type: "align",
+                description: "Align the telescope with the correct constellation.",
+                solution: "use star_chart",
+                solved: false,
+                reward: "cosmic_key"
+            },
+            crystal_charging: {
+                room: 7,
+                type: "charge",
+                description: "Charge the crystal with magical energy.",
+                solution: "use enchanted_crystal in ritual_circle",
+                solved: false,
+                reward: "access"
+            },
+            cell_escape: {
+                room: 8,
+                type: "unlock",
+                description: "Escape from the prison cell.",
+                solution: "use rusty_key or lockpick",
+                solved: false,
+                reward: "access"
+            },
+            time_puzzle: {
+                room: 9,
+                type: "set",
+                description: "Set the clock to the correct time to proceed.",
+                solution: "set to 3:00 AM",
+                solved: false,
+                reward: "access"
+            },
+            gallery_riddle: {
+                room: 10,
+                type: "observe",
+                description: "Observe the paintings to solve the gallery riddle.",
+                solution: "note painting order",
+                solved: false,
+                reward: "hidden_portrait"
+            },
+            ritual_disruption: {
+                room: 11,
+                type: "disrupt",
+                description: "Disrupt the dark ritual to proceed.",
+                solution: "use ritual_knife on altar",
+                solved: false,
+                reward: "access"
+            },
+            device_deactivation: {
+                room: 12,
+                type: "deactivate",
+                description: "Deactivate the torture devices to proceed.",
+                solution: "pull correct_levers",
+                solved: false,
+                reward: "escape_tunnel"
+            },
+            pressure_regulation: {
+                room: 13,
+                type: "regulate",
+                description: "Regulate the boiler pressure to safe levels.",
+                solution: "use steam_valve",
+                solved: false,
+                reward: "access"
+            },
+            musical_puzzle: {
+                room: 14,
+                type: "play",
+                description: "Play the correct melody on the piano.",
+                solution: "C, E, G, C",
+                solved: false,
+                reward: "sheet_music"
+            },
+            plant_harvest: {
+                room: 15,
+                type: "harvest",
+                description: "Harvest the correct plant at the right time.",
+                solution: "harvest at midnight",
+                solved: false,
+                reward: "healing_herb"
+            },
+            weapon_selection: {
+                room: 16,
+                type: "choose",
+                description: "Choose the correct weapon from the rack.",
+                solution: "choose enchanted_sword",
+                solved: false,
+                reward: "access"
+            },
+            crypt_riddle: {
+                room: 17,
+                type: "answer",
+                description: "Answer the crypt keeper's three questions.",
+                solution: "answer all correctly",
+                solved: false,
+                reward: "crypt_key"
+            },
+            document_search: {
+                room: 18,
+                type: "find",
+                description: "Find the correct document in the archives.",
+                solution: "find document T-42",
+                solved: false,
+                reward: "tower_blueprint"
+            },
+            power_redirect: {
+                room: 19,
+                type: "redirect",
+                description: "Redirect power from the generators.",
+                solution: "use power_cell in controls",
+                solved: false,
+                reward: "access"
+            },
+            mirror_puzzle: {
+                room: 20,
+                type: "reflect",
+                description: "Use the mirror to reveal hidden truths.",
+                solution: "use silver_mirror on self",
+                solved: false,
+                reward: "master_key"
+            },
+            planet_alignment: {
+                room: 22,
+                type: "align",
+                description: "Align the planets in the orrery.",
+                solution: "use planetary_orb",
+                solved: false,
+                reward: "star_key"
+            },
+            shadow_puzzle: {
+                room: 23,
+                type: "light",
+                description: "Use light to defeat the shadows.",
+                solution: "use flashlight or chemical_flare",
+                solved: false,
+                reward: "access"
+            },
+            circle_disruption: {
+                room: 24,
+                type: "break",
+                description: "Break the summoning circle.",
+                solution: "scatter demonic_runes",
+                solved: false,
+                reward: "forbidden_knowledge"
+            },
+            vault_lock: {
+                room: 25,
+                type: "unlock",
+                description: "Unlock the treasure vault.",
+                solution: "use master_key",
+                solved: false,
+                reward: "philosopher_stone"
+            },
+            engine_shutdown: {
+                room: 26,
+                type: "shutdown",
+                description: "Safely shutdown the main engine.",
+                solution: "use main_gear in controls",
+                solved: false,
+                reward: "access"
+            },
+            final_ascent: {
+                room: 27,
+                type: "unlock",
+                description: "Unlock the roof access door.",
+                solution: "use roof_access_key",
+                solved: false,
+                reward: "access"
+            },
+            final_escape: {
+                room: 28,
+                type: "defeat",
+                description: "Defeat the storm elemental to reach the helipad.",
+                solution: "defeat storm_elemental",
+                solved: false,
+                reward: "access",
+                sound: 'escape_theme'
+            }
+        };
+
+        // ==================== GAME STATE ====================
+        let player = {
+            class: null,
+            hp: 0,
+            maxHp: 0,
+            mp: 0,
+            maxMp: 0,
+            str: 0,
+            def: 0,
+            baseDef: 0,
+            int: 0,
+            gold: 0,
+            inventory: [],
+            equipped: {
+                weapon: null,
+                armor: null
+            },
+            baseDamage: 0,
+            totalDamage: 0,
+            totalDefense: 0,
+            location: 0,
+            inCombat: false,
+            hasLight: false,
+            time: "eternal night",
+            stats: {
+                enemiesDefeated: 0,
+                puzzlesSolved: 0,
+                floorsClimbed: 0,
+                secretsFound: 0,
+                trapsSprung: 0
+            }
+        };
+
+        let gameStarted = false;
+        let currentBackground = 'main_theme';
+        const soundSystem = new TowerSoundSystem();
+
+        // ==================== HELPER FUNCTIONS ====================
+        function findItemByName(itemName) {
+            // First try exact match with item IDs
+            if (items[itemName]) {
+                return itemName;
+            }
+            
+            // Try to match with item name (case-insensitive)
+            itemName = itemName.toLowerCase();
+            for (const itemId in items) {
+                const item = items[itemId];
+                if (item.name.toLowerCase() === itemName) {
+                    return itemId;
+                }
+                
+                // Try keywords
+                if (item.keywords) {
+                    for (const keyword of item.keywords) {
+                        if (keyword.toLowerCase() === itemName) {
+                            return itemId;
+                        }
+                    }
+                }
+                
+                // Try partial match in name
+                if (item.name.toLowerCase().includes(itemName)) {
+                    return itemId;
+                }
+            }
+            
+            return null;
+        }
+
+        function calculatePlayerStats() {
+            // Calculate base damage (strength + class modifier)
+            player.baseDamage = player.str + 3;
+            
+            // Calculate total damage (base + weapon)
+            player.totalDamage = player.baseDamage;
+            if (player.equipped.weapon) {
+                const weapon = items[player.equipped.weapon];
+                if (weapon && weapon.damage) {
+                    player.totalDamage += weapon.damage;
+                }
+            }
+            
+            // Calculate base defense (class base)
+            player.baseDef = classes[player.class].def;
+            
+            // Calculate total defense (base + armor)
+            player.totalDefense = player.baseDef;
+            if (player.equipped.armor) {
+                const armor = items[player.equipped.armor];
+                if (armor && armor.defense) {
+                    player.totalDefense += armor.defense;
+                }
+            }
+            
+            // Update status display
+            updateStatus();
+        }
+
+        // ==================== UI FUNCTIONS ====================
+        const output = document.getElementById('output');
+        const input = document.getElementById('input');
+        const status = document.getElementById('status');
+
+        function print(text, className = '') {
+            const line = document.createElement('div');
+            line.textContent = text;
+            if (className) line.className = className;
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+            
+            if (className === 'success' || className === 'quest') {
+                soundSystem.playSound('notification', 0.5);
+            } else if (className === 'error') {
+                soundSystem.playSound('error', 0.3);
+            } else if (className === 'puzzle') {
+                soundSystem.playSound('puzzle', 0.4);
+            } else if (className === 'secret') {
+                soundSystem.playSound('secret', 0.5);
+            } else if (className === 'trap') {
+                soundSystem.playSound('trap', 0.6);
+            } else if (className === 'ghost') {
+                soundSystem.playSound('moan', 0.2);
+            } else if (className === 'corpse') {
+                soundSystem.playSound('creak', 0.3);
+            }
+        }
+
+        function updateStatus() {
+            const room = rooms[player.location];
+            const light = player.hasLight ? "LIT" : "DARK";
+            
+            // Get equipped weapon and armor names
+            const weaponName = player.equipped.weapon ? items[player.equipped.weapon].name : "None";
+            const armorName = player.equipped.armor ? items[player.equipped.armor].name : "None";
+            
+            status.textContent = 
+                `HP:${player.hp}/${player.maxHp} MP:${player.mp}/${player.maxMp} ` +
+                `DMG:${player.totalDamage} DEF:${player.totalDefense} ` +
+                `GOLD:${player.gold} FLOOR:${room.floor} ${light}\n` +
+                `Weapon: ${weaponName} | Armor: ${armorName}`;
+        }
+
+        // ==================== GAME LOGIC ====================
+        function startGame(className) {
+            player.class = className;
+            const c = classes[className];
+            
+            player.hp = player.maxHp = c.hp;
+            player.mp = player.maxMp = c.mp;
+            player.str = c.str;
+            player.def = c.def;
+            player.int = c.int;
+            player.gold = 0;
+            
+            // Starting items
+            player.inventory = c.startingItems.map(item => item);
+            
+            // Check for light sources
+            player.hasLight = c.startingItems.some(item => 
+                item === 'flashlight' || item === 'chemical_flare'
+            );
+            
+            // Initialize equipment
+            player.equipped.weapon = null;
+            player.equipped.armor = null;
+            
+            gameStarted = true;
+            soundSystem.playBackground(currentBackground);
+            
+            print(`You are a ${className.replace('_', ' ').toUpperCase()}. ${c.desc}`, 'success');
+            
+            // Display all starting items
+            const itemNames = c.startingItems.map(itemId => items[itemId].name).join(', ');
+            print(`You start with: ${itemNames}`, 'success');
+            
+            calculatePlayerStats();
+            look();
+            updateStatus();
+        }
+
+        function look() {
+            const room = rooms[player.location];
+            
+            // Update music based on floor
+            if (room.sound !== currentBackground) {
+                currentBackground = room.sound;
+                soundSystem.playBackground(currentBackground);
+            }
+            
+            // Ambient sounds
+            if (Math.random() > 0.7) {
+                soundSystem.playSound('creak', 0.1);
+            }
+            if (room.sound === 'observatory' && Math.random() > 0.8) {
+                soundSystem.playSound('wind', 0.2);
+            }
+            if (room.sound === 'laboratory' && Math.random() > 0.6) {
+                soundSystem.playSound('machine', 0.15);
+            }
+            
+            // Check darkness
+            if (room.dark && !player.hasLight) {
+                print("It's pitch black! You need a light source to see.", 'error');
+                print("You can feel exits to: " + Object.keys(room.exits).filter(dir => room.exits[dir] !== null).join(' '));
+                return;
+            }
+            
+            print(`${room.name} (Floor ${room.floor}):`, 'command');
+            print(room.desc, 'system');
+            
+            // List items
+            if (room.items.length > 0) {
+                print("You see:", 'system');
+                room.items.forEach(itemId => {
+                    const item = items[itemId];
+                    print(`  ${item.name}`, 'item');
+                });
+            }
+            
+            // List NPC
+            if (room.npc) {
+                const npc = npcs[room.npc];
+                print(`${npc.name} is here. ${npc.desc}`, 'npc');
+            }
+            
+            // List enemy
+            if (room.enemy) {
+                const enemy = enemies[room.enemy];
+                print(`${enemy.name} blocks your path! ${enemy.desc}`, 'enemy');
+            }
+            
+            // List container
+            if (room.container) {
+                print(`There is a ${room.container} here.`, 'system');
+            }
+            
+            // List puzzle
+            if (room.puzzle) {
+                const puzzle = Object.values(puzzles).find(p => p.room === room.id);
+                if (puzzle && !puzzle.solved) {
+                    print("You notice something puzzling here...", 'puzzle');
+                    
+                    // Give more specific clues based on puzzle type
+                    switch(puzzle.type) {
+                        case 'defeat':
+                            if (room.enemy) {
+                                print(`The ${room.enemy} seems to be guarding something.`, 'puzzle');
+                            }
+                            break;
+                        case 'unlock':
+                            print("There's a locked mechanism here.", 'puzzle');
+                            break;
+                        case 'riddle':
+                            print("There's a riddle that needs solving.", 'puzzle');
+                            break;
+                        case 'brew':
+                            print("There are ingredients that could be mixed.", 'puzzle');
+                            break;
+                        case 'align':
+                            print("Something needs to be aligned properly.", 'puzzle');
+                            break;
+                    }
+                    
+                    print("Type 'examine puzzle' for more details.", 'system');
+                }
+            }
+            
+            // List exits
+            const exits = [];
+            if (room.exits.n !== null) exits.push("north");
+            if (room.exits.s !== null) exits.push("south");
+            if (room.exits.e !== null) exits.push("east");
+            if (room.exits.w !== null) exits.push("west");
+            
+            print("Exits: " + exits.join(', '));
+            
+            if (!room.explored) {
+                room.explored = true;
+                player.stats.floorsClimbed++;
+            }
+            
+            updateStatus();
+        }
+
+        function move(direction) {
+            const room = rooms[player.location];
+            const newRoomId = room.exits[direction];
+            
+            if (newRoomId === null) {
+                print("You can't go that way.", 'error');
+                return;
+            }
+            
+            // Check for locked room
+            const newRoom = rooms[newRoomId];
+            if (newRoom.locked) {
+                print("The way is locked!", 'error');
+                return;
+            }
+            
+            // Check for trap
+            if (room.trap && Math.random() > 0.7) {
+                springTrap(room.trap);
+                if (player.hp <= 0) return;
+            }
+            
+            soundSystem.playSound('step');
+            player.location = newRoomId;
+            
+            // Check for enemy
+            if (newRoom.enemy) {
+                print(`A ${newRoom.enemy} blocks your path!`, 'enemy');
+            }
+            
+            look();
+        }
+
+        function take(itemName) {
+            const room = rooms[player.location];
+            
+            if (room.dark && !player.hasLight) {
+                print("It's too dark to see anything!", 'error');
+                return;
+            }
+            
+            // Find the item ID by name
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId) {
+                print("You don't see that here.", 'error');
+                return;
+            }
+            
+            // Check if the item is in the room
+            const itemIndex = room.items.indexOf(itemId);
+            if (itemIndex === -1) {
+                print("You don't see that here.", 'error');
+                return;
+            }
+            
+            // Remove from room and add to inventory
+            room.items.splice(itemIndex, 1);
+            player.inventory.push(itemId);
+            
+            print(`You take the ${items[itemId].name}.`, 'success');
+            soundSystem.playSound('pickup');
+            
+            // Special case for light sources
+            if (itemId === 'flashlight' || itemId === 'chemical_flare') {
+                player.hasLight = true;
+            }
+            
+            updateStatus();
+        }
+
+        function equip(itemName) {
+            // Find the item ID by name
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId) {
+                print("You don't have that item.", 'error');
+                return;
+            }
+            
+            // Check if player has the item
+            if (!player.inventory.includes(itemId)) {
+                print("You don't have that item.", 'error');
+                return;
+            }
+            
+            const item = items[itemId];
+            
+            // Check if it's equipment
+            if (item.type === 'weapon') {
+                // If already have a weapon equipped, put it back in inventory
+                if (player.equipped.weapon) {
+                    player.inventory.push(player.equipped.weapon);
+                }
+                
+                // Equip the new weapon
+                player.equipped.weapon = itemId;
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print(`You equip the ${item.name}.`, 'success');
+                soundSystem.playSound('equip');
+                
+            } else if (item.type === 'armor') {
+                // If already have armor equipped, put it back in inventory
+                if (player.equipped.armor) {
+                    player.inventory.push(player.equipped.armor);
+                }
+                
+                // Equip the new armor
+                player.equipped.armor = itemId;
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print(`You equip the ${item.name}.`, 'success');
+                soundSystem.playSound('equip');
+                
+            } else {
+                print("That's not something you can equip.", 'error');
+                return;
+            }
+            
+            // Recalculate stats
+            calculatePlayerStats();
+        }
+
+        function useItem(itemName, target = null) {
+            // Find the item ID by name
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId || !player.inventory.includes(itemId)) {
+                print("You don't have that.", 'error');
+                return;
+            }
+            
+            const item = items[itemId];
+            const room = rooms[player.location];
+            
+            // Use flashlight
+            if (itemId === 'flashlight') {
+                player.hasLight = !player.hasLight;
+                print(player.hasLight ? "You turn on the flashlight." : "You turn off the flashlight.", 'success');
+                soundSystem.playSound('click');
+                if (player.hasLight) look();
+                return;
+            }
+            
+            // Use chemical flare
+            if (itemId === 'chemical_flare') {
+                player.hasLight = true;
+                print("You ignite the chemical flare! It burns with bright green light.", 'success');
+                soundSystem.playSound('click');
+                // Flare lasts for a while then burns out
+                setTimeout(() => {
+                    if (player.hasLight) {
+                        player.hasLight = false;
+                        print("The chemical flare burns out.", 'system');
+                    }
+                }, 30000);
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                if (player.hasLight) look();
+                return;
+            }
+            
+            // Use forbidden tome
+            if (itemId === 'forbidden_tome') {
+                print("You read from the forbidden tome. Dark knowledge fills your mind!", 'puzzle');
+                player.mp = Math.min(player.maxMp, player.mp + 30);
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print("You gain 30 MP from the dark knowledge.", 'heal');
+                soundSystem.playSound('notification');
+                updateStatus();
+                return;
+            }
+            
+            // Use healing potion
+            if (itemId === 'healing_potion') {
+                const healAmount = 30;
+                player.hp = Math.min(player.maxHp, player.hp + healAmount);
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print(`You drink the healing potion and restore ${healAmount} HP.`, 'heal');
+                soundSystem.playSound('notification');
+                updateStatus();
+                return;
+            }
+            
+            // Use glowing mushroom
+            if (itemId === 'glowing_mushroom') {
+                const mpAmount = 20;
+                player.mp = Math.min(player.maxMp, player.mp + mpAmount);
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print(`You consume the glowing mushroom and restore ${mpAmount} MP.`, 'heal');
+                soundSystem.playSound('notification');
+                updateStatus();
+                return;
+            }
+            
+            // Use lockpick on door
+            if (itemId === 'lockpick_set' && target === 'door') {
+                const room = rooms[player.location];
+                if (room.locked) {
+                    if (player.class === 'explorer' || Math.random() > 0.3) {
+                        room.locked = false;
+                        print("You successfully pick the lock!", 'success');
+                        soundSystem.playSound('click');
+                    } else {
+                        print("You fail to pick the lock.", 'error');
+                        // Chance to break lockpick
+                        if (Math.random() > 0.5) {
+                            player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                            print("Your lockpick set breaks!", 'error');
+                        }
+                    }
+                } else {
+                    print("The door isn't locked.", 'error');
+                }
+                return;
+            }
+            
+            // Use key on locked room
+            if (item.type === 'key' && target === 'door') {
+                const room = rooms[player.location];
+                if (room.locked) {
+                    // Check specific key requirements
+                    if (room.id === 29 && itemId === 'escape_key') {
+                        room.locked = false;
+                        player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                        print("The escape key fits! The helipad is unlocked!", 'success');
+                        soundSystem.playSound('elevator');
+                        print("*** YOU ESCAPE! ***", 'success');
+                        print("You have escaped the Tower of Terror!", 'success');
+                        soundSystem.playBackground('victory');
+                        return;
+                    } else if (itemId === 'master_key') {
+                        room.locked = false;
+                        print("The master key unlocks the door.", 'success');
+                        soundSystem.playSound('door');
+                        return;
+                    } else if (room.id === 27 && itemId === 'roof_access_key') {
+                        room.locked = false;
+                        print("The roof access key unlocks the door.", 'success');
+                        soundSystem.playSound('door');
+                        return;
+                    } else {
+                        // Try any key
+                        room.locked = false;
+                        print("The key fits!", 'success');
+                        soundSystem.playSound('door');
+                        player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                    }
+                } else {
+                    print("The door isn't locked.", 'error');
+                }
+                return;
+            }
+            
+            // Use rope for climbing
+            if (itemId === 'climbing_rope' && target === 'climb') {
+                print("You use the climbing rope to ascend to a higher floor.", 'success');
+                soundSystem.playSound('click');
+                // Find next floor up
+                const currentFloor = rooms[player.location].floor;
+                const nextRoom = rooms.find(r => r.floor === currentFloor + 1);
+                if (nextRoom && !nextRoom.locked) {
+                    player.location = nextRoom.id;
+                    print(`You climb to floor ${nextRoom.floor}.`, 'success');
+                    look();
+                } else {
+                    print("You can't climb any higher from here.", 'error');
+                }
+                return;
+            }
+            
+            // Use EMF reader
+            if (itemId === 'emf_reader') {
+                print("You activate the EMF reader.", 'system');
+                soundSystem.playSound('click');
+                
+                if (room.npc || room.enemy) {
+                    print("The EMF reader spikes! Supernatural presence detected!", 'puzzle');
+                    soundSystem.playSound('notification');
+                } else if (room.secret) {
+                    print("The EMF reader detects anomalous energy nearby.", 'puzzle');
+                } else {
+                    print("The EMF reader shows normal readings.", 'system');
+                }
+                return;
+            }
+            
+            // Use crowbar
+            if (itemId === 'crowbar' && target && target.includes('door')) {
+                const room = rooms[player.location];
+                if (room.locked) {
+                    if (Math.random() > 0.4) {
+                        room.locked = false;
+                        print("You force the door open with the crowbar!", 'success');
+                        soundSystem.playSound('door');
+                    } else {
+                        print("The door won't budge.", 'error');
+                    }
+                } else {
+                    print("The door isn't locked.", 'error');
+                }
+                return;
+            }
+            
+            // Use silver mirror
+            if (itemId === 'silver_mirror') {
+                print("You look into the silver mirror.", 'system');
+                if (room.secret) {
+                    print("The mirror reveals a hidden secret!", 'secret');
+                    player.stats.secretsFound++;
+                } else if (room.npc) {
+                    const npc = npcs[room.npc];
+                    print(`The mirror shows ${npc.name}'s true form.`, 'ghost');
+                } else {
+                    print("You see your reflection, looking tired and scared.", 'system');
+                }
+                return;
+            }
+            
+            print(`You're not sure how to use the ${item.name} here.`, 'error');
+        }
+
+        function talk(npcName = null) {
+            const room = rooms[player.location];
+            
+            if (!room.npc) {
+                print("There's no one here to talk to.", 'error');
+                return;
+            }
+            
+            const npc = npcs[room.npc];
+            print(`${npc.name}: "${npc.dialog}"`, 'npc');
+            
+            // Handle quests
+            if (npc.quest && !npc.quest.completed) {
+                if (npc.quest.type === 'find' && !npc.quest.given) {
+                    npc.quest.given = true;
+                    print(`${npc.name}: "Find the ${items[npc.quest.target].name} for me."`, 'quest');
+                } else if (npc.quest.type === 'give') {
+                    const hasItems = npc.quest.target.every(item => player.inventory.includes(item));
+                    if (hasItems) {
+                        print(`${npc.name}: "You have them! Thank you!"`, 'quest');
+                        npc.quest.target.forEach(item => {
+                            player.inventory.splice(player.inventory.indexOf(item), 1);
+                        });
+                        player.inventory.push(npc.quest.reward);
+                        npc.quest.completed = true;
+                        print(`You receive: ${items[npc.quest.reward].name}`, 'success');
+                        soundSystem.playSound('pickup');
+                    } else {
+                        const itemNames = npc.quest.target.map(i => items[i].name).join(' and ');
+                        print(`${npc.name}: "I need ${itemNames}."`, 'quest');
+                    }
+                } else if (npc.quest.type === 'riddle') {
+                    print(`${npc.name}: "${npc.quest.question}"`, 'quest');
+                }
+            }
+        }
+
+        function search(target = null) {
+    const room = rooms[player.location];
+    
+    if (room.dark && !player.hasLight) {
+        print("It's too dark to search.", 'error');
+        return;
+    }
+    
+    if (target) {
+        // Search specific object
+        if (room.container && target === room.container) {
+            print(`You search the ${room.container}...`, 'system');
+            soundSystem.playSound('click', 0.3);
+            
+            // Check for special items in specific containers
+            switch(room.id) {
+                case 1: // Abandoned Offices - filing_cabinet
+                    if (!player.inventory.includes('filing_cabinet_key') && !room.items.includes('filing_cabinet_key')) {
+                        if (Math.random() > 0.3) {
+                            room.items.push('filing_cabinet_key');
+                            print("You find a filing cabinet key!", 'item');
+                            soundSystem.playSound('pickup', 0.4);
+                            player.stats.secretsFound++;
+                        } else {
+                            print("You find some old documents, but nothing useful.", 'system');
+                        }
+                    } else {
+                        print("The filing cabinet is empty.", 'system');
+                    }
+                    break;
+                    
+                case 2: // Maintenance Level - tool_locker
+                    if (!player.inventory.includes('tool_locker_key') && !room.items.includes('tool_locker_key')) {
+                        if (Math.random() > 0.4) {
+                            room.items.push('tool_locker_key');
+                            print("You find a tool locker key!", 'item');
+                            soundSystem.playSound('pickup', 0.4);
+                            player.stats.secretsFound++;
+                        } else {
+                            print("You find some rusty tools.", 'system');
+                        }
+                    } else {
+                        print("The tool locker is empty.", 'system');
+                    }
+                    break;
+                    
+                case 3: // Library - study_desk
+                    if (!player.inventory.includes('secret_note') && !room.items.includes('secret_note')) {
+                        if (Math.random() > 0.5) {
+                            room.items.push('secret_note');
+                            print("You find a secret note with cryptic writing!", 'secret');
+                            soundSystem.playSound('secret', 0.5);
+                            player.stats.secretsFound++;
+                        } else {
+                            print("You find some dusty papers and ink bottles.", 'system');
+                        }
+                    } else {
+                        print("The study desk is empty.", 'system');
+                    }
+                    break;
+                    
+                case 5: // Laboratory - lab_table
+                    if (!player.inventory.includes('lab_notes') && !room.items.includes('lab_notes')) {
+                        if (Math.random() > 0.4) {
+                            room.items.push('lab_notes');
+                            print("You find detailed laboratory notes!", 'item');
+                            soundSystem.playSound('pickup', 0.4);
+                            player.stats.secretsFound++;
+                        } else {
+                            print("You find various chemical apparatus.", 'system');
+                        }
+                    } else {
+                        print("The lab table is empty.", 'system');
+                    }
+                    break;
+                    
+                case 8: // Prison Cells - prisoner_bed
+                    if (!player.inventory.includes('hidden_shiv') && !room.items.includes('hidden_shiv')) {
+                        if (Math.random() > 0.6) {
+                            room.items.push('hidden_shiv');
+                            print("You find a hidden shiv under the mattress!", 'item');
+                            soundSystem.playSound('pickup', 0.4);
+                            player.stats.secretsFound++;
+                        } else {
+                            print("You find nothing but straw and bugs.", 'system');
+                        }
+                    } else {
+                        print("The prisoner bed is empty.", 'system');
+                    }
+                    break;
+                    
+                case 20: // Master Bedroom - bedside_table
+                    if (!player.inventory.includes('master_key') && !room.items.includes('master_key')) {
+                        if (Math.random() > 0.7) {
+                            room.items.push('master_key');
+                            print("You find a hidden master key!", 'secret');
+                            soundSystem.playSound('secret', 0.6);
+                            player.stats.secretsFound++;
+                        } else {
+                            print("You find personal effects and dust.", 'system');
+                        }
+                    } else {
+                        print("The bedside table is empty.", 'system');
+                    }
+                    break;
+                    
+                case 25: // Treasure Vault - treasure_chest
+                    if (!player.inventory.includes('philosopher_stone') && !room.items.includes('philosopher_stone')) {
+                        if (Math.random() > 0.8) {
+                            room.items.push('philosopher_stone');
+                            print("You find the legendary Philosopher's Stone!", 'loot');
+                            soundSystem.playSound('secret', 0.7);
+                            player.stats.secretsFound++;
+                        } else {
+                            print("The treasure chest contains only fool's gold.", 'system');
+                        }
+                    } else {
+                        print("The treasure chest is empty.", 'system');
+                    }
+                    break;
+                    
+                default:
+                    // Generic container search
+                    if (room.items.length > 0) {
+                        print("Inside you find:", 'system');
+                        room.items.forEach(itemId => {
+                            print(`  ${items[itemId].name}`, 'item');
+                        });
+                    } else {
+                        print("You don't find anything useful.", 'system');
+                    }
+            }
+            return;
+        }
+        
+        print("You don't see that here.", 'error');
+    } else {
+        // General room search
+        print("You search the room...", 'system');
+        soundSystem.playSound('click', 0.2);
+        
+        if (room.items.length > 0) {
+            print("You find:", 'system');
+            room.items.forEach(itemId => {
+                print(`  ${items[itemId].name}`, 'item');
+            });
+        } else {
+            print("You don't find anything.", 'system');
+        }
+        
+        // Check for hidden puzzles
+        if (room.puzzle) {
+            const puzzle = Object.values(puzzles).find(p => p.room === room.id);
+            if (puzzle && !puzzle.solved) {
+                print(`Puzzle clue: ${puzzle.description}`, 'puzzle');
+            }
+        }
+        
+        // Chance to find secret
+        if (room.secret && Math.random() > 0.7) {
+            print("You discover something hidden!", 'secret');
+            player.stats.secretsFound++;
+        }
+    }
+}
+
+        function springTrap(trapType) {
+            const room = rooms[player.location];
+            player.stats.trapsSprung++;
+            
+            print(`You trigger a ${trapType}!`, 'trap');
+            soundSystem.playSound('trap');
+            
+            switch(trapType) {
+                case 'collapsing_chandelier':
+                    player.hp -= 15;
+                    print("A chandelier falls from the ceiling! You take 15 damage!", 'damage');
+                    break;
+                    
+                case 'steam_blast':
+                    player.hp -= 10;
+                    print("A blast of scalding steam hits you! You take 10 damage!", 'damage');
+                    break;
+                    
+                case 'chemical_explosion':
+                    player.hp -= 20;
+                    print("Chemicals explode! You take 20 damage!", 'damage');
+                    break;
+                    
+                case 'falling_crates':
+                    player.hp -= 12;
+                    print("Crates fall from shelves! You take 12 damage!", 'damage');
+                    break;
+            }
+            
+            if (player.hp <= 0) {
+                print("The trap finishes you off... You become another victim of the tower.", 'error');
+                soundSystem.playSound('error');
+                resetGame();
+            } else {
+                updateStatus();
+            }
+        }
+
+        function attack(target = null) {
+            const room = rooms[player.location];
+            
+            if (!room.enemy) {
+                print("There's nothing to attack here.", 'error');
+                return;
+            }
+            
+            const enemy = enemies[room.enemy];
+            soundSystem.playSound('attack');
+            
+            print(`You attack the ${enemy.name}!`, 'command');
+            
+            // Calculate damage using player's total damage
+            let damage = player.totalDamage + Math.floor(Math.random() * 6) - 3;
+            damage = Math.max(1, damage);
+            
+            // Bonus damage with enchanted weapons
+            if (player.equipped.weapon && items[player.equipped.weapon].name.toLowerCase().includes('enchanted')) {
+                if (enemy.weak === 'magic') {
+                    damage += 8;
+                    print("Your enchanted weapon is especially effective!", 'damage');
+                }
+            }
+            
+            enemy.hp -= damage;
+            
+            print(`You hit for ${damage} damage!`, 'damage');
+            soundSystem.playSound('enemyHit');
+            
+            if (enemy.hp <= 0) {
+                print(`You defeated the ${enemy.name}!`, 'success');
+                
+                // Drop loot
+                if (enemy.loot) {
+                    enemy.loot.forEach(lootId => {
+                        room.items.push(lootId);
+                        print(`It drops: ${items[lootId].name}`, 'loot');
+                    });
+                }
+                
+                // Gold reward
+                const goldReward = 20 + Math.floor(Math.random() * 30);
+                player.gold += goldReward;
+                print(`You find ${goldReward} gold.`, 'loot');
+                
+                player.stats.enemiesDefeated++;
+                
+                soundSystem.playSound('victory');
+                
+                // Special cases
+                if (room.id === 29 && room.enemy === 'tower_master') {
+                    print("The Tower Master is defeated! The escape helicopter awaits!", 'success');
+                    // Escape key appears
+                    room.items.push('escape_key');
+                    print("The master drops an escape key!", 'loot');
+                }
+                
+                if (room.id === 0 && room.enemy === 'lobby_ghoul') {
+                    print("With the lobby ghoul defeated, you can now ascend the tower!", 'success');
+                }
+                
+                room.enemy = null;
+            } else {
+                print(`The ${enemy.name} has ${enemy.hp} HP remaining.`, 'enemy');
+                
+                // Enemy counterattack (reduced by player's defense)
+                let enemyDamage = Math.max(1, enemy.damage - Math.floor(player.totalDefense / 2));
+                player.hp -= enemyDamage;
+                print(`The ${enemy.name} hits you for ${enemyDamage} damage!`, 'damage');
+                soundSystem.playSound('playerHit');
+                
+                if (player.hp <= 0) {
+                    print("You have been defeated... You become another permanent resident of the tower.", 'error');
+                    soundSystem.playSound('error');
+                    resetGame();
+                }
+            }
+            
+            updateStatus();
+        }
+
+        function showInventory() {
+            if (player.inventory.length === 0) {
+                print("Your inventory is empty.", 'system');
+            } else {
+                print("Inventory:", 'system');
+                player.inventory.forEach(itemId => {
+                    const item = items[itemId];
+                    const equipped = (player.equipped.weapon === itemId || player.equipped.armor === itemId) ? " [EQUIPPED]" : "";
+                    print(`  ${item.name}${equipped} - ${item.desc}`, equipped ? 'equipped' : 'item');
+                });
+            }
+            
+            // Show equipped items
+            print("", 'system');
+            print("Equipped:", 'system');
+            if (player.equipped.weapon) {
+                const weapon = items[player.equipped.weapon];
+                print(`  Weapon: ${weapon.name} (${weapon.damage} DMG)`, 'equipped');
+            } else {
+                print("  Weapon: None (3 DMG)", 'system');
+            }
+            
+            if (player.equipped.armor) {
+                const armor = items[player.equipped.armor];
+                print(`  Armor: ${armor.name} (${armor.defense} DEF)`, 'equipped');
+            } else {
+                print("  Armor: None (0 DEF)", 'system');
+            }
+            
+            print("", 'system');
+            print(`Total Stats: ${player.totalDamage} DMG | ${player.totalDefense} DEF`, 'system');
+        }
+
+        function showStats() {
+            print("=== CHARACTER STATS ===", 'command');
+            print(`Class: ${player.class ? player.class.replace('_', ' ').toUpperCase() : 'None'}`, 'system');
+            print(`HP: ${player.hp}/${player.maxHp}`, 'system');
+            print(`MP: ${player.mp}/${player.maxMp}`, 'system');
+            print(`Gold: ${player.gold}`, 'system');
+            print(`Strength: ${player.str}`, 'system');
+            print(`Defense: ${player.def}`, 'system');
+            print(`Intelligence: ${player.int}`, 'system');
+            print("=== EQUIPMENT ===", 'command');
+            if (player.equipped.weapon) {
+                const weapon = items[player.equipped.weapon];
+                print(`Weapon: ${weapon.name} (${weapon.damage} DMG)`, 'equipped');
+            } else {
+                print("Weapon: None", 'system');
+            }
+            if (player.equipped.armor) {
+                const armor = items[player.equipped.armor];
+                print(`Armor: ${armor.name} (${armor.defense} DEF)`, 'equipped');
+            } else {
+                print("Armor: None", 'system');
+            }
+            print(`Total Damage: ${player.totalDamage}`, 'system');
+            print(`Total Defense: ${player.totalDefense}`, 'system');
+            print("=== TOWER PROGRESS ===", 'command');
+            print(`Floors Climbed: ${player.stats.floorsClimbed}/30`, 'system');
+            print(`Enemies Defeated: ${player.stats.enemiesDefeated}`, 'system');
+            print(`Puzzles Solved: ${player.stats.puzzlesSolved}`, 'system');
+            print(`Secrets Found: ${player.stats.secretsFound}`, 'system');
+            print(`Traps Sprung: ${player.stats.trapsSprung}`, 'system');
+            print(`Current Floor: ${rooms[player.location].floor}`, 'system');
+        }
+
+        function showHelp() {
+            print("=== TOWER OF TERROR ===", 'command');
+            print("MOVEMENT: n, s, e, w, look", 'system');
+            print("INTERACTION: take [item], use [item], use [item] on [object]", 'system');
+            print("           equip [item], search, search [container]", 'system');
+            print("           drop [item], inventory", 'system');
+            print("PUZZLES: examine puzzle, solve puzzle, answer [answer]", 'system');
+            print("         unlock [target]", 'system');
+            print("COMBAT: attack", 'system');
+            print("NPCS: talk", 'system');
+            print("INFO: stats, help", 'system');
+            print("=== TOWER ESCAPE TIPS ===", 'command');
+            print("- Climb 30 floors to reach the escape helipad", 'system');
+            print("- Light sources needed in dark rooms", 'system');
+            print("- Different enemies have different weaknesses", 'system');
+            print("- Keys and lockpicks open locked doors", 'system');
+            print("- Solve puzzles to progress through floors", 'system');
+            print("- Talk to ghosts for help and quests", 'system');
+            print("- Find the Escape Key to escape (Floor 29)", 'system');
+            print("- Each class has unique starting equipment", 'system');
+        }
+
+        function resetGame() {
+            player.class = null;
+            gameStarted = false;
+            soundSystem.playBackground('main_theme');
+            print("GAME OVER", 'error');
+            print("Choose a class: soldier, explorer, scientist.", 'system');
+            updateStatus();
+        }
+
+        function quickCommand(cmd) {
+            document.getElementById('input').value = cmd;
+            const event = new KeyboardEvent('keydown', { key: 'Enter' });
+            document.getElementById('input').dispatchEvent(event);
+        }
+
+        function examinePuzzle(puzzleName) {
+            const room = rooms[player.location];
+            
+            // Check if there's a puzzle in this room
+            if (!room.puzzle) {
+                print("There's no puzzle here to examine.", 'error');
+                return;
+            }
+            
+            const puzzle = Object.values(puzzles).find(p => p.room === room.id);
+            if (!puzzle) {
+                print("You can't find any puzzle here.", 'error');
+                return;
+            }
+            
+            print(`=== PUZZLE: ${puzzle.type.toUpperCase()} ===`, 'puzzle');
+            print(`Description: ${puzzle.description}`, 'puzzle');
+            
+            // Give hints based on puzzle type
+            switch(puzzle.type) {
+                case 'defeat':
+                    print("Hint: You need to defeat the enemy in this room.", 'puzzle');
+                    break;
+                case 'unlock':
+                    print("Hint: You need a key or lockpick to unlock this.", 'puzzle');
+                    print(`Solution: ${puzzle.solution}`, 'puzzle');
+                    break;
+                case 'riddle':
+                    print("Hint: Answer the riddle correctly.", 'puzzle');
+                    break;
+                case 'brew':
+                    print("Hint: Mix specific ingredients together.", 'puzzle');
+                    break;
+                case 'align':
+                    print("Hint: Align objects in a specific pattern.", 'puzzle');
+                    break;
+                case 'set':
+                    print("Hint: Set something to a specific value.", 'puzzle');
+                    break;
+            }
+            
+            soundSystem.playSound('puzzle', 0.3);
+        }
+
+        function solvePuzzle(puzzleName) {
+            const room = rooms[player.location];
+            
+            if (!room.puzzle) {
+                print("There's no puzzle here to solve.", 'error');
+                return;
+            }
+            
+            const puzzle = Object.values(puzzles).find(p => p.room === room.id);
+            if (!puzzle) {
+                print("You can't solve what isn't here.", 'error');
+                return;
+            }
+            
+            if (puzzle.solved) {
+                print("This puzzle has already been solved.", 'system');
+                return;
+            }
+            
+            print(`Attempting to solve the ${puzzle.type} puzzle...`, 'puzzle');
+            
+            // Try to auto-solve based on current conditions
+            switch(puzzle.type) {
+                case 'defeat':
+                    if (!room.enemy) {
+                        puzzle.solved = true;
+                        print("You have solved the puzzle by defeating the enemy!", 'success');
+                        player.stats.puzzlesSolved++;
+                        if (puzzle.reward === 'access') {
+                            print("The way is now clear!", 'success');
+                        }
+                        soundSystem.playSound('victory', 0.4);
+                    } else {
+                        print("The enemy still blocks the way. You need to defeat it first.", 'error');
+                    }
+                    break;
+                    
+                case 'unlock':
+                    print("Try using a key or lockpick on the door.", 'puzzle');
+                    break;
+                    
+                default:
+                    print("Try using specific items or commands to solve this puzzle.", 'puzzle');
+                    print(`Type 'examine puzzle' for more details.`, 'system');
+            }
+        }
+
+        function answerPuzzle(answer, puzzleName = null) {
+            const room = rooms[player.location];
+            
+            if (!room.puzzle) {
+                print("There's no puzzle here to answer.", 'error');
+                return;
+            }
+            
+            const puzzle = Object.values(puzzles).find(p => p.room === room.id);
+            if (!puzzle) {
+                print("There's nothing to answer here.", 'error');
+                return;
+            }
+            
+            // Check if this is a riddle-type puzzle
+            const npc = room.npc ? npcs[room.npc] : null;
+            if (npc && npc.quest && npc.quest.type === 'riddle') {
+                // Hardcoded answer for library riddle
+                if (answer.toLowerCase() === 'knowledge') {
+                    print(`"${answer}" is correct!`, 'success');
+                    npc.quest.completed = true;
+                    if (npc.quest.reward) {
+                        player.inventory.push(npc.quest.reward);
+                        print(`You receive: ${items[npc.quest.reward].name}`, 'success');
+                        soundSystem.playSound('pickup');
+                    }
+                    player.stats.puzzlesSolved++;
+                } else {
+                    print(`"${answer}" is not the correct answer.`, 'error');
+                }
+                return;
+            }
+            
+            print("This puzzle doesn't require a verbal answer.", 'error');
+        }
+
+        function unlockPuzzle(target) {
+            const room = rooms[player.location];
+            
+            if (!room.puzzle) {
+                print("There's nothing to unlock here.", 'error');
+                return;
+            }
+            
+            const puzzle = Object.values(puzzles).find(p => p.room === room.id);
+            if (!puzzle || puzzle.type !== 'unlock') {
+                print("This isn't something you can unlock.", 'error');
+                return;
+            }
+            
+            print(`Attempting to unlock ${target}...`, 'puzzle');
+            
+            // Check if player has required items
+            if (puzzle.solution.includes('key')) {
+                // Look for any key in inventory
+                const keys = player.inventory.filter(itemId => items[itemId].type === 'key');
+                if (keys.length > 0) {
+                    const keyId = keys[0];
+                    print(`Trying ${items[keyId].name}...`, 'system');
+                    // Try to use the key
+                    useItem(items[keyId].name.toLowerCase().split(' ')[0], 'door');
+                } else {
+                    print("You don't have any keys.", 'error');
+                }
+            } else if (puzzle.solution.includes('lockpick')) {
+                const lockpick = player.inventory.find(itemId => 
+                    items[itemId].name.toLowerCase().includes('lockpick'));
+                if (lockpick) {
+                    print("Using lockpick...", 'system');
+                    useItem('lockpick', 'door');
+                } else {
+                    print("You need lockpicks to open this.", 'error');
+                }
+            }
+        }
+
+        // ==================== COMMAND PARSER ====================
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                const cmd = input.value.trim().toLowerCase();
+                input.value = '';
+                if (!cmd) return;
+
+                soundSystem.playSound('click', 0.3);
+                print(`> ${cmd}`, 'command');
+                
+                // Convert "use X on Y" to array
+                let parts;
+                if (cmd.includes(' on ')) {
+                    parts = cmd.split(' on ');
+                    parts = ['use', parts[0], parts[1]];
+                } else {
+                    parts = cmd.split(' ');
+                }
+                
+                const verb = parts[0];
+                const arg1 = parts[1];
+                const arg2 = parts[2];
+
+                // Class selection
+                if (!player.class && ['soldier', 'explorer', 'scientist'].includes(verb)) {
+                    startGame(verb);
+                    return;
+                }
+                
+                if (!player.class) {
+                    print("Choose a class first: soldier, explorer, scientist.", 'error');
+                    return;
+                }
+
+                // Game commands
+                switch (verb) {
+                    case 'n': case 'north': move('n'); break;
+                    case 's': case 'south': move('s'); break;
+                    case 'e': case 'east': move('e'); break;
+                    case 'w': case 'west': move('w'); break;
+                    case 'l': case 'look': look(); break;
+                    case 'take': if (arg1) take(arg1); else print("Take what?"); break;
+                    case 'use': 
+                        if (arg2) {
+                            useItem(arg1, arg2);
+                        } else if (arg1) {
+                            useItem(arg1);
+                        } else {
+                            print("Use what?"); 
+                        }
+                        break;
+                    case 'equip': if (arg1) equip(arg1); else print("Equip what?"); break;
+                    case 'talk': talk(arg1); break;
+                    case 'search': search(arg1); break;
+                    case 'drop': if (arg1) drop(arg1); else print("Drop what?"); break;
+                    case 'i': case 'inventory': case 'inv': showInventory(); break;
+                    case 'attack': attack(arg1); break;
+                    case 'stats': showStats(); break;
+                    case 'help': case '?': showHelp(); break;
+                    case 'quit': resetGame(); break;
+                    case 'examine': 
+                        if (arg1) examinePuzzle(arg1);
+                        else print("Examine what?"); 
+                        break;
+                    case 'solve': 
+                        if (arg1) solvePuzzle(arg1);
+                        else print("Solve what puzzle?"); 
+                        break;
+                    case 'answer':
+                        if (arg1 && arg2) answerPuzzle(arg1, arg2);
+                        else print("Answer puzzle with what?"); 
+                        break;
+                    case 'unlock':
+                        if (arg1) unlockPuzzle(arg1);
+                        else print("Unlock what?"); 
+                        break;
+                    default: print("Unknown command. Type 'help'.", 'error');
+                }
+            }
+        });
+
+        // Sound toggle button
+        document.getElementById('sound-toggle').addEventListener('click', () => {
+            soundSystem.toggle();
+        });
+
+        // Initialize audio on first user interaction
+        document.addEventListener('click', function initAudio() {
+            soundSystem.resumeAudioContext();
+            if (!gameStarted) {
+                soundSystem.playBackground('main_theme');
+            }
+            document.removeEventListener('click', initAudio);
+        }, { once: true });
+
+        // ==================== INIT ====================
+        print("TOWER OF TERROR (1982)", 'success');
+        print("NIGHTFALLS GAMES PRESENTS", 'system');
+        print("", 'system');
+        print("A horror adventure through 30 floors of a haunted tower!", 'system');
+        print("Battle monsters, solve puzzles, and climb to freedom!", 'system');
+        print("", 'system');
+        print("Classes:", 'system');
+        print("- soldier: Combat knife and flashlight", 'system');
+        print("- explorer: Lockpick set and climbing rope", 'system');
+        print("- scientist: EMF reader and chemical flare", 'system');
+        print("", 'system');
+        print("Commands: n/s/e/w, look, take, equip, use, talk, search, attack, inventory", 'system');
+        print("", 'system');
+        print("Choose your class: soldier, explorer, scientist.", 'system');
+        updateStatus();
+        input.focus();
+    </script>
+</body>
+</html>
