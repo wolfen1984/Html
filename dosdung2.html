@@ -1,0 +1,3684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Escape from Dungeons of Dread (1987) - Nightfalls Games</title>
+    <link href="https://fonts.googleapis.com/css?family=Press+Start+2P" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            font-family: 'Press Start 2P', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+            background-color: #000;
+            color: #8a2be2;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            padding: 5px;
+            touch-action: manipulation;
+        }
+        #header {
+            text-align: center;
+            border-bottom: 2px solid #8a2be2;
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+            flex-shrink: 0;
+        }
+        #game-container {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+        #output {
+            flex-grow: 1;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            border: 1px solid #8a2be2;
+            padding: 8px;
+            margin-bottom: 8px;
+            background-color: #111;
+            -webkit-overflow-scrolling: touch;
+        }
+        #input-line {
+            display: flex;
+            flex-shrink: 0;
+            align-items: center;
+        }
+        #prompt {
+            margin-right: 8px;
+            white-space: nowrap;
+        }
+        #input {
+            flex-grow: 1;
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid #8a2be2;
+            color: #8a2be2;
+            font-family: inherit;
+            font-size: inherit;
+            outline: none;
+            padding: 4px 0;
+        }
+        #status {
+            border-top: 1px solid #8a2be2;
+            padding-top: 8px;
+            margin-top: 8px;
+            flex-shrink: 0;
+            white-space: pre;
+            font-size: 10px;
+        }
+        .command {
+            color: #ff6347;
+        }
+        .error {
+            color: #ff0000;
+        }
+        .item {
+            color: #00ffff;
+        }
+        .enemy {
+            color: #dc143c;
+        }
+        .npc {
+            color: #ffd700;
+        }
+        .success {
+            color: #7cfc00;
+        }
+        .quest {
+            color: #ff69b4;
+        }
+        .loot {
+            color: #ffa500;
+        }
+        .system {
+            color: #888;
+        }
+        .damage {
+            color: #ff4500;
+        }
+        .heal {
+            color: #32cd32;
+        }
+        .puzzle {
+            color: #9370db;
+        }
+        .equipped {
+            color: #00ff7f;
+            font-weight: bold;
+        }
+        .secret {
+            color: #da70d6;
+            font-style: italic;
+        }
+        .trap {
+            color: #ff1493;
+        }
+        #sound-toggle {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: #000;
+            border: 1px solid #8a2be2;
+            color: #8a2be2;
+            padding: 4px 8px;
+            font-size: 10px;
+            cursor: pointer;
+            z-index: 1000;
+        }
+        .quick-command {
+            display: inline-block;
+            background: #222;
+            border: 1px solid #8a2be2;
+            color: #8a2be2;
+            padding: 2px 6px;
+            margin: 2px;
+            cursor: pointer;
+            font-size: 10px;
+        }
+        #quick-commands {
+            margin-top: 8px;
+            text-align: center;
+        }
+        #volume-control {
+            position: fixed;
+            top: 40px;
+            right: 10px;
+            background: #000;
+            border: 1px solid #8a2be2;
+            color: #8a2be2;
+            padding: 4px;
+            font-size: 10px;
+            z-index: 999;
+        }
+        #volume-slider {
+            width: 80px;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <button id="sound-toggle">🔊 ON</button>
+    <div id="volume-control">
+        <div>Volume:</div>
+        <input type="range" id="volume-slider" min="0" max="100" value="70">
+    </div>
+    <div id="header">
+        <h1>ESCAPE FROM DUNGEONS OF DREAD</h1>
+        <div>1987 • NIGHTFALLS GAMES</div>
+    </div>
+    <div id="game-container">
+        <div id="output">Welcome to Dungeons of Dread! Type 'help' for commands.</div>
+        <div id="input-line">
+            <span id="prompt">&gt;</span>
+            <input type="text" id="input" autocomplete="off" autofocus>
+        </div>
+        <div id="quick-commands">
+            <span class="quick-command" onclick="quickCommand('n')">N</span>
+            <span class="quick-command" onclick="quickCommand('s')">S</span>
+            <span class="quick-command" onclick="quickCommand('e')">E</span>
+            <span class="quick-command" onclick="quickCommand('w')">W</span>
+            <span class="quick-command" onclick="quickCommand('look')">LOOK</span>
+            <span class="quick-command" onclick="quickCommand('inventory')">INV</span>
+            <span class="quick-command" onclick="quickCommand('stats')">STATS</span>
+        </div>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        // ==================== SOUND SYSTEM ====================
+        class SoundSystem {
+            constructor() {
+                this.audioContext = null;
+                this.masterGain = null;
+                this.bgGain = null;
+                this.sfxGain = null;
+                this.enabled = true;
+                this.currentBg = null;
+                this.currentBgSource = null;
+                this.currentBgName = null;
+                
+                this.init();
+            }
+            
+            init() {
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.masterGain = this.audioContext.createGain();
+                    this.bgGain = this.audioContext.createGain();
+                    this.sfxGain = this.audioContext.createGain();
+                    
+                    // Set initial volumes
+                    this.masterGain.gain.value = 0.7;
+                    this.bgGain.gain.value = 0.3;
+                    this.sfxGain.gain.value = 0.5;
+                    
+                    // Connect nodes
+                    this.bgGain.connect(this.masterGain);
+                    this.sfxGain.connect(this.masterGain);
+                    this.masterGain.connect(this.audioContext.destination);
+                    
+                    // Volume control
+                    document.getElementById('volume-slider').addEventListener('input', (e) => {
+                        const volume = e.target.value / 100;
+                        this.setMasterVolume(volume);
+                    });
+                    
+                } catch (e) {
+                    console.log('Web Audio API not supported:', e);
+                    this.enabled = false;
+                }
+            }
+            
+            // ==================== DUNGEON MUSIC GENERATION ====================
+            playBackground(musicName, loop = true) {
+                if (!this.enabled || !musicName) return;
+                
+                // Don't restart same music
+                if (this.currentBgName === musicName && this.currentBgSource) {
+                    return;
+                }
+                
+                // Stop current background
+                this.stopBackground();
+                
+                this.currentBgName = musicName;
+                
+                // Generate music based on name
+                switch(musicName) {
+                    case 'dungeon_theme':
+                        this.playDungeonTheme(loop);
+                        break;
+                    case 'prison_depths':
+                        this.playPrisonDepthsMusic(loop);
+                        break;
+                    case 'forsaken_mines':
+                        this.playForsakenMinesMusic(loop);
+                        break;
+                    case 'lava_caverns':
+                        this.playLavaCavernsMusic(loop);
+                        break;
+                    case 'ancient_temple':
+                        this.playAncientTempleMusic(loop);
+                        break;
+                    case 'escape_theme':
+                        this.playEscapeTheme(loop);
+                        break;
+                    case 'victory':
+                        this.playVictoryMusic(loop);
+                        break;
+                    default:
+                        this.playDungeonTheme(loop);
+                }
+            }
+            
+            playDungeonTheme(loop) {
+                const melody = [
+                    {note: 87.31, duration: 0.6},
+                    {note: 65.41, duration: 0.6},
+                    {note: 73.42, duration: 0.6},
+                    {note: 55.00, duration: 0.6},
+                    {note: 61.74, duration: 1.2},
+                ];
+                
+                this.playDungeonMelody(melody, 'sawtooth', loop, 0.12);
+            }
+            
+            playPrisonDepthsMusic(loop) {
+                const melody = [
+                    {note: 77.78, duration: 0.8},
+                    {note: 58.27, duration: 0.4},
+                    {note: 69.30, duration: 0.8},
+                    {note: 51.91, duration: 0.4},
+                    {note: 61.74, duration: 1.6},
+                ];
+                
+                this.playDungeonMelody(melody, 'square', loop, 0.1);
+            }
+            
+            playForsakenMinesMusic(loop) {
+                const melody = [
+                    {note: 130.81, duration: 0.3},
+                    {note: 123.47, duration: 0.3},
+                    {note: 116.54, duration: 0.3},
+                    {note: 110.00, duration: 0.3},
+                    {note: 103.83, duration: 0.6},
+                ];
+                
+                this.playDungeonMelody(melody, 'triangle', loop, 0.08);
+            }
+            
+            playLavaCavernsMusic(loop) {
+                const melody = [
+                    {note: 164.81, duration: 0.2},
+                    {note: 196.00, duration: 0.2},
+                    {note: 146.83, duration: 0.2},
+                    {note: 174.61, duration: 0.4},
+                    {note: 220.00, duration: 0.2},
+                    {note: 261.63, duration: 0.2},
+                    {note: 207.65, duration: 0.4},
+                ];
+                
+                this.playDungeonMelody(melody, 'sawtooth', loop, 0.15);
+            }
+            
+            playAncientTempleMusic(loop) {
+                const melody = [
+                    {note: 329.63, duration: 0.4},
+                    {note: 293.66, duration: 0.4},
+                    {note: 261.63, duration: 0.4},
+                    {note: 246.94, duration: 0.4},
+                    {note: 220.00, duration: 0.8},
+                    {note: 196.00, duration: 0.8},
+                ];
+                
+                this.playDungeonMelody(melody, 'sine', loop, 0.1);
+            }
+            
+            playEscapeTheme(loop) {
+                const melody = [
+                    {note: 523.25, duration: 0.2},
+                    {note: 622.25, duration: 0.2},
+                    {note: 698.46, duration: 0.2},
+                    {note: 830.61, duration: 0.3},
+                    {note: 659.25, duration: 0.2},
+                    {note: 783.99, duration: 0.2},
+                    {note: 987.77, duration: 0.3},
+                    {note: 1046.50, duration: 0.4},
+                ];
+                
+                this.playDungeonMelody(melody, 'sine', loop, 0.2);
+            }
+            
+            playVictoryMusic(loop) {
+                const melody = [
+                    {note: 659.25, duration: 0.2},
+                    {note: 783.99, duration: 0.2},
+                    {note: 987.77, duration: 0.2},
+                    {note: 1318.51, duration: 0.3},
+                    {note: 1174.66, duration: 0.2},
+                    {note: 1567.98, duration: 0.2},
+                    {note: 1975.53, duration: 0.3},
+                    {note: 1760.00, duration: 0.4},
+                ];
+                
+                this.playDungeonMelody(melody, 'sine', loop, 0.25);
+            }
+            
+            playDungeonMelody(melody, waveType, loop, volume) {
+                if (!this.enabled) return;
+                
+                const now = this.audioContext.currentTime;
+                const source = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                source.type = waveType;
+                gainNode.connect(this.bgGain);
+                source.connect(gainNode);
+                
+                let currentTime = now;
+                melody.forEach((note, index) => {
+                    source.frequency.setValueAtTime(note.note, currentTime);
+                    
+                    gainNode.gain.setValueAtTime(0, currentTime);
+                    gainNode.gain.linearRampToValueAtTime(volume, currentTime + 0.05);
+                    gainNode.gain.exponentialRampToValueAtTime(volume * 0.3, currentTime + note.duration - 0.05);
+                    gainNode.gain.linearRampToValueAtTime(0, currentTime + note.duration);
+                    
+                    currentTime += note.duration;
+                });
+                
+                if (loop) {
+                    source.start(now);
+                    source.stop(now + currentTime - now);
+                    
+                    this.currentBg = setTimeout(() => {
+                        this.playDungeonMelody(melody, waveType, loop, volume);
+                    }, (currentTime - now) * 1000);
+                } else {
+                    source.start(now);
+                    source.stop(now + currentTime - now);
+                }
+                
+                this.currentBgSource = source;
+            }
+            
+            stopBackground() {
+                if (this.currentBg) {
+                    clearTimeout(this.currentBg);
+                    this.currentBg = null;
+                }
+                if (this.currentBgSource) {
+                    try {
+                        this.currentBgSource.stop();
+                    } catch (e) {}
+                    this.currentBgSource = null;
+                }
+                this.currentBgName = null;
+            }
+            
+            // ==================== DUNGEON SOUND EFFECTS ====================
+            playSound(soundName, volume = 1.0) {
+                if (!this.enabled) return;
+                
+                switch(soundName) {
+                    case 'click':
+                        this.playDungeonClick(volume);
+                        break;
+                    case 'notification':
+                        this.playDungeonNotification(volume);
+                        break;
+                    case 'attack':
+                        this.playDungeonAttack(volume);
+                        break;
+                    case 'enemyHit':
+                        this.playDungeonEnemyHit(volume);
+                        break;
+                    case 'playerHit':
+                        this.playDungeonPlayerHit(volume);
+                        break;
+                    case 'victory':
+                        this.playDungeonVictory(volume);
+                        break;
+                    case 'pickup':
+                        this.playDungeonPickup(volume);
+                        break;
+                    case 'door':
+                        this.playDungeonDoor(volume);
+                        break;
+                    case 'step':
+                        this.playDungeonStep(volume);
+                        break;
+                    case 'puzzle':
+                        this.playDungeonPuzzle(volume);
+                        break;
+                    case 'error':
+                        this.playDungeonError(volume);
+                        break;
+                    case 'equip':
+                        this.playDungeonEquip(volume);
+                        break;
+                    case 'trap':
+                        this.playTrapSound(volume);
+                        break;
+                    case 'chains':
+                        this.playChainsSound(volume);
+                        break;
+                    case 'drip':
+                        this.playDripSound(volume);
+                        break;
+                    case 'rockfall':
+                        this.playRockfallSound(volume);
+                        break;
+                    case 'lockpick':
+                        this.playLockpickSound(volume);
+                        break;
+                    case 'secret':
+                        this.playSecretSound(volume);
+                        break;
+                }
+            }
+            
+            playDungeonClick(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(800, now);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+            }
+            
+            playDungeonNotification(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(400, now);
+                oscillator.frequency.exponentialRampToValueAtTime(800, now + 0.3);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+            }
+            
+            playDungeonAttack(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(300, now);
+                oscillator.frequency.exponentialRampToValueAtTime(100, now + 0.2);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.5, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.2);
+            }
+            
+            playDungeonEnemyHit(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(150, now);
+                oscillator.frequency.exponentialRampToValueAtTime(60, now + 0.3);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.6, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+            }
+            
+            playDungeonPlayerHit(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(220, now);
+                oscillator.frequency.exponentialRampToValueAtTime(110, now + 0.2);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.5, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.2);
+            }
+            
+            playDungeonVictory(volume) {
+                const now = this.audioContext.currentTime;
+                
+                const notes = [
+                    {freq: 659.25, time: 0.0, duration: 0.2},
+                    {freq: 783.99, time: 0.2, duration: 0.2},
+                    {freq: 987.77, time: 0.4, duration: 0.2},
+                    {freq: 1318.51, time: 0.6, duration: 0.5},
+                ];
+                
+                notes.forEach(note => {
+                    const oscillator = this.audioContext.createOscillator();
+                    const gainNode = this.audioContext.createGain();
+                    
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(note.freq, now + note.time);
+                    
+                    gainNode.gain.setValueAtTime(0, now + note.time);
+                    gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + note.time + 0.05);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + note.time + note.duration);
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(this.sfxGain);
+                    
+                    oscillator.start(now + note.time);
+                    oscillator.stop(now + note.time + note.duration);
+                });
+            }
+            
+            playDungeonPickup(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(1000, now);
+                oscillator.frequency.exponentialRampToValueAtTime(1600, now + 0.1);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+            }
+            
+            playDungeonDoor(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(200, now);
+                oscillator.frequency.exponentialRampToValueAtTime(100, now + 0.5);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.1);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.5);
+            }
+            
+            playDungeonStep(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(400, now);
+                oscillator.frequency.exponentialRampToValueAtTime(200, now + 0.1);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.2, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+            }
+            
+            playDungeonPuzzle(volume) {
+                const now = this.audioContext.currentTime;
+                
+                const notes = [440, 554, 659, 880];
+                
+                notes.forEach((note, index) => {
+                    const oscillator = this.audioContext.createOscillator();
+                    const gainNode = this.audioContext.createGain();
+                    
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(note, now + (index * 0.15));
+                    
+                    gainNode.gain.setValueAtTime(0, now + (index * 0.15));
+                    gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + (index * 0.15) + 0.05);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + (index * 0.15) + 0.2);
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(this.sfxGain);
+                    
+                    oscillator.start(now + (index * 0.15));
+                    oscillator.stop(now + (index * 0.15) + 0.2);
+                });
+            }
+            
+            playDungeonError(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(110, now);
+                oscillator.frequency.setValueAtTime(90, now + 0.1);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+            }
+            
+            playDungeonEquip(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(600, now);
+                oscillator.frequency.exponentialRampToValueAtTime(400, now + 0.2);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.2);
+            }
+            
+            playTrapSound(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(80, now);
+                oscillator.frequency.exponentialRampToValueAtTime(40, now + 0.3);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.6, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+            }
+            
+            playChainsSound(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator1 = this.audioContext.createOscillator();
+                const oscillator2 = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator1.type = 'square';
+                oscillator2.type = 'square';
+                oscillator1.frequency.setValueAtTime(200, now);
+                oscillator2.frequency.setValueAtTime(203, now);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                
+                oscillator1.connect(gainNode);
+                oscillator2.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator1.start(now);
+                oscillator2.start(now);
+                oscillator1.stop(now + 0.5);
+                oscillator2.stop(now + 0.5);
+            }
+            
+            playDripSound(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(1000, now);
+                oscillator.frequency.exponentialRampToValueAtTime(200, now + 0.1);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.1, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+            }
+            
+            playRockfallSound(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(60, now);
+                oscillator.frequency.exponentialRampToValueAtTime(30, now + 1.0);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.1);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 1.0);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 1.0);
+            }
+            
+            playLockpickSound(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(800, now);
+                oscillator.frequency.exponentialRampToValueAtTime(1200, now + 0.2);
+                oscillator.frequency.setValueAtTime(600, now + 0.25);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+            }
+            
+            playSecretSound(volume) {
+                const now = this.audioContext.currentTime;
+                
+                const notes = [660, 784, 988, 1320];
+                
+                notes.forEach((note, index) => {
+                    const oscillator = this.audioContext.createOscillator();
+                    const gainNode = this.audioContext.createGain();
+                    
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(note, now + (index * 0.1));
+                    
+                    gainNode.gain.setValueAtTime(0, now + (index * 0.1));
+                    gainNode.gain.linearRampToValueAtTime(volume * 0.2, now + (index * 0.1) + 0.05);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + (index * 0.1) + 0.15);
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(this.sfxGain);
+                    
+                    oscillator.start(now + (index * 0.1));
+                    oscillator.stop(now + (index * 0.1) + 0.15);
+                });
+            }
+            
+            // ==================== UTILITY METHODS ====================
+            setMasterVolume(volume) {
+                if (this.masterGain) {
+                    this.masterGain.gain.value = Math.max(0, Math.min(1, volume));
+                }
+            }
+            
+            toggle() {
+                this.enabled = !this.enabled;
+                const toggleBtn = document.getElementById('sound-toggle');
+                toggleBtn.textContent = this.enabled ? '🔊 ON' : '🔇 OFF';
+                
+                if (!this.enabled) {
+                    this.stopBackground();
+                } else if (gameStarted) {
+                    this.playBackground(currentBackground);
+                }
+                
+                this.playSound('click');
+            }
+            
+            resumeAudioContext() {
+                if (this.audioContext && this.audioContext.state === 'suspended') {
+                    this.audioContext.resume();
+                }
+            }
+        }
+
+        // ==================== PRISONER CLASSES ====================
+        const classes = {
+            gladiator: { 
+                hp: 40, mp: 8, str: 10, def: 8, int: 2,
+                desc: "A hardened fighter who survived the arena. Strong and resilient.",
+                startingItems: ['shackle_chain', 'crude_torch']
+            },
+            rogue: { 
+                hp: 30, mp: 15, str: 6, def: 4, int: 8,
+                desc: "A thief imprisoned for picking the wrong pocket. Quick and cunning.",
+                startingItems: ['lockpick', 'dull_dagger']
+            },
+            mage: { 
+                hp: 25, mp: 30, str: 3, def: 3, int: 10,
+                desc: "A spellcaster imprisoned for forbidden magic. Weak but powerful.",
+                startingItems: ['spell_scroll', 'glowing_crystal']
+            }
+        };
+
+        // ==================== 40 DUNGEON ROOMS ====================
+        const rooms = [
+            { // Room 0: Prison Cell
+                id: 0,
+                name: "YOUR CELL",
+                desc: "A filthy stone cell. Straw covers the floor, chains hang from the wall. The iron door creaks.",
+                sound: 'dungeon_theme',
+                exits: { n: null, s: null, e: 1, w: null },
+                items: ['shackle_chain'],
+                npc: null,
+                enemy: null,
+                container: 'straw_pile',
+                puzzle: 'escape_cell',
+                dark: true,
+                locked: true,
+                trap: null,
+                secret: null
+            },
+            { // Room 1: Cell Block
+                id: 1,
+                name: "CELL BLOCK",
+                desc: "A long corridor lined with iron doors. Torches flicker weakly. Moans echo from the cells.",
+                sound: 'prison_depths',
+                exits: { n: 2, s: null, e: 3, w: 0 },
+                items: ['rusty_key'],
+                npc: 'dying_prisoner',
+                enemy: null,
+                container: 'guard_post',
+                puzzle: null,
+                dark: false,
+                locked: false,
+                trap: 'floor_spikes',
+                secret: null
+            },
+            { // Room 2: Guard Room
+                id: 2,
+                name: "GUARD ROOM",
+                desc: "An abandoned guard post. Empty wine bottles and a broken chair. A heavy door leads north.",
+                sound: 'prison_depths',
+                exits: { n: 4, s: 1, e: null, w: null },
+                items: ['guard_club'],
+                npc: null,
+                enemy: 'drunken_guard',
+                container: 'weapons_rack',
+                puzzle: 'guard_key',
+                dark: false,
+                locked: false,
+                trap: null,
+                secret: 'hidden_compartment'
+            },
+            { // Room 3: Torture Chamber
+                id: 3,
+                name: "TORTURE CHAMBER",
+                desc: "Racks, iron maidens, and other implements of pain. The air smells of blood and fear.",
+                sound: 'prison_depths',
+                exits: { n: 5, s: null, e: null, w: 1 },
+                items: ['iron_shard'],
+                npc: 'torturer',
+                enemy: null,
+                container: 'torture_table',
+                puzzle: 'torture_device',
+                dark: true,
+                locked: false,
+                trap: 'ceiling_chains',
+                secret: null
+            },
+            { // Room 4: Upper Dungeon
+                id: 4,
+                name: "UPPER DUNGEON",
+                desc: "A circular chamber with three exits. Chains hang from the ceiling like metallic vines.",
+                sound: 'prison_depths',
+                exits: { n: 6, s: 2, e: 5, w: 7 },
+                items: [],
+                npc: null,
+                enemy: 'chain_golem',
+                container: null,
+                puzzle: 'chain_puzzle',
+                dark: false,
+                locked: false,
+                trap: null,
+                secret: null
+            },
+            { // Room 5: Prison Kitchen
+                id: 5,
+                name: "PRISON KITCHEN",
+                desc: "A foul-smelling kitchen with huge cauldrons. Rat droppings cover every surface.",
+                sound: 'prison_depths',
+                exits: { n: 8, s: 3, e: 6, w: 4 },
+                items: ['kitchen_knife', 'moldy_bread'],
+                npc: 'cook',
+                enemy: null,
+                container: 'food_store',
+                puzzle: 'rat_recipe',
+                dark: true,
+                locked: false,
+                trap: 'boiling_cauldron',
+                secret: null
+            },
+            { // Room 6: Mine Entrance
+                id: 6,
+                name: "MINE ENTRANCE",
+                desc: "The dungeon gives way to natural rock. Pickaxes and carts litter the area.",
+                sound: 'forsaken_mines',
+                exits: { n: 9, s: 4, e: null, w: 8 },
+                items: ['miner_pick'],
+                npc: null,
+                enemy: 'cave_crawler',
+                container: 'miner_cart',
+                puzzle: null,
+                dark: true,
+                locked: false,
+                trap: 'rockfall',
+                secret: null
+            },
+            { // Room 7: Abandoned Library
+                id: 7,
+                name: "ABANDONED LIBRARY",
+                desc: "Water-damaged books line collapsing shelves. Strange symbols cover the walls.",
+                sound: 'prison_depths',
+                exits: { n: null, s: null, e: 4, w: 10 },
+                items: ['arcane_tome'],
+                npc: 'mad_librarian',
+                enemy: null,
+                container: 'reading_desk',
+                puzzle: 'forbidden_text',
+                dark: true,
+                locked: false,
+                trap: 'book_trap',
+                secret: 'secret_passage'
+            },
+            { // Room 8: Ore Processing
+                id: 8,
+                name: "ORE PROCESSING",
+                desc: "Massive crushers and sorting tables. The air is thick with stone dust.",
+                sound: 'forsaken_mines',
+                exits: { n: 11, s: 5, e: 6, w: null },
+                items: ['iron_ore'],
+                npc: null,
+                enemy: 'dust_elemental',
+                container: 'ore_bin',
+                puzzle: 'ore_sorting',
+                dark: true,
+                locked: false,
+                trap: 'crushing_machine',
+                secret: null
+            },
+            { // Room 9: Deep Mines
+                id: 9,
+                name: "DEEP MINES",
+                desc: "Narrow tunnels supported by rotting timbers. Strange glowing fungi grow on the walls.",
+                sound: 'forsaken_mines',
+                exits: { n: 12, s: 6, e: 11, w: null },
+                items: ['glowing_mushroom'],
+                npc: 'lost_miner',
+                enemy: null,
+                container: 'mining_supplies',
+                puzzle: 'collapsed_tunnel',
+                dark: true,
+                locked: false,
+                trap: 'cave_in',
+                secret: 'gem_vein'
+            },
+            { // Room 10: Ancient Crypt
+                id: 10,
+                name: "ANCIENT CRYPT",
+                desc: "An older burial site discovered during mining. Stone sarcophagi line the walls.",
+                sound: 'ancient_temple',
+                exits: { n: null, s: null, e: 7, w: 13 },
+                items: ['funerary_urn'],
+                npc: null,
+                enemy: 'crypt_wight',
+                container: 'stone_coffin',
+                puzzle: 'burial_ritual',
+                dark: true,
+                locked: true,
+                trap: 'sarcophagus_trap',
+                secret: null
+            },
+            { // Room 11: Crystal Cavern
+                id: 11,
+                name: "CRYSTAL CAVERN",
+                desc: "A breathtaking cavern filled with glowing crystals. The air hums with energy.",
+                sound: 'forsaken_mines',
+                exits: { n: 14, s: 8, e: 12, w: 9 },
+                items: ['energy_crystal'],
+                npc: 'crystal_golem',
+                enemy: null,
+                container: 'crystal_cluster',
+                puzzle: 'crystal_resonance',
+                dark: false,
+                locked: false,
+                trap: 'energy_discharge',
+                secret: null
+            },
+            { // Room 12: Underground River
+                id: 12,
+                name: "UNDERGROUND RIVER",
+                desc: "A fast-flowing river cuts through the rock. A rickety bridge spans the torrent.",
+                sound: 'forsaken_mines',
+                exits: { n: 15, s: 9, e: null, w: 11 },
+                items: ['river_pearl'],
+                npc: 'river_spirit',
+                enemy: null,
+                container: 'riverbank',
+                puzzle: 'bridge_crossing',
+                dark: true,
+                locked: false,
+                trap: 'weak_bridge',
+                secret: 'waterfall_cave'
+            },
+            { // Room 13: Burial Chamber
+                id: 13,
+                name: "BURIAL CHAMBER",
+                desc: "The tomb of an ancient warlord. His armored skeleton sits on a stone throne.",
+                sound: 'ancient_temple',
+                exits: { n: 16, s: null, e: 10, w: null },
+                items: ['ancient_amulet'],
+                npc: null,
+                enemy: 'skeletal_warlord',
+                container: 'warlord_throne',
+                puzzle: 'warlord_curse',
+                dark: true,
+                locked: true,
+                trap: 'arrow_trap',
+                secret: 'treasure_vault'
+            },
+            { // Room 14: Lava Tubes
+                id: 14,
+                name: "LAVA TUBES",
+                desc: "Tunnels glowing with heat from below. Molten rock flows in channels.",
+                sound: 'lava_caverns',
+                exits: { n: 17, s: 11, e: 15, w: null },
+                items: ['obsidian_shard'],
+                npc: null,
+                enemy: 'lava_beast',
+                container: 'lava_pool',
+                puzzle: 'heat_path',
+                dark: false,
+                locked: false,
+                trap: 'lava_burst',
+                secret: null
+            },
+            { // Room 15: Forgotten Temple
+                id: 15,
+                name: "FORGOTTEN TEMPLE",
+                desc: "An ancient temple carved into the rock. Strange idols stare with gemstone eyes.",
+                sound: 'ancient_temple',
+                exits: { n: 18, s: 12, e: 19, w: 14 },
+                items: ['idol_fragment'],
+                npc: 'temple_guardian',
+                enemy: null,
+                container: 'altar',
+                puzzle: 'idol_arrangement',
+                dark: false,
+                locked: false,
+                trap: 'pit_trap',
+                secret: 'hidden_sanctum'
+            },
+            { // Room 16: Spider Caves
+                id: 16,
+                name: "SPIDER CAVES",
+                desc: "Thick webs cover every surface. Enormous egg sacs pulse in the darkness.",
+                sound: 'forsaken_mines',
+                exits: { n: 20, s: 13, e: null, w: 17 },
+                items: ['spider_silk'],
+                npc: null,
+                enemy: 'giant_spider',
+                container: 'web_nest',
+                puzzle: 'web_passage',
+                dark: true,
+                locked: false,
+                trap: 'web_trap',
+                secret: null
+            },
+            { // Room 17: Volcanic Chamber
+                id: 17,
+                name: "VOLCANIC CHAMBER",
+                desc: "A massive chamber with a lake of lava. Stone islands provide precarious footing.",
+                sound: 'lava_caverns',
+                exits: { n: 21, s: 14, e: 16, w: 22 },
+                items: ['volcanic_glass'],
+                npc: 'fire_elemental',
+                enemy: null,
+                container: 'lava_island',
+                puzzle: 'lava_leaping',
+                dark: false,
+                locked: false,
+                trap: 'volcanic_eruption',
+                secret: null
+            },
+            { // Room 18: Temple Archives
+                id: 18,
+                name: "TEMPLE ARCHIVES",
+                desc: "Scrolls and tablets in forgotten languages. A strange device hums in the center.",
+                sound: 'ancient_temple',
+                exits: { n: 23, s: 15, e: null, w: null },
+                items: ['ancient_tablet'],
+                npc: 'archive_automaton',
+                enemy: null,
+                container: 'archive_shelf',
+                puzzle: 'language_translation',
+                dark: true,
+                locked: false,
+                trap: 'scroll_trap',
+                secret: 'forbidden_archive'
+            },
+            { // Room 19: Beast Pens
+                id: 19,
+                name: "BEAST PENS",
+                desc: "Massive iron cages hold skeletal remains of captured monsters.",
+                sound: 'prison_depths',
+                exits: { n: 24, s: null, e: null, w: 15 },
+                items: ['beast_claw'],
+                npc: null,
+                enemy: 'escaped_beast',
+                container: 'feeding_trough',
+                puzzle: 'cage_lock',
+                dark: true,
+                locked: true,
+                trap: 'cage_collapse',
+                secret: null
+            },
+            { // Room 20: Fungus Forest
+                id: 20,
+                name: "FUNGUS FOREST",
+                desc: "A cavern filled with giant mushrooms and bioluminescent plants.",
+                sound: 'forsaken_mines',
+                exits: { n: 25, s: 16, e: 21, w: null },
+                items: ['giant_spore'],
+                npc: 'myconid',
+                enemy: null,
+                container: 'fungus_grove',
+                puzzle: 'spore_pattern',
+                dark: false,
+                locked: false,
+                trap: 'toxic_spores',
+                secret: 'myconid_village'
+            },
+            { // Room 21: Magma Forge
+                id: 21,
+                name: "MAGMA FORGE",
+                desc: "An ancient forge powered by magma. Unfinished weapons lie on anvils.",
+                sound: 'lava_caverns',
+                exits: { n: 26, s: 17, e: 20, w: null },
+                items: ['magma_hammer'],
+                npc: 'forge_golem',
+                enemy: null,
+                container: 'forge_tools',
+                puzzle: 'weapon_forging',
+                dark: false,
+                locked: false,
+                trap: 'forge_explosion',
+                secret: 'masterwork_weapon'
+            },
+            { // Room 22: Crystal Grotto
+                id: 22,
+                name: "CRYSTAL GROTTO",
+                desc: "A hidden grotto where crystals grow in beautiful formations.",
+                sound: 'forsaken_mines',
+                exits: { n: null, s: null, e: 17, w: 27 },
+                items: ['perfect_crystal'],
+                npc: null,
+                enemy: 'crystal_guardian',
+                container: 'crystal_formation',
+                puzzle: 'light_refraction',
+                dark: false,
+                locked: true,
+                trap: 'crystal_shards',
+                secret: null
+            },
+            { // Room 23: Observatory
+                id: 23,
+                name: "OBSERVATORY",
+                desc: "A domed chamber with a telescope pointing at a crystal that mimics the night sky.",
+                sound: 'ancient_temple',
+                exits: { n: 28, s: 18, e: null, w: null },
+                items: ['star_chart'],
+                npc: 'astronomer_ghost',
+                enemy: null,
+                container: 'observation_desk',
+                puzzle: 'constellation_alignment',
+                dark: false,
+                locked: false,
+                trap: 'falling_debris',
+                secret: 'celestial_map'
+            },
+            { // Room 24: Guard Barracks
+                id: 24,
+                name: "GUARD BARRACKS",
+                desc: "Bunk beds and personal lockers. The guards have abandoned this post.",
+                sound: 'prison_depths',
+                exits: { n: 29, s: 19, e: 25, w: null },
+                items: ['guard_uniform', 'healing_potion'],
+                npc: null,
+                enemy: 'mutant_guard',
+                container: 'locker',
+                puzzle: 'locker_combination',
+                dark: false,
+                locked: false,
+                trap: 'alarm_trap',
+                secret: 'commander_locker'
+            },
+            { // Room 25: Underground Garden
+                id: 25,
+                name: "UNDERGROUND GARDEN",
+                desc: "A miraculous garden sustained by glowing crystals. Edible plants grow here.",
+                sound: 'forsaken_mines',
+                exits: { n: 30, s: 20, e: 26, w: 24 },
+                items: ['healing_herb'],
+                npc: 'garden_tender',
+                enemy: null,
+                container: 'garden_plot',
+                puzzle: 'plant_harvest',
+                dark: false,
+                locked: false,
+                trap: 'thorn_vines',
+                secret: 'rare_plant'
+            },
+            { // Room 26: Armory
+                id: 26,
+                name: "ARMORY",
+                desc: "Weapons and armor from different eras. Some look ancient but well-maintained.",
+                sound: 'prison_depths',
+                exits: { n: 31, s: 21, e: null, w: 25 },
+                items: ['steel_sword'],
+                npc: 'armorer_ghost',
+                enemy: null,
+                container: 'weapon_rack',
+                puzzle: 'weapon_matching',
+                dark: false,
+                locked: true,
+                trap: 'animated_armor',
+                secret: 'master_armor'
+            },
+            { // Room 27: Silent Tombs
+                id: 27,
+                name: "SILENT TOMBS",
+                desc: "Tombs of ancient kings. The air is still and cold. No sound penetrates here.",
+                sound: 'ancient_temple',
+                exits: { n: 32, s: null, e: 22, w: null },
+                items: ['royal_seal'],
+                npc: null,
+                enemy: 'tomb_guardian',
+                container: 'royal_tomb',
+                puzzle: 'silence_ritual',
+                dark: true,
+                locked: true,
+                trap: 'silence_trap',
+                secret: 'pharaoh_chamber'
+            },
+            { // Room 28: Clockwork Chamber
+                id: 28,
+                name: "CLOCKWORK CHAMBER",
+                desc: "Massive gears and clockwork mechanisms fill this room. Everything ticks in unison.",
+                sound: 'ancient_temple',
+                exits: { n: 33, s: 23, e: null, w: null },
+                items: ['clockwork_gear'],
+                npc: 'clockwork_automaton',
+                enemy: null,
+                container: 'gear_box',
+                puzzle: 'gear_synchronization',
+                dark: false,
+                locked: false,
+                trap: 'gear_crush',
+                secret: 'master_clock'
+            },
+            { // Room 29: Training Grounds
+                id: 29,
+                name: "TRAINING GROUNDS",
+                desc: "A large area with training dummies and obstacle courses. Blood stains the sand.",
+                sound: 'prison_depths',
+                exits: { n: 34, s: 24, e: 30, w: null },
+                items: ['training_sword'],
+                npc: 'training_master',
+                enemy: null,
+                container: 'training_equipment',
+                puzzle: 'combat_technique',
+                dark: false,
+                locked: false,
+                trap: 'training_trap',
+                secret: 'champion_arena'
+            },
+            { // Room 30: Alchemy Lab
+                id: 30,
+                name: "ALCHEMY LAB",
+                desc: "Beakers, alembics, and strange ingredients. Unfinished potions bubble on burners.",
+                sound: 'ancient_temple',
+                exits: { n: 35, s: 25, e: 31, w: 29 },
+                items: ['healing_potion'],
+                npc: 'alchemist',
+                enemy: null,
+                container: 'alchemy_table',
+                puzzle: 'potion_brewing',
+                dark: false,
+                locked: false,
+                trap: 'explosive_mixture',
+                secret: 'perfect_potion'
+            },
+            { // Room 31: Treasure Vault
+                id: 31,
+                name: "TREASURE VAULT",
+                desc: "A vault filled with gold, gems, and magical artifacts. Traps guard every corner.",
+                sound: 'ancient_temple',
+                exits: { n: 36, s: 26, e: 32, w: 30 },
+                items: ['gold_coins'],
+                npc: null,
+                enemy: 'treasure_golem',
+                container: 'treasure_chest',
+                puzzle: 'vault_security',
+                dark: false,
+                locked: true,
+                trap: 'multiple_traps',
+                secret: 'legendary_treasure'
+            },
+            { // Room 32: Ritual Chamber
+                id: 32,
+                name: "RITUAL CHAMBER",
+                desc: "A circular chamber with a pentagram on the floor. Dark energy crackles in the air.",
+                sound: 'ancient_temple',
+                exits: { n: 37, s: 27, e: null, w: 31 },
+                items: ['ritual_dagger'],
+                npc: 'dark_priest',
+                enemy: null,
+                container: 'ritual_altar',
+                puzzle: 'ritual_interruption',
+                dark: true,
+                locked: true,
+                trap: 'energy_drain',
+                secret: 'summoning_circle'
+            },
+            { // Room 33: Mechanical Lift
+                id: 33,
+                name: "MECHANICAL LIFT",
+                desc: "A massive lift operated by steam and gears. It could take you to the surface.",
+                sound: 'escape_theme',
+                exits: { n: 38, s: 28, e: 34, w: null },
+                items: ['steam_valve'],
+                npc: 'lift_operator',
+                enemy: null,
+                container: 'control_panel',
+                puzzle: 'lift_activation',
+                dark: false,
+                locked: false,
+                trap: 'lift_failure',
+                secret: null
+            },
+            { // Room 34: Guard Captain's Office
+                id: 34,
+                name: "CAPTAIN'S OFFICE",
+                desc: "A well-appointed office with maps and reports. The captain's personal gear is here.",
+                sound: 'prison_depths',
+                exits: { n: null, s: 29, e: 35, w: 33 },
+                items: ['captain_key'],
+                npc: null,
+                enemy: 'guard_captain',
+                container: 'captain_desk',
+                puzzle: 'escape_plans',
+                dark: false,
+                locked: true,
+                trap: 'captain_trap',
+                secret: 'secret_exit'
+            },
+            { // Room 35: Infirmary
+                id: 35,
+                name: "INFIRMARY",
+                desc: "Medical supplies and empty beds. The smell of disinfectant mixes with decay.",
+                sound: 'prison_depths',
+                exits: { n: 39, s: 30, e: 36, w: 34 },
+                items: ['healing_salve', 'antidote'],
+                npc: 'prison_doctor',
+                enemy: null,
+                container: 'medicine_cabinet',
+                puzzle: 'disease_cure',
+                dark: false,
+                locked: false,
+                trap: 'infected_needle',
+                secret: 'experimental_cure'
+            },
+            { // Room 36: Warden's Quarters
+                id: 36,
+                name: "WARDEN'S QUARTERS",
+                desc: "Luxurious compared to the rest of the dungeon. The warden's personal effects remain.",
+                sound: 'prison_depths',
+                exits: { n: null, s: 31, e: 37, w: 35 },
+                items: ['warden_key'],
+                npc: null,
+                enemy: 'warden_ghost',
+                container: 'warden_safe',
+                puzzle: 'safe_combination',
+                dark: false,
+                locked: true,
+                trap: 'warden_curse',
+                secret: 'warden_journal'
+            },
+            { // Room 37: Surface Tunnel
+                id: 37,
+                name: "SURFACE TUNNEL",
+                desc: "A long tunnel sloping upward. Fresh air flows from above. Freedom is near!",
+                sound: 'escape_theme',
+                exits: { n: 39, s: 32, e: null, w: 36 },
+                items: [],
+                npc: null,
+                enemy: 'final_guardian',
+                container: null,
+                puzzle: 'final_obstacle',
+                dark: false,
+                locked: true,
+                trap: 'collapsing_tunnel',
+                secret: null
+            },
+            { // Room 38: Boiler Room
+                id: 38,
+                name: "BOILER ROOM",
+                desc: "Massive boilers power the dungeon mechanisms. Steam hisses from pipes.",
+                sound: 'lava_caverns',
+                exits: { n: null, s: 33, e: 39, w: null },
+                items: ['pressure_gauge'],
+                npc: 'boiler_golem',
+                enemy: null,
+                container: 'boiler_controls',
+                puzzle: 'pressure_balance',
+                dark: false,
+                locked: false,
+                trap: 'steam_explosion',
+                secret: 'emergency_exit'
+            },
+            { // Room 39: ESCAPE TUNNEL
+                id: 39,
+                name: "ESCAPE TUNNEL",
+                desc: "A hidden tunnel leading to the surface. Daylight filters from above!",
+                sound: 'escape_theme',
+                exits: { n: null, s: 37, e: null, w: 38 },
+                items: [],
+                npc: null,
+                enemy: null,
+                container: null,
+                puzzle: 'final_escape',
+                dark: false,
+                locked: true,
+                trap: null,
+                secret: null
+            }
+        ];
+
+        // ==================== DUNGEON ITEMS ====================
+        const items = {
+            // Starting items
+            shackle_chain: {
+                name: "Shackle Chain",
+                desc: "A heavy chain from your prison shackles. Could be used as a weapon.",
+                type: "weapon",
+                damage: 6,
+                value: 5,
+                keywords: ["chain", "shackle", "weapon"]
+            },
+            crude_torch: {
+                name: "Crude Torch",
+                desc: "A torch made from rags and wood. Provides light in dark places.",
+                type: "tool",
+                usable: true,
+                effect: "lights dark rooms",
+                value: 3,
+                keywords: ["torch", "light", "crude torch"]
+            },
+            lockpick: {
+                name: "Lockpick",
+                desc: "A set of lockpicks for opening locks. Rogue's specialty.",
+                type: "tool",
+                usable: true,
+                effect: "opens some locks",
+                value: 20,
+                keywords: ["lockpick", "lockpicks", "tool"]
+            },
+            dull_dagger: {
+                name: "Dull Dagger",
+                desc: "A poorly maintained dagger. Better than nothing.",
+                type: "weapon",
+                damage: 5,
+                value: 8,
+                keywords: ["dagger", "dull dagger", "weapon"]
+            },
+            spell_scroll: {
+                name: "Spell Scroll",
+                desc: "A scroll with a basic magic missile spell.",
+                type: "consumable",
+                usable: true,
+                effect: "fires magic missile (15 damage)",
+                value: 25,
+                keywords: ["scroll", "spell scroll", "magic"]
+            },
+            glowing_crystal: {
+                name: "Glowing Crystal",
+                desc: "A crystal that emits soft light. Magical energy within.",
+                type: "tool",
+                usable: true,
+                effect: "lights area, recharges mage MP",
+                value: 30,
+                keywords: ["crystal", "glowing crystal", "light"]
+            },
+            
+            // Common dungeon items
+            rusty_key: {
+                name: "Rusty Key",
+                desc: "An old iron key. Might open something.",
+                type: "key",
+                value: 10,
+                keywords: ["key", "rusty key"]
+            },
+            guard_club: {
+                name: "Guard Club",
+                desc: "A heavy wooden club used by dungeon guards.",
+                type: "weapon",
+                damage: 8,
+                value: 12,
+                keywords: ["club", "guard club", "weapon"]
+            },
+            iron_shard: {
+                name: "Iron Shard",
+                desc: "A sharp piece of iron from a torture device.",
+                type: "weapon",
+                damage: 7,
+                value: 6,
+                keywords: ["shard", "iron shard", "weapon"]
+            },
+            kitchen_knife: {
+                name: "Kitchen Knife",
+                desc: "A sharp knife from the prison kitchen.",
+                type: "weapon",
+                damage: 6,
+                value: 5,
+                keywords: ["knife", "kitchen knife", "weapon"]
+            },
+            moldy_bread: {
+                name: "Moldy Bread",
+                desc: "Stale bread covered in mold. Might be edible in desperation.",
+                type: "consumable",
+                usable: true,
+                effect: "restores 5 HP (may cause sickness)",
+                value: 1,
+                keywords: ["bread", "moldy bread", "food"]
+            },
+            miner_pick: {
+                name: "Miner's Pick",
+                desc: "A sturdy pickaxe used for mining.",
+                type: "weapon",
+                damage: 10,
+                value: 15,
+                keywords: ["pick", "pickaxe", "miner pick", "weapon"]
+            },
+            arcane_tome: {
+                name: "Arcane Tome",
+                desc: "A book of basic magical theory.",
+                type: "document",
+                value: 40,
+                keywords: ["tome", "arcane tome", "book"]
+            },
+            iron_ore: {
+                name: "Iron Ore",
+                desc: "A chunk of unrefined iron ore.",
+                type: "component",
+                value: 8,
+                keywords: ["ore", "iron ore"]
+            },
+            glowing_mushroom: {
+                name: "Glowing Mushroom",
+                desc: "A bioluminescent fungus. Might have magical properties.",
+                type: "consumable",
+                usable: true,
+                effect: "restores 10 MP",
+                value: 15,
+                keywords: ["mushroom", "glowing mushroom", "fungus"]
+            },
+            funerary_urn: {
+                name: "Funerary Urn",
+                desc: "A clay urn containing ancient ashes.",
+                type: "container",
+                value: 20,
+                keywords: ["urn", "funerary urn", "ashes"]
+            },
+            energy_crystal: {
+                name: "Energy Crystal",
+                desc: "A crystal humming with magical energy.",
+                type: "component",
+                value: 50,
+                keywords: ["crystal", "energy crystal"]
+            },
+            river_pearl: {
+                name: "River Pearl",
+                desc: "A perfect pearl from the underground river.",
+                type: "treasure",
+                value: 75,
+                keywords: ["pearl", "river pearl"]
+            },
+            ancient_amulet: {
+                name: "Ancient Amulet",
+                desc: "An amulet from an ancient burial. Magical properties unknown.",
+                type: "artifact",
+                value: 100,
+                keywords: ["amulet", "ancient amulet"]
+            },
+            obsidian_shard: {
+                name: "Obsidian Shard",
+                desc: "A sharp piece of volcanic glass.",
+                type: "weapon",
+                damage: 12,
+                value: 25,
+                keywords: ["obsidian", "shard", "weapon"]
+            },
+            idol_fragment: {
+                name: "Idol Fragment",
+                desc: "A piece broken from a temple idol.",
+                type: "component",
+                value: 30,
+                keywords: ["idol", "fragment", "idol fragment"]
+            },
+            spider_silk: {
+                name: "Spider Silk",
+                desc: "Incredibly strong silk from giant spiders.",
+                type: "component",
+                value: 20,
+                keywords: ["silk", "spider silk"]
+            },
+            volcanic_glass: {
+                name: "Volcanic Glass",
+                desc: "Glass formed by volcanic heat.",
+                type: "component",
+                value: 15,
+                keywords: ["glass", "volcanic glass"]
+            },
+            ancient_tablet: {
+                name: "Ancient Tablet",
+                desc: "A stone tablet with mysterious writing.",
+                type: "document",
+                value: 60,
+                keywords: ["tablet", "ancient tablet"]
+            },
+            beast_claw: {
+                name: "Beast Claw",
+                desc: "A massive claw from a dungeon beast.",
+                type: "weapon",
+                damage: 9,
+                value: 18,
+                keywords: ["claw", "beast claw", "weapon"]
+            },
+            giant_spore: {
+                name: "Giant Spore",
+                desc: "A large spore from a giant fungus.",
+                type: "consumable",
+                usable: true,
+                effect: "creates cloud of sleep spores",
+                value: 25,
+                keywords: ["spore", "giant spore"]
+            },
+            magma_hammer: {
+                name: "Magma Hammer",
+                desc: "A hammer forged in volcanic heat.",
+                type: "weapon",
+                damage: 15,
+                value: 40,
+                keywords: ["hammer", "magma hammer", "weapon"]
+            },
+            perfect_crystal: {
+                name: "Perfect Crystal",
+                desc: "A flawless crystal of immense beauty.",
+                type: "treasure",
+                value: 150,
+                keywords: ["crystal", "perfect crystal"]
+            },
+            star_chart: {
+                name: "Star Chart",
+                desc: "A chart of constellations visible underground.",
+                type: "document",
+                value: 45,
+                keywords: ["chart", "star chart"]
+            },
+            guard_uniform: {
+                name: "Guard Uniform",
+                desc: "A guard's uniform. Might allow disguise.",
+                type: "armor",
+                defense: 3,
+                value: 20,
+                keywords: ["uniform", "guard uniform", "armor"]
+            },
+            healing_potion: {
+                name: "Healing Potion",
+                desc: "A red potion that restores health.",
+                type: "consumable",
+                usable: true,
+                effect: "restores 30 HP",
+                value: 50,
+                keywords: ["potion", "healing potion", "heal"]
+            },
+            healing_herb: {
+                name: "Healing Herb",
+                desc: "A medicinal herb that restores health.",
+                type: "consumable",
+                usable: true,
+                effect: "restores 15 HP",
+                value: 20,
+                keywords: ["herb", "healing herb", "heal"]
+            },
+            steel_sword: {
+                name: "Steel Sword",
+                desc: "A well-made steel sword.",
+                type: "weapon",
+                damage: 14,
+                value: 60,
+                keywords: ["sword", "steel sword", "weapon"]
+            },
+            royal_seal: {
+                name: "Royal Seal",
+                desc: "The seal of an ancient king.",
+                type: "artifact",
+                value: 120,
+                keywords: ["seal", "royal seal"]
+            },
+            clockwork_gear: {
+                name: "Clockwork Gear",
+                desc: "A precision gear from a clockwork mechanism.",
+                type: "component",
+                value: 25,
+                keywords: ["gear", "clockwork gear"]
+            },
+            training_sword: {
+                name: "Training Sword",
+                desc: "A wooden sword for practice.",
+                type: "weapon",
+                damage: 4,
+                value: 8,
+                keywords: ["sword", "training sword", "wooden"]
+            },
+            steam_valve: {
+                name: "Steam Valve",
+                desc: "A valve for controlling steam pressure.",
+                type: "component",
+                value: 15,
+                keywords: ["valve", "steam valve"]
+            },
+            captain_key: {
+                name: "Captain's Key",
+                desc: "The key carried by the guard captain.",
+                type: "key",
+                value: 30,
+                keywords: ["key", "captain key"]
+            },
+            healing_salve: {
+                name: "Healing Salve",
+                desc: "A salve that accelerates healing.",
+                type: "consumable",
+                usable: true,
+                effect: "restores 20 HP over time",
+                value: 35,
+                keywords: ["salve", "healing salve", "heal"]
+            },
+            antidote: {
+                name: "Antidote",
+                desc: "A cure for common poisons.",
+                type: "consumable",
+                usable: true,
+                effect: "cures poison",
+                value: 40,
+                keywords: ["antidote", "cure", "poison"]
+            },
+            warden_key: {
+                name: "Warden's Key",
+                desc: "The master key carried by the warden.",
+                type: "key",
+                value: 100,
+                keywords: ["key", "warden key", "master key"]
+            },
+            pressure_gauge: {
+                name: "Pressure Gauge",
+                desc: "A gauge for measuring steam pressure.",
+                type: "component",
+                value: 20,
+                keywords: ["gauge", "pressure gauge"]
+            },
+            
+            // Special items
+            skeleton_key: {
+                name: "Skeleton Key",
+                desc: "A key that can open many locks.",
+                type: "key",
+                value: 80,
+                keywords: ["key", "skeleton key", "master key"]
+            },
+            invisibility_cloak: {
+                name: "Invisibility Cloak",
+                desc: "A cloak that renders the wearer nearly invisible.",
+                type: "armor",
+                defense: 2,
+                value: 200,
+                keywords: ["cloak", "invisibility cloak", "armor"]
+            },
+            magic_wand: {
+                name: "Magic Wand",
+                desc: "A wand that amplifies magical power.",
+                type: "weapon",
+                damage: 20,
+                value: 150,
+                keywords: ["wand", "magic wand", "weapon"]
+            },
+            master_lockpick: {
+                name: "Master Lockpick",
+                desc: "An exceptional set of lockpicks.",
+                type: "tool",
+                usable: true,
+                effect: "opens any lock",
+                value: 100,
+                keywords: ["lockpick", "master lockpick", "tool"]
+            }
+        };
+
+        // ==================== DUNGEON NPCS ====================
+        const npcs = {
+            dying_prisoner: {
+                name: "Dying Prisoner",
+                desc: "A prisoner left to die in the cell block.",
+                dialog: "The guards... took the key... it's in the guard post...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "find",
+                    target: "rusty_key",
+                    reward: "healing_herb"
+                },
+                trade: null
+            },
+            torturer: {
+                name: "Morbid Torturer",
+                desc: "A cruel man who enjoys his work.",
+                dialog: "New meat! Let's see how much pain you can take... unless you have something for me?",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["iron_shard"],
+                    reward: "rusty_key"
+                },
+                trade: null
+            },
+            cook: {
+                name: "Filthy Cook",
+                desc: "A disgusting man who prepares prison food.",
+                dialog: "Hungry? I need rat meat for the stew. Bring me some and I'll share.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "kill",
+                    target: "giant_rat",
+                    reward: "moldy_bread"
+                },
+                trade: null
+            },
+            lost_miner: {
+                name: "Lost Miner",
+                desc: "A miner who became lost in the tunnels.",
+                dialog: "The tunnel collapsed behind me... I've been down here for weeks. Help me find a way out.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "escort",
+                    target: "escape",
+                    reward: "miner_pick"
+                },
+                trade: null
+            },
+            mad_librarian: {
+                name: "Mad Librarian",
+                desc: "A prisoner who guards the abandoned library.",
+                dialog: "Shhh! The books must be protected! Do you seek knowledge? Answer my riddle...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "riddle",
+                    question: "What has keys but can't open locks?",
+                    answer: "piano",
+                    reward: "arcane_tome"
+                },
+                trade: null
+            },
+            crystal_golem: {
+                name: "Crystal Golem",
+                desc: "A being of living crystal.",
+                dialog: "I guard the crystal cavern. Bring me an energy crystal to recharge.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["energy_crystal"],
+                    reward: "perfect_crystal"
+                },
+                trade: null
+            },
+            river_spirit: {
+                name: "River Spirit",
+                desc: "A spirit of the underground river.",
+                dialog: "Cross my river safely by solving my puzzle. Arrange the stones in the correct order.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "puzzle",
+                    target: "stone_arrangement",
+                    reward: "river_pearl"
+                },
+                trade: null
+            },
+            temple_guardian: {
+                name: "Temple Guardian",
+                desc: "An ancient construct that guards the temple.",
+                dialog: "Only those who arrange the idols correctly may pass. The order is: serpent, owl, wolf, bear.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "arrange",
+                    target: ["serpent", "owl", "wolf", "bear"],
+                    reward: "ancient_amulet"
+                },
+                trade: null
+            },
+            fire_elemental: {
+                name: "Fire Elemental",
+                desc: "A being of living flame.",
+                dialog: "The heat path must be crossed carefully. Step only on the cooled stones.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "puzzle",
+                    target: "heat_path",
+                    reward: "obsidian_shard"
+                },
+                trade: null
+            },
+            archive_automaton: {
+                name: "Archive Automaton",
+                desc: "A clockwork being that maintains the archives.",
+                dialog: "Translate the ancient text to proceed: 'The way forward is through knowledge'.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "translate",
+                    target: "knowledge",
+                    reward: "ancient_tablet"
+                },
+                trade: null
+            },
+            myconid: {
+                name: "Myconid Elder",
+                desc: "A sentient fungus creature.",
+                dialog: "Our spores communicate in patterns. Mimic the pattern to show you mean no harm.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "pattern",
+                    target: "spore_pattern",
+                    reward: "giant_spore"
+                },
+                trade: null
+            },
+            forge_golem: {
+                name: "Forge Golem",
+                desc: "A construct that maintains the magma forge.",
+                dialog: "I can forge weapons if you bring me iron ore and a heat source.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["iron_ore", "energy_crystal"],
+                    reward: "magma_hammer"
+                },
+                trade: null
+            },
+            astronomer_ghost: {
+                name: "Astronomer Ghost",
+                desc: "The ghost of an ancient astronomer.",
+                dialog: "Align the constellations as they were on the day of my death: Dragon, Phoenix, Serpent, Bear.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "align",
+                    target: ["dragon", "phoenix", "serpent", "bear"],
+                    reward: "star_chart"
+                },
+                trade: null
+            },
+            training_master: {
+                name: "Training Master",
+                desc: "A ghostly combat instructor.",
+                dialog: "Show me your fighting technique! Attack, defend, then feint!",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "demonstrate",
+                    target: "combat_technique",
+                    reward: "training_sword"
+                },
+                trade: null
+            },
+            alchemist: {
+                name: "Prison Alchemist",
+                desc: "A prisoner with alchemical knowledge.",
+                dialog: "I can brew potions if you bring me healing herbs and a crystal for energy.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["healing_herb", "energy_crystal"],
+                    reward: "healing_potion"
+                },
+                trade: {
+                    buy: ["healing_potion", "antidote"],
+                    sell: true
+                }
+            },
+            armorer_ghost: {
+                name: "Armorer Ghost",
+                desc: "The ghost of the dungeon armorer.",
+                dialog: "Match the weapons to their proper racks: sword, axe, mace, spear.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "match",
+                    target: ["sword", "axe", "mace", "spear"],
+                    reward: "steel_sword"
+                },
+                trade: {
+                    buy: ["steel_sword", "guard_club"],
+                    sell: true
+                }
+            },
+            clockwork_automaton: {
+                name: "Clockwork Automaton",
+                desc: "A precise clockwork being.",
+                dialog: "Synchronize the gears to open the passage. Turn them clockwise: large, medium, small.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "synchronize",
+                    target: ["large", "medium", "small"],
+                    reward: "clockwork_gear"
+                },
+                trade: null
+            },
+            lift_operator: {
+                name: "Lift Operator",
+                desc: "A prisoner forced to operate the lift.",
+                dialog: "The lift needs three steam valves turned to the correct pressure: high, medium, low.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "adjust",
+                    target: ["high", "medium", "low"],
+                    reward: "steam_valve"
+                },
+                trade: null
+            },
+            prison_doctor: {
+                name: "Prison Doctor",
+                desc: "The dungeon's medical officer.",
+                dialog: "Many prisoners fall ill down here. Help me find ingredients for a cure.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["glowing_mushroom", "healing_herb"],
+                    reward: "antidote"
+                },
+                trade: {
+                    buy: ["healing_salve", "antidote"],
+                    sell: true
+                }
+            },
+            dark_priest: {
+                name: "Dark Priest",
+                desc: "A priest performing forbidden rituals.",
+                dialog: "My ritual must not be interrupted! But if you help me complete it, I'll grant you passage.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "assist",
+                    target: "ritual",
+                    reward: "skeleton_key"
+                },
+                trade: null
+            },
+            boiler_golem: {
+                name: "Boiler Golem",
+                desc: "A construct that maintains the boilers.",
+                dialog: "The pressure must be balanced: left valve 50%, right valve 50%.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "balance",
+                    target: ["50", "50"],
+                    reward: "pressure_gauge"
+                },
+                trade: null
+            },
+            garden_tender: {
+                name: "Garden Tender",
+                desc: "A prisoner who tends the underground garden.",
+                dialog: "The garden needs tending. Harvest the ripe plants without damaging the others.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "harvest",
+                    target: "plants",
+                    reward: "healing_herb"
+                },
+                trade: null
+            }
+        };
+
+        // ==================== DUNGEON ENEMIES ====================
+        const enemies = {
+            drunken_guard: {
+                name: "Drunken Guard",
+                hp: 35,
+                damage: 8,
+                desc: "A guard who has had too much to drink. Unsteady but dangerous.",
+                weak: "surprise",
+                loot: ["guard_club"],
+                sound: 'prison_depths'
+            },
+            cave_crawler: {
+                name: "Cave Crawler",
+                hp: 25,
+                damage: 6,
+                desc: "A large insect-like creature that scuttles in the dark.",
+                weak: "fire",
+                loot: ["iron_ore"],
+                sound: 'forsaken_mines'
+            },
+            chain_golem: {
+                name: "Chain Golem",
+                hp: 60,
+                damage: 12,
+                desc: "A construct made of chains and prison hardware.",
+                weak: "blunt",
+                loot: ["shackle_chain"],
+                sound: 'prison_depths'
+            },
+            dust_elemental: {
+                name: "Dust Elemental",
+                hp: 40,
+                damage: 9,
+                desc: "A swirling cloud of stone dust and debris.",
+                weak: "water",
+                loot: ["energy_crystal"],
+                sound: 'forsaken_mines'
+            },
+            crypt_wight: {
+                name: "Crypt Wight",
+                hp: 50,
+                damage: 11,
+                desc: "An undead creature that guards ancient tombs.",
+                weak: "holy",
+                loot: ["funerary_urn"],
+                sound: 'ancient_temple'
+            },
+            lava_beast: {
+                name: "Lava Beast",
+                hp: 70,
+                damage: 15,
+                desc: "A creature of molten rock and flame.",
+                weak: "cold",
+                loot: ["obsidian_shard"],
+                sound: 'lava_caverns'
+            },
+            escaped_beast: {
+                name: "Escaped Beast",
+                hp: 65,
+                damage: 14,
+                desc: "A monstrous creature that escaped its cage.",
+                weak: "traps",
+                loot: ["beast_claw"],
+                sound: 'prison_depths'
+            },
+            giant_spider: {
+                name: "Giant Spider",
+                hp: 45,
+                damage: 10,
+                desc: "An enormous spider that spins webs to catch prey.",
+                weak: "fire",
+                loot: ["spider_silk"],
+                sound: 'forsaken_mines'
+            },
+            crystal_guardian: {
+                name: "Crystal Guardian",
+                hp: 80,
+                damage: 16,
+                desc: "A being of living crystal that guards treasure.",
+                weak: "sonic",
+                loot: ["perfect_crystal"],
+                sound: 'forsaken_mines'
+            },
+            tomb_guardian: {
+                name: "Tomb Guardian",
+                hp: 90,
+                damage: 18,
+                desc: "An ancient construct that guards royal tombs.",
+                weak: "magic",
+                loot: ["royal_seal"],
+                sound: 'ancient_temple'
+            },
+            mutant_guard: {
+                name: "Mutant Guard",
+                hp: 75,
+                damage: 17,
+                desc: "A guard mutated by dungeon experiments.",
+                weak: "silver",
+                loot: ["guard_uniform"],
+                sound: 'prison_depths'
+            },
+            animated_armor: {
+                name: "Animated Armor",
+                hp: 85,
+                damage: 19,
+                desc: "A suit of armor that moves on its own.",
+                weak: "disarm",
+                loot: ["steel_sword"],
+                sound: 'prison_depths'
+            },
+            treasure_golem: {
+                name: "Treasure Golem",
+                hp: 100,
+                damage: 20,
+                desc: "A golem made of gold and gems.",
+                weak: "acid",
+                loot: ["gold_coins"],
+                sound: 'ancient_temple'
+            },
+            guard_captain: {
+                name: "Guard Captain",
+                hp: 110,
+                damage: 22,
+                desc: "The captain of the dungeon guards.",
+                weak: "strategy",
+                loot: ["captain_key"],
+                sound: 'prison_depths'
+            },
+            warden_ghost: {
+                name: "Warden's Ghost",
+                hp: 120,
+                damage: 24,
+                desc: "The ghost of the cruel dungeon warden.",
+                weak: "holy",
+                loot: ["warden_key"],
+                sound: 'prison_depths'
+            },
+            final_guardian: {
+                name: "Final Guardian",
+                hp: 150,
+                damage: 25,
+                desc: "A massive construct that blocks the escape tunnel.",
+                weak: "all_elements",
+                loot: ["skeleton_key"],
+                sound: 'escape_theme'
+            },
+            skeletal_warlord: {
+                name: "Skeletal Warlord",
+                hp: 95,
+                damage: 21,
+                desc: "The animated skeleton of an ancient warlord.",
+                weak: "blunt",
+                loot: ["ancient_amulet"],
+                sound: 'ancient_temple'
+            },
+            giant_rat: {
+                name: "Giant Rat",
+                hp: 20,
+                damage: 5,
+                desc: "An enormous rat that scavenges in the dungeon.",
+                weak: "fire",
+                loot: ["moldy_bread"],
+                sound: 'forsaken_mines'
+            }
+        };
+
+        // ==================== DUNGEON PUZZLES ====================
+        const puzzles = {
+            escape_cell: {
+                room: 0,
+                type: "lockpick",
+                description: "The cell door is locked. You need to pick the lock or find a key.",
+                solution: "lockpick or rusty_key",
+                solved: false,
+                reward: "access"
+            },
+            guard_key: {
+                room: 2,
+                type: "search",
+                description: "The guard has a key somewhere. Search his body or the room.",
+                solution: "search guard",
+                solved: false,
+                reward: "rusty_key"
+            },
+            torture_device: {
+                room: 3,
+                type: "disable",
+                description: "A torture device blocks the way. Disable it to pass.",
+                solution: "use iron_shard on device",
+                solved: false,
+                reward: "access"
+            },
+            chain_puzzle: {
+                room: 4,
+                type: "arrange",
+                description: "The chains must be arranged in a specific pattern to open the door.",
+                solution: "up, down, left, right",
+                solved: false,
+                reward: "access"
+            },
+            rat_recipe: {
+                room: 5,
+                type: "cook",
+                description: "The cook needs rat meat for his stew.",
+                solution: "kill giant_rat",
+                solved: false,
+                reward: "moldy_bread"
+            },
+            collapsed_tunnel: {
+                room: 9,
+                type: "clear",
+                description: "A tunnel has collapsed. Clear the rocks to proceed.",
+                solution: "use miner_pick",
+                solved: false,
+                reward: "access"
+            },
+            burial_ritual: {
+                room: 10,
+                type: "perform",
+                description: "Perform the ancient burial ritual to appease the spirits.",
+                solution: "place funerary_urn on altar",
+                solved: false,
+                reward: "access"
+            },
+            crystal_resonance: {
+                room: 11,
+                type: "tune",
+                description: "Make the crystals resonate at the correct frequency.",
+                solution: "strike crystals in order: high, low, medium, high",
+                solved: false,
+                reward: "energy_crystal"
+            },
+            bridge_crossing: {
+                room: 12,
+                type: "cross",
+                description: "Cross the rickety bridge without falling.",
+                solution: "move slowly",
+                solved: false,
+                reward: "access"
+            },
+            warlord_curse: {
+                room: 13,
+                type: "break",
+                description: "Break the warlord's curse by destroying his amulet.",
+                solution: "smash ancient_amulet",
+                solved: false,
+                reward: "access"
+            },
+            heat_path: {
+                room: 14,
+                type: "navigate",
+                description: "Navigate the heat path by stepping only on cooled stones.",
+                solution: "left, right, center, left",
+                solved: false,
+                reward: "access"
+            },
+            idol_arrangement: {
+                room: 15,
+                type: "arrange",
+                description: "Arrange the idols in the correct order.",
+                solution: "serpent, owl, wolf, bear",
+                solved: false,
+                reward: "access"
+            },
+            web_passage: {
+                room: 16,
+                type: "clear",
+                description: "Clear the webs to pass through.",
+                solution: "burn webs",
+                solved: false,
+                reward: "access"
+            },
+            lava_leaping: {
+                room: 17,
+                type: "jump",
+                description: "Leap between the stone islands without falling in lava.",
+                solution: "island1, island3, island2, island4",
+                solved: false,
+                reward: "access"
+            },
+            language_translation: {
+                room: 18,
+                type: "translate",
+                description: "Translate the ancient text to learn the password.",
+                solution: "knowledge",
+                solved: false,
+                reward: "access"
+            },
+            cage_lock: {
+                room: 19,
+                type: "unlock",
+                description: "Unlock the cage to pass through.",
+                solution: "use rusty_key",
+                solved: false,
+                reward: "access"
+            },
+            spore_pattern: {
+                room: 20,
+                type: "mimic",
+                description: "Mimic the spore pattern shown by the myconids.",
+                solution: "circle, square, triangle, circle",
+                solved: false,
+                reward: "access"
+            },
+            weapon_forging: {
+                room: 21,
+                type: "forge",
+                description: "Forge a weapon to prove your worth.",
+                solution: "use iron_ore and energy_crystal at forge",
+                solved: false,
+                reward: "magma_hammer"
+            },
+            light_refraction: {
+                room: 22,
+                type: "align",
+                description: "Align the crystals to refract light onto the door.",
+                solution: "45 degrees",
+                solved: false,
+                reward: "access"
+            },
+            constellation_alignment: {
+                room: 23,
+                type: "align",
+                description: "Align the constellations correctly.",
+                solution: "dragon, phoenix, serpent, bear",
+                solved: false,
+                reward: "access"
+            },
+            locker_combination: {
+                room: 24,
+                type: "combinate",
+                description: "Find the locker combination.",
+                solution: "7-3-9",
+                solved: false,
+                reward: "healing_potion"
+            },
+            plant_harvest: {
+                room: 25,
+                type: "harvest",
+                description: "Harvest the correct plants without damaging others.",
+                solution: "red, blue, yellow, red",
+                solved: false,
+                reward: "healing_herb"
+            },
+            weapon_matching: {
+                room: 26,
+                type: "match",
+                description: "Match weapons to their proper racks.",
+                solution: "sword, axe, mace, spear",
+                solved: false,
+                reward: "access"
+            },
+            silence_ritual: {
+                room: 27,
+                type: "perform",
+                description: "Perform the silence ritual without making a sound.",
+                solution: "no sound",
+                solved: false,
+                reward: "access"
+            },
+            gear_synchronization: {
+                room: 28,
+                type: "synchronize",
+                description: "Synchronize the gears to open the door.",
+                solution: "large, medium, small",
+                solved: false,
+                reward: "access"
+            },
+            combat_technique: {
+                room: 29,
+                type: "demonstrate",
+                description: "Demonstrate the proper combat technique.",
+                solution: "attack, defend, feint",
+                solved: false,
+                reward: "access"
+            },
+            potion_brewing: {
+                room: 30,
+                type: "brew",
+                description: "Brew a healing potion.",
+                solution: "mix healing_herb and energy_crystal",
+                solved: false,
+                reward: "healing_potion"
+            },
+            vault_security: {
+                room: 31,
+                type: "disable",
+                description: "Disable the vault security system.",
+                solution: "cut red wire",
+                solved: false,
+                reward: "gold_coins"
+            },
+            ritual_interruption: {
+                room: 32,
+                type: "interrupt",
+                description: "Interrupt the dark ritual at the right moment.",
+                solution: "during incantation",
+                solved: false,
+                reward: "access"
+            },
+            lift_activation: {
+                room: 33,
+                type: "activate",
+                description: "Activate the lift by setting the correct pressure.",
+                solution: "high, medium, low",
+                solved: false,
+                reward: "access"
+            },
+            escape_plans: {
+                room: 34,
+                type: "find",
+                description: "Find the captain's escape plans.",
+                solution: "search captain_desk",
+                solved: false,
+                reward: "captain_key"
+            },
+            disease_cure: {
+                room: 35,
+                type: "create",
+                description: "Create a cure for the dungeon disease.",
+                solution: "mix glowing_mushroom and healing_herb",
+                solved: false,
+                reward: "antidote"
+            },
+            safe_combination: {
+                room: 36,
+                type: "crack",
+                description: "Crack the warden's safe combination.",
+                solution: "22-7-15",
+                solved: false,
+                reward: "warden_key"
+            },
+            final_obstacle: {
+                room: 37,
+                type: "overcome",
+                description: "Overcome the final guardian to reach freedom.",
+                solution: "defeat final_guardian",
+                solved: false,
+                reward: "access"
+            },
+            pressure_balance: {
+                room: 38,
+                type: "balance",
+                description: "Balance the boiler pressure.",
+                solution: "50%, 50%",
+                solved: false,
+                reward: "access"
+            },
+            final_escape: {
+                room: 39,
+                type: "escape",
+                description: "Use the warden's key to unlock the final door to freedom!",
+                solution: "use warden_key",
+                solved: false,
+                reward: "freedom",
+                sound: 'victory'
+            }
+        };
+
+        // ==================== GAME STATE ====================
+        let player = {
+            class: null,
+            hp: 0,
+            maxHp: 0,
+            mp: 0,
+            maxMp: 0,
+            str: 0,
+            def: 0,
+            baseDef: 0,
+            int: 0,
+            gold: 0,
+            inventory: [],
+            equipped: {
+                weapon: null,
+                armor: null
+            },
+            baseDamage: 0,
+            totalDamage: 0,
+            totalDefense: 0,
+            location: 0,
+            inCombat: false,
+            hasLight: false,
+            time: "eternal night",
+            stats: {
+                enemiesDefeated: 0,
+                puzzlesSolved: 0,
+                roomsExplored: 0,
+                secretsFound: 0,
+                trapsSprung: 0
+            }
+        };
+
+        let gameStarted = false;
+        let currentBackground = 'dungeon_theme';
+        const soundSystem = new SoundSystem();
+
+        // ==================== HELPER FUNCTIONS ====================
+        function findItemByName(itemName) {
+            // First try exact match with item IDs
+            if (items[itemName]) {
+                return itemName;
+            }
+            
+            // Try to match with item name (case-insensitive)
+            itemName = itemName.toLowerCase();
+            for (const itemId in items) {
+                const item = items[itemId];
+                if (item.name.toLowerCase() === itemName) {
+                    return itemId;
+                }
+                
+                // Try keywords
+                if (item.keywords) {
+                    for (const keyword of item.keywords) {
+                        if (keyword.toLowerCase() === itemName) {
+                            return itemId;
+                        }
+                    }
+                }
+                
+                // Try partial match in name
+                if (item.name.toLowerCase().includes(itemName)) {
+                    return itemId;
+                }
+            }
+            
+            return null;
+        }
+
+        function calculatePlayerStats() {
+            // Calculate base damage (strength + class modifier)
+            player.baseDamage = player.str + 3;
+            
+            // Calculate total damage (base + weapon)
+            player.totalDamage = player.baseDamage;
+            if (player.equipped.weapon) {
+                const weapon = items[player.equipped.weapon];
+                if (weapon && weapon.damage) {
+                    player.totalDamage += weapon.damage;
+                }
+            }
+            
+            // Calculate base defense (class base)
+            player.baseDef = classes[player.class].def;
+            
+            // Calculate total defense (base + armor)
+            player.totalDefense = player.baseDef;
+            if (player.equipped.armor) {
+                const armor = items[player.equipped.armor];
+                if (armor && armor.defense) {
+                    player.totalDefense += armor.defense;
+                }
+            }
+            
+            // Update status display
+            updateStatus();
+        }
+
+        // ==================== UI FUNCTIONS ====================
+        const output = document.getElementById('output');
+        const input = document.getElementById('input');
+        const status = document.getElementById('status');
+
+        function print(text, className = '') {
+            const line = document.createElement('div');
+            line.textContent = text;
+            if (className) line.className = className;
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+            
+            if (className === 'success' || className === 'quest') {
+                soundSystem.playSound('notification', 0.5);
+            } else if (className === 'error') {
+                soundSystem.playSound('error', 0.3);
+            } else if (className === 'puzzle') {
+                soundSystem.playSound('puzzle', 0.4);
+            } else if (className === 'secret') {
+                soundSystem.playSound('secret', 0.5);
+            } else if (className === 'trap') {
+                soundSystem.playSound('trap', 0.6);
+            }
+        }
+
+        function updateStatus() {
+            const room = rooms[player.location];
+            const light = player.hasLight ? "LIT" : "DARK";
+            
+            // Get equipped weapon and armor names
+            const weaponName = player.equipped.weapon ? items[player.equipped.weapon].name : "None";
+            const armorName = player.equipped.armor ? items[player.equipped.armor].name : "None";
+            
+            status.textContent = 
+                `HP:${player.hp}/${player.maxHp} MP:${player.mp}/${player.maxMp} ` +
+                `DMG:${player.totalDamage} DEF:${player.totalDefense} ` +
+                `GOLD:${player.gold} ROOM:${room.id} ${light}\n` +
+                `Weapon: ${weaponName} | Armor: ${armorName}`;
+        }
+
+        // ==================== GAME LOGIC ====================
+        function startGame(className) {
+            player.class = className;
+            const c = classes[className];
+            
+            player.hp = player.maxHp = c.hp;
+            player.mp = player.maxMp = c.mp;
+            player.str = c.str;
+            player.def = c.def;
+            player.int = c.int;
+            player.gold = 0;
+            
+            // Starting items
+            player.inventory = c.startingItems.map(item => item);
+            
+            // Check for light sources
+            player.hasLight = c.startingItems.some(item => 
+                item === 'crude_torch' || item === 'glowing_crystal'
+            );
+            
+            // Initialize equipment
+            player.equipped.weapon = null;
+            player.equipped.armor = null;
+            
+            gameStarted = true;
+            soundSystem.playBackground(currentBackground);
+            
+            print(`You are a ${className.replace('_', ' ').toUpperCase()}. ${c.desc}`, 'success');
+            
+            // Display all starting items
+            const itemNames = c.startingItems.map(itemId => items[itemId].name).join(', ');
+            print(`You start with: ${itemNames}`, 'success');
+            
+            calculatePlayerStats();
+            look();
+            updateStatus();
+        }
+
+        function look() {
+            const room = rooms[player.location];
+            
+            // Update music based on area
+            if (room.sound !== currentBackground) {
+                currentBackground = room.sound;
+                soundSystem.playBackground(currentBackground);
+            }
+            
+            // Check darkness
+            if (room.dark && !player.hasLight) {
+                print("It's pitch black! You need a light source to see.", 'error');
+                print("You can feel exits to: " + Object.keys(room.exits).filter(dir => room.exits[dir] !== null).join(' '));
+                return;
+            }
+            
+            print(`${room.name}:`, 'command');
+            print(room.desc, 'system');
+            
+            // Ambient sound
+            if (Math.random() > 0.7) {
+                soundSystem.playSound('drip', 0.1);
+            }
+            if (Math.random() > 0.9) {
+                soundSystem.playSound('chains', 0.2);
+            }
+            
+            // List items
+            if (room.items.length > 0) {
+                print("You see:", 'system');
+                room.items.forEach(itemId => {
+                    const item = items[itemId];
+                    print(`  ${item.name}`, 'item');
+                });
+            }
+            
+            // List NPC
+            if (room.npc) {
+                const npc = npcs[room.npc];
+                print(`${npc.name} is here. ${npc.desc}`, 'npc');
+            }
+            
+            // List enemy
+            if (room.enemy) {
+                const enemy = enemies[room.enemy];
+                print(`${enemy.name} blocks your path! ${enemy.desc}`, 'enemy');
+            }
+            
+            // List container
+            if (room.container) {
+                print(`There is a ${room.container} here.`, 'system');
+            }
+            
+            // List puzzle
+            if (room.puzzle) {
+                const puzzle = Object.values(puzzles).find(p => p.room === room.id);
+                if (puzzle && !puzzle.solved) {
+                    print("There seems to be a puzzle here...", 'puzzle');
+                }
+            }
+            
+            // List exits
+            const exits = [];
+            if (room.exits.n !== null) exits.push("north");
+            if (room.exits.s !== null) exits.push("south");
+            if (room.exits.e !== null) exits.push("east");
+            if (room.exits.w !== null) exits.push("west");
+            
+            print("Exits: " + exits.join(', '));
+            
+            if (!room.explored) {
+                room.explored = true;
+                player.stats.roomsExplored++;
+            }
+            
+            updateStatus();
+        }
+
+        function move(direction) {
+            const room = rooms[player.location];
+            const newRoomId = room.exits[direction];
+            
+            if (newRoomId === null) {
+                print("You can't go that way.", 'error');
+                return;
+            }
+            
+            // Check for locked room
+            const newRoom = rooms[newRoomId];
+            if (newRoom.locked) {
+                print("The way is locked!", 'error');
+                return;
+            }
+            
+            // Check for trap
+            if (room.trap && Math.random() > 0.7) {
+                springTrap(room.trap);
+                if (player.hp <= 0) return;
+            }
+            
+            soundSystem.playSound('step');
+            player.location = newRoomId;
+            
+            // Check for enemy
+            if (newRoom.enemy) {
+                print(`A ${newRoom.enemy} blocks your path!`, 'enemy');
+            }
+            
+            look();
+        }
+
+        function take(itemName) {
+            const room = rooms[player.location];
+            
+            if (room.dark && !player.hasLight) {
+                print("It's too dark to see anything!", 'error');
+                return;
+            }
+            
+            // Find the item ID by name
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId) {
+                print("You don't see that here.", 'error');
+                return;
+            }
+            
+            // Check if the item is in the room
+            const itemIndex = room.items.indexOf(itemId);
+            if (itemIndex === -1) {
+                print("You don't see that here.", 'error');
+                return;
+            }
+            
+            // Remove from room and add to inventory
+            room.items.splice(itemIndex, 1);
+            player.inventory.push(itemId);
+            
+            print(`You take the ${items[itemId].name}.`, 'success');
+            soundSystem.playSound('pickup');
+            
+            // Special case for light sources
+            if (itemId === 'crude_torch' || itemId === 'glowing_crystal') {
+                player.hasLight = true;
+            }
+            
+            updateStatus();
+        }
+
+        function equip(itemName) {
+            // Find the item ID by name
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId) {
+                print("You don't have that item.", 'error');
+                return;
+            }
+            
+            // Check if player has the item
+            if (!player.inventory.includes(itemId)) {
+                print("You don't have that item.", 'error');
+                return;
+            }
+            
+            const item = items[itemId];
+            
+            // Check if it's equipment
+            if (item.type === 'weapon') {
+                // If already have a weapon equipped, put it back in inventory
+                if (player.equipped.weapon) {
+                    player.inventory.push(player.equipped.weapon);
+                }
+                
+                // Equip the new weapon
+                player.equipped.weapon = itemId;
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print(`You equip the ${item.name}.`, 'success');
+                soundSystem.playSound('equip');
+                
+            } else if (item.type === 'armor') {
+                // If already have armor equipped, put it back in inventory
+                if (player.equipped.armor) {
+                    player.inventory.push(player.equipped.armor);
+                }
+                
+                // Equip the new armor
+                player.equipped.armor = itemId;
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print(`You equip the ${item.name}.`, 'success');
+                soundSystem.playSound('equip');
+                
+            } else {
+                print("That's not something you can equip.", 'error');
+                return;
+            }
+            
+            // Recalculate stats
+            calculatePlayerStats();
+        }
+
+        function useItem(itemName, target = null) {
+            // Find the item ID by name
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId || !player.inventory.includes(itemId)) {
+                print("You don't have that.", 'error');
+                return;
+            }
+            
+            const item = items[itemId];
+            const room = rooms[player.location];
+            
+            // Use torch
+            if (itemId === 'crude_torch') {
+                player.hasLight = !player.hasLight;
+                print(player.hasLight ? "You light the torch." : "You extinguish the torch.", 'success');
+                soundSystem.playSound('click');
+                look();
+                return;
+            }
+            
+            // Use glowing crystal
+            if (itemId === 'glowing_crystal') {
+                player.hasLight = true;
+                if (player.class === 'mage') {
+                    player.mp = Math.min(player.maxMp, player.mp + 10);
+                    print("The glowing crystal recharges your magical energy.", 'success');
+                    updateStatus();
+                }
+                print("The crystal provides light.", 'success');
+                soundSystem.playSound('click');
+                look();
+                return;
+            }
+            
+            // Use spell scroll
+            if (itemId === 'spell_scroll') {
+                if (room.enemy) {
+                    const enemy = enemies[room.enemy];
+                    enemy.hp -= 15;
+                    print("You cast Magic Missile! It hits for 15 damage!", 'damage');
+                    soundSystem.playSound('attack');
+                    
+                    if (enemy.hp <= 0) {
+                        print(`You defeated the ${enemy.name}!`, 'success');
+                        if (enemy.loot) {
+                            enemy.loot.forEach(lootId => {
+                                room.items.push(lootId);
+                                print(`It drops: ${items[lootId].name}`, 'loot');
+                            });
+                        }
+                        room.enemy = null;
+                        player.stats.enemiesDefeated++;
+                    }
+                } else {
+                    print("You cast Magic Missile at nothing.", 'system');
+                }
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                updateStatus();
+                return;
+            }
+            
+            // Use healing items
+            if (itemId === 'healing_potion') {
+                const healAmount = 30;
+                player.hp = Math.min(player.maxHp, player.hp + healAmount);
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print(`You drink the healing potion and restore ${healAmount} HP.`, 'heal');
+                soundSystem.playSound('notification');
+                updateStatus();
+                return;
+            }
+            
+            if (itemId === 'healing_herb') {
+                const healAmount = 15;
+                player.hp = Math.min(player.maxHp, player.hp + healAmount);
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print(`You chew the healing herb and restore ${healAmount} HP.`, 'heal');
+                soundSystem.playSound('notification');
+                updateStatus();
+                return;
+            }
+            
+            if (itemId === 'healing_salve') {
+                const healAmount = 20;
+                player.hp = Math.min(player.maxHp, player.hp + healAmount);
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print(`You apply the healing salve and restore ${healAmount} HP.`, 'heal');
+                soundSystem.playSound('notification');
+                updateStatus();
+                return;
+            }
+            
+            if (itemId === 'moldy_bread') {
+                const healAmount = 5;
+                player.hp = Math.min(player.maxHp, player.hp + healAmount);
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                if (Math.random() > 0.5) {
+                    print(`You eat the moldy bread and restore ${healAmount} HP, but feel sick.`, 'heal');
+                } else {
+                    print(`You eat the moldy bread and restore ${healAmount} HP.`, 'heal');
+                }
+                soundSystem.playSound('notification');
+                updateStatus();
+                return;
+            }
+            
+            // Use glowing mushroom
+            if (itemId === 'glowing_mushroom') {
+                const mpAmount = 10;
+                player.mp = Math.min(player.maxMp, player.mp + mpAmount);
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print(`You eat the glowing mushroom and restore ${mpAmount} MP.`, 'heal');
+                soundSystem.playSound('notification');
+                updateStatus();
+                return;
+            }
+            
+            // Use lockpick
+            if (itemId === 'lockpick' && target === 'door') {
+                const room = rooms[player.location];
+                if (room.locked) {
+                    if (player.class === 'rogue' || Math.random() > 0.3) {
+                        room.locked = false;
+                        print("You successfully pick the lock!", 'success');
+                        soundSystem.playSound('lockpick');
+                    } else {
+                        print("You fail to pick the lock.", 'error');
+                        // Chance to break lockpick
+                        if (Math.random() > 0.7) {
+                            player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                            print("Your lockpick breaks!", 'error');
+                        }
+                    }
+                } else {
+                    print("The door isn't locked.", 'error');
+                }
+                return;
+            }
+            
+            // Use key on locked room
+            if (item.type === 'key' && target === 'door') {
+                const room = rooms[player.location];
+                if (room.locked) {
+                    // Check specific key requirements
+                    if (room.id === 39 && itemId === 'warden_key') {
+                        room.locked = false;
+                        player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                        print("The warden's key fits! The door to freedom unlocks!", 'success');
+                        soundSystem.playSound('door');
+                        print("*** YOU ESCAPE! ***", 'success');
+                        print("You have escaped the Dungeons of Dread!", 'success');
+                        soundSystem.playBackground('victory');
+                        return;
+                    } else if (room.id === 34 && itemId === 'captain_key') {
+                        room.locked = false;
+                        player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                        print("The captain's key unlocks the door.", 'success');
+                        soundSystem.playSound('door');
+                        return;
+                    } else if (room.id === 0 && itemId === 'rusty_key') {
+                        room.locked = false;
+                        player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                        print("The rusty key unlocks your cell!", 'success');
+                        soundSystem.playSound('door');
+                        return;
+                    } else {
+                        print("The key doesn't fit this lock.", 'error');
+                    }
+                } else {
+                    print("The door isn't locked.", 'error');
+                }
+                return;
+            }
+            
+            // Use object on object
+            if (target) {
+                const targetId = findItemByName(target);
+                
+                // Use item on container
+                if (room.container && target === room.container) {
+                    // Feast puzzle
+                    if (room.id === 5 && itemId === 'moldy_bread' && target === 'food_store') {
+                        print("You place the moldy bread in the food store. The cook is pleased!", 'puzzle');
+                        soundSystem.playSound('puzzle');
+                        return;
+                    }
+                }
+                
+                // Use item on NPC
+                if (room.npc && target === room.npc) {
+                    const npc = npcs[room.npc];
+                    if (npc.quest && npc.quest.type === 'give' && npc.quest.target.includes(itemId)) {
+                        print(`You give ${items[itemId].name} to ${npc.name}.`, 'success');
+                        player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                        if (npc.quest.reward) {
+                            player.inventory.push(npc.quest.reward);
+                            npc.quest.completed = true;
+                            print(`${npc.name}: "Thank you! Here is ${items[npc.quest.reward].name}."`, 'quest');
+                            soundSystem.playSound('pickup');
+                        }
+                        return;
+                    }
+                }
+            }
+            
+            print(`You're not sure how to use the ${item.name} here.`, 'error');
+        }
+
+        function talk(npcName = null) {
+            const room = rooms[player.location];
+            
+            if (!room.npc) {
+                print("There's no one here to talk to.", 'error');
+                return;
+            }
+            
+            const npc = npcs[room.npc];
+            print(`${npc.name}: "${npc.dialog}"`, 'npc');
+            
+            // Handle quests
+            if (npc.quest && !npc.quest.completed) {
+                if (npc.quest.type === 'find' && !npc.quest.given) {
+                    npc.quest.given = true;
+                    print(`${npc.name}: "Find the ${items[npc.quest.target].name} for me."`, 'quest');
+                } else if (npc.quest.type === 'give') {
+                    const hasItems = npc.quest.target.every(item => player.inventory.includes(item));
+                    if (hasItems) {
+                        print(`${npc.name}: "You have them! Thank you!"`, 'quest');
+                        npc.quest.target.forEach(item => {
+                            player.inventory.splice(player.inventory.indexOf(item), 1);
+                        });
+                        player.inventory.push(npc.quest.reward);
+                        npc.quest.completed = true;
+                        print(`You receive: ${items[npc.quest.reward].name}`, 'success');
+                        soundSystem.playSound('pickup');
+                    } else {
+                        const itemNames = npc.quest.target.map(i => items[i].name).join(' and ');
+                        print(`${npc.name}: "I need ${itemNames}."`, 'quest');
+                    }
+                } else if (npc.quest.type === 'riddle') {
+                    print(`${npc.name}: "${npc.quest.question}"`, 'quest');
+                }
+            }
+        }
+
+        function search(target = null) {
+            const room = rooms[player.location];
+            
+            if (room.dark && !player.hasLight) {
+                print("It's too dark to search.", 'error');
+                return;
+            }
+            
+            if (target) {
+                // Search specific object
+                if (room.container && target === room.container) {
+                    print(`You search the ${room.container}...`, 'system');
+                    
+                    // Check for special items
+                    if (room.id === 2 && room.container === 'hidden_compartment') {
+                        if (!player.inventory.includes('skeleton_key') && !room.items.includes('skeleton_key')) {
+                            room.items.push('skeleton_key');
+                            print("You find a skeleton key in a hidden compartment!", 'secret');
+                            soundSystem.playSound('secret');
+                            player.stats.secretsFound++;
+                        }
+                    }
+                    return;
+                }
+                
+                print("You don't see that here.", 'error');
+            } else {
+                // General room search
+                print("You search the room...", 'system');
+                
+                if (room.items.length > 0) {
+                    print("You find:", 'system');
+                    room.items.forEach(itemId => {
+                        print(`  ${items[itemId].name}`, 'item');
+                    });
+                } else {
+                    print("You don't find anything.", 'system');
+                }
+                
+                // Check for hidden puzzles
+                if (room.puzzle) {
+                    const puzzle = Object.values(puzzles).find(p => p.room === room.id);
+                    if (puzzle && !puzzle.solved) {
+                        print(`Puzzle clue: ${puzzle.description}`, 'puzzle');
+                    }
+                }
+                
+                // Chance to find secret
+                if (room.secret && Math.random() > 0.7) {
+                    print("You discover something hidden!", 'secret');
+                    // Different secrets give different rewards
+                    if (room.id === 7 && room.secret === 'secret_passage') {
+                        print("You find a secret passage! It leads somewhere...", 'secret');
+                        // Would normally connect to another room
+                    }
+                    player.stats.secretsFound++;
+                }
+            }
+        }
+
+        function springTrap(trapType) {
+            const room = rooms[player.location];
+            player.stats.trapsSprung++;
+            
+            print(`You trigger a ${trapType}!`, 'trap');
+            soundSystem.playSound('trap');
+            
+            switch(trapType) {
+                case 'floor_spikes':
+                    const spikeDamage = 10 - Math.floor(player.totalDefense / 2);
+                    player.hp -= Math.max(1, spikeDamage);
+                    print(`Spikes shoot up from the floor! You take ${Math.max(1, spikeDamage)} damage!`, 'damage');
+                    break;
+                    
+                case 'rockfall':
+                    const rockDamage = 15 - Math.floor(player.totalDefense / 3);
+                    player.hp -= Math.max(1, rockDamage);
+                    print(`Rocks fall from the ceiling! You take ${Math.max(1, rockDamage)} damage!`, 'damage');
+                    soundSystem.playSound('rockfall', 0.3);
+                    break;
+                    
+                case 'pit_trap':
+                    print("You fall into a pit! You manage to climb out, but take damage.", 'trap');
+                    player.hp -= 8;
+                    break;
+                    
+                case 'arrow_trap':
+                    const arrowDamage = 12 - Math.floor(player.totalDefense / 2);
+                    player.hp -= Math.max(1, arrowDamage);
+                    print(`Arrows shoot from the walls! You take ${Math.max(1, arrowDamage)} damage!`, 'damage');
+                    break;
+            }
+            
+            if (player.hp <= 0) {
+                print("The trap finishes you off...", 'error');
+                soundSystem.playSound('error');
+                resetGame();
+            } else {
+                updateStatus();
+            }
+        }
+
+        function attack(target = null) {
+            const room = rooms[player.location];
+            
+            if (!room.enemy) {
+                print("There's nothing to attack here.", 'error');
+                return;
+            }
+            
+            const enemy = enemies[room.enemy];
+            soundSystem.playSound('attack');
+            
+            print(`You attack the ${enemy.name}!`, 'command');
+            
+            // Calculate damage using player's total damage
+            let damage = player.totalDamage + Math.floor(Math.random() * 6) - 3;
+            damage = Math.max(1, damage);
+            
+            enemy.hp -= damage;
+            
+            print(`You hit for ${damage} damage!`, 'damage');
+            soundSystem.playSound('enemyHit');
+            
+            if (enemy.hp <= 0) {
+                print(`You defeated the ${enemy.name}!`, 'success');
+                
+                // Drop loot
+                if (enemy.loot) {
+                    enemy.loot.forEach(lootId => {
+                        room.items.push(lootId);
+                        print(`It drops: ${items[lootId].name}`, 'loot');
+                    });
+                }
+                
+                // Gold reward
+                const goldReward = 10 + Math.floor(Math.random() * 20);
+                player.gold += goldReward;
+                print(`You find ${goldReward} gold.`, 'loot');
+                
+                player.stats.enemiesDefeated++;
+                
+                soundSystem.playSound('victory');
+                
+                // Special cases
+                if (room.id === 39 && room.enemy === 'final_guardian') {
+                    print("The final guardian is defeated! The way to freedom is open!", 'success');
+                    soundSystem.playSound('door');
+                }
+                
+                room.enemy = null;
+            } else {
+                print(`The ${enemy.name} has ${enemy.hp} HP remaining.`, 'enemy');
+                
+                // Enemy counterattack (reduced by player's defense)
+                let enemyDamage = Math.max(1, enemy.damage - Math.floor(player.totalDefense / 2));
+                player.hp -= enemyDamage;
+                print(`The ${enemy.name} hits you for ${enemyDamage} damage!`, 'damage');
+                soundSystem.playSound('playerHit');
+                
+                if (player.hp <= 0) {
+                    print("You have been defeated... The dungeon claims another victim.", 'error');
+                    soundSystem.playSound('error');
+                    resetGame();
+                }
+            }
+            
+            updateStatus();
+        }
+
+        function showInventory() {
+            if (player.inventory.length === 0) {
+                print("Your inventory is empty.", 'system');
+            } else {
+                print("Inventory:", 'system');
+                player.inventory.forEach(itemId => {
+                    const item = items[itemId];
+                    const equipped = (player.equipped.weapon === itemId || player.equipped.armor === itemId) ? " [EQUIPPED]" : "";
+                    print(`  ${item.name}${equipped} - ${item.desc}`, equipped ? 'equipped' : 'item');
+                });
+            }
+            
+            // Show equipped items
+            print("", 'system');
+            print("Equipped:", 'system');
+            if (player.equipped.weapon) {
+                const weapon = items[player.equipped.weapon];
+                print(`  Weapon: ${weapon.name} (${weapon.damage} DMG)`, 'equipped');
+            } else {
+                print("  Weapon: None (3 DMG)", 'system');
+            }
+            
+            if (player.equipped.armor) {
+                const armor = items[player.equipped.armor];
+                print(`  Armor: ${armor.name} (${armor.defense} DEF)`, 'equipped');
+            } else {
+                print("  Armor: None (0 DEF)", 'system');
+            }
+            
+            print("", 'system');
+            print(`Total Stats: ${player.totalDamage} DMG | ${player.totalDefense} DEF`, 'system');
+        }
+
+        function showStats() {
+            print("=== CHARACTER STATS ===", 'command');
+            print(`Class: ${player.class ? player.class.replace('_', ' ').toUpperCase() : 'None'}`, 'system');
+            print(`HP: ${player.hp}/${player.maxHp}`, 'system');
+            print(`MP: ${player.mp}/${player.maxMp}`, 'system');
+            print(`Gold: ${player.gold}`, 'system');
+            print(`Strength: ${player.str}`, 'system');
+            print(`Defense: ${player.def}`, 'system');
+            print(`Intelligence: ${player.int}`, 'system');
+            print("=== EQUIPMENT ===", 'command');
+            if (player.equipped.weapon) {
+                const weapon = items[player.equipped.weapon];
+                print(`Weapon: ${weapon.name} (${weapon.damage} DMG)`, 'equipped');
+            } else {
+                print("Weapon: None", 'system');
+            }
+            if (player.equipped.armor) {
+                const armor = items[player.equipped.armor];
+                print(`Armor: ${armor.name} (${armor.defense} DEF)`, 'equipped');
+            } else {
+                print("Armor: None", 'system');
+            }
+            print(`Total Damage: ${player.totalDamage}`, 'system');
+            print(`Total Defense: ${player.totalDefense}`, 'system');
+            print("=== DUNGEON PROGRESS ===", 'command');
+            print(`Rooms Explored: ${player.stats.roomsExplored}/40`, 'system');
+            print(`Enemies Defeated: ${player.stats.enemiesDefeated}`, 'system');
+            print(`Puzzles Solved: ${player.stats.puzzlesSolved}`, 'system');
+            print(`Secrets Found: ${player.stats.secretsFound}`, 'system');
+            print(`Traps Sprung: ${player.stats.trapsSprung}`, 'system');
+            print(`Current Location: Room ${player.location}`, 'system');
+        }
+
+        function showHelp() {
+            print("=== ESCAPE FROM DUNGEONS OF DREAD ===", 'command');
+            print("MOVEMENT: n, s, e, w, look", 'system');
+            print("INTERACTION: take [item], use [item], use [item] on [object]", 'system');
+            print("           equip [item], search, search [container]", 'system');
+            print("           drop [item], inventory", 'system');
+            print("COMBAT: attack", 'system');
+            print("NPCS: talk", 'system');
+            print("INFO: stats, help", 'system');
+            print("=== DUNGEON ESCAPE TIPS ===", 'command');
+            print("- Find keys to unlock doors", 'system');
+            print("- Light sources needed in dark rooms", 'system');
+            print("- Watch out for traps!", 'system');
+            print("- Solve puzzles to progress", 'system');
+            print("- Talk to NPCs for help and quests", 'system');
+            print("- Find the Warden's Key to escape (Room 39)", 'system');
+            print("- Different classes have different strengths", 'system');
+        }
+
+        function resetGame() {
+            player.class = null;
+            gameStarted = false;
+            soundSystem.playBackground('dungeon_theme');
+            print("GAME OVER", 'error');
+            print("Choose a class: gladiator, rogue, mage.", 'system');
+            updateStatus();
+        }
+
+        function quickCommand(cmd) {
+            document.getElementById('input').value = cmd;
+            const event = new KeyboardEvent('keydown', { key: 'Enter' });
+            document.getElementById('input').dispatchEvent(event);
+        }
+
+        // ==================== COMMAND PARSER ====================
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                const cmd = input.value.trim().toLowerCase();
+                input.value = '';
+                if (!cmd) return;
+
+                soundSystem.playSound('click', 0.3);
+                print(`> ${cmd}`, 'command');
+                
+                // Convert "use X on Y" to array
+                let parts;
+                if (cmd.includes(' on ')) {
+                    parts = cmd.split(' on ');
+                    parts = ['use', parts[0], parts[1]];
+                } else {
+                    parts = cmd.split(' ');
+                }
+                
+                const verb = parts[0];
+                const arg1 = parts[1];
+                const arg2 = parts[2];
+
+                // Class selection
+                if (!player.class && ['gladiator', 'rogue', 'mage'].includes(verb)) {
+                    startGame(verb);
+                    return;
+                }
+                
+                if (!player.class) {
+                    print("Choose a class first: gladiator, rogue, mage.", 'error');
+                    return;
+                }
+
+                // Game commands
+                switch (verb) {
+                    case 'n': case 'north': move('n'); break;
+                    case 's': case 'south': move('s'); break;
+                    case 'e': case 'east': move('e'); break;
+                    case 'w': case 'west': move('w'); break;
+                    case 'l': case 'look': look(); break;
+                    case 'take': if (arg1) take(arg1); else print("Take what?"); break;
+                    case 'use': 
+                        if (arg2) {
+                            useItem(arg1, arg2);
+                        } else if (arg1) {
+                            useItem(arg1);
+                        } else {
+                            print("Use what?"); 
+                        }
+                        break;
+                    case 'equip': if (arg1) equip(arg1); else print("Equip what?"); break;
+                    case 'talk': talk(arg1); break;
+                    case 'search': search(arg1); break;
+                    case 'drop': if (arg1) drop(arg1); else print("Drop what?"); break;
+                    case 'i': case 'inventory': case 'inv': showInventory(); break;
+                    case 'attack': attack(arg1); break;
+                    case 'stats': showStats(); break;
+                    case 'help': case '?': showHelp(); break;
+                    case 'quit': resetGame(); break;
+                    default: print("Unknown command. Type 'help'.", 'error');
+                }
+            }
+        });
+
+        // Sound toggle button
+        document.getElementById('sound-toggle').addEventListener('click', () => {
+            soundSystem.toggle();
+        });
+
+        // Initialize audio on first user interaction
+        document.addEventListener('click', function initAudio() {
+            soundSystem.resumeAudioContext();
+            if (!gameStarted) {
+                soundSystem.playBackground('dungeon_theme');
+            }
+            document.removeEventListener('click', initAudio);
+        }, { once: true });
+
+        // ==================== INIT ====================
+        print("ESCAPE FROM DUNGEONS OF DREAD (1987)", 'success');
+        print("NIGHTFALLS GAMES PRESENTS", 'system');
+        print("", 'system');
+        print("A dungeon escape adventure with 40 rooms of danger!", 'system');
+        print("Solve puzzles, avoid traps, fight monsters, escape!", 'system');
+        print("", 'system');
+        print("Classes:", 'system');
+        print("- gladiator: Shackle chain and crude torch", 'system');
+        print("- rogue: Lockpick and dull dagger", 'system');
+        print("- mage: Spell scroll and glowing crystal", 'system');
+        print("", 'system');
+        print("Commands: n/s/e/w, look, take, equip, use, talk, search, attack, inventory", 'system');
+        print("", 'system');
+        print("Choose your class: gladiator, rogue, mage.", 'system');
+        updateStatus();
+        input.focus();
+    </script>
+</body>
+</html>
