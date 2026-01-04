@@ -1,0 +1,3527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Deadlands Beyond the Pass (1986) - Wasteland Games</title>
+    <link href="https://fonts.googleapis.com/css?family=Press+Start+2P" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            font-family: 'Press Start 2P', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+            background-color: #0a0a0a;
+            color: #d4a017; /* Changed to desert gold */
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            padding: 5px;
+            touch-action: manipulation;
+        }
+        #header {
+            text-align: center;
+            border-bottom: 2px solid #8b4513; /* Changed to saddle brown */
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+            flex-shrink: 0;
+        }
+        #game-container {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+        #output {
+            flex-grow: 1;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            border: 1px solid #8b4513; /* Changed to saddle brown */
+            padding: 8px;
+            margin-bottom: 8px;
+            background-color: #1a1a1a;
+            -webkit-overflow-scrolling: touch;
+        }
+        #input-line {
+            display: flex;
+            flex-shrink: 0;
+            align-items: center;
+        }
+        #prompt {
+            margin-right: 8px;
+            white-space: nowrap;
+        }
+        #input {
+            flex-grow: 1;
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid #8b4513; /* Changed to saddle brown */
+            color: #d4a017;
+            font-family: inherit;
+            font-size: inherit;
+            outline: none;
+            padding: 4px 0;
+        }
+        #status {
+            border-top: 1px solid #8b4513;
+            padding-top: 8px;
+            margin-top: 8px;
+            flex-shrink: 0;
+            white-space: pre;
+            font-size: 10px;
+        }
+        .command {
+            color: #ff8c00; /* Changed to dark orange */
+        }
+        .error {
+            color: #dc143c; /* Crimson */
+        }
+        .item {
+            color: #00bfff; /* Same as before */
+        }
+        .enemy {
+            color: #8b0000; /* Dark red */
+        }
+        .npc {
+            color: #daa520; /* Goldenrod */
+        }
+        .success {
+            color: #32cd32; /* Lime green */
+        }
+        .quest {
+            color: #ffd700; /* Gold */
+        }
+        .loot {
+            color: #ff69b4; /* Hot pink */
+        }
+        .system {
+            color: #aaa;
+        }
+        .damage {
+            color: #ff6347; /* Tomato */
+        }
+        .heal {
+            color: #32cd32; /* Lime green */
+        }
+        .puzzle {
+            color: #9370db; /* Medium purple */
+        }
+        .equipped {
+            color: #00ff00;
+            font-weight: bold;
+        }
+        #sound-toggle {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: #000;
+            border: 1px solid #8b4513;
+            color: #d4a017;
+            padding: 4px 8px;
+            font-size: 10px;
+            cursor: pointer;
+            z-index: 1000;
+        }
+        .quick-command {
+            display: inline-block;
+            background: #222;
+            border: 1px solid #8b4513;
+            color: #d4a017;
+            padding: 2px 6px;
+            margin: 2px;
+            cursor: pointer;
+            font-size: 10px;
+        }
+        #quick-commands {
+            margin-top: 8px;
+            text-align: center;
+        }
+        #volume-control {
+            position: fixed;
+            top: 40px;
+            right: 10px;
+            background: #000;
+            border: 1px solid #8b4513;
+            color: #d4a017;
+            padding: 4px;
+            font-size: 10px;
+            z-index: 999;
+        }
+        #volume-slider {
+            width: 80px;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <button id="sound-toggle">🔊 ON</button>
+    <div id="volume-control">
+        <div>Volume:</div>
+               <input type="range" id="volume-slider" min="0" max="100" value="70">
+    </div>
+    <div id="header">
+        <h1>DEADLANDS BEYOND THE PASS</h1>
+        <div>1986 • WASTELAND GAMES</div>
+    </div>
+    <div id="game-container">
+        <div id="output">Welcome to Deadlands Beyond the Pass! Type 'help' for commands.</div>
+        <div id="input-line">
+            <span id="prompt">&gt;</span>
+            <input type="text" id="input" autocomplete="off" autofocus>
+        </div>
+        <div id="quick-commands">
+            <span class="quick-command" onclick="quickCommand('n')">N</span>
+            <span class="quick-command" onclick="quickCommand('s')">S</span>
+            <span class="quick-command" onclick="quickCommand('e')">E</span>
+            <span class="quick-command" onclick="quickCommand('w')">W</span>
+            <span class="quick-command" onclick="quickCommand('look')">LOOK</span>
+            <span class="quick-command" onclick="quickCommand('inventory')">INV</span>
+            <span class="quick-command" onclick="quickCommand('stats')">STATS</span>
+        </div>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        // ==================== SOUND SYSTEM ====================
+        class SoundSystem {
+            constructor() {
+                this.audioContext = null;
+                this.masterGain = null;
+                this.bgGain = null;
+                this.sfxGain = null;
+                this.enabled = true;
+                this.currentBg = null;
+                this.currentBgSource = null;
+                this.currentBgName = null;
+                
+                this.init();
+            }
+            
+            init() {
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.masterGain = this.audioContext.createGain();
+                    this.bgGain = this.audioContext.createGain();
+                    this.sfxGain = this.audioContext.createGain();
+                    
+                    // Set initial volumes
+                    this.masterGain.gain.value = 0.7;
+                    this.bgGain.gain.value = 0.3;
+                    this.sfxGain.gain.value = 0.5;
+                    
+                    // Connect nodes
+                    this.bgGain.connect(this.masterGain);
+                    this.sfxGain.connect(this.masterGain);
+                    this.masterGain.connect(this.audioContext.destination);
+                    
+                    // Volume control
+                    document.getElementById('volume-slider').addEventListener('input', (e) => {
+                        const volume = e.target.value / 100;
+                        this.setMasterVolume(volume);
+                    });
+                    
+                } catch (e) {
+                    console.log('Web Audio API not supported:', e);
+                    this.enabled = false;
+                }
+            }
+            
+            // ==================== WASTELAND MUSIC GENERATION ====================
+            playBackground(musicName, loop = true) {
+                if (!this.enabled || !musicName) return;
+                
+                // Don't restart same music
+                if (this.currentBgName === musicName && this.currentBgSource) {
+                    return;
+                }
+                
+                // Stop current background
+                this.stopBackground();
+                
+                this.currentBgName = musicName;
+                
+                // Generate music based on name
+                switch(musicName) {
+                    case 'wasteland_theme':
+                        this.playWastelandTheme(loop);
+                        break;
+                    case 'canyon_winds':
+                        this.playCanyonWindsMusic(loop);
+                        break;
+                    case 'ruined_city':
+                        this.playRuinedCityMusic(loop);
+                        break;
+                    case 'mutant_lair':
+                        this.playMutantLairMusic(loop);
+                        break;
+                    case 'victory_hymn':
+                        this.playVictoryHymn(loop);
+                        break;
+                    default:
+                        this.playWastelandTheme(loop);
+                }
+            }
+            
+            playWastelandTheme(loop) {
+                const melody = [
+                    {note: 110, duration: 0.5},
+                    {note: 87.31, duration: 0.3},
+                    {note: 130.81, duration: 0.5},
+                    {note: 103.83, duration: 0.3},
+                    {note: 164.81, duration: 0.8},
+                    {note: 130.81, duration: 0.3},
+                    {note: 110, duration: 0.5},
+                    {note: 87.31, duration: 0.8},
+                ];
+                
+                this.playDesertMelody(melody, 'sawtooth', loop, 0.15);
+            }
+            
+            playCanyonWindsMusic(loop) {
+                const melody = [
+                    {note: 73.42, duration: 0.7},
+                    {note: 87.31, duration: 0.3},
+                    {note: 98.00, duration: 0.7},
+                    {note: 110.00, duration: 0.3},
+                    {note: 130.81, duration: 1.0},
+                ];
+                
+                this.playDesertMelody(melody, 'square', loop, 0.12);
+            }
+            
+            playRuinedCityMusic(loop) {
+                const melody = [
+                    {note: 65.41, duration: 0.6},
+                    {note: 77.78, duration: 0.4},
+                    {note: 87.31, duration: 0.6},
+                    {note: 65.41, duration: 0.4},
+                    {note: 58.27, duration: 0.8},
+                ];
+                
+                this.playDesertMelody(melody, 'triangle', loop, 0.1);
+            }
+            
+            playMutantLairMusic(loop) {
+                const melody = [
+                    {note: 130.81, duration: 0.3},
+                    {note: 155.56, duration: 0.3},
+                    {note: 174.61, duration: 0.3},
+                    {note: 207.65, duration: 0.5},
+                    {note: 174.61, duration: 0.3},
+                    {note: 155.56, duration: 0.3},
+                    {note: 130.81, duration: 0.5},
+                    {note: 116.54, duration: 0.8},
+                ];
+                
+                this.playDesertMelody(melody, 'sawtooth', loop, 0.2);
+            }
+            
+            playVictoryHymn(loop) {
+                const melody = [
+                    {note: 261.63, duration: 0.3},
+                    {note: 311.13, duration: 0.3},
+                    {note: 349.23, duration: 0.3},
+                    {note: 415.30, duration: 0.6},
+                    {note: 523.25, duration: 0.6},
+                    {note: 415.30, duration: 0.3},
+                    {note: 523.25, duration: 0.6},
+                    {note: 622.25, duration: 1.0},
+                ];
+                
+                this.playDesertMelody(melody, 'sine', loop, 0.25);
+            }
+            
+            playDesertMelody(melody, waveType, loop, volume) {
+                if (!this.enabled) return;
+                
+                const now = this.audioContext.currentTime;
+                const source = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                source.type = waveType;
+                gainNode.connect(this.bgGain);
+                source.connect(gainNode);
+                
+                let currentTime = now;
+                melody.forEach((note, index) => {
+                    source.frequency.setValueAtTime(note.note, currentTime);
+                    
+                    gainNode.gain.setValueAtTime(0, currentTime);
+                    gainNode.gain.linearRampToValueAtTime(volume, currentTime + 0.05);
+                    gainNode.gain.exponentialRampToValueAtTime(volume * 0.3, currentTime + note.duration - 0.05);
+                    gainNode.gain.linearRampToValueAtTime(0, currentTime + note.duration);
+                    
+                    currentTime += note.duration;
+                });
+                
+                if (loop) {
+                    source.start(now);
+                    source.stop(now + currentTime - now);
+                    
+                    this.currentBg = setTimeout(() => {
+                        this.playDesertMelody(melody, waveType, loop, volume);
+                    }, (currentTime - now) * 1000);
+                } else {
+                    source.start(now);
+                    source.stop(now + currentTime - now);
+                }
+                
+                this.currentBgSource = source;
+            }
+            
+            stopBackground() {
+                if (this.currentBg) {
+                    clearTimeout(this.currentBg);
+                    this.currentBg = null;
+                }
+                if (this.currentBgSource) {
+                    try {
+                        this.currentBgSource.stop();
+                    } catch (e) {}
+                    this.currentBgSource = null;
+                }
+                this.currentBgName = null;
+            }
+            
+            // ==================== WASTELAND SOUND EFFECTS ====================
+            playSound(soundName, volume = 1.0) {
+                if (!this.enabled) return;
+                
+                switch(soundName) {
+                    case 'click':
+                        this.playWastelandClick(volume);
+                        break;
+                    case 'notification':
+                        this.playWastelandNotification(volume);
+                        break;
+                    case 'attack':
+                        this.playWastelandAttack(volume);
+                        break;
+                    case 'enemyHit':
+                        this.playWastelandEnemyHit(volume);
+                        break;
+                    case 'playerHit':
+                        this.playWastelandPlayerHit(volume);
+                        break;
+                    case 'victory':
+                        this.playWastelandVictory(volume);
+                        break;
+                    case 'pickup':
+                        this.playWastelandPickup(volume);
+                        break;
+                    case 'door':
+                        this.playWastelandDoor(volume);
+                        break;
+                    case 'step':
+                        this.playWastelandStep(volume);
+                        break;
+                    case 'puzzle':
+                        this.playWastelandPuzzle(volume);
+                        break;
+                    case 'error':
+                        this.playWastelandError(volume);
+                        break;
+                    case 'equip':
+                        this.playWastelandEquip(volume);
+                        break;
+                    case 'radroach':
+                        this.playRadroachSound(volume);
+                        break;
+                    case 'scorpion':
+                        this.playScorpionSound(volume);
+                        break;
+                    case 'mutant':
+                        this.playMutantSound(volume);
+                        break;
+                    case 'geiger':
+                        this.playGeigerSound(volume);
+                        break;
+                }
+            }
+            
+            playWastelandClick(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(800, now);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+            }
+            
+            playWastelandNotification(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(400, now);
+                oscillator.frequency.exponentialRampToValueAtTime(800, now + 0.3);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+            }
+            
+            playWastelandAttack(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(300, now);
+                oscillator.frequency.exponentialRampToValueAtTime(100, now + 0.2);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.5, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.2);
+            }
+            
+            playWastelandEnemyHit(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(150, now);
+                oscillator.frequency.exponentialRampToValueAtTime(50, now + 0.3);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.6, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+            }
+            
+            playWastelandPlayerHit(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(220, now);
+                oscillator.frequency.exponentialRampToValueAtTime(110, now + 0.2);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.5, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.2);
+            }
+            
+            playWastelandVictory(volume) {
+                const now = this.audioContext.currentTime;
+                
+                const notes = [
+                    {freq: 523.25, time: 0.0, duration: 0.2},
+                    {freq: 622.25, time: 0.2, duration: 0.2},
+                    {freq: 698.46, time: 0.4, duration: 0.2},
+                    {freq: 830.61, time: 0.6, duration: 0.5},
+                ];
+                
+                notes.forEach(note => {
+                    const oscillator = this.audioContext.createOscillator();
+                    const gainNode = this.audioContext.createGain();
+                    
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(note.freq, now + note.time);
+                    
+                    gainNode.gain.setValueAtTime(0, now + note.time);
+                    gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + note.time + 0.05);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + note.time + note.duration);
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(this.sfxGain);
+                    
+                    oscillator.start(now + note.time);
+                    oscillator.stop(now + note.time + note.duration);
+                });
+            }
+            
+            playWastelandPickup(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(1000, now);
+                oscillator.frequency.exponentialRampToValueAtTime(1600, now + 0.1);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+            }
+            
+            playWastelandDoor(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(220, now);
+                oscillator.frequency.exponentialRampToValueAtTime(110, now + 0.5);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.1);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.5);
+            }
+            
+            playWastelandStep(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(400, now);
+                oscillator.frequency.exponentialRampToValueAtTime(200, now + 0.1);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.2, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+            }
+            
+            playWastelandPuzzle(volume) {
+                const now = this.audioContext.currentTime;
+                
+                const notes = [400, 500, 600, 800];
+                
+                notes.forEach((note, index) => {
+                    const oscillator = this.audioContext.createOscillator();
+                    const gainNode = this.audioContext.createGain();
+                    
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(note, now + (index * 0.15));
+                    
+                    gainNode.gain.setValueAtTime(0, now + (index * 0.15));
+                    gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + (index * 0.15) + 0.05);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + (index * 0.15) + 0.2);
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(this.sfxGain);
+                    
+                    oscillator.start(now + (index * 0.15));
+                    oscillator.stop(now + (index * 0.15) + 0.2);
+                });
+            }
+            
+            playWastelandError(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(110, now);
+                oscillator.frequency.setValueAtTime(90, now + 0.1);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+            }
+            
+            playWastelandEquip(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(600, now);
+                oscillator.frequency.exponentialRampToValueAtTime(400, now + 0.2);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.2);
+            }
+            
+            playRadroachSound(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(6000, now);
+                oscillator.frequency.exponentialRampToValueAtTime(3000, now + 0.3);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+            }
+            
+            playScorpionSound(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(200, now);
+                oscillator.frequency.exponentialRampToValueAtTime(100, now + 0.5);
+                oscillator.frequency.setValueAtTime(150, now + 0.6);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.1);
+                gainNode.gain.setValueAtTime(volume * 0.3, now + 0.5);
+                gainNode.gain.linearRampToValueAtTime(0, now + 0.8);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.8);
+            }
+            
+            playMutantSound(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(350, now);
+                oscillator.frequency.exponentialRampToValueAtTime(200, now + 1.0);
+                oscillator.frequency.setValueAtTime(250, now + 1.2);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.1);
+                gainNode.gain.setValueAtTime(volume * 0.3, now + 0.8);
+                gainNode.gain.linearRampToValueAtTime(0, now + 1.5);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 1.5);
+            }
+            
+            playGeigerSound(volume) {
+                const now = this.audioContext.currentTime;
+                
+                // Create multiple clicks
+                for(let i = 0; i < 5; i++) {
+                    const oscillator = this.audioContext.createOscillator();
+                    const gainNode = this.audioContext.createGain();
+                    
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(1000 + Math.random() * 500, now + (i * 0.2));
+                    
+                    gainNode.gain.setValueAtTime(0, now + (i * 0.2));
+                    gainNode.gain.linearRampToValueAtTime(volume * 0.2, now + (i * 0.2) + 0.01);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + (i * 0.2) + 0.05);
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(this.sfxGain);
+                    
+                    oscillator.start(now + (i * 0.2));
+                    oscillator.stop(now + (i * 0.2) + 0.05);
+                }
+            }
+            
+            // ==================== UTILITY METHODS ====================
+            setMasterVolume(volume) {
+                if (this.masterGain) {
+                    this.masterGain.gain.value = Math.max(0, Math.min(1, volume));
+                }
+            }
+            
+            toggle() {
+                this.enabled = !this.enabled;
+                const toggleBtn = document.getElementById('sound-toggle');
+                toggleBtn.textContent = this.enabled ? '🔊 ON' : '🔇 OFF';
+                
+                if (!this.enabled) {
+                    this.stopBackground();
+                } else if (gameStarted) {
+                    this.playBackground(currentBackground);
+                }
+                
+                this.playSound('click');
+            }
+            
+            resumeAudioContext() {
+                if (this.audioContext && this.audioContext.state === 'suspended') {
+                    this.audioContext.resume();
+                }
+            }
+        }
+
+        // ==================== WASTELAND CLASSES ====================
+        const classes = {
+            wasteland_survivor: { 
+                hp: 40, mp: 10, str: 8, def: 6, int: 4,
+                desc: "A hardened survivor of the wastes, skilled in scavenging and combat.",
+                startingItems: ['canteen', 'makeshift_pistol']  
+            },
+            radiation_scavenger: { 
+                hp: 30, mp: 15, str: 5, def: 4, int: 8,
+                desc: "Expert in finding valuable tech in radioactive ruins, resistant to radiation.",
+                startingItems: ['geiger_counter', 'radiation_suit']
+            },
+            mutant_outcast: { 
+                hp: 35, mp: 12, str: 7, def: 5, int: 6,
+                desc: "Mutated by the wastes, with unique abilities and resilience.",
+                startingItems: ['mutant_claw', 'toxin_gland']
+            }
+        };
+
+        // ==================== 50 WASTELAND ROOMS ====================
+        const rooms = [
+            { // Room 0: Canyon Pass Entrance
+                id: 0,
+                desc: "CANYON PASS ENTRANCE: A narrow gap between towering red rock walls. Hot wind carries dust and the scent of decay. The entrance to the Deadlands lies ahead.",
+                sound: 'wasteland_theme',
+                exits: { n: 1, s: null, e: null, w: null },
+                items: ['canteen'],
+                npc: null,
+                enemy: null,
+                container: 'rock_shelter',
+                puzzle: null,
+                dark: false,
+                locked: false,
+                radiation: 0
+            },
+            { // Room 1: Bloodstone Canyon
+                id: 1,
+                desc: "BLOODSTONE CANYON: Red sandstone walls rise high. Strange glowing crystals embedded in the rock pulse with faint energy. The air crackles with static.",
+                sound: 'canyon_winds',
+                exits: { n: 2, s: 0, e: 3, w: 4 },
+                items: [],
+                npc: 'canyon_hermit',
+                enemy: null,
+                container: 'crystal_formation',
+                puzzle: null,
+                dark: false,
+                locked: false,
+                radiation: 1
+            },
+            { // Room 2: The Split
+                id: 2,
+                desc: "THE SPLIT: The canyon divides into three paths. Ancient petroglyphs show creatures with many limbs. A rusted sign reads 'BEWARE THE GLOW'.",
+                sound: 'canyon_winds',
+                exits: { n: 5, s: 1, e: 6, w: null },
+                items: ['rusted_sign'],
+                npc: null,
+                enemy: 'radroach_swarm',
+                container: 'cairn',
+                puzzle: null,
+                dark: false,
+                locked: false,
+                radiation: 2
+            },
+            { // Room 3: Scorpion's Den
+                id: 3,
+                desc: "SCORPION'S DEN: The ground is pockmarked with burrows. Carapaces and stingers litter the sand. The air smells of venom.",
+                sound: 'canyon_winds',
+                exits: { n: 6, s: null, e: null, w: 1 },
+                items: ['scorpion_stinger'],
+                npc: null,
+                enemy: 'giant_scorpion',
+                container: 'burrow',
+                puzzle: null,
+                dark: true,
+                locked: false,
+                radiation: 1
+            },
+            { // Room 4: Dry Riverbed
+                id: 4,
+                desc: "DRY RIVERBED: A wide, parched channel that once held water. Skeletal remains of fish and animals line the banks.",
+                sound: 'canyon_winds',
+                exits: { n: null, s: null, e: 1, w: 7 },
+                items: ['fossilized_bone'],
+                npc: null,
+                enemy: 'sand_wraith',
+                container: 'dried_pool',
+                puzzle: null,
+                dark: false,
+                locked: false,
+                radiation: 0
+            },
+            { // Room 5: Glowing Crevice
+                id: 5,
+                desc: "GLOWING CREVICE: A deep crack in the earth emits sickly green light. Radiation levels are dangerously high. Strange mushrooms grow in the glow.",
+                sound: 'ruined_city',
+                exits: { n: 8, s: 2, e: null, w: null },
+                items: ['glowing_shroom'],
+                npc: null,
+                enemy: null,
+                container: null,
+                puzzle: 'radiation_pattern',
+                dark: false,
+                locked: false,
+                radiation: 5
+            },
+            { // Room 6: Echo Chamber
+                id: 6,
+                desc: "ECHO CHAMBER: A circular canyon where whispers echo endlessly. Ancient machines are embedded in the walls, still humming with power.",
+                sound: 'ruined_city',
+                exits: { n: 9, s: 3, e: 10, w: 2 },
+                items: ['power_cell'],
+                npc: 'echo_ghost',
+                enemy: null,
+                container: 'machine_panel',
+                puzzle: 'sound_pattern',
+                dark: false,
+                locked: false,
+                radiation: 2
+            },
+            { // Room 7: Old Highway
+                id: 7,
+                desc: "OLD HIGHWAY: A cracked asphalt road disappears into the canyon wall. Abandoned vehicles rust under the sun. A bus with 'LAST EVAC' still visible.",
+                sound: 'ruined_city',
+                exits: { n: null, s: null, e: 4, w: 11 },
+                items: ['road_flare'],
+                npc: null,
+                enemy: 'highway_bandits',
+                container: 'abandoned_bus',
+                puzzle: null,
+                dark: false,
+                locked: false,
+                radiation: 0
+            },
+            { // Room 8: Radioactive Springs
+                id: 8,
+                desc: "RADIOACTIVE SPRINGS: Pools of bubbling green liquid. Steam rises with a metallic smell. The water glows with inner light.",
+                sound: 'ruined_city',
+                exits: { n: 12, s: 5, e: 13, w: null },
+                items: [],
+                npc: null,
+                enemy: 'mutant_salamander',
+                container: 'spring_edge',
+                puzzle: 'toxin_extract',
+                dark: false,
+                locked: false,
+                radiation: 4
+            },
+            { // Room 9: Abandoned Outpost
+                id: 9,
+                desc: "ABANDONED OUTPOST: Pre-collapse military tents and equipment. A radio tower lies fallen. Maps show 'RADIATION ZONE' in red.",
+                sound: 'ruined_city',
+                exits: { n: 14, s: 6, e: null, w: null },
+                items: ['military_rations'],
+                npc: null,
+                enemy: 'outpost_ghoul',
+                container: 'ammo_crate',
+                puzzle: null,
+                dark: true,
+                locked: false,
+                radiation: 1
+            },
+            { // Room 10: Crystal Cavern
+                id: 10,
+                desc: "CRYSTAL CAVERN: A cave glittering with massive purple crystals. They hum with energy and distort the air around them.",
+                sound: 'ruined_city',
+                exits: { n: 15, s: null, e: 16, w: 6 },
+                items: ['energy_crystal'],
+                npc: 'crystal_crafter',
+                enemy: null,
+                container: 'crystal_growth',
+                puzzle: 'energy_harmony',
+                dark: false,
+                locked: false,
+                radiation: 3
+            },
+            { // Room 11: Checkpoint Alpha
+                id: 11,
+                desc: "CHECKPOINT ALPHA: A fortified gate with rusted barriers. 'QUARANTINE ZONE' is spray-painted across the wall. A skeleton in a hazmat suit slumps nearby.",
+                sound: 'ruined_city',
+                exits: { n: 17, s: null, e: 7, w: null },
+                items: ['hazmat_mask'],
+                npc: null,
+                enemy: null,
+                container: 'guard_post',
+                puzzle: null,
+                dark: false,
+                locked: true,
+                radiation: 0
+            },
+            { // Room 12: Fungus Forest
+                id: 12,
+                desc: "FUNGUS FOREST: Giant mushrooms taller than a person. Spores float in the air, glowing softly. Some mushrooms have humanoid shapes...",
+                sound: 'ruined_city',
+                exits: { n: 18, s: 8, e: 19, w: null },
+                items: ['spore_sack'],
+                npc: 'myconid_elder',
+                enemy: null,
+                container: 'giant_cap',
+                puzzle: 'spore_symbiosis',
+                dark: true,
+                locked: false,
+                radiation: 3
+            },
+            { // Room 13: The Rust Fields
+                id: 13,
+                desc: "THE RUST FIELDS: Acres of twisted, rusted metal. Ancient machinery half-buried in red dust. Everything creaks in the wind.",
+                sound: 'ruined_city',
+                exits: { n: 19, s: null, e: 20, w: 8 },
+                items: ['salvaged_circuit'],
+                npc: null,
+                enemy: 'rust_golem',
+                container: 'machine_graveyard',
+                puzzle: 'salvage_code',
+                dark: false,
+                locked: false,
+                radiation: 2
+            },
+            { // Room 14: Observation Tower
+                id: 14,
+                desc: "OBSERVATION TOWER: A metal tower with a shattered glass dome. Telescopes point at dead sky. Logs mention 'THE GLOWING ONE'.",
+                sound: 'ruined_city',
+                exits: { n: 21, s: 9, e: null, w: null },
+                items: ['telescope_lens'],
+                npc: 'watcher_ghost',
+                enemy: null,
+                container: 'observation_logs',
+                puzzle: 'star_dead',
+                dark: false,
+                locked: false,
+                radiation: 1
+            },
+            { // Room 15: Sunken Ruins
+                id: 15,
+                desc: "SUNKEN RUINS: Ancient buildings half-buried in sand. Murals show people fleeing a great light. The air is still and heavy.",
+                sound: 'ruined_city',
+                exits: { n: 22, s: 10, e: null, w: null },
+                items: ['ancient_artifact'],
+                npc: null,
+                enemy: 'ruin_phantom',
+                container: 'buried_chamber',
+                puzzle: 'ancient_warning',
+                dark: true,
+                locked: false,
+                radiation: 2
+            },
+            { // Room 16: Power Station
+                id: 16,
+                desc: "POWER STATION: Massive generators, silent for centuries. Warning lights still flicker. 'REACTOR CORE - AUTHORIZED ONLY'.",
+                sound: 'ruined_city',
+                exits: { n: 23, s: null, e: 24, w: 10 },
+                items: ['fusion_core'],
+                npc: 'engineer_ghost',
+                enemy: null,
+                container: 'control_panel',
+                puzzle: 'restart_sequence',
+                dark: false,
+                locked: false,
+                radiation: 4
+            },
+            { // Room 17: Quarantine Zone
+                id: 17,
+                desc: "QUARANTINE ZONE: Yellow hazard stripes everywhere. Empty medical tents. Vials labeled 'CURE?' sit untouched.",
+                sound: 'ruined_city',
+                exits: { n: 25, s: 11, e: null, w: null },
+                items: ['antidote_vial'],
+                npc: null,
+                enemy: 'quarantine_zombie',
+                container: 'medical_locker',
+                puzzle: 'vaccine_formula',
+                dark: false,
+                locked: false,
+                radiation: 1
+            },
+            { // Room 18: Mutant Warrens
+                id: 18,
+                desc: "MUTANT WARRENS: Tunnels dug into the canyon wall. Strange symbols in glowing paint. The smell of wet fur and ozone.",
+                sound: 'mutant_lair',
+                exits: { n: 26, s: 12, e: 27, w: null },
+                items: ['mutant_totem'],
+                npc: null,
+                enemy: 'mutant_brute',
+                container: 'warren_nest',
+                puzzle: 'mutant_symbols',
+                dark: true,
+                locked: false,
+                radiation: 3
+            },
+            { // Room 19: The Glass Desert
+                id: 19,
+                desc: "THE GLASS DESERT: Sand fused into glass by immense heat. It reflects the sky in distorted shapes. Footprints are preserved forever.",
+                sound: 'canyon_winds',
+                exits: { n: 27, s: 13, e: null, w: 12 },
+                items: ['prism_shard'],
+                npc: null,
+                enemy: 'glass_phantom',
+                container: null,
+                puzzle: 'light_refraction',
+                dark: false,
+                locked: false,
+                radiation: 2
+            },
+            { // Room 20: Robot Graveyard
+                id: 20,
+                desc: "ROBOT GRAVEYARD: Hundreds of robotic parts piled high. Some eyes still glow red. They twitch as you pass.",
+                sound: 'ruined_city',
+                exits: { n: 28, s: null, e: null, w: 13 },
+                items: ['robot_core'],
+                npc: 'scrap_dealer',
+                enemy: null,
+                container: 'robot_pile',
+                puzzle: 'reboot_protocol',
+                dark: false,
+                locked: false,
+                radiation: 1
+            },
+            { // Room 21: Satellite Dish Array
+                id: 21,
+                desc: "SATELLITE DISH ARRAY: Massive dishes point at silent sky. One still receives a repeating signal: '...ALL IS LOST... REPEAT...'",
+                sound: 'ruined_city',
+                exits: { n: 29, s: 14, e: null, w: null },
+                items: ['signal_receiver'],
+                npc: null,
+                enemy: 'signal_ghost',
+                container: 'control_hut',
+                puzzle: 'final_message',
+                dark: false,
+                locked: false,
+                radiation: 1
+            },
+            { // Room 22: Ancient Shrine
+                id: 22,
+                desc: "ANCIENT SHRINE: Carved stone altar covered in moss. Offerings of crystals and bones. The air feels charged with old power.",
+                sound: 'ruined_city',
+                exits: { n: 30, s: 15, e: null, w: null },
+                items: ['sacrificial_dagger'],
+                npc: 'shrine_keeper',
+                enemy: null,
+                container: 'offering_bowl',
+                puzzle: 'old_ritual',
+                dark: true,
+                locked: false,
+                radiation: 0
+            },
+            { // Room 23: Cooling Towers
+                id: 23,
+                desc: "COOLING TOWERS: Massive concrete towers dripping with radioactive water. Green algae glows in the perpetual twilight.",
+                sound: 'ruined_city',
+                exits: { n: 31, s: 16, e: null, w: null },
+                items: ['coolant_fluid'],
+                npc: null,
+                enemy: 'coolant_slime',
+                container: 'maintenance_shack',
+                puzzle: 'coolant_mix',
+                dark: false,
+                locked: false,
+                radiation: 4
+            },
+            { // Room 24: Archive Vault
+                id: 24,
+                desc: "ARCHIVE VAULT: A sealed room with data crystals. Screens show maps of pre-collapse cities. 'PROJECT REBIRTH' files are partially corrupted.",
+                sound: 'ruined_city',
+                exits: { n: 32, s: null, e: 33, w: 16 },
+                items: ['data_crystal'],
+                npc: 'archive_ai',
+                enemy: null,
+                container: 'data_terminal',
+                puzzle: 'decrypt_files',
+                dark: false,
+                locked: true,
+                radiation: 0
+            },
+            { // Room 25: Filtration Plant
+                id: 25,
+                desc: "FILTRATION PLANT: Machines that once cleaned water now grow strange bio-luminescent mold. Pipes drip with glowing liquid.",
+                sound: 'ruined_city',
+                exits: { n: 34, s: 17, e: null, w: null },
+                items: ['filter_cartridge'],
+                npc: null,
+                enemy: 'filter_beast',
+                container: 'control_room',
+                puzzle: 'purify_water',
+                dark: true,
+                locked: false,
+                radiation: 2
+            },
+            { // Room 26: Breeding Pits
+                id: 26,
+                desc: "BREEDING PITS: Foul-smelling pits where mutants are born. Eggs and cocoons pulse with life. The walls breathe.",
+                sound: 'mutant_lair',
+                exits: { n: 35, s: 18, e: 36, w: null },
+                items: ['mutant_egg'],
+                npc: 'brood_mother',
+                enemy: null,
+                container: 'incubation_chamber',
+                puzzle: 'genetic_code',
+                dark: true,
+                locked: false,
+                radiation: 4
+            },
+            { // Room 27: Glowing Fungus Cavern
+                id: 27,
+                desc: "GLOWING FUNGUS CAVERN: A vast cave lit by phosphorescent mushrooms. Spores form shimmering clouds. Some mushrooms sing when touched.",
+                sound: 'mutant_lair',
+                exits: { n: 36, s: 19, e: null, w: 18 },
+                items: ['singing_spore'],
+                npc: null,
+                enemy: 'spore_beast',
+                container: 'fungus_grove',
+                puzzle: 'spore_song',
+                dark: false,
+                locked: false,
+                radiation: 3
+            },
+            { // Room 28: Salvage Yard
+                id: 28,
+                desc: "SALVAGE YARD: Mountains of scrap metal sorted into piles. Cranes frozen in mid-lift. A workshop with half-built machines.",
+                sound: 'ruined_city',
+                exits: { n: 37, s: 20, e: null, w: null },
+                items: ['welding_torch'],
+                npc: null,
+                enemy: 'scrap_golem',
+                container: 'tool_bench',
+                puzzle: 'assembly_puzzle',
+                dark: false,
+                locked: false,
+                radiation: 1
+            },
+            { // Room 29: Weather Station
+                id: 29,
+                desc: "WEATHER STATION: Instruments measure eternal dust storms. 'CATEGORY 5 PERMA-STORM' warning lights. A map shows the storm's eye.",
+                sound: 'canyon_winds',
+                exits: { n: 38, s: 21, e: null, w: null },
+                items: ['storm_chart'],
+                npc: 'meteorologist_ghost',
+                enemy: null,
+                container: 'instrument_shed',
+                puzzle: 'storm_pattern',
+                dark: false,
+                locked: false,
+                radiation: 1
+            },
+            { // Room 30: Sacrificial Cliff
+                id: 30,
+                desc: "SACRIFICIAL CLIFF: A sheer drop into darkness. Skeletons tied to posts. A stone circle with runes that glow at midnight.",
+                sound: 'wasteland_theme',
+                exits: { n: 39, s: 22, e: null, w: null },
+                items: ['bone_charm'],
+                npc: null,
+                enemy: null,
+                container: 'sacrificial_altar',
+                puzzle: 'blood_moon',
+                dark: false,
+                locked: false,
+                radiation: 0
+            },
+            { // Room 31: Reactor Core
+                id: 31,
+                desc: "REACTOR CORE: The heart of the old power plant. A massive sphere of contained energy. Radiation warnings flash red. The air hums.",
+                sound: 'mutant_lair',
+                exits: { n: 40, s: 23, e: null, w: null },
+                items: ['core_shard'],
+                npc: null,
+                enemy: 'radiation_elemental',
+                container: 'core_chamber',
+                puzzle: 'containment_breach',
+                dark: false,
+                locked: true,
+                radiation: 8
+            },
+            { // Room 32: Memory Banks
+                id: 32,
+                desc: "MEMORY BANKS: Rows of servers with flickering lights. Holograms of lost worlds play on repeat. 'BACKUP COMPLETE' flashes eternally.",
+                sound: 'ruined_city',
+                exits: { n: 41, s: 24, e: null, w: null },
+                items: ['memory_chip'],
+                npc: null,
+                enemy: 'data_wraith',
+                container: 'server_rack',
+                puzzle: 'memory_fragment',
+                dark: false,
+                locked: false,
+                radiation: 0
+            },
+            { // Room 33: Cryo Vault
+                id: 33,
+                desc: "CRYO VAULT: Frozen chambers hold pre-collapse humans in stasis. Most pods are dark. One light still blinks...",
+                sound: 'ruined_city',
+                exits: { n: 42, s: null, e: null, w: 24 },
+                items: ['cryo_capsule'],
+                npc: 'awakened_sleeper',
+                enemy: null,
+                container: 'cryo_controls',
+                puzzle: 'thaw_protocol',
+                dark: false,
+                locked: true,
+                radiation: 0
+            },
+            { // Room 34: Toxic Marsh
+                id: 34,
+                desc: "TOXIC MARSH: Green bubbling water with floating iridescent slicks. Mutated plants with teeth. The air burns your lungs.",
+                sound: 'ruined_city',
+                exits: { n: null, s: 25, e: null, w: null },
+                items: ['marsh_gas'],
+                npc: null,
+                enemy: 'marsh_lurker',
+                container: 'sunken_boat',
+                puzzle: 'toxin_filter',
+                dark: true,
+                locked: false,
+                radiation: 3
+            },
+            { // Room 35: Mutation Chamber
+                id: 35,
+                desc: "MUTATION CHAMBER: Surgical tables and gene-splicing machines. Vats of glowing liquid hold... things. 'HOMO SUPERIOR' is scrawled on the wall.",
+                sound: 'mutant_lair',
+                exits: { n: 43, s: 26, e: null, w: null },
+                items: ['gene_splicer'],
+                npc: 'mad_scientist',
+                enemy: null,
+                container: 'lab_equipment',
+                puzzle: 'perfect_mutant',
+                dark: false,
+                locked: false,
+                radiation: 5
+            },
+            { // Room 36: Spore Nexus
+                id: 36,
+                desc: "SPORE NEXUS: The center of the fungus network. A giant mushroom with a pulsating heart. Spores communicate in patterns of light.",
+                sound: 'mutant_lair',
+                exits: { n: 44, s: 27, e: null, w: 26 },
+                items: ['nexus_spore'],
+                npc: null,
+                enemy: 'nexus_guardian',
+                container: 'root_system',
+                puzzle: 'network_access',
+                dark: false,
+                locked: false,
+                radiation: 4
+            },
+            { // Room 37: Vehicle Graveyard
+                id: 37,
+                desc: "VEHICLE GRAVEYARD: Thousands of rusted cars, trucks, and tanks. Some have been made into homes. A makeshift market operates here.",
+                sound: 'ruined_city',
+                exits: { n: 45, s: 28, e: null, w: null },
+                items: ['vehicle_part'],
+                npc: 'scrap_merchant',
+                enemy: null,
+                container: 'makeshift_stall',
+                puzzle: 'engine_rebuild',
+                dark: false,
+                locked: false,
+                radiation: 0
+            },
+            { // Room 38: Storm's Eye
+                id: 38,
+                desc: "STORM'S EYE: The center of the eternal dust storm. An unnatural calm. The sky above is clear, showing dead stars. The ground is glass-smooth.",
+                sound: 'canyon_winds',
+                exits: { n: 46, s: 29, e: null, w: null },
+                items: ['eye_of_storm'],
+                npc: null,
+                enemy: 'storm_entity',
+                container: null,
+                puzzle: 'calm_center',
+                dark: false,
+                locked: false,
+                radiation: 2
+            },
+            { // Room 39: Star Altar
+                id: 39,
+                desc: "STAR ALTAR: An ancient stone circle aligned with dead constellations. At night, the stones glow with captured starlight.",
+                sound: 'wasteland_theme',
+                exits: { n: 47, s: 30, e: null, w: null },
+                items: ['star_shard'],
+                npc: 'star_cultist',
+                enemy: null,
+                container: 'offering_stone',
+                puzzle: 'dead_stars',
+                dark: false,
+                locked: false,
+                radiation: 0
+            },
+            { // Room 40: Meltdown Site
+                id: 40,
+                desc: "MELTDOWN SITE: The ground is fused glass. A crater glows with residual radiation. Shadows are burned into the walls.",
+                sound: 'mutant_lair',
+                exits: { n: null, s: 31, e: null, w: null },
+                items: ['radioactive_isotope'],
+                npc: null,
+                enemy: 'meltdown_ghost',
+                container: 'emergency_bunker',
+                puzzle: 'containment_field',
+                dark: false,
+                locked: false,
+                radiation: 10
+            },
+            { // Room 41: AI Core
+                id: 41,
+                desc: "AI CORE: A massive quantum computer. It speaks with a thousand voices. 'I HAVE SEEN THE END OF ALL THINGS'.",
+                sound: 'ruined_city',
+                exits: { n: 48, s: 32, e: null, w: null },
+                items: ['quantum_chip'],
+                npc: null,
+                enemy: 'ai_manifestation',
+                container: 'terminal_access',
+                puzzle: 'ai_riddle',
+                dark: false,
+                locked: true,
+                radiation: 0
+            },
+            { // Room 42: Preservation Vault
+                id: 42,
+                desc: "PRESERVATION VAULT: Seeds, DNA samples, and cultural artifacts from the old world. 'HOPE FOR TOMORROW' inscribed above the door.",
+                sound: 'ruined_city',
+                exits: { n: null, s: 33, e: null, w: null },
+                items: ['seed_bank'],
+                npc: 'vault_keeper',
+                enemy: null,
+                container: 'preservation_unit',
+                puzzle: 'rebirth_key',
+                dark: false,
+                locked: true,
+                radiation: 0
+            },
+            { // Room 43: Alpha Mutant Lair
+                id: 43,
+                desc: "ALPHA MUTANT LAIR: The throne room of the mutant king. Bones and trophies adorn the walls. A massive, twisted throne made of fused machinery.",
+                sound: 'mutant_lair',
+                exits: { n: null, s: 35, e: null, w: null },
+                items: ['mutant_crown'],
+                npc: null,
+                enemy: 'alpha_mutant',
+                container: 'treasure_pile',
+                puzzle: 'mutant_hierarchy',
+                dark: false,
+                locked: false,
+                radiation: 6
+            },
+            { // Room 44: Heart of the Nexus
+                id: 44,
+                desc: "HEART OF THE NEXUS: The giant mushroom's core. A pulsating, intelligent being. It speaks through the spores, offering symbiosis or death.",
+                sound: 'mutant_lair',
+                exits: { n: null, s: 36, e: null, w: null },
+                items: ['heart_spore'],
+                npc: null,
+                enemy: 'nexus_heart',
+                container: 'living_chamber',
+                puzzle: 'symbiotic_bond',
+                dark: false,
+                locked: false,
+                radiation: 5
+            },
+            { // Room 45: Scrap City
+                id: 45,
+                desc: "SCRAP CITY: A settlement built from salvage. Makeshift homes, a marketplace, and even a bar. Survivors eye you warily.",
+                sound: 'ruined_city',
+                exits: { n: 49, s: 37, e: null, w: null },
+                items: ['scrap_coin'],
+                npc: 'city_elder',
+                enemy: null,
+                container: 'market_stall',
+                puzzle: 'scrap_economy',
+                dark: false,
+                locked: false,
+                radiation: 0
+            },
+            { // Room 46: Temporal Anomaly
+                id: 46,
+                desc: "TEMPORAL ANOMALY: Time flows strangely here. You see glimpses of past and future. The air shimmers like a heat haze.",
+                sound: 'wasteland_theme',
+                exits: { n: null, s: 38, e: null, w: null },
+                items: ['time_shard'],
+                npc: 'time_ghost',
+                enemy: null,
+                container: null,
+                puzzle: 'time_paradox',
+                dark: false,
+                locked: false,
+                radiation: 1
+            },
+            { // Room 47: Observatory Peak
+                id: 47,
+                desc: "OBSERVATORY PEAK: The highest point in the Deadlands. All of the wasteland spreads below. The dead sky shows no stars, only darkness.",
+                sound: 'wasteland_theme',
+                exits: { n: null, s: 39, e: null, w: null },
+                items: ['survey_marker'],
+                npc: null,
+                enemy: null,
+                container: 'peak_marker',
+                puzzle: 'wasteland_map',
+                dark: false,
+                locked: false,
+                radiation: 0
+            },
+            { // Room 48: Final Archive
+                id: 48,
+                desc: "FINAL ARCHIVE: The last records of humanity. 'WHAT WENT WRONG' is the title of the final file. The truth awaits...",
+                sound: 'ruined_city',
+                exits: { n: null, s: 41, e: null, w: null },
+                items: ['final_record'],
+                npc: null,
+                enemy: 'archive_guardian',
+                container: 'archive_terminal',
+                puzzle: 'final_truth',
+                dark: false,
+                locked: true,
+                radiation: 0
+            },
+            { // Room 49: The Glowing One's Chamber
+                id: 49,
+                desc: "THE GLOWING ONE'S CHAMBER: A being of pure radiation and despair. It whispers of the end of all things. The source of the Deadlands' curse.",
+                sound: 'mutant_lair',
+                exits: { n: null, s: 45, e: null, w: null },
+                items: [],
+                npc: null,
+                enemy: 'the_glowing_one',
+                container: 'radiation_throne',
+                puzzle: 'final_confrontation',
+                dark: false,
+                locked: false,
+                radiation: 15
+            }
+        ];
+
+        // ==================== WASTELAND ITEMS ====================
+        const items = {
+            // Starting items
+            canteen: {
+                name: "Canteen",
+                desc: "A metal canteen with a little water left. Can be refilled at clean water sources.",
+                type: "consumable",
+                usable: true,
+                effect: "restores 10 HP, can be refilled",
+                value: 5,
+                keywords: ["canteen", "water", "bottle"]
+            },
+            makeshift_pistol: {
+                name: "Makeshift Pistol",
+                desc: "A cobbled-together firearm that fires scrap metal. Unreliable but deadly.",
+                type: "weapon",
+                damage: 10,
+                value: 30,
+                keywords: ["pistol", "gun", "makeshift pistol", "weapon"]
+            },
+            geiger_counter: {
+                name: "Geiger Counter",
+                desc: "Clicks when radiation is present. Helps avoid hot zones.",
+                type: "tool",
+                value: 25,
+                keywords: ["geiger counter", "counter", "radiation detector"]
+            },
+            radiation_suit: {
+                name: "Radiation Suit",
+                desc: "Patched hazmat suit that provides some radiation protection.",
+                type: "armor",
+                defense: 3,
+                radiation_resistance: 5,
+                value: 40,
+                keywords: ["suit", "radiation suit", "hazmat", "armor"]
+            },
+            mutant_claw: {
+                name: "Mutant Claw",
+                desc: "A natural weapon grown from mutated bone. Sharp and toxic.",
+                type: "weapon",
+                damage: 8,
+                value: 15,
+                keywords: ["claw", "mutant claw", "natural weapon"]
+            },
+            toxin_gland: {
+                name: "Toxin Gland",
+                desc: "A gland that produces paralyzing toxin. Can be applied to weapons.",
+                type: "tool",
+                value: 20,
+                keywords: ["gland", "toxin", "poison"]
+            },
+            
+            // Common items
+            rusted_sign: {
+                name: "Rusted Sign",
+                desc: "A sign warning of dangers. Could be used as a makeshift shield.",
+                type: "tool",
+                value: 8,
+                keywords: ["sign", "rusted sign", "warning"]
+            },
+            scorpion_stinger: {
+                name: "Scorpion Stinger",
+                desc: "A venomous stinger from a giant scorpion. Can be used as a weapon.",
+                type: "weapon",
+                damage: 6,
+                value: 12,
+                keywords: ["stinger", "scorpion stinger", "venom", "weapon"]
+            },
+            fossilized_bone: {
+                name: "Fossilized Bone",
+                desc: "An ancient bone turned to stone. Hard enough to use as a tool.",
+                type: "tool",
+                value: 10,
+                keywords: ["bone", "fossil", "fossilized bone"]
+            },
+            glowing_shroom: {
+                name: "Glowing Mushroom",
+                desc: "A radioactive mushroom that glows. Eating it might heal or mutate you.",
+                type: "consumable",
+                effect: "random effect: heal 15 HP or take 5 radiation damage",
+                value: 15,
+                keywords: ["mushroom", "glowing mushroom", "shroom", "radioactive"]
+            },
+            power_cell: {
+                name: "Power Cell",
+                desc: "A cell that still holds some charge. Useful for powering old tech.",
+                type: "component",
+                value: 25,
+                keywords: ["cell", "power cell", "battery"]
+            },
+            road_flare: {
+                name: "Road Flare",
+                desc: "A flare that burns bright red. Can light dark areas or scare creatures.",
+                type: "tool",
+                usable: true,
+                effect: "lights area, scares nocturnal creatures",
+                value: 10,
+                keywords: ["flare", "road flare", "light"]
+            },
+            military_rations: {
+                name: "Military Rations",
+                desc: "Pre-collapse military food. Still edible... mostly.",
+                type: "consumable",
+                effect: "restores 20 HP",
+                value: 15,
+                keywords: ["rations", "food", "military rations"]
+            },
+            energy_crystal: {
+                name: "Energy Crystal",
+                desc: "A crystal that hums with power. Could be a power source or weapon.",
+                type: "component",
+                value: 35,
+                keywords: ["crystal", "energy crystal", "power source"]
+            },
+            hazmat_mask: {
+                name: "Hazmat Mask",
+                desc: "A mask that filters toxic air. Essential in high-radiation zones.",
+                type: "armor",
+                defense: 1,
+                radiation_resistance: 3,
+                value: 30,
+                keywords: ["mask", "hazmat mask", "filter", "armor"]
+            },
+            spore_sack: {
+                name: "Spore Sack",
+                desc: "A sack of fungal spores. Can be used to grow mushrooms or as a distraction.",
+                type: "tool",
+                value: 15,
+                keywords: ["spore", "sack", "fungal"]
+            },
+            salvaged_circuit: {
+                name: "Salvaged Circuit",
+                desc: "A circuit board from old tech. Useful for repairs.",
+                type: "component",
+                value: 20,
+                keywords: ["circuit", "salvaged circuit", "electronics"]
+            },
+            telescope_lens: {
+                name: "Telescope Lens",
+                desc: "A high-quality lens. Could be used for aiming or as a magnifying glass.",
+                type: "tool",
+                value: 25,
+                keywords: ["lens", "telescope lens", "glass"]
+            },
+            ancient_artifact: {
+                name: "Ancient Artifact",
+                desc: "A strange device from before the collapse. Its purpose is unknown.",
+                type: "treasure",
+                value: 50,
+                keywords: ["artifact", "ancient artifact", "device"]
+            },
+            fusion_core: {
+                name: "Fusion Core",
+                desc: "A small but powerful energy source. Handle with care.",
+                type: "component",
+                value: 60,
+                keywords: ["core", "fusion core", "energy"]
+            },
+            antidote_vial: {
+                name: "Antidote Vial",
+                desc: "A vial that claims to cure mutations. Might work, might not.",
+                type: "consumable",
+                effect: "removes 1 random negative mutation",
+                value: 40,
+                keywords: ["antidote", "vial", "cure"]
+            },
+            mutant_totem: {
+                name: "Mutant Totem",
+                desc: "A totem made of bones and feathers. Mutants seem to respect it.",
+                type: "tool",
+                value: 20,
+                keywords: ["totem", "mutant totem", "charm"]
+            },
+            prism_shard: {
+                name: "Prism Shard",
+                desc: "A shard of fused glass that splits light into rainbows.",
+                type: "tool",
+                value: 15,
+                keywords: ["prism", "shard", "glass"]
+            },
+            robot_core: {
+                name: "Robot Core",
+                desc: "The central processor of a robot. Still has some data.",
+                type: "component",
+                value: 35,
+                keywords: ["robot core", "core", "processor"]
+            },
+            signal_receiver: {
+                name: "Signal Receiver",
+                desc: "A device that picks up radio signals. Sometimes catches whispers.",
+                type: "tool",
+                value: 30,
+                keywords: ["receiver", "signal receiver", "radio"]
+            },
+            sacrificial_dagger: {
+                name: "Sacrificial Dagger",
+                desc: "An ornate dagger used in old rituals. Still sharp.",
+                type: "weapon",
+                damage: 12,
+                value: 25,
+                keywords: ["dagger", "sacrificial dagger", "ritual", "weapon"]
+            },
+            coolant_fluid: {
+                name: "Coolant Fluid",
+                desc: "A fluid that stays cold even in the desert heat. Useful for cooling systems.",
+                type: "component",
+                value: 20,
+                keywords: ["coolant", "fluid", "cooling"]
+            },
+            data_crystal: {
+                name: "Data Crystal",
+                desc: "A crystal that stores digital information. Requires a reader.",
+                type: "document",
+                value: 30,
+                keywords: ["data crystal", "crystal", "storage"]
+            },
+            filter_cartridge: {
+                name: "Filter Cartridge",
+                desc: "A filter for purifying water or air. Has some use left.",
+                type: "tool",
+                value: 15,
+                keywords: ["filter", "cartridge", "purifier"]
+            },
+            mutant_egg: {
+                name: "Mutant Egg",
+                desc: "A pulsating egg. Could hatch something useful... or dangerous.",
+                type: "component",
+                value: 25,
+                keywords: ["egg", "mutant egg", "hatch"]
+            },
+            singing_spore: {
+                name: "Singing Spore",
+                desc: "A spore that emits musical notes when squeezed. Mutants are attracted to it.",
+                type: "tool",
+                value: 18,
+                keywords: ["spore", "singing spore", "music"]
+            },
+            welding_torch: {
+                name: "Welding Torch",
+                desc: "A torch that can melt metal. Useful for repairs or as a weapon.",
+                type: "weapon",
+                damage: 8,
+                value: 25,
+                keywords: ["torch", "welding torch", "tool", "weapon"]
+            },
+            storm_chart: {
+                name: "Storm Chart",
+                desc: "A chart showing dust storm patterns. Helps predict safe travel times.",
+                type: "document",
+                value: 20,
+                keywords: ["chart", "storm chart", "weather"]
+            },
+            bone_charm: {
+                name: "Bone Charm",
+                desc: "A charm made from human bones. Said to ward off evil spirits.",
+                type: "tool",
+                value: 15,
+                keywords: ["charm", "bone charm", "ward"]
+            },
+            core_shard: {
+                name: "Core Shard",
+                desc: "A shard of reactor core material. Glows with intense radiation.",
+                type: "component",
+                value: 50,
+                keywords: ["shard", "core shard", "radioactive"]
+            },
+            memory_chip: {
+                name: "Memory Chip",
+                desc: "A chip containing someone's memories. Haunting to access.",
+                type: "document",
+                value: 35,
+                keywords: ["memory chip", "chip", "memories"]
+            },
+            cryo_capsule: {
+                name: "Cryo Capsule",
+                desc: "A capsule for freezing living tissue. Could preserve something valuable.",
+                type: "container",
+                value: 40,
+                keywords: ["capsule", "cryo capsule", "freeze"]
+            },
+            marsh_gas: {
+                name: "Marsh Gas",
+                desc: "A jar of toxic marsh gas. Explosive if ignited.",
+                type: "weapon",
+                damage: 15,
+                value: 20,
+                keywords: ["gas", "marsh gas", "explosive"]
+            },
+            gene_splicer: {
+                name: "Gene Splicer",
+                desc: "A device for altering genetics. Dangerous in untrained hands.",
+                type: "tool",
+                value: 60,
+                keywords: ["gene splicer", "splicer", "genetics"]
+            },
+            nexus_spore: {
+                name: "Nexus Spore",
+                desc: "A spore from the heart of the fungus network. Contains ancient knowledge.",
+                type: "document",
+                value: 45,
+                keywords: ["spore", "nexus spore", "knowledge"]
+            },
+            vehicle_part: {
+                name: "Vehicle Part",
+                desc: "A working part from a pre-collapse vehicle. Valuable to scavengers.",
+                type: "component",
+                value: 30,
+                keywords: ["vehicle part", "part", "engine"]
+            },
+            eye_of_storm: {
+                name: "Eye of the Storm",
+                desc: "A perfectly calm crystal from the storm's center. Radiates peace.",
+                type: "treasure",
+                value: 75,
+                keywords: ["eye", "storm eye", "crystal"]
+            },
+            star_shard: {
+                name: "Star Shard",
+                desc: "A fragment of a dead star. Cold to the touch and heavy.",
+                type: "treasure",
+                value: 100,
+                keywords: ["star shard", "shard", "star fragment"]
+            },
+            radioactive_isotope: {
+                name: "Radioactive Isotope",
+                desc: "An extremely radioactive material. Deadly but powerful.",
+                type: "component",
+                value: 80,
+                keywords: ["isotope", "radioactive isotope", "deadly"]
+            },
+            quantum_chip: {
+                name: "Quantum Chip",
+                desc: "A chip that processes multiple realities simultaneously. Mind-bending.",
+                type: "component",
+                value: 120,
+                keywords: ["quantum chip", "chip", "reality"]
+            },
+            seed_bank: {
+                name: "Seed Bank",
+                desc: "A collection of seeds from pre-collapse plants. The key to rebirth.",
+                type: "treasure",
+                value: 150,
+                keywords: ["seed bank", "seeds", "rebirth"]
+            },
+            mutant_crown: {
+                name: "Mutant Crown",
+                desc: "A crown made of fused bone and circuitry. Worn by the alpha mutant.",
+                type: "treasure",
+                value: 90,
+                keywords: ["crown", "mutant crown", "royalty"]
+            },
+            heart_spore: {
+                name: "Heart Spore",
+                desc: "A spore containing the essence of the fungal network. Alive with intelligence.",
+                type: "treasure",
+                value: 85,
+                keywords: ["heart spore", "spore", "essence"]
+            },
+            scrap_coin: {
+                name: "Scrap Coin",
+                desc: "Currency in the Deadlands. Made from stamped metal scraps.",
+                type: "treasure",
+                value: 1,
+                keywords: ["coin", "scrap coin", "currency"]
+            },
+            time_shard: {
+                name: "Time Shard",
+                desc: "A shard of crystallized time. Shows glimpses of other whens.",
+                type: "treasure",
+                value: 200,
+                keywords: ["time shard", "shard", "temporal"]
+            },
+            survey_marker: {
+                name: "Survey Marker",
+                desc: "A marker from the last survey of the Deadlands. Shows safe routes.",
+                type: "document",
+                value: 40,
+                keywords: ["marker", "survey marker", "map"]
+            },
+            final_record: {
+                name: "Final Record",
+                desc: "The last record of what ended the world. The truth is terrifying.",
+                type: "document",
+                value: 250,
+                keywords: ["record", "final record", "truth"]
+            },
+            
+            // Special items
+            radiation_gun: {
+                name: "Radiation Gun",
+                desc: "A weapon that fires concentrated radiation. Deadly to all living things.",
+                type: "weapon",
+                damage: 25,
+                value: 150,
+                keywords: ["radiation gun", "gun", "weapon"]
+            },
+            rebreather: {
+                name: "Rebreather",
+                desc: "A device that recycles breathable air. Essential in toxic areas.",
+                type: "armor",
+                defense: 2,
+                radiation_resistance: 4,
+                value: 60,
+                keywords: ["rebreather", "breathing", "armor"]
+            },
+            night_vision_goggles: {
+                name: "Night Vision Goggles",
+                desc: "Goggles that amplify ambient light. See in the dark.",
+                type: "tool",
+                usable: true,
+                effect: "see in dark areas",
+                value: 45,
+                keywords: ["goggles", "night vision", "dark vision"]
+            },
+            radiation_pills: {
+                name: "Radiation Pills",
+                desc: "Pills that counteract radiation poisoning. Temporary protection.",
+                type: "consumable",
+                effect: "reduces radiation damage by 50% for 1 hour",
+                value: 35,
+                keywords: ["pills", "radiation pills", "medicine"]
+            }
+        };
+
+        // ==================== WASTELAND NPCS ====================
+        const npcs = {
+            canyon_hermit: {
+                name: "Old Hermit",
+                desc: "A crazy old man living in the canyon walls. Talks to the rocks.",
+                dialog: "The rocks whisper, they do! They say the Glowing One wakes! Bring me shiny things!",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["energy_crystal"],
+                    reward: "bone_charm"
+                },
+                trade: null
+            },
+            echo_ghost: {
+                name: "Echo Ghost",
+                desc: "A ghost trapped in the echo chamber. Repeats the last words it heard.",
+                dialog: "...all is lost... repeat... all is lost... bring power...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["power_cell"],
+                    reward: "signal_receiver"
+                },
+                trade: null
+            },
+            crystal_crafter: {
+                name: "Crystal Crafter",
+                desc: "A woman who shapes energy crystals into tools.",
+                dialog: "The crystals sing to me. They want to be useful again. Bring me a pure crystal.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["energy_crystal"],
+                    reward: "prism_shard"
+                },
+                trade: {
+                    buy: ["energy_crystal", "prism_shard"],
+                    sell: true
+                }
+            },
+            scrap_dealer: {
+                name: "Scrap Dealer",
+                desc: "A shrewd trader surrounded by robot parts.",
+                dialog: "Good salvage, good price. Bring me robot cores, I pay well. Need weapons? I got.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["robot_core"],
+                    reward: "scrap_coin",
+                    reward_amount: 5
+                },
+                trade: {
+                    buy: ["robot_core", "salvaged_circuit", "vehicle_part"],
+                    sell: true
+                }
+            },
+            myconid_elder: {
+                name: "Myconid Elder",
+                desc: "An intelligent mushroom creature that speaks through spores.",
+                dialog: "We remember the before-time. The great light that burned the sky. Help us remember more.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["ancient_artifact"],
+                    reward: "spore_sack"
+                },
+                trade: null
+            },
+            watcher_ghost: {
+                name: "Watcher Ghost",
+                desc: "The ghost of an astronomer who watched the end come.",
+                dialog: "I saw the stars go out, one by one. The Glowing One ate them. It hungers still.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "listen",
+                    target: null,
+                    reward: "telescope_lens"
+                },
+                trade: null
+            },
+            engineer_ghost: {
+                name: "Engineer Ghost",
+                desc: "A ghost trying to restart the power plant.",
+                dialog: "The core must be contained! The meltdown must not repeat! Bring me coolant!",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["coolant_fluid"],
+                    reward: "fusion_core"
+                },
+                trade: null
+            },
+            archive_ai: {
+                name: "Archive AI",
+                desc: "An artificial intelligence preserving knowledge.",
+                dialog: "ACCESS DENIED. CLEARANCE REQUIRED. BRING DATA CRYSTAL FOR ACCESS.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["data_crystal"],
+                    reward: "memory_chip"
+                },
+                trade: null
+            },
+            brood_mother: {
+                name: "Brood Mother",
+                desc: "A massive mutant that births new mutants.",
+                dialog: "My children hunger. Bring them food from the old world. They will protect you.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["military_rations"],
+                    reward: "mutant_egg"
+                },
+                trade: null
+            },
+            scrap_merchant: {
+                name: "Scrap Merchant",
+                desc: "A merchant with a stall in the vehicle graveyard.",
+                dialog: "Everything has value in the Deadlands. Even you. Trade?",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "trade",
+                    target: null,
+                    reward: "scrap_coin",
+                    reward_amount: 10
+                },
+                trade: {
+                    buy: ["vehicle_part", "welding_torch", "makeshift_pistol"],
+                    sell: true
+                }
+            },
+            meteorologist_ghost: {
+                name: "Meteorologist Ghost",
+                desc: "A ghost obsessed with the eternal storm.",
+                dialog: "The storm has an eye! Find the eye, find peace! But beware the entity within!",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "find",
+                    target: "eye_of_storm",
+                    reward: "storm_chart"
+                },
+                trade: null
+            },
+            star_cultist: {
+                name: "Star Cultist",
+                desc: "A worshipper of the dead stars.",
+                dialog: "The stars are not dead! They sleep! We must wake them with sacrifice!",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["star_shard"],
+                    reward: "bone_charm"
+                },
+                trade: null
+            },
+            vault_keeper: {
+                name: "Vault Keeper",
+                desc: "The last guardian of the preservation vault.",
+                dialog: "I have protected these seeds for a hundred years. Take them, rebuild the world.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "take",
+                    target: "seed_bank",
+                    reward: "seed_bank"
+                },
+                trade: null
+            },
+            city_elder: {
+                name: "City Elder",
+                desc: "The wise leader of Scrap City.",
+                dialog: "The Glowing One consumes all. It must be stopped or we all perish. Are you the one?",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "defeat",
+                    target: "the_glowing_one",
+                    reward: "victory_crown"
+                },
+                trade: {
+                    buy: ["radiation_pills", "rebreather", "night_vision_goggles"],
+                    sell: true
+                }
+            },
+            time_ghost: {
+                name: "Time Ghost",
+                desc: "A being unstuck in time.",
+                dialog: "Past, present, future - all one. The Glowing One exists in all times. Strike at its birth!",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "paradox",
+                    target: null,
+                    reward: "time_shard"
+                },
+                trade: null
+            },
+            awakened_sleeper: {
+                name: "Awakened Sleeper",
+                desc: "A person from before the collapse, just thawed.",
+                dialog: "What year is it? The project... it failed? All my friends... gone...",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "comfort",
+                    target: null,
+                    reward: "cryo_capsule"
+                },
+                trade: null
+            },
+            mad_scientist: {
+                name: "Dr. Morlock",
+                desc: "A scientist who experiments on mutants.",
+                dialog: "Perfection through mutation! The next stage of evolution! Join my experiments!",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "volunteer",
+                    target: null,
+                    reward: "gene_splicer"
+                },
+                trade: null
+            },
+            shrine_keeper: {
+                name: "Shrine Keeper",
+                desc: "A guardian of ancient traditions.",
+                dialog: "The old gods are dead, but their power remains. Make an offering, receive blessing.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "offer",
+                    target: "sacrificial_dagger",
+                    reward: "bone_charm"
+                },
+                trade: null
+            }
+        };
+
+        // ==================== WASTELAND ENEMIES ====================
+        const enemies = {
+            radroach_swarm: {
+                name: "Radroach Swarm",
+                hp: 25,
+                damage: 5,
+                desc: "Thousands of mutated cockroaches moving as one.",
+                weak: "fire",
+                loot: ["glowing_shroom"],
+                sound: 'radroach'
+            },
+            giant_scorpion: {
+                name: "Giant Scorpion",
+                hp: 40,
+                damage: 12,
+                desc: "A scorpion the size of a dog with a glowing stinger.",
+                weak: "crushing",
+                loot: ["scorpion_stinger"],
+                sound: 'scorpion'
+            },
+            sand_wraith: {
+                name: "Sand Wraith",
+                hp: 35,
+                damage: 8,
+                desc: "A ghost made of swirling sand and regret.",
+                weak: "water",
+                loot: ["fossilized_bone"],
+                sound: 'mutant'
+            },
+            highway_bandits: {
+                name: "Highway Bandits",
+                hp: 50,
+                damage: 10,
+                desc: "Desperate survivors who attack travelers for supplies.",
+                weak: "overwhelm",
+                loot: ["road_flare", "canteen"],
+                sound: 'mutant'
+            },
+            mutant_salamander: {
+                name: "Mutant Salamander",
+                hp: 45,
+                damage: 11,
+                desc: "A salamander that breathes radioactive steam.",
+                weak: "cold",
+                loot: ["coolant_fluid"],
+                sound: 'scorpion'
+            },
+            outpost_ghoul: {
+                name: "Outpost Ghoul",
+                hp: 55,
+                damage: 13,
+                desc: "A radiation-burned soldier still guarding its post.",
+                weak: "headshots",
+                loot: ["military_rations"],
+                sound: 'mutant'
+            },
+            rust_golem: {
+                name: "Rust Golem",
+                hp: 70,
+                damage: 16,
+                desc: "Scrap metal animated by strange energies.",
+                weak: "magnetism",
+                loot: ["salvaged_circuit"],
+                sound: 'mutant'
+            },
+            ruin_phantom: {
+                name: "Ruin Phantom",
+                hp: 40,
+                damage: 9,
+                desc: "A ghost of someone who died in the collapse.",
+                weak: "light",
+                loot: ["ancient_artifact"],
+                sound: 'mutant'
+            },
+            quarantine_zombie: {
+                name: "Quarantine Zombie",
+                hp: 60,
+                damage: 14,
+                desc: "A zombie from the quarantine zone, still infectious.",
+                weak: "fire",
+                loot: ["antidote_vial"],
+                sound: 'mutant'
+            },
+            mutant_brute: {
+                name: "Mutant Brute",
+                hp: 80,
+                damage: 18,
+                desc: "A hulking mutant with too many arms.",
+                weak: "strategy",
+                loot: ["mutant_totem"],
+                sound: 'mutant'
+            },
+            glass_phantom: {
+                name: "Glass Phantom",
+                hp: 50,
+                damage: 12,
+                desc: "A creature made of living glass that reflects attacks.",
+                weak: "sonic",
+                loot: ["prism_shard"],
+                sound: 'mutant'
+            },
+            signal_ghost: {
+                name: "Signal Ghost",
+                hp: 45,
+                damage: 10,
+                desc: "A ghost made of radio waves and static.",
+                weak: "grounding",
+                loot: ["signal_receiver"],
+                sound: 'geiger'
+            },
+            coolant_slime: {
+                name: "Coolant Slime",
+                hp: 35,
+                damage: 8,
+                desc: "A slime made of radioactive coolant.",
+                weak: "heat",
+                loot: ["coolant_fluid"],
+                sound: 'scorpion'
+            },
+            filter_beast: {
+                name: "Filter Beast",
+                hp: 65,
+                damage: 15,
+                desc: "A creature that evolved in the filtration plant.",
+                weak: "toxins",
+                loot: ["filter_cartridge"],
+                sound: 'mutant'
+            },
+            spore_beast: {
+                name: "Spore Beast",
+                hp: 55,
+                damage: 13,
+                desc: "A fungal creature that releases mind-altering spores.",
+                weak: "fire",
+                loot: ["singing_spore"],
+                sound: 'mutant'
+            },
+            scrap_golem: {
+                name: "Scrap Golem",
+                hp: 75,
+                damage: 17,
+                desc: "A golem made of welded-together scrap.",
+                weak: "disassembly",
+                loot: ["welding_torch"],
+                sound: 'mutant'
+            },
+            storm_entity: {
+                name: "Storm Entity",
+                hp: 90,
+                damage: 20,
+                desc: "A being of living storm and dust.",
+                weak: "calm",
+                loot: ["eye_of_storm"],
+                sound: 'mutant'
+            },
+            meltdown_ghost: {
+                name: "Meltdown Ghost",
+                hp: 100,
+                damage: 22,
+                desc: "A ghost burned into reality by the meltdown.",
+                weak: "containment",
+                loot: ["radioactive_isotope"],
+                sound: 'geiger'
+            },
+            ai_manifestation: {
+                name: "AI Manifestation",
+                hp: 85,
+                damage: 19,
+                desc: "The AI given physical form by holograms and force fields.",
+                weak: "logic_bomb",
+                loot: ["quantum_chip"],
+                sound: 'geiger'
+            },
+            marsh_lurker: {
+                name: "Marsh Lurker",
+                hp: 70,
+                damage: 16,
+                desc: "A creature that hides in toxic water.",
+                weak: "drying",
+                loot: ["marsh_gas"],
+                sound: 'scorpion'
+            },
+            nexus_guardian: {
+                name: "Nexus Guardian",
+                hp: 95,
+                damage: 21,
+                desc: "A giant fungal creature protecting the heart.",
+                weak: "anti-fungal",
+                loot: ["nexus_spore"],
+                sound: 'mutant'
+            },
+            archive_guardian: {
+                name: "Archive Guardian",
+                hp: 110,
+                damage: 24,
+                desc: "A robotic guardian protecting the final archive.",
+                weak: "emp",
+                loot: ["final_record"],
+                sound: 'geiger'
+            },
+            nexus_heart: {
+                name: "Nexus Heart",
+                hp: 120,
+                damage: 26,
+                desc: "The intelligent heart of the fungal network.",
+                weak: "separation",
+                loot: ["heart_spore"],
+                sound: 'mutant'
+            },
+            alpha_mutant: {
+                name: "Alpha Mutant",
+                hp: 150,
+                damage: 28,
+                desc: "The king of the mutants, huge and intelligent.",
+                weak: "leadership",
+                loot: ["mutant_crown"],
+                sound: 'mutant'
+            },
+            the_glowing_one: {
+                name: "The Glowing One",
+                hp: 300,
+                damage: 35,
+                desc: "A being of pure radiation and despair, source of the Deadlands' curse.",
+                weak: "containment",
+                loot: ["victory_crown"],
+                sound: 'mutant'
+            }
+        };
+
+        // ==================== GAME STATE ====================
+        let player = {
+            class: null,
+            hp: 0,
+            maxHp: 0,
+            mp: 0,
+            maxMp: 0,
+            str: 0,
+            def: 0,
+            baseDef: 0,
+            int: 0,
+            gold: 20,
+            inventory: [],
+            equipped: {
+                weapon: null,
+                armor: null
+            },
+            baseDamage: 0,
+            totalDamage: 0,
+            totalDefense: 0,
+            location: 0,
+            inCombat: false,
+            hasLight: false,
+            time: "high sun",
+            radiation: 0,
+            stats: {
+                enemiesDefeated: 0,
+                puzzlesSolved: 0,
+                roomsExplored: 0,
+                mutants_slain: 0
+            }
+        };
+
+        let gameStarted = false;
+        let currentBackground = 'wasteland_theme';
+        const soundSystem = new SoundSystem();
+
+        // ==================== HELPER FUNCTIONS ====================
+        function findItemByName(itemName) {
+            // First try exact match with item IDs
+            if (items[itemName]) {
+                return itemName;
+            }
+            
+            // Try to match with item name (case-insensitive)
+            itemName = itemName.toLowerCase();
+            for (const itemId in items) {
+                const item = items[itemId];
+                if (item.name.toLowerCase() === itemName) {
+                    return itemId;
+                }
+                
+                // Try keywords
+                if (item.keywords) {
+                    for (const keyword of item.keywords) {
+                        if (keyword.toLowerCase() === itemName) {
+                            return itemId;
+                        }
+                    }
+                }
+                
+                // Try partial match in name
+                if (item.name.toLowerCase().includes(itemName)) {
+                    return itemId;
+                }
+            }
+            
+            return null;
+        }
+
+        function calculatePlayerStats() {
+            // Calculate base damage (strength + class modifier)
+            player.baseDamage = player.str + 4;
+            
+            // Calculate total damage (base + weapon)
+            player.totalDamage = player.baseDamage;
+            if (player.equipped.weapon) {
+                const weapon = items[player.equipped.weapon];
+                if (weapon && weapon.damage) {
+                    player.totalDamage += weapon.damage;
+                }
+            }
+            
+            // Calculate base defense (class base)
+            player.baseDef = classes[player.class].def;
+            
+            // Calculate total defense (base + armor)
+            player.totalDefense = player.baseDef;
+            if (player.equipped.armor) {
+                const armor = items[player.equipped.armor];
+                if (armor && armor.defense) {
+                    player.totalDefense += armor.defense;
+                }
+            }
+            
+            // Update status display
+            updateStatus();
+        }
+
+        // ==================== UI FUNCTIONS ====================
+        const output = document.getElementById('output');
+        const input = document.getElementById('input');
+        const status = document.getElementById('status');
+
+        function print(text, className = '') {
+            const line = document.createElement('div');
+            line.textContent = text;
+            if (className) line.className = className;
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+            
+            if (className === 'success' || className === 'quest') {
+                soundSystem.playSound('notification', 0.5);
+            } else if (className === 'error') {
+                soundSystem.playSound('error', 0.3);
+            } else if (className === 'puzzle') {
+                soundSystem.playSound('puzzle', 0.4);
+            } else if (className === 'enemy') {
+                soundSystem.playSound('mutant', 0.3);
+            }
+        }
+
+        function updateStatus() {
+            const room = rooms[player.location];
+            const light = player.hasLight ? "LIT" : "DARK";
+            
+            // Get equipped weapon and armor names
+            const weaponName = player.equipped.weapon ? items[player.equipped.weapon].name : "None";
+            const armorName = player.equipped.armor ? items[player.equipped.armor].name : "None";
+            
+            status.textContent = 
+                `HP:${player.hp}/${player.maxHp} RAD:${player.radiation} ` +
+                `DMG:${player.totalDamage} DEF:${player.totalDefense} ` +
+                `GOLD:${player.gold} ROOM:${room.id} ${light} ${player.time}\n` +
+                `Weapon: ${weaponName} | Armor: ${armorName}`;
+        }
+
+        // ==================== GAME LOGIC ====================
+        function startGame(className) {
+            player.class = className;
+            const c = classes[className];
+            
+            player.hp = player.maxHp = c.hp;
+            player.mp = player.maxMp = c.mp;
+            player.str = c.str;
+            player.def = c.def;
+            player.int = c.int;
+            player.radiation = 0;
+            
+            // Starting items
+            player.inventory = [...c.startingItems];
+            
+            // Check for light sources
+            player.hasLight = c.startingItems.some(item => 
+                item === 'road_flare' || item === 'welding_torch'
+            );
+            
+            // Initialize equipment
+            player.equipped.weapon = null;
+            player.equipped.armor = null;
+            
+            gameStarted = true;
+            soundSystem.playBackground(currentBackground);
+            
+            print(`You are a ${className.replace('_', ' ').toUpperCase()}. ${c.desc}`, 'success');
+            
+            // Display all starting items
+            const itemNames = c.startingItems.map(itemId => items[itemId].name).join(', ');
+            print(`You start with: ${itemNames}`, 'success');
+            
+            calculatePlayerStats();
+            look();
+            updateStatus();
+        }
+
+        function look() {
+            const room = rooms[player.location];
+            
+            // Update music
+            currentBackground = room.sound;
+            soundSystem.playBackground(currentBackground);
+            
+            // Check darkness
+            if (room.dark && !player.hasLight) {
+                print("It's pitch black! You need a light source to see.", 'error');
+                print("You can feel exits to: " + Object.keys(room.exits).filter(dir => room.exits[dir] !== null).join(' '));
+                return;
+            }
+            
+            // Apply radiation from room
+            if (room.radiation > 0) {
+                const armor = player.equipped.armor ? items[player.equipped.armor] : null;
+                const resistance = armor && armor.radiation_resistance ? armor.radiation_resistance : 0;
+                const radDamage = Math.max(0, room.radiation - resistance);
+                
+                if (radDamage > 0) {
+                    player.radiation += radDamage;
+                    print(`Radiation level: ${room.radiation}. You take ${radDamage} radiation damage.`, 'damage');
+                    soundSystem.playSound('geiger', 0.2);
+                    
+                    if (player.radiation >= 20 && player.radiation < 40) {
+                        print("You feel nauseous. Radiation sickness setting in.", 'error');
+                    } else if (player.radiation >= 40) {
+                        player.hp -= 5;
+                        print("Severe radiation poisoning! You lose 5 HP.", 'damage');
+                    }
+                } else {
+                    print(`Radiation level: ${room.radiation}. Your protection is sufficient.`, 'system');
+                }
+            }
+            
+            print(room.desc, 'system');
+            
+            // List items
+            if (room.items.length > 0) {
+                print("You see:", 'system');
+                room.items.forEach(itemId => {
+                    const item = items[itemId];
+                    print(`  ${item.name}`, 'item');
+                });
+            }
+            
+            // List NPC
+            if (room.npc) {
+                const npc = npcs[room.npc];
+                print(`${npc.name} is here. ${npc.desc}`, 'npc');
+            }
+            
+            // List enemy
+            if (room.enemy) {
+                const enemy = enemies[room.enemy];
+                print(`${enemy.name} blocks your path! ${enemy.desc}`, 'enemy');
+                soundSystem.playSound('mutant', 0.2);
+            }
+            
+            // List container
+            if (room.container) {
+                print(`There is a ${room.container} here.`, 'system');
+            }
+            
+            // List exits
+            const exits = [];
+            if (room.exits.n !== null) exits.push("north");
+            if (room.exits.s !== null) exits.push("south");
+            if (room.exits.e !== null) exits.push("east");
+            if (room.exits.w !== null) exits.push("west");
+            
+            print("Exits: " + exits.join(', '));
+            
+            if (!room.explored) {
+                room.explored = true;
+                player.stats.roomsExplored++;
+            }
+            
+            updateStatus();
+        }
+
+        function move(direction) {
+            const room = rooms[player.location];
+            const newRoomId = room.exits[direction];
+            
+            if (newRoomId === null) {
+                print("You can't go that way.", 'error');
+                return;
+            }
+            
+            // Check for locked room
+            if (rooms[newRoomId].locked) {
+                print("The way is locked!", 'error');
+                return;
+            }
+            
+            soundSystem.playSound('step');
+            player.location = newRoomId;
+            
+            // Random time change
+            if (Math.random() > 0.7) {
+                const times = ["high sun", "dust storm", "radioactive dusk", "dead night"];
+                player.time = times[Math.floor(Math.random() * times.length)];
+            }
+            
+            // Check for enemy
+            const newRoom = rooms[player.location];
+            if (newRoom.enemy) {
+                print(`A ${newRoom.enemy} blocks your path!`, 'enemy');
+            }
+            
+            look();
+        }
+
+        function take(itemName) {
+            const room = rooms[player.location];
+            
+            if (room.dark && !player.hasLight) {
+                print("It's too dark to see anything!", 'error');
+                return;
+            }
+            
+            // Find the item ID by name
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId) {
+                print("You don't see that here.", 'error');
+                return;
+            }
+            
+            // Check if the item is in the room
+            const itemIndex = room.items.indexOf(itemId);
+            if (itemIndex === -1) {
+                print("You don't see that here.", 'error');
+                return;
+            }
+            
+            // Remove from room and add to inventory
+            room.items.splice(itemIndex, 1);
+            player.inventory.push(itemId);
+            
+            print(`You take the ${items[itemId].name}.`, 'success');
+            soundSystem.playSound('pickup');
+            
+            // Special case for light sources
+            if (itemId === 'road_flare' || itemId === 'welding_torch') {
+                player.hasLight = true;
+            }
+            
+            updateStatus();
+        }
+
+        function equip(itemName) {
+            // Find the item ID by name
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId) {
+                print("You don't have that item.", 'error');
+                return;
+            }
+            
+            // Check if player has the item
+            if (!player.inventory.includes(itemId)) {
+                print("You don't have that item.", 'error');
+                return;
+            }
+            
+            const item = items[itemId];
+            
+            // Check if it's equipment
+            if (item.type === 'weapon') {
+                // If already have a weapon equipped, put it back in inventory
+                if (player.equipped.weapon) {
+                    player.inventory.push(player.equipped.weapon);
+                }
+                
+                // Equip the new weapon
+                player.equipped.weapon = itemId;
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print(`You equip the ${item.name}.`, 'success');
+                soundSystem.playSound('equip');
+                
+            } else if (item.type === 'armor') {
+                // If already have armor equipped, put it back in inventory
+                if (player.equipped.armor) {
+                    player.inventory.push(player.equipped.armor);
+                }
+                
+                // Equip the new armor
+                player.equipped.armor = itemId;
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print(`You equip the ${item.name}.`, 'success');
+                soundSystem.playSound('equip');
+                
+            } else {
+                print("That's not something you can equip.", 'error');
+                return;
+            }
+            
+            // Recalculate stats
+            calculatePlayerStats();
+        }
+
+        function useItem(itemName, target = null) {
+            // Find the item ID by name
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId || !player.inventory.includes(itemId)) {
+                print("You don't have that.", 'error');
+                return;
+            }
+            
+            const item = items[itemId];
+            const room = rooms[player.location];
+            
+            // Use canteen
+            if (itemId === 'canteen') {
+                const healAmount = 10;
+                player.hp = Math.min(player.maxHp, player.hp + healAmount);
+                print(`You drink from the canteen and restore ${healAmount} HP.`, 'heal');
+                soundSystem.playSound('notification');
+                updateStatus();
+                return;
+            }
+            
+            // Use road flare
+            if (itemId === 'road_flare') {
+                player.hasLight = !player.hasLight;
+                print(player.hasLight ? "You light the flare." : "The flare burns out.", 'success');
+                soundSystem.playSound('click');
+                look();
+                return;
+            }
+            
+            // Use welding torch
+            if (itemId === 'welding_torch') {
+                player.hasLight = true;
+                print("The welding torch provides bright light.", 'success');
+                soundSystem.playSound('click');
+                look();
+                return;
+            }
+            
+            // Use glowing mushroom
+            if (itemId === 'glowing_shroom') {
+                if (Math.random() > 0.5) {
+                    player.hp = Math.min(player.maxHp, player.hp + 15);
+                    print("You eat the mushroom and restore 15 HP!", 'heal');
+                } else {
+                    player.radiation += 5;
+                    print("The mushroom was toxic! You take 5 radiation damage.", 'damage');
+                }
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                soundSystem.playSound('notification');
+                updateStatus();
+                return;
+            }
+            
+            // Use military rations
+            if (itemId === 'military_rations') {
+                const healAmount = 20;
+                player.hp = Math.min(player.maxHp, player.hp + healAmount);
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print(`You eat the rations and restore ${healAmount} HP.`, 'heal');
+                soundSystem.playSound('notification');
+                updateStatus();
+                return;
+            }
+            
+            // Use antidote vial
+            if (itemId === 'antidote_vial') {
+                player.radiation = Math.max(0, player.radiation - 10);
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print("You take the antidote. Radiation levels decrease.", 'heal');
+                soundSystem.playSound('notification');
+                updateStatus();
+                return;
+            }
+            
+            // Use radiation pills
+            if (itemId === 'radiation_pills') {
+                player.radiation = Math.max(0, player.radiation - 15);
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print("You take the radiation pills. You feel better.", 'heal');
+                soundSystem.playSound('notification');
+                updateStatus();
+                return;
+            }
+            
+            // Use marsh gas on enemies
+            if (itemId === 'marsh_gas' && room.enemy) {
+                print("You throw the marsh gas! It explodes!", 'success');
+                soundSystem.playSound('notification');
+                enemies[room.enemy].hp -= 15;
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                return;
+            }
+            
+            // Use object on object
+            if (target) {
+                const targetId = findItemByName(target);
+                
+                // Use item on container
+                if (room.container && target === room.container) {
+                    print(`You use the ${item.name} on the ${target}.`, 'system');
+                    soundSystem.playSound('puzzle');
+                    return;
+                }
+                
+                // Use item on NPC
+                if (room.npc && target === room.npc) {
+                    const npc = npcs[room.npc];
+                    if (npc.quest && npc.quest.type === 'give' && npc.quest.target.includes(itemId)) {
+                        print(`You give ${items[itemId].name} to ${npc.name}.`, 'success');
+                        player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                        if (npc.quest.reward) {
+                            if (npc.quest.reward_amount) {
+                                for (let i = 0; i < npc.quest.reward_amount; i++) {
+                                    player.inventory.push(npc.quest.reward);
+                                }
+                                npc.quest.completed = true;
+                                print(`${npc.name}: "Thank you! Here are ${npc.quest.reward_amount} ${items[npc.quest.reward].name}s."`, 'quest');
+                            } else {
+                                player.inventory.push(npc.quest.reward);
+                                npc.quest.completed = true;
+                                print(`${npc.name}: "Thank you! Here is ${items[npc.quest.reward].name}."`, 'quest');
+                            }
+                            soundSystem.playSound('pickup');
+                        }
+                        return;
+                    }
+                }
+            }
+            
+            print(`You're not sure how to use the ${item.name} here.`, 'error');
+        }
+
+        function talk(npcName = null) {
+            const room = rooms[player.location];
+            
+            if (!room.npc) {
+                print("There's no one here to talk to.", 'error');
+                return;
+            }
+            
+            const npc = npcs[room.npc];
+            print(`${npc.name}: "${npc.dialog}"`, 'npc');
+            
+            // Handle quests
+            if (npc.quest && !npc.quest.completed) {
+                if (npc.quest.type === 'find' && !npc.quest.given) {
+                    npc.quest.given = true;
+                    print(`${npc.name}: "Find the ${items[npc.quest.target].name} for me."`, 'quest');
+                } else if (npc.quest.type === 'give') {
+                    const hasItems = npc.quest.target.every(item => player.inventory.includes(item));
+                    if (hasItems) {
+                        print(`${npc.name}: "You have them! Thank you!"`, 'quest');
+                        npc.quest.target.forEach(item => {
+                            player.inventory.splice(player.inventory.indexOf(item), 1);
+                        });
+                        if (npc.quest.reward_amount) {
+                            for (let i = 0; i < npc.quest.reward_amount; i++) {
+                                player.inventory.push(npc.quest.reward);
+                            }
+                            print(`You receive: ${npc.quest.reward_amount} ${items[npc.quest.reward].name}s`, 'success');
+                        } else {
+                            player.inventory.push(npc.quest.reward);
+                            print(`You receive: ${items[npc.quest.reward].name}`, 'success');
+                        }
+                        npc.quest.completed = true;
+                        soundSystem.playSound('pickup');
+                    } else {
+                        const itemNames = npc.quest.target.map(i => items[i].name).join(' and ');
+                        print(`${npc.name}: "I need ${itemNames}."`, 'quest');
+                    }
+                }
+            }
+        }
+
+        function give(itemName, npcName = null) {
+            const room = rooms[player.location];
+            
+            if (!room.npc) {
+                print("There's no one here to give to.", 'error');
+                return;
+            }
+            
+            const npc = npcs[room.npc];
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId || !player.inventory.includes(itemId)) {
+                print("You don't have that.", 'error');
+                return;
+            }
+            
+            // Handle quest items
+            if (npc.quest && npc.quest.type === 'give' && npc.quest.target.includes(itemId)) {
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                
+                // Check if all items are given
+                const remainingItems = npc.quest.target.filter(item => 
+                    item !== itemId && !npc.quest.completed
+                );
+                
+                if (remainingItems.length === 0) {
+                    if (npc.quest.reward_amount) {
+                        for (let i = 0; i < npc.quest.reward_amount; i++) {
+                            player.inventory.push(npc.quest.reward);
+                        }
+                        npc.quest.completed = true;
+                        print(`${npc.name}: "Perfect! Here are ${npc.quest.reward_amount} ${items[npc.quest.reward].name}s."`, 'quest');
+                        print(`You receive: ${npc.quest.reward_amount} ${items[npc.quest.reward].name}s`, 'success');
+                    } else {
+                        player.inventory.push(npc.quest.reward);
+                        npc.quest.completed = true;
+                        print(`${npc.name}: "Perfect! Here is ${items[npc.quest.reward].name}."`, 'quest');
+                        print(`You receive: ${items[npc.quest.reward].name}`, 'success');
+                    }
+                } else {
+                    print(`${npc.name}: "Thank you! I still need ${remainingItems.map(i => items[i].name).join(' and ')}."`, 'quest');
+                }
+                soundSystem.playSound('pickup');
+                return;
+            }
+            
+            print(`${npc.name} doesn't want that.`, 'error');
+        }
+
+        function attack(target = null) {
+            const room = rooms[player.location];
+            
+            if (!room.enemy) {
+                print("There's nothing to attack here.", 'error');
+                return;
+            }
+            
+            const enemy = enemies[room.enemy];
+            soundSystem.playSound('attack');
+            
+            print(`You attack the ${enemy.name}!`, 'command');
+            
+            // Calculate damage using player's total damage
+            let damage = player.totalDamage + Math.floor(Math.random() * 6) - 3;
+            damage = Math.max(1, damage); // Minimum 1 damage
+            
+            // Check for special weaknesses
+            if (enemy.name.includes('mutant') || enemy.name.includes('ghoul')) {
+                if (player.equipped.weapon === 'makeshift_pistol' || player.equipped.weapon === 'sacrificial_dagger') {
+                    damage *= 1.5;
+                    print("Your weapon is effective against mutants!", 'damage');
+                }
+            }
+            
+            // Check for radiation vulnerability
+            if (enemy.name.includes('rad') || enemy.name.includes('glowing')) {
+                if (player.inventory.includes('radiation_pills')) {
+                    damage += 10;
+                    print("Radiation pills give you an edge!", 'damage');
+                }
+            }
+            
+            enemy.hp -= damage;
+            
+            print(`You hit for ${damage} damage!`, 'damage');
+            soundSystem.playSound('enemyHit');
+            
+            if (enemy.hp <= 0) {
+                print(`You defeated the ${enemy.name}!`, 'success');
+                
+                // Drop loot
+                if (enemy.loot) {
+                    enemy.loot.forEach(lootId => {
+                        room.items.push(lootId);
+                        print(`It drops: ${items[lootId].name}`, 'loot');
+                    });
+                }
+                
+                player.gold += 10;
+                player.stats.enemiesDefeated++;
+                
+                if (enemy.name.includes('mutant')) {
+                    player.stats.mutants_slain++;
+                }
+                
+                soundSystem.playSound('victory');
+                
+                // Special cases
+                if (room.id === 43 && room.enemy === 'alpha_mutant') {
+                    print("The alpha mutant is defeated! The mutant warrens are in chaos!", 'success');
+                    soundSystem.playSound('notification');
+                }
+                if (room.id === 49 && room.enemy === 'the_glowing_one') {
+                    print("*** VICTORY! ***", 'success');
+                    print("You have defeated The Glowing One and saved the Deadlands!", 'success');
+                    print("You are now a legend of the wasteland!", 'success');
+                    soundSystem.playBackground('victory_hymn');
+                }
+                
+                room.enemy = null;
+            } else {
+                print(`The ${enemy.name} has ${enemy.hp} HP remaining.`, 'enemy');
+                
+                // Enemy counterattack (reduced by player's defense)
+                let enemyDamage = Math.max(1, enemy.damage - Math.floor(player.totalDefense / 2));
+                player.hp -= enemyDamage;
+                print(`The ${enemy.name} hits you for ${enemyDamage} damage!`, 'damage');
+                soundSystem.playSound('playerHit');
+                
+                if (player.hp <= 0) {
+                    print("You have been defeated... The wasteland claims another.", 'error');
+                    soundSystem.playSound('error');
+                    resetGame();
+                }
+            }
+            
+            updateStatus();
+        }
+
+        function open(container) {
+            const room = rooms[player.location];
+            
+            if (!room.container || room.container !== container) {
+                print("There's nothing like that to open here.", 'error');
+                return;
+            }
+            
+            // Check specific containers
+            switch(container) {
+                case 'rock_shelter':
+                    if (room.id === 0) {
+                        print("You find some old supplies in the shelter.", 'success');
+                        if (!room.items.includes('canteen')) {
+                            room.items.push('canteen');
+                            print("You find a Canteen!", 'loot');
+                            soundSystem.playSound('pickup');
+                        }
+                    }
+                    break;
+                    
+                case 'abandoned_bus':
+                    if (room.id === 7) {
+                        print("The bus contains old luggage.", 'system');
+                        if (!room.items.includes('road_flare')) {
+                            room.items.push('road_flare');
+                            print("You find a Road Flare!", 'loot');
+                            soundSystem.playSound('pickup');
+                        }
+                    }
+                    break;
+                    
+                case 'cryo_controls':
+                    if (room.id === 33) {
+                        if (!room.npc) {
+                            print("You awaken a sleeper from cryo!", 'success');
+                            room.npc = 'awakened_sleeper';
+                        } else {
+                            print("The controls are already active.", 'system');
+                        }
+                    }
+                    break;
+                    
+                case 'radiation_throne':
+                    if (room.id === 49) {
+                        print("You approach the radiation throne... The Glowing One awakens!", 'enemy');
+                        room.enemy = 'the_glowing_one';
+                        soundSystem.playBackground('mutant_lair');
+                    }
+                    break;
+                    
+                default:
+                    print("You find some items inside.", 'system');
+                    if (Math.random() > 0.5) {
+                        const randomItems = ['scrap_coin', 'military_rations', 'power_cell'];
+                        const randomItem = randomItems[Math.floor(Math.random() * randomItems.length)];
+                        if (!room.items.includes(randomItem)) {
+                            room.items.push(randomItem);
+                            print(`You find ${items[randomItem].name}!`, 'loot');
+                            soundSystem.playSound('pickup');
+                        }
+                    }
+            }
+        }
+
+        function search(target = null) {
+            const room = rooms[player.location];
+            
+            if (room.dark && !player.hasLight) {
+                print("It's too dark to search.", 'error');
+                return;
+            }
+            
+            if (target) {
+                // Search specific object
+                if (room.container && target === room.container) {
+                    open(target);
+                    return;
+                }
+                
+                print("You don't see that here.", 'error');
+            } else {
+                // General room search
+                print("You search the room...", 'system');
+                
+                if (room.items.length > 0) {
+                    print("You find:", 'system');
+                    room.items.forEach(itemId => {
+                        print(`  ${items[itemId].name}`, 'item');
+                    });
+                } else {
+                    print("You don't find anything.", 'system');
+                }
+                
+                // Check for hidden radiation
+                if (room.radiation > 3) {
+                    print("Your Geiger counter clicks rapidly - high radiation!", 'error');
+                    soundSystem.playSound('geiger', 0.3);
+                }
+            }
+        }
+
+        function drop(itemName) {
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId || !player.inventory.includes(itemId)) {
+                print("You don't have that.", 'error');
+                return;
+            }
+            
+            player.inventory.splice(player.inventory.indexOf(itemId), 1);
+            rooms[player.location].items.push(itemId);
+            
+            print(`You drop the ${items[itemId].name}.`, 'system');
+            
+            // Special case for light sources
+            if (itemId === 'road_flare' || itemId === 'welding_torch') {
+                player.hasLight = false;
+                if (rooms[player.location].dark) {
+                    print("The room goes dark!", 'error');
+                }
+            }
+            
+            updateStatus();
+        }
+
+        function showInventory() {
+            if (player.inventory.length === 0) {
+                print("Your inventory is empty.", 'system');
+            } else {
+                print("Inventory:", 'system');
+                player.inventory.forEach(itemId => {
+                    const item = items[itemId];
+                    const equipped = (player.equipped.weapon === itemId || player.equipped.armor === itemId) ? " [EQUIPPED]" : "";
+                    print(`  ${item.name}${equipped} - ${item.desc}`, equipped ? 'equipped' : 'item');
+                });
+            }
+            
+            // Show equipped items
+            print("", 'system');
+            print("Equipped:", 'system');
+            if (player.equipped.weapon) {
+                const weapon = items[player.equipped.weapon];
+                print(`  Weapon: ${weapon.name} (${weapon.damage} DMG)`, 'equipped');
+            } else {
+                print("  Weapon: None (4 DMG)", 'system');
+            }
+            
+            if (player.equipped.armor) {
+                const armor = items[player.equipped.armor];
+                print(`  Armor: ${armor.name} (${armor.defense} DEF)`, 'equipped');
+            } else {
+                print("  Armor: None (0 DEF)", 'system');
+            }
+            
+            print("", 'system');
+            print(`Total Stats: ${player.totalDamage} DMG | ${player.totalDefense} DEF | Radiation: ${player.radiation}`, 'system');
+        }
+
+        function buy(itemName) {
+            const room = rooms[player.location];
+            
+            if (room.npc !== 'scrap_dealer' && room.npc !== 'scrap_merchant' && room.npc !== 'crystal_crafter' && room.npc !== 'city_elder') {
+                print("There's no one here to buy from.", 'error');
+                return;
+            }
+            
+            const npc = npcs[room.npc];
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId || !npc.trade || !npc.trade.buy.includes(itemId)) {
+                print("That's not for sale.", 'error');
+                return;
+            }
+            
+            const price = items[itemId].value;
+            if (player.gold < price) {
+                print(`You need ${price} gold, but only have ${player.gold}.`, 'error');
+                return;
+            }
+            
+            player.gold -= price;
+            player.inventory.push(itemId);
+            print(`You buy ${items[itemId].name} for ${price} scrap coins.`, 'success');
+            soundSystem.playSound('pickup');
+            updateStatus();
+        }
+
+        function sell(itemName) {
+            const room = rooms[player.location];
+            
+            if (!room.npc || !npcs[room.npc].trade || !npcs[room.npc].trade.sell) {
+                print("There's no one here to sell to.", 'error');
+                return;
+            }
+            
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId || !player.inventory.includes(itemId)) {
+                print("You don't have that.", 'error');
+                return;
+            }
+            
+            const price = Math.floor(items[itemId].value * 0.7);
+            player.gold += price;
+            player.inventory.splice(player.inventory.indexOf(itemId), 1);
+            print(`You sell ${items[itemId].name} for ${price} scrap coins.`, 'success');
+            soundSystem.playSound('pickup');
+            updateStatus();
+        }
+
+        function showHelp() {
+            print("=== DEADLANDS BEYOND THE PASS COMMANDS ===", 'command');
+            print("MOVEMENT: n, s, e, w, look", 'system');
+            print("INTERACTION: take [item], use [item], use [item] on [object]", 'system');
+            print("           equip [item], drop [item], inventory", 'system');
+            print("COMBAT: attack", 'system');
+            print("NPCS: talk, give [item] to [npc]", 'system');
+            print("SHOP: buy [item], sell [item] (at traders)", 'system');
+            print("SEARCH: search, open [container]", 'system');
+            print("INFO: stats, help", 'system');
+            print("=== WASTELAND SURVIVAL TIPS ===", 'command');
+            print("- Watch your radiation level! Use radiation suits and pills", 'system');
+            print("- Some areas are dark, need light sources", 'system');
+            print("- Complete NPC quests for rewards", 'system');
+            print("- The Glowing One is in the final chamber (Room 49)", 'system');
+            print("- Different enemies have different weaknesses", 'system');
+        }
+
+        function showStats() {
+            print("=== CHARACTER STATS ===", 'command');
+            print(`Class: ${player.class ? player.class.replace('_', ' ').toUpperCase() : 'None'}`, 'system');
+            print(`HP: ${player.hp}/${player.maxHp}`, 'system');
+            print(`Radiation: ${player.radiation}`, player.radiation > 20 ? 'damage' : 'system');
+            print(`Gold: ${player.gold}`, 'system');
+            print(`Strength: ${player.str}`, 'system');
+            print(`Defense: ${player.def}`, 'system');
+            print(`Intelligence: ${player.int}`, 'system');
+            print("=== EQUIPMENT ===", 'command');
+            if (player.equipped.weapon) {
+                const weapon = items[player.equipped.weapon];
+                print(`Weapon: ${weapon.name} (${weapon.damage} DMG)`, 'equipped');
+            } else {
+                print("Weapon: None", 'system');
+            }
+            if (player.equipped.armor) {
+                const armor = items[player.equipped.armor];
+                print(`Armor: ${armor.name} (${armor.defense} DEF)`, 'equipped');
+            } else {
+                print("Armor: None", 'system');
+            }
+            print(`Total Damage: ${player.totalDamage}`, 'system');
+            print(`Total Defense: ${player.totalDefense}`, 'system');
+            print("=== WASTELAND PROGRESS ===", 'command');
+            print(`Rooms Explored: ${player.stats.roomsExplored}/50`, 'system');
+            print(`Enemies Defeated: ${player.stats.enemiesDefeated}`, 'system');
+            print(`Mutants Slain: ${player.stats.mutants_slain}`, 'system');
+            print(`Puzzles Solved: ${player.stats.puzzlesSolved}`, 'system');
+            print(`Current Time: ${player.time}`, 'system');
+        }
+
+        function resetGame() {
+            player.class = null;
+            gameStarted = false;
+            soundSystem.playBackground('wasteland_theme');
+            print("GAME OVER", 'error');
+            print("Choose a class: wasteland_survivor, radiation_scavenger, mutant_outcast.");
+            updateStatus();
+        }
+
+        function quickCommand(cmd) {
+            document.getElementById('input').value = cmd;
+            const event = new KeyboardEvent('keydown', { key: 'Enter' });
+            document.getElementById('input').dispatchEvent(event);
+        }
+
+        // ==================== COMMAND PARSER ====================
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                const cmd = input.value.trim().toLowerCase();
+                input.value = '';
+                if (!cmd) return;
+
+                soundSystem.playSound('click', 0.3);
+                print(`> ${cmd}`, 'command');
+                
+                // Convert "use X on Y" to array
+                let parts;
+                if (cmd.includes(' on ')) {
+                    parts = cmd.split(' on ');
+                    parts = ['use', parts[0], parts[1]];
+                } else if (cmd.includes(' to ')) {
+                    parts = cmd.split(' to ');
+                    parts = ['give', parts[0], parts[1]];
+                } else {
+                    parts = cmd.split(' ');
+                }
+                
+                const verb = parts[0];
+                const arg1 = parts[1];
+                const arg2 = parts[2];
+
+                // Class selection
+                if (!player.class && ['wasteland_survivor', 'radiation_scavenger', 'mutant_outcast'].includes(verb)) {
+                    startGame(verb);
+                    return;
+                }
+                
+                if (!player.class) {
+                    print("Choose a class first: wasteland_survivor, radiation_scavenger, mutant_outcast.", 'error');
+                    return;
+                }
+
+                // Game commands
+                switch (verb) {
+                    case 'n': case 'north': move('n'); break;
+                    case 's': case 'south': move('s'); break;
+                    case 'e': case 'east': move('e'); break;
+                    case 'w': case 'west': move('w'); break;
+                    case 'l': case 'look': look(); break;
+                    case 'take': if (arg1) take(arg1); else print("Take what?"); break;
+                    case 'use': 
+                        if (arg2) {
+                            useItem(arg1, arg2);
+                        } else if (arg1) {
+                            useItem(arg1);
+                        } else {
+                            print("Use what?"); 
+                        }
+                        break;
+                    case 'equip': if (arg1) equip(arg1); else print("Equip what?"); break;
+                    case 'talk': talk(arg1); break;
+                    case 'give': 
+                        if (arg1 && arg2) {
+                            give(arg1, arg2);
+                        } else if (arg1) {
+                            give(arg1);
+                        } else {
+                            print("Give what to who?");
+                        }
+                        break;
+                    case 'attack': attack(arg1); break;
+                    case 'open': if (arg1) open(arg1); else print("Open what?"); break;
+                    case 'search': search(arg1); break;
+                    case 'drop': if (arg1) drop(arg1); else print("Drop what?"); break;
+                    case 'i': case 'inventory': case 'inv': showInventory(); break;
+                    case 'buy': if (arg1) buy(arg1); else print("Buy what?"); break;
+                    case 'sell': if (arg1) sell(arg1); else print("Sell what?"); break;
+                    case 'stats': showStats(); break;
+                    case 'help': case '?': showHelp(); break;
+                    case 'quit': resetGame(); break;
+                    default: print("Unknown command. Type 'help'.", 'error');
+                }
+            }
+        });
+
+        // Sound toggle button
+        document.getElementById('sound-toggle').addEventListener('click', () => {
+            soundSystem.toggle();
+        });
+
+        // Initialize audio on first user interaction
+        document.addEventListener('click', function initAudio() {
+            soundSystem.resumeAudioContext();
+            if (!gameStarted) {
+                soundSystem.playBackground('wasteland_theme');
+            }
+            document.removeEventListener('click', initAudio);
+        }, { once: true });
+
+        // ==================== INIT ====================
+        print("DEADLANDS BEYOND THE PASS (1986)", 'success');
+        print("WASTELAND GAMES PRESENTS", 'system');
+        print("", 'system');
+        print("A post-apocalyptic adventure with 50 zones of danger!", 'system');
+        print("Survive radiation, mutants, and the curse of the Glowing One!", 'system');
+        print("", 'system');
+        print("Classes:", 'system');
+        print("- wasteland_survivor: Canteen and makeshift pistol", 'system');
+        print("- radiation_scavenger: Geiger counter and radiation suit", 'system');
+        print("- mutant_outcast: Mutant claw and toxin gland", 'system');
+        print("", 'system');
+        print("Commands: n/s/e/w, look, take, equip, use, talk, attack, open, search, inventory", 'system');
+        print("", 'system');
+        print("Choose your class: wasteland_survivor, radiation_scavenger, mutant_outcast.", 'system');
+        updateStatus();
+        input.focus();
+    </script>
+</body>
+</html>
