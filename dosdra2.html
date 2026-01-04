@@ -1,0 +1,3739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Castle of the Undead (1985) - Nightfalls Games</title>
+    <link href="https://fonts.googleapis.com/css?family=Press+Start+2P" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            font-family: 'Press Start 2P', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+            background-color: #000;
+            color: #c00;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            padding: 5px;
+            touch-action: manipulation;
+        }
+        #header {
+            text-align: center;
+            border-bottom: 2px solid #c00;
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+            flex-shrink: 0;
+        }
+        #game-container {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+        #output {
+            flex-grow: 1;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            border: 1px solid #c00;
+            padding: 8px;
+            margin-bottom: 8px;
+            background-color: #111;
+            -webkit-overflow-scrolling: touch;
+        }
+        #input-line {
+            display: flex;
+            flex-shrink: 0;
+            align-items: center;
+        }
+        #prompt {
+            margin-right: 8px;
+            white-space: nowrap;
+        }
+        #input {
+            flex-grow: 1;
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid #c00;
+            color: #c00;
+            font-family: inherit;
+            font-size: inherit;
+            outline: none;
+            padding: 4px 0;
+        }
+        #status {
+            border-top: 1px solid #c00;
+            padding-top: 8px;
+            margin-top: 8px;
+            flex-shrink: 0;
+            white-space: pre;
+            font-size: 10px;
+        }
+        .command {
+            color: #ff4500;
+        }
+        .error {
+            color: #f00;
+        }
+        .item {
+            color: #00bfff;
+        }
+        .enemy {
+            color: #8b0000;
+        }
+        .npc {
+            color: #daa520;
+        }
+        .success {
+            color: #0f0;
+        }
+        .quest {
+            color: #ffd700;
+        }
+        .loot {
+            color: #ff69b4;
+        }
+        .system {
+            color: #888;
+        }
+        .damage {
+            color: #ff6347;
+        }
+        .heal {
+            color: #32cd32;
+        }
+        .puzzle {
+            color: #9370db;
+        }
+        .equipped {
+            color: #00ff00;
+            font-weight: bold;
+        }
+        #sound-toggle {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: #000;
+            border: 1px solid #c00;
+            color: #c00;
+            padding: 4px 8px;
+            font-size: 10px;
+            cursor: pointer;
+            z-index: 1000;
+        }
+        .quick-command {
+            display: inline-block;
+            background: #222;
+            border: 1px solid #c00;
+            color: #c00;
+            padding: 2px 6px;
+            margin: 2px;
+            cursor: pointer;
+            font-size: 10px;
+        }
+        #quick-commands {
+            margin-top: 8px;
+            text-align: center;
+        }
+        #volume-control {
+            position: fixed;
+            top: 40px;
+            right: 10px;
+            background: #000;
+            border: 1px solid #c00;
+            color: #c00;
+            padding: 4px;
+            font-size: 10px;
+            z-index: 999;
+        }
+        #volume-slider {
+            width: 80px;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <button id="sound-toggle">🔊 ON</button>
+    <div id="volume-control">
+        <div>Volume:</div>
+        <input type="range" id="volume-slider" min="0" max="100" value="70">
+    </div>
+    <div id="header">
+        <h1>CASTLE OF THE UNDEAD</h1>
+        <div>1985 • NIGHTFALLS GAMES</div>
+    </div>
+    <div id="game-container">
+        <div id="output">Welcome to Castle of the Undead! Type 'help' for commands.</div>
+        <div id="input-line">
+            <span id="prompt">&gt;</span>
+            <input type="text" id="input" autocomplete="off" autofocus>
+        </div>
+        <div id="quick-commands">
+            <span class="quick-command" onclick="quickCommand('n')">N</span>
+            <span class="quick-command" onclick="quickCommand('s')">S</span>
+            <span class="quick-command" onclick="quickCommand('e')">E</span>
+            <span class="quick-command" onclick="quickCommand('w')">W</span>
+            <span class="quick-command" onclick="quickCommand('look')">LOOK</span>
+            <span class="quick-command" onclick="quickCommand('inventory')">INV</span>
+            <span class="quick-command" onclick="quickCommand('stats')">STATS</span>
+        </div>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        // ==================== SOUND SYSTEM ====================
+        class SoundSystem {
+            constructor() {
+                this.audioContext = null;
+                this.masterGain = null;
+                this.bgGain = null;
+                this.sfxGain = null;
+                this.enabled = true;
+                this.currentBg = null;
+                this.currentBgSource = null;
+                this.currentBgName = null;
+                
+                this.init();
+            }
+            
+            init() {
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.masterGain = this.audioContext.createGain();
+                    this.bgGain = this.audioContext.createGain();
+                    this.sfxGain = this.audioContext.createGain();
+                    
+                    // Set initial volumes
+                    this.masterGain.gain.value = 0.7;
+                    this.bgGain.gain.value = 0.3;
+                    this.sfxGain.gain.value = 0.5;
+                    
+                    // Connect nodes
+                    this.bgGain.connect(this.masterGain);
+                    this.sfxGain.connect(this.masterGain);
+                    this.masterGain.connect(this.audioContext.destination);
+                    
+                    // Volume control
+                    document.getElementById('volume-slider').addEventListener('input', (e) => {
+                        const volume = e.target.value / 100;
+                        this.setMasterVolume(volume);
+                    });
+                    
+                } catch (e) {
+                    console.log('Web Audio API not supported:', e);
+                    this.enabled = false;
+                }
+            }
+            
+            // ==================== GOTHIC MUSIC GENERATION ====================
+            playBackground(musicName, loop = true) {
+                if (!this.enabled || !musicName) return;
+                
+                // Don't restart same music
+                if (this.currentBgName === musicName && this.currentBgSource) {
+                    return;
+                }
+                
+                // Stop current background
+                this.stopBackground();
+                
+                this.currentBgName = musicName;
+                
+                // Generate music based on name
+                switch(musicName) {
+                    case 'gothic_theme':
+                        this.playGothicTheme(loop);
+                        break;
+                    case 'castle_halls':
+                        this.playCastleHallsMusic(loop);
+                        break;
+                    case 'dungeon_dread':
+                        this.playDungeonDreadMusic(loop);
+                        break;
+                    case 'draculas_lair':
+                        this.playDraculasLairMusic(loop);
+                        break;
+                    case 'victory_hymn':
+                        this.playVictoryHymn(loop);
+                        break;
+                    default:
+                        this.playGothicTheme(loop);
+                }
+            }
+            
+            playGothicTheme(loop) {
+                const melody = [
+                    {note: 130.81, duration: 0.4},
+                    {note: 164.81, duration: 0.4},
+                    {note: 196.00, duration: 0.4},
+                    {note: 146.83, duration: 0.4},
+                    {note: 174.61, duration: 0.8},
+                    {note: 130.81, duration: 0.4},
+                    {note: 123.47, duration: 0.4},
+                    {note: 130.81, duration: 0.8},
+                ];
+                
+                this.playGothicMelody(melody, 'sawtooth', loop, 0.15);
+            }
+            
+            playCastleHallsMusic(loop) {
+                const melody = [
+                    {note: 110.00, duration: 0.6},
+                    {note: 130.81, duration: 0.6},
+                    {note: 164.81, duration: 0.6},
+                    {note: 196.00, duration: 0.6},
+                    {note: 220.00, duration: 1.2},
+                ];
+                
+                this.playGothicMelody(melody, 'square', loop, 0.12);
+            }
+            
+            playDungeonDreadMusic(loop) {
+                const melody = [
+                    {note: 87.31, duration: 0.8},
+                    {note: 77.78, duration: 0.4},
+                    {note: 73.42, duration: 0.8},
+                    {note: 65.41, duration: 0.4},
+                    {note: 61.74, duration: 0.8},
+                ];
+                
+                this.playGothicMelody(melody, 'triangle', loop, 0.1);
+            }
+            
+            playDraculasLairMusic(loop) {
+                const melody = [
+                    {note: 261.63, duration: 0.2},
+                    {note: 311.13, duration: 0.2},
+                    {note: 349.23, duration: 0.2},
+                    {note: 415.30, duration: 0.4},
+                    {note: 349.23, duration: 0.2},
+                    {note: 311.13, duration: 0.2},
+                    {note: 261.63, duration: 0.4},
+                    {note: 233.08, duration: 0.8},
+                ];
+                
+                this.playGothicMelody(melody, 'sawtooth', loop, 0.2);
+            }
+            
+            playVictoryHymn(loop) {
+                const melody = [
+                    {note: 523.25, duration: 0.3},
+                    {note: 622.25, duration: 0.3},
+                    {note: 698.46, duration: 0.3},
+                    {note: 830.61, duration: 0.6},
+                    {note: 1046.50, duration: 0.6},
+                    {note: 830.61, duration: 0.3},
+                    {note: 1046.50, duration: 0.6},
+                    {note: 1244.51, duration: 1.0},
+                ];
+                
+                this.playGothicMelody(melody, 'sine', loop, 0.25);
+            }
+            
+            playGothicMelody(melody, waveType, loop, volume) {
+                if (!this.enabled) return;
+                
+                const now = this.audioContext.currentTime;
+                const source = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                source.type = waveType;
+                gainNode.connect(this.bgGain);
+                source.connect(gainNode);
+                
+                let currentTime = now;
+                melody.forEach((note, index) => {
+                    source.frequency.setValueAtTime(note.note, currentTime);
+                    
+                    gainNode.gain.setValueAtTime(0, currentTime);
+                    gainNode.gain.linearRampToValueAtTime(volume, currentTime + 0.05);
+                    gainNode.gain.exponentialRampToValueAtTime(volume * 0.3, currentTime + note.duration - 0.05);
+                    gainNode.gain.linearRampToValueAtTime(0, currentTime + note.duration);
+                    
+                    currentTime += note.duration;
+                });
+                
+                if (loop) {
+                    source.start(now);
+                    source.stop(now + currentTime - now);
+                    
+                    this.currentBg = setTimeout(() => {
+                        this.playGothicMelody(melody, waveType, loop, volume);
+                    }, (currentTime - now) * 1000);
+                } else {
+                    source.start(now);
+                    source.stop(now + currentTime - now);
+                }
+                
+                this.currentBgSource = source;
+            }
+            
+            stopBackground() {
+                if (this.currentBg) {
+                    clearTimeout(this.currentBg);
+                    this.currentBg = null;
+                }
+                if (this.currentBgSource) {
+                    try {
+                        this.currentBgSource.stop();
+                    } catch (e) {}
+                    this.currentBgSource = null;
+                }
+                this.currentBgName = null;
+            }
+            
+            // ==================== GOTHIC SOUND EFFECTS ====================
+            playSound(soundName, volume = 1.0) {
+                if (!this.enabled) return;
+                
+                switch(soundName) {
+                    case 'click':
+                        this.playGothicClick(volume);
+                        break;
+                    case 'notification':
+                        this.playGothicNotification(volume);
+                        break;
+                    case 'attack':
+                        this.playGothicAttack(volume);
+                        break;
+                    case 'enemyHit':
+                        this.playGothicEnemyHit(volume);
+                        break;
+                    case 'playerHit':
+                        this.playGothicPlayerHit(volume);
+                        break;
+                    case 'victory':
+                        this.playGothicVictory(volume);
+                        break;
+                    case 'pickup':
+                        this.playGothicPickup(volume);
+                        break;
+                    case 'door':
+                        this.playGothicDoor(volume);
+                        break;
+                    case 'step':
+                        this.playGothicStep(volume);
+                        break;
+                    case 'puzzle':
+                        this.playGothicPuzzle(volume);
+                        break;
+                    case 'error':
+                        this.playGothicError(volume);
+                        break;
+                    case 'equip':
+                        this.playGothicEquip(volume);
+                        break;
+                    case 'bat':
+                        this.playBatSound(volume);
+                        break;
+                    case 'howl':
+                        this.playHowlSound(volume);
+                        break;
+                }
+            }
+            
+            playGothicClick(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(600, now);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+            }
+            
+            playGothicNotification(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(300, now);
+                oscillator.frequency.exponentialRampToValueAtTime(600, now + 0.3);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+            }
+            
+            playGothicAttack(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(250, now);
+                oscillator.frequency.exponentialRampToValueAtTime(80, now + 0.2);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.5, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.2);
+            }
+            
+            playGothicEnemyHit(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(120, now);
+                oscillator.frequency.exponentialRampToValueAtTime(40, now + 0.3);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.6, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+            }
+            
+            playGothicPlayerHit(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(180, now);
+                oscillator.frequency.exponentialRampToValueAtTime(90, now + 0.2);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.5, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.2);
+            }
+            
+            playGothicVictory(volume) {
+                const now = this.audioContext.currentTime;
+                
+                const notes = [
+                    {freq: 523.25, time: 0.0, duration: 0.2},
+                    {freq: 622.25, time: 0.2, duration: 0.2},
+                    {freq: 698.46, time: 0.4, duration: 0.2},
+                    {freq: 830.61, time: 0.6, duration: 0.5},
+                ];
+                
+                notes.forEach(note => {
+                    const oscillator = this.audioContext.createOscillator();
+                    const gainNode = this.audioContext.createGain();
+                    
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(note.freq, now + note.time);
+                    
+                    gainNode.gain.setValueAtTime(0, now + note.time);
+                    gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + note.time + 0.05);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + note.time + note.duration);
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(this.sfxGain);
+                    
+                    oscillator.start(now + note.time);
+                    oscillator.stop(now + note.time + note.duration);
+                });
+            }
+            
+            playGothicPickup(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(900, now);
+                oscillator.frequency.exponentialRampToValueAtTime(1400, now + 0.1);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+            }
+            
+            playGothicDoor(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(180, now);
+                oscillator.frequency.exponentialRampToValueAtTime(90, now + 0.5);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.1);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.5);
+            }
+            
+            playGothicStep(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(350, now);
+                oscillator.frequency.exponentialRampToValueAtTime(180, now + 0.1);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.2, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+            }
+            
+            playGothicPuzzle(volume) {
+                const now = this.audioContext.currentTime;
+                
+                const notes = [370, 466, 554, 740];
+                
+                notes.forEach((note, index) => {
+                    const oscillator = this.audioContext.createOscillator();
+                    const gainNode = this.audioContext.createGain();
+                    
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(note, now + (index * 0.15));
+                    
+                    gainNode.gain.setValueAtTime(0, now + (index * 0.15));
+                    gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + (index * 0.15) + 0.05);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + (index * 0.15) + 0.2);
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(this.sfxGain);
+                    
+                    oscillator.start(now + (index * 0.15));
+                    oscillator.stop(now + (index * 0.15) + 0.2);
+                });
+            }
+            
+            playGothicError(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(90, now);
+                oscillator.frequency.setValueAtTime(70, now + 0.1);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+            }
+            
+            playGothicEquip(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(550, now);
+                oscillator.frequency.exponentialRampToValueAtTime(350, now + 0.2);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.4, now + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.2);
+            }
+            
+            playBatSound(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(5000, now);
+                oscillator.frequency.exponentialRampToValueAtTime(2000, now + 0.2);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.2, now + 0.01);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 0.2);
+            }
+            
+            playHowlSound(volume) {
+                const now = this.audioContext.currentTime;
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(300, now);
+                oscillator.frequency.exponentialRampToValueAtTime(150, now + 1.0);
+                oscillator.frequency.setValueAtTime(200, now + 1.2);
+                
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(volume * 0.3, now + 0.1);
+                gainNode.gain.setValueAtTime(volume * 0.2, now + 0.8);
+                gainNode.gain.linearRampToValueAtTime(0, now + 1.5);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.sfxGain);
+                
+                oscillator.start(now);
+                oscillator.stop(now + 1.5);
+            }
+            
+            // ==================== UTILITY METHODS ====================
+            setMasterVolume(volume) {
+                if (this.masterGain) {
+                    this.masterGain.gain.value = Math.max(0, Math.min(1, volume));
+                }
+            }
+            
+            toggle() {
+                this.enabled = !this.enabled;
+                const toggleBtn = document.getElementById('sound-toggle');
+                toggleBtn.textContent = this.enabled ? '🔊 ON' : '🔇 OFF';
+                
+                if (!this.enabled) {
+                    this.stopBackground();
+                } else if (gameStarted) {
+                    this.playBackground(currentBackground);
+                }
+                
+                this.playSound('click');
+            }
+            
+            resumeAudioContext() {
+                if (this.audioContext && this.audioContext.state === 'suspended') {
+                    this.audioContext.resume();
+                }
+            }
+        }
+
+        // ==================== GOTHIC CLASSES ====================
+        const classes = {
+            vampire_hunter: { 
+                hp: 35, mp: 12, str: 9, def: 7, int: 3,
+                desc: "A skilled hunter of the undead, armed with silver and faith.",
+                startingItem: 'silver_dagger'
+            },
+            witch_hunter: { 
+                hp: 25, mp: 20, str: 5, def: 4, int: 7,
+                desc: "A holy warrior who uses faith and scripture against darkness.",
+                startingItem: 'holy_symbol'
+            },
+            dhampir: { 
+                hp: 30, mp: 18, str: 7, def: 5, int: 6,
+                desc: "Half-vampire, half-human, with powers of both worlds.",
+                startingItem: 'blood_vial'
+            }
+        };
+
+        // ==================== 50 GOTHIC CASTLE ROOMS ====================
+        const rooms = [
+            { // Room 0: Castle Gates
+                id: 0,
+                desc: "CASTLE GATES: Massive iron gates creak in the wind. Moonlight casts long shadows. The air smells of decay.",
+                sound: 'gothic_theme',
+                exits: { n: 1, s: null, e: null, w: null },
+                items: ['torch'],
+                npc: null,
+                enemy: null,
+                container: 'gate_mechanism',
+                puzzle: null,
+                dark: true,
+                locked: false
+            },
+            { // Room 1: Courtyard
+                id: 1,
+                desc: "COURTYARD: A vast, overgrown courtyard. Dead trees claw at the sky. A dry fountain stands in the center.",
+                sound: 'castle_halls',
+                exits: { n: 2, s: 0, e: 3, w: 4 },
+                items: [],
+                npc: 'groundskeeper',
+                enemy: null,
+                container: 'fountain',
+                puzzle: null,
+                dark: false,
+                locked: false
+            },
+            { // Room 2: Main Hall
+                id: 2,
+                desc: "MAIN HALL: A grand hall with a massive chandelier. Tattered banners show a bat crest. Dust covers everything.",
+                sound: 'castle_halls',
+                exits: { n: 5, s: 1, e: 6, w: null },
+                items: ['candelabra'],
+                npc: null,
+                enemy: 'zombie_butler',
+                container: 'coat_rack',
+                puzzle: null,
+                dark: false,
+                locked: false
+            },
+            { // Room 3: Guard Room
+                id: 3,
+                desc: "GUARD ROOM: Rusted weapons on racks. Skeletons in tattered uniforms stand watch.",
+                sound: 'dungeon_dread',
+                exits: { n: 6, s: null, e: null, w: 1 },
+                items: ['rusty_sword'],
+                npc: null,
+                enemy: 'skeletal_guard',
+                container: 'weapon_rack',
+                puzzle: null,
+                dark: true,
+                locked: false
+            },
+            { // Room 4: Stables
+                id: 4,
+                desc: "STABLES: Empty stalls filled with moldy hay. The smell of death lingers.",
+                sound: 'dungeon_dread',
+                exits: { n: null, s: null, e: 1, w: 7 },
+                items: ['horse_shoe'],
+                npc: null,
+                enemy: 'nightmare_stallion',
+                container: 'tack_box',
+                puzzle: null,
+                dark: true,
+                locked: false
+            },
+            { // Room 5: Grand Staircase
+                id: 5,
+                desc: "GRAND STAIRCASE: A massive staircase winds upward. Portraits of pale nobles line the walls.",
+                sound: 'castle_halls',
+                exits: { n: 8, s: 2, e: null, w: null },
+                items: [],
+                npc: null,
+                enemy: null,
+                container: null,
+                puzzle: 'portrait_gaze',
+                dark: false,
+                locked: false
+            },
+            { // Room 6: Dining Hall
+                id: 6,
+                desc: "DINING HALL: A long table set for a feast that never came. Cobwebs drape the chairs.",
+                sound: 'castle_halls',
+                exits: { n: 9, s: 3, e: 10, w: 2 },
+                items: ['silver_goblet'],
+                npc: 'dining_ghost',
+                enemy: null,
+                container: 'banquet_table',
+                puzzle: 'feast_setting',
+                dark: false,
+                locked: false
+            },
+            { // Room 7: Kennels
+                id: 7,
+                desc: "KENNELS: Empty cages with broken locks. The walls show deep claw marks.",
+                sound: 'dungeon_dread',
+                exits: { n: null, s: null, e: 4, w: 11 },
+                items: ['wolf_pelt'],
+                npc: null,
+                enemy: 'dire_wolf',
+                container: 'kennel',
+                puzzle: null,
+                dark: true,
+                locked: false
+            },
+            { // Room 8: Upper Hallway
+                id: 8,
+                desc: "UPPER HALLWAY: A long hallway with suits of armor. Their helmets seem to turn as you pass.",
+                sound: 'castle_halls',
+                exits: { n: 12, s: 5, e: 13, w: null },
+                items: [],
+                npc: null,
+                enemy: 'animated_armor',
+                container: 'armor_stand',
+                puzzle: 'armor_formation',
+                dark: false,
+                locked: false
+            },
+            { // Room 9: Kitchen
+                id: 9,
+                desc: "KITCHEN: Massive hearths sit cold. Rusted cleavers hang from hooks. Something drips in the dark.",
+                sound: 'dungeon_dread',
+                exits: { n: 14, s: 6, e: null, w: null },
+                items: ['cleaver'],
+                npc: null,
+                enemy: 'kitchen_ghoul',
+                container: 'pantry',
+                puzzle: null,
+                dark: true,
+                locked: false
+            },
+            { // Room 10: Ballroom
+                id: 10,
+                desc: "BALLROOM: A vast empty dance floor. Mirrors line the walls, showing only darkness.",
+                sound: 'castle_halls',
+                exits: { n: 15, s: null, e: 16, w: 6 },
+                items: ['masquerade_mask'],
+                npc: 'waltzing_ghost',
+                enemy: null,
+                container: 'music_stand',
+                puzzle: 'phantom_waltz',
+                dark: false,
+                locked: false
+            },
+            { // Room 11: Dungeon Entrance
+                id: 11,
+                desc: "DUNGEON ENTRANCE: A heavy iron door leads down. The air grows colder. Chains rattle below.",
+                sound: 'dungeon_dread',
+                exits: { n: 17, s: null, e: 7, w: null },
+                items: ['rusty_key'],
+                npc: 'jailer',
+                enemy: null,
+                container: 'guard_desk',
+                puzzle: null,
+                dark: true,
+                locked: false
+            },
+            { // Room 12: Library
+                id: 12,
+                desc: "LIBRARY: Dusty tomes line floor-to-ceiling shelves. A single candle burns on a desk.",
+                sound: 'castle_halls',
+                exits: { n: 18, s: 8, e: 19, w: null },
+                items: ['ancient_tome'],
+                npc: 'librarian_ghost',
+                enemy: null,
+                container: 'writing_desk',
+                puzzle: 'forbidden_knowledge',
+                dark: false,
+                locked: false
+            },
+            { // Room 13: Trophy Room
+                id: 13,
+                desc: "TROPHY ROOM: Mounted heads of strange beasts. Their glass eyes seem to follow you.",
+                sound: 'castle_halls',
+                exits: { n: 19, s: null, e: 20, w: 8 },
+                items: ['werewolf_fang'],
+                npc: null,
+                enemy: 'taxidermy_beast',
+                container: 'trophy_case',
+                puzzle: 'hunter_trophy',
+                dark: false,
+                locked: false
+            },
+            { // Room 14: Pantry
+                id: 14,
+                desc: "PANTRY: Shelves of preserved food, now rotten. Jars contain unidentifiable things.",
+                sound: 'dungeon_dread',
+                exits: { n: 21, s: 9, e: null, w: null },
+                items: ['garlic_bundle'],
+                npc: null,
+                enemy: 'rat_swarm',
+                container: 'food_barrel',
+                puzzle: null,
+                dark: true,
+                locked: false
+            },
+            { // Room 15: Observatory
+                id: 15,
+                desc: "OBSERVATORY: A telescope points at the blood-red moon. Star charts show unnatural constellations.",
+                sound: 'castle_halls',
+                exits: { n: 22, s: 10, e: null, w: null },
+                items: ['star_chart'],
+                npc: 'astronomer',
+                enemy: null,
+                container: 'telescope',
+                puzzle: 'blood_moon',
+                dark: false,
+                locked: false
+            },
+            { // Room 16: Music Room
+                id: 16,
+                desc: "MUSIC ROOM: Instruments sit untouched. A grand piano's keys press themselves.",
+                sound: 'castle_halls',
+                exits: { n: 23, s: null, e: 24, w: 10 },
+                items: ['music_box'],
+                npc: null,
+                enemy: 'phantom_musician',
+                container: 'piano_bench',
+                puzzle: 'requiem',
+                dark: false,
+                locked: false
+            },
+            { // Room 17: Dungeon Cells
+                id: 17,
+                desc: "DUNGEON CELLS: Rusted bars contain skeletal remains. Chains hang from the ceiling.",
+                sound: 'dungeon_dread',
+                exits: { n: 25, s: 11, e: null, w: null },
+                items: ['prisoner_shackles'],
+                npc: 'prisoner_ghost',
+                enemy: null,
+                container: 'prison_cell',
+                puzzle: 'escape_plan',
+                dark: true,
+                locked: false
+            },
+            { // Room 18: Study
+                id: 18,
+                desc: "STUDY: A large desk with quills and ink. Maps of Transylvania cover the walls.",
+                sound: 'castle_halls',
+                exits: { n: 26, s: 12, e: 27, w: null },
+                items: ['vampire_map'],
+                npc: null,
+                enemy: 'ink_golem',
+                container: 'study_desk',
+                puzzle: 'coded_diary',
+                dark: false,
+                locked: false
+            },
+            { // Room 19: Gallery
+                id: 19,
+                desc: "PORTRAIT GALLERY: Paintings of the castle's lords. Their eyes glow red in the candlelight.",
+                sound: 'castle_halls',
+                exits: { n: 27, s: 13, e: null, w: 12 },
+                items: ['noble_portrait'],
+                npc: null,
+                enemy: 'living_portrait',
+                container: null,
+                puzzle: 'family_lineage',
+                dark: false,
+                locked: false
+            },
+            { // Room 20: Armory
+                id: 20,
+                desc: "ARMORY: Weapons and armor from centuries past. A suit of black plate armor stands sentinel.",
+                sound: 'castle_halls',
+                exits: { n: 28, s: null, e: null, w: 13 },
+                items: ['crossbow'],
+                npc: 'armorer',
+                enemy: null,
+                container: 'weapon_chest',
+                puzzle: 'blacksmith_riddle',
+                dark: false,
+                locked: false
+            },
+            { // Room 21: Wine Cellar
+                id: 21,
+                desc: "WINE CELLAR: Rows of dusty bottles. Some contain dark red liquid that isn't wine.",
+                sound: 'dungeon_dread',
+                exits: { n: 29, s: 14, e: null, w: null },
+                items: ['blood_wine'],
+                npc: null,
+                enemy: 'vampire_spawn',
+                container: 'wine_rack',
+                puzzle: 'vintage_selection',
+                dark: true,
+                locked: false
+            },
+            { // Room 22: Tower Stairs
+                id: 22,
+                desc: "TOWER STAIRS: A narrow spiral staircase winds upward. Bats flutter in the shadows.",
+                sound: 'dungeon_dread',
+                exits: { n: 30, s: 15, e: null, w: null },
+                items: [],
+                npc: null,
+                enemy: null,
+                container: null,
+                puzzle: null,
+                dark: true,
+                locked: false
+            },
+            { // Room 23: Harpsichord Room
+                id: 23,
+                desc: "HARPSICHORD ROOM: An ornate harpsichord plays a haunting melody by itself.",
+                sound: 'castle_halls',
+                exits: { n: 31, s: 16, e: null, w: null },
+                items: ['sheet_music'],
+                npc: null,
+                enemy: 'musical_phantom',
+                container: 'music_stand',
+                puzzle: 'melodic_lock',
+                dark: false,
+                locked: false
+            },
+            { // Room 24: Chapel
+                id: 24,
+                desc: "CHAPEL: A desecrated chapel. The altar is stained black. Stained glass shows fallen angels.",
+                sound: 'dungeon_dread',
+                exits: { n: 32, s: null, e: 33, w: 16 },
+                items: ['desecrated_host'],
+                npc: 'fallen_priest',
+                enemy: null,
+                container: 'confessional',
+                puzzle: 'unholy_ritual',
+                dark: false,
+                locked: false
+            },
+            { // Room 25: Torture Chamber
+                id: 25,
+                desc: "TORTURE CHAMBER: Rusty implements of pain. A rack stands ready. The floor is stained.",
+                sound: 'dungeon_dread',
+                exits: { n: 34, s: 17, e: null, w: null },
+                items: ['iron_maiden_spike'],
+                npc: null,
+                enemy: 'torturer_ghost',
+                container: 'tool_rack',
+                puzzle: 'painful_puzzle',
+                dark: true,
+                locked: false
+            },
+            { // Room 26: Laboratory
+                id: 26,
+                desc: "LABORATORY: Alchemical apparatus bubbles with strange liquids. A corpse lies on a slab.",
+                sound: 'dungeon_dread',
+                exits: { n: 35, s: 18, e: 36, w: null },
+                items: ['alchemical_salt'],
+                npc: 'mad_scientist',
+                enemy: null,
+                container: 'lab_table',
+                puzzle: 'reanimation_formula',
+                dark: false,
+                locked: false
+            },
+            { // Room 27: Smoking Room
+                id: 27,
+                desc: "SMOKING ROOM: Leather chairs and a fireplace. A pipe still smokes in an ashtray.",
+                sound: 'castle_halls',
+                exits: { n: 36, s: 19, e: null, w: 18 },
+                items: ['silver_pipe'],
+                npc: 'gentleman_ghost',
+                enemy: null,
+                container: 'tobacco_box',
+                puzzle: 'smoke_signals',
+                dark: false,
+                locked: false
+            },
+            { // Room 28: Training Room
+                id: 28,
+                desc: "TRAINING ROOM: Practice dummies and weapons racks. Scratch marks cover the walls.",
+                sound: 'castle_halls',
+                exits: { n: 37, s: 20, e: null, w: null },
+                items: ['training_sword'],
+                npc: null,
+                enemy: 'sparring_phantom',
+                container: 'weapon_rack',
+                puzzle: 'combat_stances',
+                dark: false,
+                locked: false
+            },
+            { // Room 29: Crypt Entrance
+                id: 29,
+                desc: "CRYPT ENTRANCE: Stone steps lead down into earth. The air smells of damp soil and decay.",
+                sound: 'dungeon_dread',
+                exits: { n: 38, s: 21, e: null, w: null },
+                items: ['funeral_candle'],
+                npc: null,
+                enemy: 'grave_wight',
+                container: null,
+                puzzle: null,
+                dark: true,
+                locked: false
+            },
+            { // Room 30: Watchtower
+                id: 30,
+                desc: "WATCHTOWER: The highest point of the castle. The full moon hangs blood-red in the sky.",
+                sound: 'draculas_lair',
+                exits: { n: null, s: 22, e: null, w: null },
+                items: ['spyglass'],
+                npc: null,
+                enemy: null,
+                container: 'watch_desk',
+                puzzle: 'moon_observation',
+                dark: false,
+                locked: false
+            },
+            { // Room 31: Organ Loft
+                id: 31,
+                desc: "ORGAN LOFT: A massive pipe organ. Dusty pipes reach to the ceiling.",
+                sound: 'castle_halls',
+                exits: { n: 39, s: 23, e: null, w: null },
+                items: ['organ_key'],
+                npc: null,
+                enemy: 'organist_ghost',
+                container: 'music_stand',
+                puzzle: 'pipe_sequence',
+                dark: false,
+                locked: false
+            },
+            { // Room 32: Bell Tower
+                id: 32,
+                desc: "BELL TOWER: A massive iron bell hangs silent. Ropes dangle like nooses.",
+                sound: 'dungeon_dread',
+                exits: { n: 40, s: 24, e: null, w: null },
+                items: ['bell_rope'],
+                npc: null,
+                enemy: null,
+                container: null,
+                puzzle: 'midnight_chime',
+                dark: false,
+                locked: false
+            },
+            { // Room 33: Catacombs Entrance
+                id: 33,
+                desc: "CATACOMBS ENTRANCE: A stone archway leads into darkness. Bones line the walls.",
+                sound: 'dungeon_dread',
+                exits: { n: 41, s: null, e: null, w: 24 },
+                items: ['holy_water'],
+                npc: null,
+                enemy: 'skeletal_guardian',
+                container: 'ossuary',
+                puzzle: null,
+                dark: true,
+                locked: false
+            },
+            { // Room 34: Oubliette
+                id: 34,
+                desc: "OUBLIETTE: A deep pit with no exit. Bones litter the bottom. A single rope hangs down.",
+                sound: 'dungeon_dread',
+                exits: { n: null, s: 25, e: null, w: null },
+                items: ['prisoner_bone'],
+                npc: 'forgotten_ghost',
+                enemy: null,
+                container: null,
+                puzzle: 'escape_rope',
+                dark: true,
+                locked: true
+            },
+            { // Room 35: Greenhouse
+                id: 35,
+                desc: "GREENHOUSE: Glass panes are broken. Poisonous plants grow wildly in the moonlight.",
+                sound: 'dungeon_dread',
+                exits: { n: 42, s: 26, e: null, w: null },
+                items: ['nightshade'],
+                npc: null,
+                enemy: 'carnivorous_plant',
+                container: 'plant_table',
+                puzzle: 'poisonous_puzzle',
+                dark: false,
+                locked: false
+            },
+            { // Room 36: Guest Room
+                id: 36,
+                desc: "GUEST ROOM: A lavish bedroom untouched for centuries. Dust covers silk sheets.",
+                sound: 'castle_halls',
+                exits: { n: 43, s: 27, e: null, w: 26 },
+                items: ['silk_handkerchief'],
+                npc: 'guest_ghost',
+                enemy: null,
+                container: 'wardrobe',
+                puzzle: 'unwelcome_guest',
+                dark: false,
+                locked: false
+            },
+            { // Room 37: Barracks
+                id: 37,
+                desc: "BARRACKS: Bunk beds line the walls. Military gear lies where it was dropped.",
+                sound: 'castle_halls',
+                exits: { n: 44, s: 28, e: null, w: null },
+                items: ['soldier_diary'],
+                npc: null,
+                enemy: 'soldier_ghost',
+                container: 'footlocker',
+                puzzle: 'military_code',
+                dark: false,
+                locked: false
+            },
+            { // Room 38: Family Crypt
+                id: 38,
+                desc: "FAMILY CRYPT: Stone sarcophagi bear the names of the castle's lords. One lid is ajar.",
+                sound: 'dungeon_dread',
+                exits: { n: 45, s: 29, e: null, w: null },
+                items: ['ancestral_seal'],
+                npc: null,
+                enemy: 'vampire_noble',
+                container: 'sarcophagus',
+                puzzle: 'bloodline_seal',
+                dark: true,
+                locked: false
+            },
+            { // Room 39: Roof Access
+                id: 39,
+                desc: "ROOF ACCESS: A trapdoor leads to the roof. Wind howls through gaps.",
+                sound: 'draculas_lair',
+                exits: { n: 46, s: 31, e: null, w: null },
+                items: [],
+                npc: null,
+                enemy: 'gargoyle',
+                container: null,
+                puzzle: null,
+                dark: false,
+                locked: false
+            },
+            { // Room 40: Clock Tower
+                id: 40,
+                desc: "CLOCK TOWER: Massive gears turn slowly. The clock reads perpetually midnight.",
+                sound: 'dungeon_dread',
+                exits: { n: 47, s: 32, e: null, w: null },
+                items: ['clock_hand'],
+                npc: 'clockmaker',
+                enemy: null,
+                container: 'gear_box',
+                puzzle: 'eternal_midnight',
+                dark: false,
+                locked: false
+            },
+            { // Room 41: Catacombs
+                id: 41,
+                desc: "CATACOMBS: Narrow tunnels lined with bones. Strange symbols mark the walls.",
+                sound: 'dungeon_dread',
+                exits: { n: 48, s: 33, e: null, w: null },
+                items: ['ancient_bone'],
+                npc: null,
+                enemy: 'catacomb_wraith',
+                container: 'bone_niche',
+                puzzle: 'bone_arrangement',
+                dark: true,
+                locked: false
+            },
+            { // Room 42: Poison Garden
+                id: 42,
+                desc: "POISON GARDEN: Deadly plants grow in unnatural colors. The air smells sweet and toxic.",
+                sound: 'dungeon_dread',
+                exits: { n: null, s: 35, e: null, w: null },
+                items: ['wolfsbane'],
+                npc: 'herbalist',
+                enemy: null,
+                container: 'garden_tool_shed',
+                puzzle: 'antidote_mix',
+                dark: false,
+                locked: false
+            },
+            { // Room 43: Master Bedroom
+                id: 43,
+                desc: "MASTER BEDROOM: A massive four-poster bed with black curtains. A coffin leans against the wall.",
+                sound: 'draculas_lair',
+                exits: { n: null, s: 36, e: null, w: null },
+                items: ['vampire_cloak'],
+                npc: null,
+                enemy: 'brides_of_dracula',
+                container: 'coffin',
+                puzzle: 'daylight_rest',
+                dark: false,
+                locked: false
+            },
+            { // Room 44: Captain's Quarters
+                id: 44,
+                desc: "CAPTAIN'S QUARTERS: Maps and strategy tables. A silver sword hangs above the fireplace.",
+                sound: 'castle_halls',
+                exits: { n: null, s: 37, e: null, w: null },
+                items: ['silver_sword'],
+                npc: 'captain_ghost',
+                enemy: null,
+                container: 'captains_desk',
+                puzzle: 'battle_plan',
+                dark: false,
+                locked: false
+            },
+            { // Room 45: Ancient Tomb
+                id: 45,
+                desc: "ANCIENT TOMB: The oldest part of the crypt. Writing in an unknown language covers the walls.",
+                sound: 'dungeon_dread',
+                exits: { n: 49, s: 38, e: null, w: null },
+                items: ['vampire_dust'],
+                npc: 'ancient_vampire',
+                enemy: null,
+                container: 'stone_sarcophagus',
+                puzzle: 'forgotten_language',
+                dark: true,
+                locked: false
+            },
+            { // Room 46: Roof
+                id: 46,
+                desc: "ROOF: The castle's highest point. Bats swarm against the moon. A lightning rod crackles.",
+                sound: 'draculas_lair',
+                exits: { n: null, s: 39, e: null, w: null },
+                items: ['lightning_rod'],
+                npc: null,
+                enemy: 'storm_elemental',
+                container: null,
+                puzzle: 'lightning_strike',
+                dark: false,
+                locked: false
+            },
+            { // Room 47: Clock Mechanism
+                id: 47,
+                desc: "CLOCK MECHANISM: Massive gears and weights. The pendulum swings silently.",
+                sound: 'dungeon_dread',
+                exits: { n: null, s: 40, e: null, w: null },
+                items: ['main_spring'],
+                npc: null,
+                enemy: 'clockwork_beast',
+                container: 'mechanism_box',
+                puzzle: 'time_dilation',
+                dark: false,
+                locked: false
+            },
+            { // Room 48: Deep Catacombs
+                id: 48,
+                desc: "DEEP CATACOMBS: The air grows thick. Ancient burial urns line niches in the walls.",
+                sound: 'dungeon_dread',
+                exits: { n: null, s: 41, e: null, w: null },
+                items: ['funeral_urn'],
+                npc: null,
+                enemy: 'lich_king',
+                container: 'burial_niche',
+                puzzle: 'soul_vessel',
+                dark: true,
+                locked: false
+            },
+            { // Room 49: Dracula's Throne Room
+                id: 49,
+                desc: "THRONE ROOM: A massive throne of bone and obsidian. Dark energy pulses through the room.",
+                sound: 'draculas_lair',
+                exits: { n: null, s: 45, e: null, w: null },
+                items: [],
+                npc: null,
+                enemy: 'dracula',
+                container: 'dark_throne',
+                puzzle: 'final_confrontation',
+                dark: false,
+                locked: false
+            }
+        ];
+
+        // ==================== GOTHIC ITEMS ====================
+        const items = {
+            // Starting items
+            torch: {
+                name: "Torch",
+                desc: "A flickering torch that provides light in dark rooms.",
+                type: "tool",
+                usable: true,
+                effect: "lights dark rooms, scares some undead",
+                value: 5,
+                keywords: ["torch", "light"]
+            },
+            silver_dagger: {
+                name: "Silver Dagger",
+                desc: "A dagger made of pure silver. Effective against vampires and werewolves.",
+                type: "weapon",
+                damage: 12,
+                value: 50,
+                keywords: ["dagger", "silver dagger", "weapon"]
+            },
+            holy_symbol: {
+                name: "Holy Symbol",
+                desc: "A blessed symbol that repels the undead.",
+                type: "tool",
+                value: 30,
+                keywords: ["holy symbol", "symbol", "cross"]
+            },
+            blood_vial: {
+                name: "Blood Vial",
+                desc: "A vial of blood. Can be consumed to heal a dhampir.",
+                type: "consumable",
+                effect: "restores 25 HP to dhampir",
+                value: 20,
+                keywords: ["blood", "vial", "blood vial"]
+            },
+            
+            // Common items
+            rusty_sword: {
+                name: "Rusty Sword",
+                desc: "An old sword covered in rust. Still sharp enough to hurt.",
+                type: "weapon",
+                damage: 8,
+                value: 15,
+                keywords: ["sword", "rusty sword", "weapon"]
+            },
+            candelabra: {
+                name: "Silver Candelabra",
+                desc: "A heavy candelabra that can be used as a weapon or light source.",
+                type: "weapon",
+                damage: 6,
+                value: 25,
+                keywords: ["candelabra", "candle holder", "weapon"]
+            },
+            horse_shoe: {
+                name: "Horseshoe",
+                desc: "An iron horseshoe. Said to bring luck and repel evil spirits.",
+                type: "tool",
+                value: 10,
+                keywords: ["horseshoe", "luck"]
+            },
+            silver_goblet: {
+                name: "Silver Goblet",
+                desc: "An ornate silver drinking cup. Might be cursed.",
+                type: "treasure",
+                value: 75,
+                keywords: ["goblet", "silver goblet", "cup"]
+            },
+            wolf_pelt: {
+                name: "Wolf Pelt",
+                desc: "The pelt of a large wolf. Thick and warm.",
+                type: "component",
+                value: 20,
+                keywords: ["pelt", "wolf pelt", "fur"]
+            },
+            rusty_key: {
+                name: "Rusty Key",
+                desc: "An old iron key, covered in rust.",
+                type: "key",
+                value: 5,
+                keywords: ["key", "rusty key"]
+            },
+            ancient_tome: {
+                name: "Ancient Tome",
+                desc: "A heavy book bound in leather. Written in an unknown language.",
+                type: "document",
+                value: 40,
+                keywords: ["tome", "book", "ancient tome"]
+            },
+            werewolf_fang: {
+                name: "Werewolf Fang",
+                desc: "A large canine tooth from a werewolf.",
+                type: "component",
+                value: 35,
+                keywords: ["fang", "werewolf fang", "tooth"]
+            },
+            garlic_bundle: {
+                name: "Garlic Bundle",
+                desc: "A bundle of fresh garlic. Repels vampires.",
+                type: "tool",
+                usable: true,
+                effect: "repels vampires temporarily",
+                value: 15,
+                keywords: ["garlic", "bundle"]
+            },
+            star_chart: {
+                name: "Star Chart",
+                desc: "A chart of unnatural constellations.",
+                type: "document",
+                value: 25,
+                keywords: ["chart", "star chart", "stars"]
+            },
+            music_box: {
+                name: "Music Box",
+                desc: "A delicate box that plays a haunting melody.",
+                type: "tool",
+                value: 30,
+                keywords: ["music box", "box"]
+            },
+            prisoner_shackles: {
+                name: "Prisoner Shackles",
+                desc: "Heavy iron shackles. Could be used as a weapon.",
+                type: "weapon",
+                damage: 5,
+                value: 8,
+                keywords: ["shackles", "chains"]
+            },
+            vampire_map: {
+                name: "Vampire Map",
+                desc: "A map showing vampire hunting grounds.",
+                type: "document",
+                value: 20,
+                keywords: ["map", "vampire map"]
+            },
+            noble_portrait: {
+                name: "Noble Portrait",
+                desc: "A painting of a pale nobleman.",
+                type: "treasure",
+                value: 60,
+                keywords: ["portrait", "painting", "noble"]
+            },
+            crossbow: {
+                name: "Heavy Crossbow",
+                desc: "A powerful crossbow that fires wooden bolts.",
+                type: "weapon",
+                damage: 18,
+                value: 65,
+                keywords: ["crossbow", "ranged weapon"]
+            },
+            blood_wine: {
+                name: "Blood Wine",
+                desc: "A dark red wine with a metallic scent.",
+                type: "consumable",
+                effect: "restores 15 HP but may cause vampirism",
+                value: 30,
+                keywords: ["wine", "blood wine", "drink"]
+            },
+            sheet_music: {
+                name: "Sheet Music",
+                desc: "Music for a haunting requiem.",
+                type: "document",
+                value: 10,
+                keywords: ["music", "sheet music", "notes"]
+            },
+            desecrated_host: {
+                name: "Desecrated Host",
+                desc: "A communion wafer that has been corrupted.",
+                type: "component",
+                value: 25,
+                keywords: ["host", "wafer", "communion"]
+            },
+            iron_maiden_spike: {
+                name: "Iron Maiden Spike",
+                desc: "A sharp spike from a torture device.",
+                type: "weapon",
+                damage: 10,
+                value: 20,
+                keywords: ["spike", "iron maiden", "weapon"]
+            },
+            alchemical_salt: {
+                name: "Alchemical Salt",
+                desc: "Salt used in alchemical experiments.",
+                type: "component",
+                value: 15,
+                keywords: ["salt", "alchemical salt"]
+            },
+            silver_pipe: {
+                name: "Silver Pipe",
+                desc: "An ornate smoking pipe made of silver.",
+                type: "treasure",
+                value: 45,
+                keywords: ["pipe", "silver pipe"]
+            },
+            training_sword: {
+                name: "Training Sword",
+                desc: "A wooden practice sword.",
+                type: "weapon",
+                damage: 4,
+                value: 8,
+                keywords: ["sword", "training sword", "wooden"]
+            },
+            funeral_candle: {
+                name: "Funeral Candle",
+                desc: "A black candle that burns with a cold flame.",
+                type: "tool",
+                usable: true,
+                effect: "lights area, reveals hidden spirits",
+                value: 20,
+                keywords: ["candle", "funeral candle", "light"]
+            },
+            spyglass: {
+                name: "Brass Spyglass",
+                desc: "A telescoping spyglass for seeing distant objects.",
+                type: "tool",
+                value: 40,
+                keywords: ["spyglass", "telescope"]
+            },
+            organ_key: {
+                name: "Organ Key",
+                desc: "A large key for winding a pipe organ.",
+                type: "key",
+                value: 12,
+                keywords: ["key", "organ key"]
+            },
+            bell_rope: {
+                name: "Bell Rope",
+                desc: "A heavy rope attached to a bell.",
+                type: "tool",
+                value: 8,
+                keywords: ["rope", "bell rope"]
+            },
+            holy_water: {
+                name: "Holy Water",
+                desc: "Water blessed by a priest. Burns the undead.",
+                type: "weapon",
+                damage: 15,
+                value: 35,
+                keywords: ["holy water", "water", "blessed"]
+            },
+            prisoner_bone: {
+                name: "Prisoner Bone",
+                desc: "A human bone from a prisoner.",
+                type: "component",
+                value: 5,
+                keywords: ["bone", "prisoner bone"]
+            },
+            nightshade: {
+                name: "Nightshade",
+                desc: "A poisonous plant that grows in moonlight.",
+                type: "component",
+                value: 20,
+                keywords: ["nightshade", "plant", "poison"]
+            },
+            silk_handkerchief: {
+                name: "Silk Handkerchief",
+                desc: "A delicate silk handkerchief monogrammed with 'D'.",
+                type: "treasure",
+                value: 30,
+                keywords: ["handkerchief", "silk", "cloth"]
+            },
+            soldier_diary: {
+                name: "Soldier's Diary",
+                desc: "A diary detailing the castle's fall.",
+                type: "document",
+                value: 15,
+                keywords: ["diary", "soldier diary", "journal"]
+            },
+            ancestral_seal: {
+                name: "Ancestral Seal",
+                desc: "A wax seal of the castle's ruling family.",
+                type: "treasure",
+                value: 50,
+                keywords: ["seal", "ancestral seal", "wax"]
+            },
+            clock_hand: {
+                name: "Clock Hand",
+                desc: "A hand from a clock tower.",
+                type: "component",
+                value: 10,
+                keywords: ["clock hand", "hand", "gear"]
+            },
+            ancient_bone: {
+                name: "Ancient Bone",
+                desc: "A bone inscribed with runes.",
+                type: "component",
+                value: 25,
+                keywords: ["bone", "ancient bone", "rune"]
+            },
+            wolfsbane: {
+                name: "Wolfsbane",
+                desc: "A purple flower toxic to werewolves.",
+                type: "tool",
+                usable: true,
+                effect: "weakens werewolves",
+                value: 30,
+                keywords: ["wolfsbane", "flower", "plant"]
+            },
+            vampire_cloak: {
+                name: "Vampire Cloak",
+                desc: "A black velvet cloak that billows without wind.",
+                type: "armor",
+                defense: 5,
+                value: 80,
+                keywords: ["cloak", "vampire cloak", "armor"]
+            },
+            silver_sword: {
+                name: "Silver Sword",
+                desc: "A beautifully crafted sword of pure silver.",
+                type: "weapon",
+                damage: 20,
+                value: 150,
+                keywords: ["sword", "silver sword", "weapon"]
+            },
+            vampire_dust: {
+                name: "Vampire Dust",
+                desc: "Dust from an ancient vampire.",
+                type: "component",
+                value: 100,
+                keywords: ["dust", "vampire dust", "ashes"]
+            },
+            lightning_rod: {
+                name: "Lightning Rod",
+                desc: "A copper rod that attracts lightning.",
+                type: "weapon",
+                damage: 25,
+                value: 60,
+                keywords: ["lightning rod", "rod", "weapon"]
+            },
+            main_spring: {
+                name: "Main Spring",
+                desc: "The main spring from a clock mechanism.",
+                type: "component",
+                value: 15,
+                keywords: ["spring", "main spring", "clock"]
+            },
+            funeral_urn: {
+                name: "Funeral Urn",
+                desc: "A clay urn containing ashes.",
+                type: "container",
+                value: 20,
+                keywords: ["urn", "funeral urn", "ashes"]
+            },
+            
+            // Special items
+            wooden_stake: {
+                name: "Wooden Stake",
+                desc: "A sharpened stake of ash wood. For vampire hunting.",
+                type: "weapon",
+                damage: 30,
+                value: 40,
+                keywords: ["stake", "wooden stake", "vampire killer"]
+            },
+            garlic_paste: {
+                name: "Garlic Paste",
+                desc: "A potent paste made from crushed garlic.",
+                type: "tool",
+                usable: true,
+                effect: "repels vampires strongly",
+                value: 25,
+                keywords: ["garlic paste", "paste", "garlic"]
+            },
+            mirror_shard: {
+                name: "Mirror Shard",
+                desc: "A shard of silvered glass. Vampires cast no reflection.",
+                type: "tool",
+                value: 20,
+                keywords: ["mirror", "shard", "glass"]
+            },
+            sunlight_amulet: {
+                name: "Sunlight Amulet",
+                desc: "An amulet that stores sunlight.",
+                type: "tool",
+                usable: true,
+                effect: "emits sunlight once per day",
+                value: 200,
+                keywords: ["amulet", "sunlight", "holy"]
+            }
+        };
+
+        // ==================== GOTHIC NPCS ====================
+        const npcs = {
+            groundskeeper: {
+                name: "Old Groundskeeper",
+                desc: "A hunched old man tending to dead plants.",
+                dialog: "The master doesn't like visitors... Best turn back now.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "find",
+                    target: "rusty_key",
+                    reward: "garlic_bundle"
+                },
+                trade: null
+            },
+            dining_ghost: {
+                name: "Lady Eveline",
+                desc: "A ghostly noblewoman eternally waiting for dinner guests.",
+                dialog: "The feast is prepared, but the wine has turned... Bring me fresh wine from the cellar.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["blood_wine"],
+                    reward: "silver_goblet"
+                },
+                trade: null
+            },
+            jailer: {
+                name: "Jailer Mort",
+                desc: "A skeletal figure clutching a ring of keys.",
+                dialog: "No one escapes my dungeon... Unless they have the master's key.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["rusty_key"],
+                    reward: "prisoner_shackles"
+                },
+                trade: null
+            },
+            librarian_ghost: {
+                name: "Librarian Von Helsing",
+                desc: "A ghostly scholar surrounded by books.",
+                dialog: "I was researching ways to destroy the master when he turned me... The answer is in the ancient tome.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "read",
+                    target: "ancient_tome",
+                    reward: "wooden_stake"
+                },
+                trade: null
+            },
+            armorer: {
+                name: "Armorer Brant",
+                desc: "A burly ghost hammering at a forge.",
+                dialog: "Silver weapons work best against the creatures here. I can make one if you bring me silver.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["silver_goblet"],
+                    reward: "silver_sword"
+                },
+                trade: {
+                    buy: ["rusty_sword", "crossbow"],
+                    sell: true
+                }
+            },
+            waltzing_ghost: {
+                name: "Countess Isabella",
+                desc: "A beautiful ghost in a ballgown, eternally dancing.",
+                dialog: "The music stopped when he left... Play the music box and dance with me.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "use",
+                    target: "music_box",
+                    location: "ballroom",
+                    reward: "masquerade_mask"
+                },
+                trade: null
+            },
+            fallen_priest: {
+                name: "Father Lucian",
+                desc: "A priest whose faith was corrupted.",
+                dialog: "I tried to bless this place, but the darkness was too strong... Holy water might still work.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "bless",
+                    target: "holy_water",
+                    reward: "holy_symbol"
+                },
+                trade: null
+            },
+            mad_scientist: {
+                name: "Dr. Frankenstein",
+                desc: "A wild-eyed man surrounded by scientific equipment.",
+                dialog: "Life after death is possible! Bring me nightshade and alchemical salt!",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["nightshade", "alchemical_salt"],
+                    reward: "lightning_rod"
+                },
+                trade: null
+            },
+            gentleman_ghost: {
+                name: "Lord Blackwood",
+                desc: "A ghostly gentleman smoking a pipe.",
+                dialog: "Terrible business, this undead plague. The answer lies in the stars, I believe.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["star_chart"],
+                    reward: "silver_pipe"
+                },
+                trade: null
+            },
+            herbalist: {
+                name: "Herbalist Greta",
+                desc: "An old woman tending poisonous plants.",
+                dialog: "Every poison has an antidote. Wolfsbane cures werewolf bites, but garlic repels vampires.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "give",
+                    target: ["wolfsbane", "garlic_bundle"],
+                    reward: "garlic_paste"
+                },
+                trade: {
+                    buy: ["nightshade", "wolfsbane"],
+                    sell: true
+                }
+            },
+            captain_ghost: {
+                name: "Captain Reinhardt",
+                desc: "A military ghost studying battle plans.",
+                dialog: "We failed to storm the castle... The silver sword above the fireplace is the only thing that can hurt him.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "take",
+                    target: "silver_sword",
+                    reward: "vampire_map"
+                },
+                trade: null
+            },
+            ancient_vampire: {
+                name: "Ancient One",
+                desc: "An impossibly old vampire resting in his tomb.",
+                dialog: "I am older than the castle itself... Dracula is but a child compared to me. Take my dust - it may help you.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "talk",
+                    target: null,
+                    reward: "vampire_dust"
+                },
+                trade: null
+            },
+            clockmaker: {
+                name: "Clockmaker Tock",
+                desc: "A tiny clockwork automaton.",
+                dialog: "The clock stopped at midnight, when the curse began. Fix it and you may break the curse!",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "fix",
+                    target: "clock",
+                    parts: ["clock_hand", "main_spring"],
+                    reward: "sunlight_amulet"
+                },
+                trade: null
+            },
+            astronomer: {
+                name: "Astronomer Celestine",
+                desc: "A ghostly woman charting the stars.",
+                dialog: "The blood moon rises when Dracula awakens. Only sunlight can defeat him.",
+                quest: {
+                    given: false,
+                    completed: false,
+                    type: "observe",
+                    target: "blood_moon",
+                    reward: "star_chart"
+                },
+                trade: null
+            }
+        };
+
+        // ==================== GOTHIC ENEMIES ====================
+        const enemies = {
+            zombie_butler: {
+                name: "Zombie Butler",
+                hp: 30,
+                damage: 6,
+                desc: "A reanimated servant in tattered livery, still trying to serve.",
+                weak: "fire",
+                loot: ["candelabra"],
+                sound: 'dungeon_dread'
+            },
+            skeletal_guard: {
+                name: "Skeletal Guard",
+                hp: 25,
+                damage: 7,
+                desc: "Animated bones in rusted armor, still guarding their post.",
+                weak: "blunt",
+                loot: ["rusty_sword"],
+                sound: 'dungeon_dread'
+            },
+            nightmare_stallion: {
+                name: "Nightmare Stallion",
+                hp: 40,
+                damage: 10,
+                desc: "A spectral horse with flaming eyes and hooves.",
+                weak: "holy",
+                loot: ["horse_shoe"],
+                sound: 'dungeon_dread'
+            },
+            animated_armor: {
+                name: "Animated Armor",
+                hp: 45,
+                damage: 9,
+                desc: "A suit of armor that moves on its own, sword at the ready.",
+                weak: "magic",
+                loot: ["training_sword"],
+                sound: 'castle_halls'
+            },
+            kitchen_ghoul: {
+                name: "Kitchen Ghoul",
+                hp: 35,
+                damage: 8,
+                desc: "A corpse that feeds on rotten food, wielding a cleaver.",
+                weak: "fire",
+                loot: ["cleaver"],
+                sound: 'dungeon_dread'
+            },
+            phantom_musician: {
+                name: "Phantom Musician",
+                hp: 30,
+                damage: 5,
+                desc: "A ghostly musician that attacks with sound waves.",
+                weak: "silence",
+                loot: ["sheet_music"],
+                sound: 'castle_halls'
+            },
+            taxidermy_beast: {
+                name: "Taxidermy Beast",
+                hp: 50,
+                damage: 12,
+                desc: "A stuffed wolf that has come to life, its glass eyes gleaming.",
+                weak: "fire",
+                loot: ["werewolf_fang"],
+                sound: 'castle_halls'
+            },
+            rat_swarm: {
+                name: "Rat Swarm",
+                hp: 20,
+                damage: 4,
+                desc: "Hundreds of diseased rats that move as one.",
+                weak: "fire",
+                loot: ["garlic_bundle"],
+                sound: 'dungeon_dread'
+            },
+            dire_wolf: {
+                name: "Dire Wolf",
+                hp: 55,
+                damage: 14,
+                desc: "An enormous wolf with glowing red eyes.",
+                weak: "silver",
+                loot: ["wolf_pelt"],
+                sound: 'dungeon_dread'
+            },
+            vampire_spawn: {
+                name: "Vampire Spawn",
+                hp: 60,
+                damage: 15,
+                desc: "A newly turned vampire, hungry for blood.",
+                weak: "wood",
+                loot: ["blood_wine"],
+                sound: 'draculas_lair'
+            },
+            musical_phantom: {
+                name: "Musical Phantom",
+                hp: 40,
+                damage: 7,
+                desc: "A ghost that attacks with discordant notes.",
+                weak: "silence",
+                loot: ["music_box"],
+                sound: 'castle_halls'
+            },
+            torturer_ghost: {
+                name: "Torturer Ghost",
+                hp: 65,
+                damage: 16,
+                desc: "The ghost of a torturer, still enjoying his work.",
+                weak: "holy",
+                loot: ["iron_maiden_spike"],
+                sound: 'dungeon_dread'
+            },
+            ink_golem: {
+                name: "Ink Golem",
+                hp: 70,
+                damage: 18,
+                desc: "A creature formed from spilled ink and parchment.",
+                weak: "water",
+                loot: ["ancient_tome"],
+                sound: 'dungeon_dread'
+            },
+            living_portrait: {
+                name: "Living Portrait",
+                hp: 45,
+                damage: 10,
+                desc: "A painting that tries to pull victims into its world.",
+                weak: "fire",
+                loot: ["noble_portrait"],
+                sound: 'castle_halls'
+            },
+            sparring_phantom: {
+                name: "Sparring Phantom",
+                hp: 55,
+                damage: 13,
+                desc: "The ghost of a training master, eternally practicing.",
+                weak: "magic",
+                loot: ["training_sword"],
+                sound: 'castle_halls'
+            },
+            grave_wight: {
+                name: "Grave Wight",
+                hp: 75,
+                damage: 20,
+                desc: "An ancient corpse animated by dark magic.",
+                weak: "holy",
+                loot: ["funeral_candle"],
+                sound: 'dungeon_dread'
+            },
+            storm_elemental: {
+                name: "Storm Elemental",
+                hp: 80,
+                damage: 22,
+                desc: "A being of lightning and wind.",
+                weak: "earth",
+                loot: ["lightning_rod"],
+                sound: 'draculas_lair'
+            },
+            organist_ghost: {
+                name: "Organist Ghost",
+                hp: 50,
+                damage: 12,
+                desc: "A ghost eternally playing a mournful dirge.",
+                weak: "silence",
+                loot: ["organ_key"],
+                sound: 'castle_halls'
+            },
+            skeletal_guardian: {
+                name: "Skeletal Guardian",
+                hp: 85,
+                damage: 24,
+                desc: "A massive skeleton in ancient armor.",
+                weak: "blunt",
+                loot: ["holy_water"],
+                sound: 'dungeon_dread'
+            },
+            forgotten_ghost: {
+                name: "Forgotten Ghost",
+                hp: 40,
+                damage: 9,
+                desc: "A pitiful ghost of someone left to die in the oubliette.",
+                weak: "kindness",
+                loot: ["prisoner_bone"],
+                sound: 'dungeon_dread'
+            },
+            carnivorous_plant: {
+                name: "Carnivorous Plant",
+                hp: 60,
+                damage: 16,
+                desc: "A giant plant that feeds on flesh.",
+                weak: "fire",
+                loot: ["nightshade"],
+                sound: 'dungeon_dread'
+            },
+            guest_ghost: {
+                name: "Guest Ghost",
+                hp: 35,
+                damage: 8,
+                desc: "The ghost of an unfortunate guest who never left.",
+                weak: "holy",
+                loot: ["silk_handkerchief"],
+                sound: 'castle_halls'
+            },
+            soldier_ghost: {
+                name: "Soldier Ghost",
+                hp: 70,
+                damage: 19,
+                desc: "The ghost of a soldier who died storming the castle.",
+                weak: "peace",
+                loot: ["soldier_diary"],
+                sound: 'castle_halls'
+            },
+            vampire_noble: {
+                name: "Vampire Noble",
+                hp: 90,
+                damage: 25,
+                desc: "An ancient vampire from the castle's ruling family.",
+                weak: "wood",
+                loot: ["ancestral_seal"],
+                sound: 'draculas_lair'
+            },
+            gargoyle: {
+                name: "Stone Gargoyle",
+                hp: 100,
+                damage: 28,
+                desc: "A grotesque statue that comes to life at night.",
+                weak: "magic",
+                loot: ["clock_hand"],
+                sound: 'draculas_lair'
+            },
+            clockwork_beast: {
+                name: "Clockwork Beast",
+                hp: 110,
+                damage: 30,
+                desc: "A mechanical monster made of gears and springs.",
+                weak: "blunt",
+                loot: ["main_spring"],
+                sound: 'dungeon_dread'
+            },
+            catacomb_wraith: {
+                name: "Catacomb Wraith",
+                hp: 95,
+                damage: 26,
+                desc: "A wraith formed from the accumulated sorrow of the dead.",
+                weak: "holy",
+                loot: ["ancient_bone"],
+                sound: 'dungeon_dread'
+            },
+            lich_king: {
+                name: "Lich King",
+                hp: 150,
+                damage: 35,
+                desc: "An ancient sorcerer who achieved immortality through dark magic.",
+                weak: "holy",
+                loot: ["funeral_urn"],
+                sound: 'draculas_lair'
+            },
+            brides_of_dracula: {
+                name: "Brides of Dracula",
+                hp: 120,
+                damage: 32,
+                desc: "Three vampire brides in white gowns, moving as one.",
+                weak: "wood",
+                loot: ["vampire_cloak"],
+                sound: 'draculas_lair'
+            },
+            dracula: {
+                name: "Count Dracula",
+                hp: 250,
+                damage: 40,
+                desc: "The lord of the castle, an ancient vampire of immense power.",
+                weak: "sunlight",
+                loot: ["victory_crown"],
+                sound: 'draculas_lair'
+            }
+        };
+
+        // ==================== GOTHIC PUZZLES ====================
+        const puzzles = {
+            portrait_gaze: {
+                room: 5,
+                type: "arrange",
+                description: "The portraits' eyes follow you. Align them to look north.",
+                solution: "north",
+                solved: false,
+                reward: "access"
+            },
+            feast_setting: {
+                room: 6,
+                type: "place",
+                description: "Set the table properly for a vampire feast.",
+                solution: ["silver_goblet", "blood_wine"],
+                solved: false,
+                reward: "silver_key"
+            },
+            armor_formation: {
+                room: 8,
+                type: "arrange",
+                description: "The suits of armor must form a defensive formation.",
+                solution: "shield_wall",
+                solved: false,
+                reward: "rusty_key"
+            },
+            phantom_waltz: {
+                room: 10,
+                type: "dance",
+                description: "Waltz with the ghost to open the secret passage.",
+                solution: "three_steps",
+                solved: false,
+                reward: "music_box"
+            },
+            forbidden_knowledge: {
+                room: 12,
+                type: "read",
+                description: "The ancient tome contains a ritual to create a wooden stake.",
+                solution: "read ancient_tome",
+                solved: false,
+                reward: "wooden_stake"
+            },
+            hunter_trophy: {
+                room: 13,
+                type: "arrange",
+                description: "Arrange the trophies from oldest to newest kill.",
+                solution: "wolf, bear, vampire",
+                solved: false,
+                reward: "werewolf_fang"
+            },
+            blood_moon: {
+                room: 15,
+                type: "observe",
+                description: "Observe the blood moon through the telescope.",
+                solution: "use telescope",
+                solved: false,
+                reward: "star_chart"
+            },
+            requiem: {
+                room: 16,
+                type: "play",
+                description: "Play the requiem on the piano to calm the spirits.",
+                solution: "C, E, G, C",
+                solved: false,
+                reward: "sheet_music"
+            },
+            escape_plan: {
+                room: 17,
+                type: "find",
+                description: "Find the prisoner's escape plan in his cell.",
+                solution: "search prison_cell",
+                solved: false,
+                reward: "prisoner_shackles"
+            },
+            coded_diary: {
+                room: 18,
+                type: "decode",
+                description: "Decode the vampire's diary to learn his weakness.",
+                solution: "sunlight",
+                solved: false,
+                reward: "vampire_map"
+            },
+            family_lineage: {
+                room: 19,
+                type: "arrange",
+                description: "Arrange the portraits in chronological order.",
+                solution: "oldest to youngest",
+                solved: false,
+                reward: "noble_portrait"
+            },
+            blacksmith_riddle: {
+                room: 20,
+                type: "riddle",
+                description: "Answer the blacksmith's riddle to get a weapon.",
+                question: "What must be broken before you can use it?",
+                answer: "egg",
+                solved: false,
+                reward: "crossbow"
+            },
+            vintage_selection: {
+                room: 21,
+                type: "select",
+                description: "Select the correct vintage of blood wine.",
+                solution: "1666",
+                solved: false,
+                reward: "blood_wine"
+            },
+            melodic_lock: {
+                room: 23,
+                type: "play",
+                description: "Play the correct melody on the harpsichord.",
+                solution: ["E", "B", "G#", "E"],
+                solved: false,
+                reward: "organ_key"
+            },
+            unholy_ritual: {
+                room: 24,
+                type: "reverse",
+                description: "Reverse the desecration ritual to bless the chapel.",
+                solution: "use holy_water on altar",
+                solved: false,
+                reward: "holy_water"
+            },
+            painful_puzzle: {
+                room: 25,
+                type: "endure",
+                description: "Endure the torture devices without screaming.",
+                solution: "silent",
+                solved: false,
+                reward: "iron_maiden_spike"
+            },
+            reanimation_formula: {
+                room: 26,
+                type: "mix",
+                description: "Mix the correct formula to reanimate the corpse.",
+                solution: ["nightshade", "alchemical_salt", "blood_wine"],
+                solved: false,
+                reward: "alchemical_salt"
+            },
+            smoke_signals: {
+                room: 27,
+                type: "read",
+                description: "Read the smoke signals from the pipe.",
+                solution: "danger",
+                solved: false,
+                reward: "silver_pipe"
+            },
+            combat_stances: {
+                room: 28,
+                type: "mimic",
+                description: "Mimic the training dummies' stances.",
+                solution: "attack, defend, parry",
+                solved: false,
+                reward: "training_sword"
+            },
+            moon_observation: {
+                room: 30,
+                type: "chart",
+                description: "Chart the moon's position to predict Dracula's movements.",
+                solution: "use spyglass on moon",
+                solved: false,
+                reward: "spyglass"
+            },
+            pipe_sequence: {
+                room: 31,
+                type: "play",
+                description: "Play the pipe sequence from loudest to softest.",
+                solution: ["C", "G", "E", "A"],
+                solved: false,
+                reward: "bell_rope"
+            },
+            midnight_chime: {
+                room: 32,
+                type: "ring",
+                description: "Ring the bell at exactly midnight.",
+                solution: "use bell_rope at midnight",
+                solved: false,
+                reward: "holy_water"
+            },
+            escape_rope: {
+                room: 34,
+                type: "climb",
+                description: "Use the rope to climb out of the oubliette.",
+                solution: "use rope",
+                solved: false,
+                reward: "prisoner_bone"
+            },
+            poisonous_puzzle: {
+                room: 35,
+                type: "identify",
+                description: "Identify which plant is not poisonous.",
+                solution: "wolfsbane",
+                solved: false,
+                reward: "nightshade"
+            },
+            unwelcome_guest: {
+                room: 36,
+                type: "politeness",
+                description: "Be a polite guest to learn the castle's secrets.",
+                solution: "talk then listen",
+                solved: false,
+                reward: "silk_handkerchief"
+            },
+            military_code: {
+                room: 37,
+                type: "decrypt",
+                description: "Decrypt the military code in the diary.",
+                solution: "attack at dawn",
+                solved: false,
+                reward: "soldier_diary"
+            },
+            bloodline_seal: {
+                room: 38,
+                type: "seal",
+                description: "Use the ancestral seal on the correct sarcophagus.",
+                solution: "oldest vampire",
+                solved: false,
+                reward: "ancestral_seal"
+            },
+            eternal_midnight: {
+                room: 40,
+                type: "repair",
+                description: "Repair the clock to break the eternal midnight curse.",
+                solution: ["clock_hand", "main_spring"],
+                solved: false,
+                reward: "sunlight_amulet"
+            },
+            bone_arrangement: {
+                room: 41,
+                type: "arrange",
+                description: "Arrange the bones in the order they were buried.",
+                solution: "oldest to newest",
+                solved: false,
+                reward: "ancient_bone"
+            },
+            antidote_mix: {
+                room: 42,
+                type: "mix",
+                description: "Mix an antidote for vampire venom.",
+                solution: ["wolfsbane", "garlic", "holy_water"],
+                solved: false,
+                reward: "garlic_paste"
+            },
+            daylight_rest: {
+                room: 43,
+                type: "wait",
+                description: "Wait until daylight when the vampire brides are weak.",
+                solution: "wait",
+                solved: false,
+                reward: "vampire_cloak"
+            },
+            battle_plan: {
+                room: 44,
+                type: "study",
+                description: "Study the battle plan to learn Dracula's tactics.",
+                solution: "read vampire_map",
+                solved: false,
+                reward: "silver_sword"
+            },
+            forgotten_language: {
+                room: 45,
+                type: "translate",
+                description: "Translate the ancient vampire language.",
+                solution: "blood is life",
+                solved: false,
+                reward: "vampire_dust"
+            },
+            lightning_strike: {
+                room: 46,
+                type: "attract",
+                description: "Use the lightning rod during a storm.",
+                solution: "use lightning_rod during storm",
+                solved: false,
+                reward: "lightning_rod"
+            },
+            time_dilation: {
+                room: 47,
+                type: "sync",
+                description: "Sync all the clock's gears to real time.",
+                solution: "12:00",
+                solved: false,
+                reward: "main_spring"
+            },
+            soul_vessel: {
+                room: 48,
+                type: "contain",
+                description: "Contain the lich's soul in the funeral urn.",
+                solution: "use funeral_urn on lich",
+                solved: false,
+                reward: "funeral_urn"
+            },
+            final_confrontation: {
+                room: 49,
+                type: "defeat",
+                description: "Use all vampire-hunting tools to defeat Dracula.",
+                solution: ["wooden_stake", "holy_water", "sunlight_amulet", "garlic_paste"],
+                solved: false,
+                reward: "victory",
+                sound: 'victory_hymn'
+            }
+        };
+
+        // ==================== GAME STATE ====================
+        let player = {
+            class: null,
+            hp: 0,
+            maxHp: 0,
+            mp: 0,
+            maxMp: 0,
+            str: 0,
+            def: 0,
+            baseDef: 0,
+            int: 0,
+            gold: 25,
+            inventory: [],
+            equipped: {
+                weapon: null,
+                armor: null
+            },
+            baseDamage: 0,
+            totalDamage: 0,
+            totalDefense: 0,
+            location: 0,
+            inCombat: false,
+            hasLight: false,
+            time: "midnight",
+            stats: {
+                enemiesDefeated: 0,
+                puzzlesSolved: 0,
+                roomsExplored: 0,
+                vampires_slain: 0
+            }
+        };
+
+        let gameStarted = false;
+        let currentBackground = 'gothic_theme';
+        const soundSystem = new SoundSystem();
+
+        // ==================== HELPER FUNCTIONS ====================
+        function findItemByName(itemName) {
+            // First try exact match with item IDs
+            if (items[itemName]) {
+                return itemName;
+            }
+            
+            // Try to match with item name (case-insensitive)
+            itemName = itemName.toLowerCase();
+            for (const itemId in items) {
+                const item = items[itemId];
+                if (item.name.toLowerCase() === itemName) {
+                    return itemId;
+                }
+                
+                // Try keywords
+                if (item.keywords) {
+                    for (const keyword of item.keywords) {
+                        if (keyword.toLowerCase() === itemName) {
+                            return itemId;
+                        }
+                    }
+                }
+                
+                // Try partial match in name
+                if (item.name.toLowerCase().includes(itemName)) {
+                    return itemId;
+                }
+            }
+            
+            return null;
+        }
+
+        function calculatePlayerStats() {
+            // Calculate base damage (strength + class modifier)
+            player.baseDamage = player.str + 4; // Base damage from strength
+            
+            // Calculate total damage (base + weapon)
+            player.totalDamage = player.baseDamage;
+            if (player.equipped.weapon) {
+                const weapon = items[player.equipped.weapon];
+                if (weapon && weapon.damage) {
+                    player.totalDamage += weapon.damage;
+                }
+            }
+            
+            // Calculate base defense (class base)
+            player.baseDef = classes[player.class].def;
+            
+            // Calculate total defense (base + armor)
+            player.totalDefense = player.baseDef;
+            if (player.equipped.armor) {
+                const armor = items[player.equipped.armor];
+                if (armor && armor.defense) {
+                    player.totalDefense += armor.defense;
+                }
+            }
+            
+            // Update status display
+            updateStatus();
+        }
+
+        // ==================== UI FUNCTIONS ====================
+        const output = document.getElementById('output');
+        const input = document.getElementById('input');
+        const status = document.getElementById('status');
+
+        function print(text, className = '') {
+            const line = document.createElement('div');
+            line.textContent = text;
+            if (className) line.className = className;
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+            
+            if (className === 'success' || className === 'quest') {
+                soundSystem.playSound('notification', 0.5);
+            } else if (className === 'error') {
+                soundSystem.playSound('error', 0.3);
+            } else if (className === 'puzzle') {
+                soundSystem.playSound('puzzle', 0.4);
+            } else if (className === 'enemy') {
+                soundSystem.playSound('howl', 0.3);
+            }
+        }
+
+        function updateStatus() {
+            const room = rooms[player.location];
+            const light = player.hasLight ? "LIT" : "DARK";
+            
+            // Get equipped weapon and armor names
+            const weaponName = player.equipped.weapon ? items[player.equipped.weapon].name : "None";
+            const armorName = player.equipped.armor ? items[player.equipped.armor].name : "None";
+            
+            status.textContent = 
+                `HP:${player.hp}/${player.maxHp} MP:${player.mp}/${player.maxMp} ` +
+                `DMG:${player.totalDamage} DEF:${player.totalDefense} ` +
+                `GOLD:${player.gold} ROOM:${room.id} ${light} ${player.time}\n` +
+                `Weapon: ${weaponName} | Armor: ${armorName}`;
+        }
+
+        // ==================== GAME LOGIC ====================
+        function startGame(className) {
+            player.class = className;
+            const c = classes[className];
+            
+            player.hp = player.maxHp = c.hp;
+            player.mp = player.maxMp = c.mp;
+            player.str = c.str;
+            player.def = c.def;
+            player.int = c.int;
+            
+            // Starting items
+            player.inventory = [c.startingItem];
+            if (c.startingItem === 'torch') player.hasLight = true;
+            
+            // Initialize equipment
+            player.equipped.weapon = null;
+            player.equipped.armor = null;
+            
+            gameStarted = true;
+            soundSystem.playBackground(currentBackground);
+            
+            print(`You are a ${className.replace('_', ' ').toUpperCase()}. ${c.desc}`, 'success');
+            print(`You start with: ${items[c.startingItem].name}`, 'success');
+            
+            calculatePlayerStats();
+            look();
+            updateStatus();
+        }
+
+        function look() {
+            const room = rooms[player.location];
+            
+            // Update music
+            currentBackground = room.sound;
+            soundSystem.playBackground(currentBackground);
+            
+            // Check darkness
+            if (room.dark && !player.hasLight) {
+                print("It's pitch black! You need a light source to see.", 'error');
+                print("You can feel exits to: " + Object.keys(room.exits).filter(dir => room.exits[dir] !== null).join(' '));
+                return;
+            }
+            
+            print(room.desc, 'system');
+            
+            // List items
+            if (room.items.length > 0) {
+                print("You see:", 'system');
+                room.items.forEach(itemId => {
+                    const item = items[itemId];
+                    print(`  ${item.name}`, 'item');
+                });
+            }
+            
+            // List NPC
+            if (room.npc) {
+                const npc = npcs[room.npc];
+                print(`${npc.name} is here. ${npc.desc}`, 'npc');
+            }
+            
+            // List enemy
+            if (room.enemy) {
+                const enemy = enemies[room.enemy];
+                print(`${enemy.name} blocks your path! ${enemy.desc}`, 'enemy');
+                soundSystem.playSound('howl', 0.2);
+            }
+            
+            // List container
+            if (room.container) {
+                print(`There is a ${room.container} here.`, 'system');
+            }
+            
+            // List puzzle
+            if (room.puzzle) {
+                const puzzle = Object.values(puzzles).find(p => p.room === room.id);
+                if (puzzle && !puzzle.solved) {
+                    print("There seems to be a puzzle here...", 'puzzle');
+                }
+            }
+            
+            // List exits
+            const exits = [];
+            if (room.exits.n !== null) exits.push("north");
+            if (room.exits.s !== null) exits.push("south");
+            if (room.exits.e !== null) exits.push("east");
+            if (room.exits.w !== null) exits.push("west");
+            
+            print("Exits: " + exits.join(', '));
+            
+            if (!room.explored) {
+                room.explored = true;
+                player.stats.roomsExplored++;
+            }
+            
+            updateStatus();
+        }
+
+        function move(direction) {
+            const room = rooms[player.location];
+            const newRoomId = room.exits[direction];
+            
+            if (newRoomId === null) {
+                print("You can't go that way.", 'error');
+                return;
+            }
+            
+            // Check for locked room
+            if (rooms[newRoomId].locked) {
+                print("The way is locked!", 'error');
+                return;
+            }
+            
+            soundSystem.playSound('step');
+            player.location = newRoomId;
+            
+            // Random time change
+            if (Math.random() > 0.7) {
+                const times = ["midnight", "witching hour", "predawn", "eternal night"];
+                player.time = times[Math.floor(Math.random() * times.length)];
+            }
+            
+            // Check for enemy
+            const newRoom = rooms[player.location];
+            if (newRoom.enemy) {
+                print(`A ${newRoom.enemy} blocks your path!`, 'enemy');
+            }
+            
+            look();
+        }
+
+        function take(itemName) {
+            const room = rooms[player.location];
+            
+            if (room.dark && !player.hasLight) {
+                print("It's too dark to see anything!", 'error');
+                return;
+            }
+            
+            // Find the item ID by name
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId) {
+                print("You don't see that here.", 'error');
+                return;
+            }
+            
+            // Check if the item is in the room
+            const itemIndex = room.items.indexOf(itemId);
+            if (itemIndex === -1) {
+                print("You don't see that here.", 'error');
+                return;
+            }
+            
+            // Remove from room and add to inventory
+            room.items.splice(itemIndex, 1);
+            player.inventory.push(itemId);
+            
+            print(`You take the ${items[itemId].name}.`, 'success');
+            soundSystem.playSound('pickup');
+            
+            // Special case for light sources
+            if (itemId === 'torch' || itemId === 'candelabra' || itemId === 'funeral_candle') {
+                player.hasLight = true;
+            }
+            
+            updateStatus();
+        }
+
+        function equip(itemName) {
+            // Find the item ID by name
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId) {
+                print("You don't have that item.", 'error');
+                return;
+            }
+            
+            // Check if player has the item
+            if (!player.inventory.includes(itemId)) {
+                print("You don't have that item.", 'error');
+                return;
+            }
+            
+            const item = items[itemId];
+            
+            // Check if it's equipment
+            if (item.type === 'weapon') {
+                // If already have a weapon equipped, put it back in inventory
+                if (player.equipped.weapon) {
+                    player.inventory.push(player.equipped.weapon);
+                }
+                
+                // Equip the new weapon
+                player.equipped.weapon = itemId;
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print(`You equip the ${item.name}.`, 'success');
+                soundSystem.playSound('equip');
+                
+            } else if (item.type === 'armor') {
+                // If already have armor equipped, put it back in inventory
+                if (player.equipped.armor) {
+                    player.inventory.push(player.equipped.armor);
+                }
+                
+                // Equip the new armor
+                player.equipped.armor = itemId;
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print(`You equip the ${item.name}.`, 'success');
+                soundSystem.playSound('equip');
+                
+            } else {
+                print("That's not something you can equip.", 'error');
+                return;
+            }
+            
+            // Recalculate stats
+            calculatePlayerStats();
+        }
+
+        function useItem(itemName, target = null) {
+            // Find the item ID by name
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId || !player.inventory.includes(itemId)) {
+                print("You don't have that.", 'error');
+                return;
+            }
+            
+            const item = items[itemId];
+            const room = rooms[player.location];
+            
+            // Use torch
+            if (itemId === 'torch') {
+                player.hasLight = !player.hasLight;
+                print(player.hasLight ? "You light the torch." : "You extinguish the torch.", 'success');
+                soundSystem.playSound('click');
+                look();
+                return;
+            }
+            
+            // Use candelabra
+            if (itemId === 'candelabra') {
+                player.hasLight = true;
+                print("The candelabra provides light.", 'success');
+                soundSystem.playSound('click');
+                look();
+                return;
+            }
+            
+            // Use funeral candle
+            if (itemId === 'funeral_candle') {
+                player.hasLight = true;
+                print("The funeral candle burns with a cold blue flame.", 'success');
+                soundSystem.playSound('click');
+                look();
+                return;
+            }
+            
+            // Use blood vial (dhampir only)
+            if (itemId === 'blood_vial' && player.class === 'dhampir') {
+                const healAmount = 25;
+                player.hp = Math.min(player.maxHp, player.hp + healAmount);
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                print(`You drink the blood and restore ${healAmount} HP.`, 'heal');
+                soundSystem.playSound('notification');
+                updateStatus();
+                return;
+            }
+            
+            // Use blood wine
+            if (itemId === 'blood_wine') {
+                const healAmount = 15;
+                player.hp = Math.min(player.maxHp, player.hp + healAmount);
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                if (Math.random() > 0.7) {
+                    print(`You drink the blood wine, restore ${healAmount} HP, but feel a thirst for blood...`, 'heal');
+                } else {
+                    print(`You drink the blood wine and restore ${healAmount} HP.`, 'heal');
+                }
+                soundSystem.playSound('notification');
+                updateStatus();
+                return;
+            }
+            
+            // Use garlic bundle
+            if (itemId === 'garlic_bundle' && room.enemy && enemies[room.enemy].name.includes('vampire')) {
+                print("You wave the garlic bundle. The vampire recoils in disgust!", 'success');
+                soundSystem.playSound('notification');
+                return;
+            }
+            
+            // Use garlic paste
+            if (itemId === 'garlic_paste' && room.enemy && enemies[room.enemy].name.includes('vampire')) {
+                print("You throw garlic paste at the vampire! It screams in pain!", 'success');
+                soundSystem.playSound('notification');
+                // Add damage to next attack
+                player.totalDamage += 10;
+                return;
+            }
+            
+            // Use holy water on undead
+            if (itemId === 'holy_water' && room.enemy && (
+                enemies[room.enemy].name.includes('vampire') || 
+                enemies[room.enemy].name.includes('ghost') ||
+                enemies[room.enemy].name.includes('undead'))) {
+                print("You splash holy water on the enemy! It burns with holy fire!", 'success');
+                soundSystem.playSound('notification');
+                // Significant damage
+                if (room.enemy) {
+                    enemies[room.enemy].hp -= 30;
+                    player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                }
+                return;
+            }
+            
+            // Use sunlight amulet
+            if (itemId === 'sunlight_amulet' && room.enemy && enemies[room.enemy].name.includes('vampire')) {
+                print("The sunlight amulet emits a blinding light! The vampire screams!", 'success');
+                soundSystem.playSound('notification');
+                enemies[room.enemy].hp -= 50;
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                return;
+            }
+            
+            // Use wolfsbane on werewolf
+            if (itemId === 'wolfsbane' && room.enemy && enemies[room.enemy].name.includes('wolf')) {
+                print("The wolfsbane weakens the werewolf!", 'success');
+                soundSystem.playSound('notification');
+                enemies[room.enemy].damage -= 5;
+                return;
+            }
+            
+            // Use key on locked room
+            if (item.type === 'key' && target === 'door') {
+                if (room.id === 34 && room.locked && itemId === 'rusty_key') {
+                    room.locked = false;
+                    player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                    print("The rusty key fits! The oubliette is now unlocked.", 'success');
+                    soundSystem.playSound('door');
+                    return;
+                }
+            }
+            
+            // Use object on object
+            if (target) {
+                const targetId = findItemByName(target);
+                
+                // Use item on container
+                if (room.container && target === room.container) {
+                    // Feast puzzle
+                    if (room.id === 6 && itemId === 'blood_wine' && target === 'banquet_table') {
+                        print("You place the blood wine on the table. Lady Eveline is pleased!", 'puzzle');
+                        soundSystem.playSound('puzzle');
+                        player.stats.puzzlesSolved++;
+                        return;
+                    }
+                    // Altar blessing
+                    if (room.id === 24 && itemId === 'holy_water' && target === 'altar') {
+                        print("You bless the altar with holy water. It glows with holy light!", 'puzzle');
+                        soundSystem.playSound('puzzle');
+                        player.stats.puzzlesSolved++;
+                        return;
+                    }
+                }
+                
+                // Use item on NPC
+                if (room.npc && target === room.npc) {
+                    const npc = npcs[room.npc];
+                    if (npc.quest && npc.quest.type === 'give' && npc.quest.target.includes(itemId)) {
+                        print(`You give ${items[itemId].name} to ${npc.name}.`, 'success');
+                        player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                        if (npc.quest.reward) {
+                            player.inventory.push(npc.quest.reward);
+                            npc.quest.completed = true;
+                            print(`${npc.name}: "Thank you! Here is ${items[npc.quest.reward].name}."`, 'quest');
+                            soundSystem.playSound('pickup');
+                        }
+                        return;
+                    }
+                }
+            }
+            
+            print(`You're not sure how to use the ${item.name} here.`, 'error');
+        }
+
+        function talk(npcName = null) {
+            const room = rooms[player.location];
+            
+            if (!room.npc) {
+                print("There's no one here to talk to.", 'error');
+                return;
+            }
+            
+            const npc = npcs[room.npc];
+            print(`${npc.name}: "${npc.dialog}"`, 'npc');
+            
+            // Handle quests
+            if (npc.quest && !npc.quest.completed) {
+                if (npc.quest.type === 'find' && !npc.quest.given) {
+                    npc.quest.given = true;
+                    print(`${npc.name}: "Find the ${items[npc.quest.target].name} for me."`, 'quest');
+                } else if (npc.quest.type === 'give') {
+                    const hasItems = npc.quest.target.every(item => player.inventory.includes(item));
+                    if (hasItems) {
+                        print(`${npc.name}: "You have them! Thank you!"`, 'quest');
+                        npc.quest.target.forEach(item => {
+                            player.inventory.splice(player.inventory.indexOf(item), 1);
+                        });
+                        player.inventory.push(npc.quest.reward);
+                        npc.quest.completed = true;
+                        print(`You receive: ${items[npc.quest.reward].name}`, 'success');
+                        soundSystem.playSound('pickup');
+                    } else {
+                        const itemNames = npc.quest.target.map(i => items[i].name).join(' and ');
+                        print(`${npc.name}: "I need ${itemNames}."`, 'quest');
+                    }
+                } else if (npc.quest.type === 'riddle') {
+                    print(`${npc.name}: "${npc.quest.question}"`, 'quest');
+                }
+            }
+        }
+
+        function give(itemName, npcName = null) {
+            const room = rooms[player.location];
+            
+            if (!room.npc) {
+                print("There's no one here to give to.", 'error');
+                return;
+            }
+            
+            const npc = npcs[room.npc];
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId || !player.inventory.includes(itemId)) {
+                print("You don't have that.", 'error');
+                return;
+            }
+            
+            // Handle quest items
+            if (npc.quest && npc.quest.type === 'give' && npc.quest.target.includes(itemId)) {
+                player.inventory.splice(player.inventory.indexOf(itemId), 1);
+                
+                // Check if all items are given
+                const remainingItems = npc.quest.target.filter(item => 
+                    item !== itemId && !npc.quest.completed
+                );
+                
+                if (remainingItems.length === 0) {
+                    player.inventory.push(npc.quest.reward);
+                    npc.quest.completed = true;
+                    print(`${npc.name}: "Perfect! Here is ${items[npc.quest.reward].name}."`, 'quest');
+                    print(`You receive: ${items[npc.quest.reward].name}`, 'success');
+                } else {
+                    print(`${npc.name}: "Thank you! I still need ${remainingItems.map(i => items[i].name).join(' and ')}."`, 'quest');
+                }
+                soundSystem.playSound('pickup');
+                return;
+            }
+            
+            print(`${npc.name} doesn't want that.`, 'error');
+        }
+
+        function read(itemName) {
+            const itemId = findItemByName(itemName);
+            
+            if (itemId && player.inventory.includes(itemId)) {
+                const item = items[itemId];
+                
+                if (item.type === 'document' || item.type === 'tome') {
+                    if (itemId === 'ancient_tome') {
+                        print("The ancient tome reveals: 'To slay a vampire, use a wooden stake through the heart during daylight.'", 'puzzle');
+                        // Automatically get wooden stake if reading the tome
+                        if (!player.inventory.includes('wooden_stake')) {
+                            player.inventory.push('wooden_stake');
+                            print("You find a wooden stake pressed between the pages!", 'success');
+                            soundSystem.playSound('pickup');
+                        }
+                    } else if (itemId === 'soldier_diary') {
+                        print("The diary reads: 'We attacked at dawn, but Dracula was too powerful. Only silver and sunlight can harm him.'", 'puzzle');
+                    } else if (itemId === 'vampire_map') {
+                        print("The map shows: 'Dracula's coffin is in the master bedroom. He rests during the day.'", 'puzzle');
+                    } else if (itemId === 'star_chart') {
+                        print("The chart indicates: 'The blood moon rises when Dracula is at full power. Avoid fighting him then.'", 'puzzle');
+                    }
+                } else {
+                    print("There's nothing to read on that.", 'error');
+                }
+            } else {
+                // Check for engravings in room
+                const room = rooms[player.location];
+                if (room.puzzle) {
+                    const puzzle = Object.values(puzzles).find(p => p.room === room.id);
+                    if (puzzle && !puzzle.solved) {
+                        print(`Puzzle: ${puzzle.description}`, 'puzzle');
+                    }
+                } else {
+                    print("There's nothing to read here.", 'error');
+                }
+            }
+        }
+
+        function attack(target = null) {
+            const room = rooms[player.location];
+            
+            if (!room.enemy) {
+                print("There's nothing to attack here.", 'error');
+                return;
+            }
+            
+            const enemy = enemies[room.enemy];
+            soundSystem.playSound('attack');
+            
+            print(`You attack the ${enemy.name}!`, 'command');
+            
+            // Calculate damage using player's total damage
+            let damage = player.totalDamage + Math.floor(Math.random() * 6) - 3;
+            damage = Math.max(1, damage); // Minimum 1 damage
+            
+            // Check for vampire weaknesses
+            if (enemy.name.includes('vampire')) {
+                if (player.equipped.weapon === 'wooden_stake') {
+                    damage *= 3;
+                    print("The wooden stake is super effective against vampires!", 'damage');
+                }
+                if (player.equipped.weapon === 'silver_sword' || player.equipped.weapon === 'silver_dagger') {
+                    damage *= 2;
+                    print("Silver weapons harm vampires!", 'damage');
+                }
+                if (player.inventory.includes('garlic_bundle') || player.inventory.includes('garlic_paste')) {
+                    damage += 5;
+                }
+            }
+            
+            // Check for werewolf weaknesses
+            if (enemy.name.includes('wolf')) {
+                if (player.equipped.weapon === 'silver_sword' || player.equipped.weapon === 'silver_dagger') {
+                    damage *= 2;
+                    print("Silver weapons harm werewolves!", 'damage');
+                }
+            }
+            
+            // Check for ghost weaknesses
+            if (enemy.name.includes('ghost') || enemy.name.includes('phantom') || enemy.name.includes('wraith')) {
+                if (player.inventory.includes('holy_water') || player.inventory.includes('holy_symbol')) {
+                    damage *= 2;
+                    print("Holy items harm spirits!", 'damage');
+                }
+            }
+            
+            enemy.hp -= damage;
+            
+            print(`You hit for ${damage} damage!`, 'damage');
+            soundSystem.playSound('enemyHit');
+            
+            if (enemy.hp <= 0) {
+                print(`You defeated the ${enemy.name}!`, 'success');
+                
+                // Drop loot
+                if (enemy.loot) {
+                    enemy.loot.forEach(lootId => {
+                        room.items.push(lootId);
+                        print(`It drops: ${items[lootId].name}`, 'loot');
+                    });
+                }
+                
+                player.gold += 15;
+                player.stats.enemiesDefeated++;
+                
+                if (enemy.name.includes('vampire')) {
+                    player.stats.vampires_slain++;
+                }
+                
+                soundSystem.playSound('victory');
+                
+                // Special cases
+                if (room.id === 43 && room.enemy === 'brides_of_dracula') {
+                    print("The vampire brides are defeated! Dracula will be vulnerable!", 'success');
+                    soundSystem.playSound('door');
+                }
+                if (room.id === 49 && room.enemy === 'dracula') {
+                    print("*** VICTORY! ***", 'success');
+                    print("You have defeated Count Dracula and cleansed Castle of the Undead!", 'success');
+                    print("You are now a legendary vampire hunter!", 'success');
+                    soundSystem.playBackground('victory_hymn');
+                }
+                
+                room.enemy = null;
+            } else {
+                print(`The ${enemy.name} has ${enemy.hp} HP remaining.`, 'enemy');
+                
+                // Enemy counterattack (reduced by player's defense)
+                let enemyDamage = Math.max(1, enemy.damage - Math.floor(player.totalDefense / 2));
+                player.hp -= enemyDamage;
+                print(`The ${enemy.name} hits you for ${enemyDamage} damage!`, 'damage');
+                soundSystem.playSound('playerHit');
+                
+                if (player.hp <= 0) {
+                    print("You have been defeated... The darkness claims you.", 'error');
+                    soundSystem.playSound('error');
+                    resetGame();
+                }
+            }
+            
+            updateStatus();
+        }
+
+        function open(container) {
+            const room = rooms[player.location];
+            
+            if (!room.container || room.container !== container) {
+                print("There's nothing like that to open here.", 'error');
+                return;
+            }
+            
+            // Check specific containers
+            switch(container) {
+                case 'gate_mechanism':
+                    if (room.id === 0) {
+                        print("The gate mechanism is rusted shut. You need a key.", 'error');
+                    }
+                    break;
+                    
+                case 'fountain':
+                    if (room.id === 1) {
+                        print("The fountain is dry, but something glints at the bottom...", 'success');
+                        if (!room.items.includes('rusty_key')) {
+                            room.items.push('rusty_key');
+                            print("You find a Rusty Key!", 'loot');
+                            soundSystem.playSound('pickup');
+                        }
+                    }
+                    break;
+                    
+                case 'coffin':
+                    if (room.id === 43) {
+                        if (player.time === "midnight" || player.time === "witching hour") {
+                            print("The coffin is occupied! The vampire brides attack!", 'enemy');
+                            room.enemy = 'brides_of_dracula';
+                        } else {
+                            print("The coffin is empty during the day.", 'system');
+                        }
+                    }
+                    break;
+                    
+                case 'dark_throne':
+                    if (room.id === 49) {
+                        print("You approach the dark throne... Dracula awakens!", 'enemy');
+                        room.enemy = 'dracula';
+                        soundSystem.playBackground('draculas_lair');
+                    }
+                    break;
+                    
+                default:
+                    print("You can't open that.", 'error');
+            }
+        }
+
+        function search(target = null) {
+            const room = rooms[player.location];
+            
+            if (room.dark && !player.hasLight) {
+                print("It's too dark to search.", 'error');
+                return;
+            }
+            
+            if (target) {
+                // Search specific object
+                if (room.container && target === room.container) {
+                    open(target);
+                    return;
+                }
+                
+                print("You don't see that here.", 'error');
+            } else {
+                // General room search
+                print("You search the room...", 'system');
+                
+                if (room.items.length > 0) {
+                    print("You find:", 'system');
+                    room.items.forEach(itemId => {
+                        print(`  ${items[itemId].name}`, 'item');
+                    });
+                } else {
+                    print("You don't find anything.", 'system');
+                }
+                
+                // Check for hidden puzzles
+                if (room.puzzle) {
+                    const puzzle = Object.values(puzzles).find(p => p.room === room.id);
+                    if (puzzle && !puzzle.solved) {
+                        print(`Puzzle clue: ${puzzle.description}`, 'puzzle');
+                    }
+                }
+            }
+        }
+
+        function drop(itemName) {
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId || !player.inventory.includes(itemId)) {
+                print("You don't have that.", 'error');
+                return;
+            }
+            
+            player.inventory.splice(player.inventory.indexOf(itemId), 1);
+            rooms[player.location].items.push(itemId);
+            
+            print(`You drop the ${items[itemId].name}.`, 'system');
+            
+            // Special case for light sources
+            if (itemId === 'torch' || itemId === 'candelabra') {
+                player.hasLight = false;
+                if (rooms[player.location].dark) {
+                    print("The room goes dark!", 'error');
+                }
+            }
+            
+            updateStatus();
+        }
+
+        function showInventory() {
+            if (player.inventory.length === 0) {
+                print("Your inventory is empty.", 'system');
+            } else {
+                print("Inventory:", 'system');
+                player.inventory.forEach(itemId => {
+                    const item = items[itemId];
+                    const equipped = (player.equipped.weapon === itemId || player.equipped.armor === itemId) ? " [EQUIPPED]" : "";
+                    print(`  ${item.name}${equipped} - ${item.desc}`, equipped ? 'equipped' : 'item');
+                });
+            }
+            
+            // Show equipped items
+            print("", 'system');
+            print("Equipped:", 'system');
+            if (player.equipped.weapon) {
+                const weapon = items[player.equipped.weapon];
+                print(`  Weapon: ${weapon.name} (${weapon.damage} DMG)`, 'equipped');
+            } else {
+                print("  Weapon: None (4 DMG)", 'system');
+            }
+            
+            if (player.equipped.armor) {
+                const armor = items[player.equipped.armor];
+                print(`  Armor: ${armor.name} (${armor.defense} DEF)`, 'equipped');
+            } else {
+                print("  Armor: None (0 DEF)", 'system');
+            }
+            
+            print("", 'system');
+            print(`Total Stats: ${player.totalDamage} DMG | ${player.totalDefense} DEF`, 'system');
+        }
+
+        function buy(itemName) {
+            const room = rooms[player.location];
+            
+            if (room.npc !== 'armorer' && room.npc !== 'herbalist') {
+                print("There's no one here to buy from.", 'error');
+                return;
+            }
+            
+            const npc = npcs[room.npc];
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId || !npc.trade.buy.includes(itemId)) {
+                print("That's not for sale.", 'error');
+                return;
+            }
+            
+            const price = items[itemId].value;
+            if (player.gold < price) {
+                print(`You need ${price} gold, but only have ${player.gold}.`, 'error');
+                return;
+            }
+            
+            player.gold -= price;
+            player.inventory.push(itemId);
+            print(`You buy ${items[itemId].name} for ${price} gold.`, 'success');
+            soundSystem.playSound('pickup');
+            updateStatus();
+        }
+
+        function sell(itemName) {
+            const room = rooms[player.location];
+            
+            if ((room.npc !== 'armorer' && room.npc !== 'herbalist') || !npcs[room.npc].trade.sell) {
+                print("There's no one here to sell to.", 'error');
+                return;
+            }
+            
+            const itemId = findItemByName(itemName);
+            
+            if (!itemId || !player.inventory.includes(itemId)) {
+                print("You don't have that.", 'error');
+                return;
+            }
+            
+            const price = Math.floor(items[itemId].value * 0.6);
+            player.gold += price;
+            player.inventory.splice(player.inventory.indexOf(itemId), 1);
+            print(`You sell ${items[itemId].name} for ${price} gold.`, 'success');
+            soundSystem.playSound('pickup');
+            updateStatus();
+        }
+
+        function answerRiddle(answer) {
+            const room = rooms[player.location];
+            
+            if (!room.npc) {
+                print("There's no one here to answer.", 'error');
+                return;
+            }
+            
+            const npc = npcs[room.npc];
+            
+            if (!npc.quest || npc.quest.type !== 'riddle') {
+                print("There's no riddle to answer here.", 'error');
+                return;
+            }
+            
+            if (npc.quest.completed) {
+                print("You've already answered this riddle.", 'system');
+                return;
+            }
+            
+            if (answer.toLowerCase() === npc.quest.answer.toLowerCase()) {
+                npc.quest.completed = true;
+                player.inventory.push(npc.quest.reward);
+                print(`${npc.name}: "Correct! Here is your reward."`, 'success');
+                print(`You receive: ${items[npc.quest.reward].name}`, 'success');
+                soundSystem.playSound('puzzle');
+                player.stats.puzzlesSolved++;
+                updateStatus();
+            } else {
+                print(`${npc.name}: "That is not the correct answer. Think carefully."`, 'error');
+            }
+        }
+
+        function showHelp() {
+            print("=== CASTLE OF THE UNDEAD COMMANDS ===", 'command');
+            print("MOVEMENT: n, s, e, w, look", 'system');
+            print("INTERACTION: take [item], use [item], use [item] on [object]", 'system');
+            print("           equip [item], read [item], open [container], search", 'system');
+            print("           drop [item], inventory", 'system');
+            print("COMBAT: attack", 'system');
+            print("NPCS: talk, give [item] to [npc]", 'system');
+            print("SHOP: buy [item], sell [item] (at armorer/herbalist)", 'system');
+            print("RIDDLES: answer [answer]", 'system');
+            print("INFO: stats, help", 'system');
+            print("=== VAMPIRE HUNTING TIPS ===", 'command');
+            print("- Vampires are weak to: wooden stakes, silver, garlic, sunlight", 'system');
+            print("- Werewolves are weak to: silver weapons", 'system');
+            print("- Ghosts are weak to: holy water, holy symbols", 'system');
+            print("- Some rooms are dark, need light source", 'system');
+            print("- Solve puzzles to get vampire-hunting tools", 'system');
+            print("- Complete NPC quests for rewards", 'system');
+            print("- Dracula is in the throne room (Room 49)", 'system');
+        }
+
+        function showStats() {
+            print("=== CHARACTER STATS ===", 'command');
+            print(`Class: ${player.class ? player.class.replace('_', ' ').toUpperCase() : 'None'}`, 'system');
+            print(`HP: ${player.hp}/${player.maxHp}`, 'system');
+            print(`MP: ${player.mp}/${player.maxMp}`, 'system');
+            print(`Gold: ${player.gold}`, 'system');
+            print(`Strength: ${player.str}`, 'system');
+            print(`Defense: ${player.def}`, 'system');
+            print(`Intelligence: ${player.int}`, 'system');
+            print("=== EQUIPMENT ===", 'command');
+            if (player.equipped.weapon) {
+                const weapon = items[player.equipped.weapon];
+                print(`Weapon: ${weapon.name} (${weapon.damage} DMG)`, 'equipped');
+            } else {
+                print("Weapon: None", 'system');
+            }
+            if (player.equipped.armor) {
+                const armor = items[player.equipped.armor];
+                print(`Armor: ${armor.name} (${armor.defense} DEF)`, 'equipped');
+            } else {
+                print("Armor: None", 'system');
+            }
+            print(`Total Damage: ${player.totalDamage}`, 'system');
+            print(`Total Defense: ${player.totalDefense}`, 'system');
+            print("=== HUNTING PROGRESS ===", 'command');
+            print(`Rooms Explored: ${player.stats.roomsExplored}/50`, 'system');
+            print(`Enemies Defeated: ${player.stats.enemiesDefeated}`, 'system');
+            print(`Vampires Slain: ${player.stats.vampires_slain}`, 'system');
+            print(`Puzzles Solved: ${player.stats.puzzlesSolved}`, 'system');
+            print(`Current Time: ${player.time}`, 'system');
+        }
+
+        function resetGame() {
+            player.class = null;
+            gameStarted = false;
+            soundSystem.playBackground('gothic_theme');
+            print("GAME OVER", 'error');
+            print("Choose a class: vampire_hunter, witch_hunter, dhampir.");
+            updateStatus();
+        }
+
+        function quickCommand(cmd) {
+            document.getElementById('input').value = cmd;
+            const event = new KeyboardEvent('keydown', { key: 'Enter' });
+            document.getElementById('input').dispatchEvent(event);
+        }
+
+        // ==================== COMMAND PARSER ====================
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                const cmd = input.value.trim().toLowerCase();
+                input.value = '';
+                if (!cmd) return;
+
+                soundSystem.playSound('click', 0.3);
+                print(`> ${cmd}`, 'command');
+                
+                // Convert "use X on Y" to array
+                let parts;
+                if (cmd.includes(' on ')) {
+                    parts = cmd.split(' on ');
+                    parts = ['use', parts[0], parts[1]];
+                } else if (cmd.includes(' to ')) {
+                    parts = cmd.split(' to ');
+                    parts = ['give', parts[0], parts[1]];
+                } else {
+                    parts = cmd.split(' ');
+                }
+                
+                const verb = parts[0];
+                const arg1 = parts[1];
+                const arg2 = parts[2];
+
+                // Class selection
+                if (!player.class && ['vampire_hunter', 'witch_hunter', 'dhampir'].includes(verb)) {
+                    startGame(verb);
+                    return;
+                }
+                
+                if (!player.class) {
+                    print("Choose a class first: vampire_hunter, witch_hunter, dhampir.", 'error');
+                    return;
+                }
+
+                // Game commands
+                switch (verb) {
+                    case 'n': case 'north': move('n'); break;
+                    case 's': case 'south': move('s'); break;
+                    case 'e': case 'east': move('e'); break;
+                    case 'w': case 'west': move('w'); break;
+                    case 'l': case 'look': look(); break;
+                    case 'take': if (arg1) take(arg1); else print("Take what?"); break;
+                    case 'use': 
+                        if (arg2) {
+                            useItem(arg1, arg2);
+                        } else if (arg1) {
+                            useItem(arg1);
+                        } else {
+                            print("Use what?"); 
+                        }
+                        break;
+                    case 'equip': if (arg1) equip(arg1); else print("Equip what?"); break;
+                    case 'talk': talk(arg1); break;
+                    case 'give': 
+                        if (arg1 && arg2) {
+                            give(arg1, arg2);
+                        } else if (arg1) {
+                            give(arg1);
+                        } else {
+                            print("Give what to who?");
+                        }
+                        break;
+                    case 'read': if (arg1) read(arg1); else print("Read what?"); break;
+                    case 'attack': attack(arg1); break;
+                    case 'open': if (arg1) open(arg1); else print("Open what?"); break;
+                    case 'search': search(arg1); break;
+                    case 'drop': if (arg1) drop(arg1); else print("Drop what?"); break;
+                    case 'i': case 'inventory': case 'inv': showInventory(); break;
+                    case 'buy': if (arg1) buy(arg1); else print("Buy what?"); break;
+                    case 'sell': if (arg1) sell(arg1); else print("Sell what?"); break;
+                    case 'stats': showStats(); break;
+                    case 'help': case '?': showHelp(); break;
+                    case 'quit': resetGame(); break;
+                    case 'answer': if (arg1) answerRiddle(arg1); else print("Answer what?"); break;
+                    default: print("Unknown command. Type 'help'.", 'error');
+                }
+            }
+        });
+
+        // Sound toggle button
+        document.getElementById('sound-toggle').addEventListener('click', () => {
+            soundSystem.toggle();
+        });
+
+        // Initialize audio on first user interaction
+        document.addEventListener('click', function initAudio() {
+            soundSystem.resumeAudioContext();
+            if (!gameStarted) {
+                soundSystem.playBackground('gothic_theme');
+            }
+            document.removeEventListener('click', initAudio);
+        }, { once: true });
+
+        // ==================== INIT ====================
+        print("CASTLE OF THE UNDEAD (1985)", 'success');
+        print("NIGHTFALLS GAMES PRESENTS", 'system');
+        print("", 'system');
+        print("A Gothic horror adventure with 50 rooms of terror!", 'system');
+        print("Hunt vampires, solve puzzles, defeat Dracula!", 'system');
+        print("", 'system');
+        print("Commands: n/s/e/w, look, take, equip, use, talk, read, attack, open, search, inventory", 'system');
+        print("", 'system');
+        print("Choose your class: vampire_hunter, witch_hunter, dhampir.", 'system');
+        updateStatus();
+        input.focus();
+    </script>
+</body>
+</html>
