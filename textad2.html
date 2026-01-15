@@ -1,0 +1,2164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Castle Vorin - Text Adventure</title>
+    <style>
+        body {
+            background-color: #000;
+            color: #c0c0c0;
+            font-family: 'Courier New', monospace;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+            line-height: 1.4;
+        }
+        
+        #game-container {
+            background-color: #00008B;
+            border: 2px solid #c0c0c0;
+            padding: 15px;
+            margin-bottom: 15px;
+            height: 500px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #c0c0c0 #00008B;
+        }
+        
+        #game-container::-webkit-scrollbar {
+            width: 10px;
+        }
+        
+        #game-container::-webkit-scrollbar-track {
+            background: #00008B;
+        }
+        
+        #game-container::-webkit-scrollbar-thumb {
+            background: #c0c0c0;
+        }
+        
+        .output {
+            white-space: pre-wrap;
+            margin-bottom: 10px;
+        }
+        
+        .room-desc {
+            color: #00FF00;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+        
+        .response {
+            color: #FFFF00;
+            margin-bottom: 10px;
+        }
+        
+        .inventory {
+            color: #FFA500;
+            font-style: italic;
+            margin: 10px 0;
+            border-top: 1px dashed #c0c0c0;
+            padding-top: 5px;
+        }
+        
+        .error {
+            color: #FF0000;
+        }
+        
+        .combat {
+            color: #FF4500;
+            font-weight: bold;
+            border: 1px solid #FF4500;
+            padding: 5px;
+            margin: 10px 0;
+        }
+        
+        .health {
+            color: #FF0000;
+            font-weight: bold;
+        }
+        
+        .damage {
+            color: #FF6347;
+        }
+        
+        .weapon {
+            color: #ADD8E6;
+        }
+        
+        .armor {
+            color: #90EE90;
+        }
+        
+        .dialogue {
+            color: #87CEEB;
+            font-style: italic;
+            border-left: 3px solid #87CEEB;
+            padding-left: 10px;
+            margin: 10px 0;
+        }
+        
+        .puzzle {
+            color: #FF69B4;
+            border: 1px dashed #FF69B4;
+            padding: 5px;
+            margin: 10px 0;
+        }
+        
+        .secret {
+            color: #DA70D6;
+            font-weight: bold;
+        }
+        
+        #input-line {
+            display: flex;
+            align-items: center;
+            background-color: #000;
+            padding: 5px;
+        }
+        
+        #prompt {
+            color: #00FFFF;
+            margin-right: 5px;
+            font-weight: bold;
+        }
+        
+        #command-input {
+            background-color: #000;
+            color: #FFFFFF;
+            border: none;
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            flex-grow: 1;
+            outline: none;
+        }
+        
+        #command-input:focus {
+            outline: none;
+        }
+        
+        #header {
+            color: #FF0000;
+            text-align: center;
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-shadow: 0 0 5px #FF0000;
+        }
+        
+        #instructions {
+            color: #808080;
+            font-size: 12px;
+            margin-top: 10px;
+            text-align: center;
+        }
+        
+        .hint {
+            color: #98FB98;
+            font-size: 11px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div id="header">
+        ░█▀▀░█▀█░█▀▄░█▀█░█░░░░░█▀▀░█░█░█▀█░█▀▄░█▀▀<br>
+        ░█▀▀░█▀█░█▀▄░█▀█░█░░░░░▀▀█░█▀█░█▀█░█▀▄░█▀▀<br>
+        ░▀░░░▀░▀░▀░▀░▀░▀░▀▀▀░░░▀▀▀░▀░▀░▀░▀░▀░▀░▀▀▀
+    </div>
+    
+    <div id="game-container">
+        <div class="output" id="game-output"></div>
+    </div>
+    
+    <div id="input-line">
+        <span id="prompt">&gt;</span>
+        <input type="text" id="command-input" autofocus>
+    </div>
+    
+    <div id="instructions">
+        Commands: N/S/E/W, LOOK, EXAMINE, TAKE, USE, TALK, READ, ATTACK, GIVE, DROP, INVENTORY, EQUIP, STATUS, SEARCH, ASK, PUSH, PULL, COMBINE, PRAY
+    </div>
+
+    <script>
+        // Game State - CORRECTED with original object names
+        const gameState = {
+            currentRoom: 'outside_gates',
+            inventory: [],
+            equippedWeapon: null,
+            equippedArmor: null,
+            health: 100,
+            maxHealth: 100,
+            inCombat: false,
+            currentEnemy: null,
+            playerAttack: 5,
+            playerDefense: 0,
+            playerKnowledge: {
+                vorin_history: false,
+                moon_ritual: false,
+                gargoyle_secret: false
+            },
+            
+            // Multi-stage puzzle tracking - NEW
+            puzzles: {
+                moon_ritual: {
+                    components_found: 0,
+                    components_needed: 3,
+                    completed: false
+                },
+                gargoyle_puzzle: {
+                    left_activated: false,
+                    right_activated: false,
+                    completed: false
+                }
+            },
+            
+            // World state tracking - NEW
+            worldState: {
+                time: 'night',
+                moon_phase: 'full',
+                gatekeeper_attitude: 'hostile',
+                ghost_pacified: false,
+                skeleton_laid_to_rest: false,
+                rats_fed: false,
+                fountain_consecrated: false
+            },
+            
+            // ORIGINAL room states - KEPT INTACT
+            roomStates: {
+                outside_gates: {
+                    gate_locked: true,
+                    lantern_hanging: true,
+                    chest_locked: true,
+                    guard_post_locked: true,
+                    gargoyle_activated: false,
+                    tree_searched: false,
+                    note_read: false,
+                    visited: false,
+                    gate_opened: false,
+                    wolf_defeated: false,
+                    // NEW: Secret passage
+                    secret_passage_found: false
+                },
+                courtyard: {
+                    visited: false,
+                    fountain_searched: false,
+                    ghost_defeated: false,
+                    chest_searched: false,
+                    // NEW: Moonstone
+                    moonstone_found: false
+                },
+                chapel: {
+                    visited: false,
+                    altar_searched: false,
+                    skeleton_defeated: false,
+                    silver_amulet_taken: false,
+                    // NEW: Holy water and prayer book
+                    holy_water_taken: false,
+                    prayer_book_found: false
+                },
+                stable: {
+                    visited: false,
+                    hay_searched: false,
+                    rats_defeated: false,
+                    leather_armor_taken: false,
+                    // NEW: Ritual candle
+                    ritual_candle_found: false
+                },
+                great_hall: {
+                    visited: false,
+                    throne_searched: false,
+                    torch_taken: false,
+                    // NEW: Library access
+                    library_discovered: false
+                },
+                // NEW ROOM: Hidden library
+                hidden_library: {
+                    visited: false,
+                    tome_found: false,
+                    ritual_incense_found: false
+                }
+            },
+            
+            // ORIGINAL NPC states - KEPT INTACT with enhancements
+            npcStates: {
+                gatekeeper: {
+                    lantern_returned: false,
+                    coin_given: false,
+                    herb_given: false,
+                    attitude: 'hostile',
+                    // NEW: Dialogue progression
+                    dialogue_stage: 0,
+                    quests_completed: {
+                        find_medicine: false,
+                        find_lost_key: false
+                    }
+                }
+            }
+        };
+
+        // Room Connections (Exits) - ORIGINAL with additions
+        const roomConnections = {
+            outside_gates: {
+                north: 'courtyard',
+                south: null,
+                east: null,
+                west: null,
+                // NEW: Secret passage when puzzle solved
+                down: gameState.roomStates.outside_gates.secret_passage_found ? 'hidden_library' : null
+            },
+            courtyard: {
+                north: 'great_hall',
+                south: 'outside_gates',
+                east: 'chapel',
+                west: 'stable'
+            },
+            chapel: {
+                north: null,
+                south: null,
+                east: null,
+                west: 'courtyard'
+            },
+            stable: {
+                north: null,
+                south: null,
+                east: 'courtyard',
+                west: null
+            },
+            great_hall: {
+                north: null,
+                south: 'courtyard',
+                east: null,
+                west: null
+            },
+            // NEW ROOM: Hidden library
+            hidden_library: {
+                north: null,
+                south: null,
+                east: null,
+                west: null,
+                up: 'outside_gates'
+            }
+        };
+
+        // Room Descriptions - ORIGINAL with small additions
+        const rooms = {
+            outside_gates: {
+                name: 'Outside Castle Gates',
+                desc: `The path ends before the immense outer wall of Castle Vorin. Twin stone GARGOYLES leer down from atop the rusted IRON GATE to the NORTH. A stooped old GATEKEEPER leans on a gnarled staff beside a small wooden GUARD POST, from which a LANTERN casts a feeble glow. To the side, an OLD WOODEN CHEST sits half-concealed by weeds, and a fallen TREE TRUNK lies rotting. Strange ENGRAVINGS are visible on the weather-worn castle wall.`,
+                desc_short: `Outside the castle gates. The iron gate is to the NORTH.`,
+                objects: ['gate', 'gargoyles', 'gatekeeper', 'guard post', 'lantern', 'chest', 'tree trunk', 'engravings', 'wall'],
+                enemies: []
+            },
+            courtyard: {
+                name: 'Inner Courtyard',
+                desc: `You stand in a desolate inner courtyard. Overgrown weeds push through cracked flagstones. A dry FOUNTAIN stands in the center, its stone basin filled with murky water. To the NORTH, massive OAKEN DOORS lead into the castle proper. To the EAST, a small CHAPEL with a broken stained glass window. To the WEST, a low STABLE building with its doors hanging open. The castle GATE is behind you to the SOUTH. The air is cold and still.`,
+                desc_short: `The inner courtyard. Exits: NORTH to great hall, EAST to chapel, WEST to stable, SOUTH to gates.`,
+                objects: ['fountain', 'oaken doors', 'chapel', 'stable', 'weeds', 'flagstones', 'gate'],
+                enemies: ['ghost']
+            },
+            chapel: {
+                name: 'Derelict Chapel',
+                desc: `This chapel is in ruins. Broken pews lie scattered, and the remains of stained glass crunch underfoot. A stone ALTAR stands at the far end, covered in dust and cobwebs. The air smells of damp stone and decay. Moonlight filters through the broken window, illuminating dust motes dancing in the air.`,
+                desc_short: `A ruined chapel. The courtyard is to the WEST.`,
+                objects: ['altar', 'pews', 'broken window', 'cobwebs'],
+                enemies: ['skeleton']
+            },
+            stable: {
+                name: 'Abandoned Stable',
+                desc: `The stable is dark and reeks of moldy hay and old manure. Empty stalls line the walls, their wooden partitions rotten and sagging. Bundles of HAY are scattered about, some piled in corners. Rusted tools hang on the walls. The only light comes from the open door to the EAST.`,
+                desc_short: `An abandoned stable. The courtyard is to the EAST.`,
+                objects: ['hay', 'stalls', 'tools'],
+                enemies: ['rat swarm']
+            },
+            great_hall: {
+                name: 'Great Hall',
+                desc: `You enter a vast hall with a vaulted ceiling lost in darkness. A long banquet table runs down the center, covered in dust and decay. At the far end, a massive STONE THRONE sits on a dais. Tattered banners hang from the walls, their colors faded to grey. The air is heavy with the scent of age and dust.`,
+                desc_short: `The great hall. The courtyard is to the SOUTH.`,
+                objects: ['stone throne', 'banquet table', 'banners'],
+                enemies: []
+            },
+            // NEW ROOM: Hidden library
+            hidden_library: {
+                name: 'Hidden Library',
+                desc: `A secret room filled with ancient books and scrolls. Dusty tomes line shelves that reach to the ceiling. In the center, a large READING TABLE holds a massive, leather-bound book. The air smells of old paper and ink.`,
+                desc_short: `A hidden library filled with ancient knowledge.`,
+                objects: ['ancient tome', 'reading table', 'book shelves'],
+                enemies: []
+            }
+        };
+
+        // Object Descriptions - ORIGINAL with additions
+        const objectDescriptions = {
+            // Room 1 Objects - ORIGINAL NAMES
+            'gate': "The gate is formidable black iron, crisscrossed with bands of rust. A large, intricate lock is set into its center. The gargoyles above seem to watch it eternally.",
+            'gargoyles': "Twin monstrosities of stone, wings folded. Their eyes are deep, dark hollows. The left one holds a chipped stone axe; the right one's claws are outstretched as if to grasp something.",
+            'gatekeeper': "An ancient man wrapped in a threadbare cloak. His eyes are milky, but his grip on his staff is firm. A large iron key hangs from a cord around his neck.",
+            'guard post': "A rickety wooden shed, barely large enough for one person. Its door is slightly ajar.",
+            'lantern': "A simple iron lantern with cloudy glass. The candle inside is burnt low, guttering in the cold breeze.",
+            'chest': "A heavy, banded chest. It is secured by a small but sturdy-looking padlock.",
+            'tree trunk': "A long-dead oak, split open by time. Its hollow interior is dark and filled with damp leaves and debris.",
+            'engravings': "Worn symbols are carved into the wall's foundation near the gate. They seem ritualistic. Some look like wolves, others like twisting vines.",
+            'wall': "The massive stone wall of Castle Vorin, stained dark by centuries of weather.",
+            
+            // Room 2 Objects
+            'fountain': "A once-grand marble fountain. The statue of a knight at its center is missing its head. The water in the basin is dark and still.",
+            'oaken doors': "Enormous double doors bound with iron. They are closed tight. A wolf's head knocker glares at you from the left door.",
+            'chapel': "A small stone chapel, its once-bright stained glass now shattered. The door creaks on its hinges.",
+            'stable': "A long, low building that once housed horses. Now it smells only of mold and decay.",
+            'altar': "A heavy stone altar, carved with religious symbols now worn almost smooth. There's a shallow depression in its center.",
+            'pews': "Wooden benches, most broken or overturned. They're covered in thick dust.",
+            'broken window': "The remains of what was once a beautiful stained glass window. Shards of colored glass litter the floor beneath it.",
+            'cobwebs': "Thick, dusty webs fill the corners of the chapel.",
+            'hay': "Moldy, damp bundles of straw. They rustle as you approach.",
+            'stalls': "Empty horse stalls with rotting wooden partitions.",
+            'tools': "Rusted pitchforks and shovels hanging on the wall.",
+            'stone throne': "A massive chair carved from black stone. It's cold to the touch.",
+            'banquet table': "A long table that could seat fifty. Now it hosts only dust and decay.",
+            'banners': "Faded cloth banners depicting heraldic symbols you don't recognize.",
+            
+            // NEW Objects
+            'ancient tome': "A massive leather-bound book titled 'Rituals of the Moon'. It seems to contain complex ceremonies.",
+            'reading table': "A heavy oak table covered in dust. The ancient tome rests upon it.",
+            'book shelves': "Shelves packed with decaying books on various esoteric subjects.",
+            
+            // Enemies - ORIGINAL
+            'ghost': "A pale, translucent figure drifting above the fountain. Its empty eyes seem to stare right through you.",
+            'skeleton': "An animated skeleton in rusted chainmail, clutching a notched sword. Red pinpoints of light glow in its eye sockets.",
+            'rat swarm': "A seething mass of large, aggressive rats with glowing red eyes. They squeak menacingly.",
+            'wolf': "A large, mangy wolf with bared teeth. It growls low in its throat.",
+            
+            // NEW Items for gameplay enhancements
+            'moonstone': "A smooth, white stone that glows faintly with an inner light. It feels warm to the touch.",
+            'ritual candle': "A black candle made of beeswax. It smells of myrrh and sage.",
+            'prayer book': "A small, leather-bound prayer book with silver clasps.",
+            'ritual incense': "Dried herbs and resins bound together with twine.",
+            'silver mirror': "A small, ornate hand mirror made of polished silver.",
+            'burial shroud': "A tattered but once-fine linen shroud."
+        };
+
+        // Enemy Data with non-combat solutions - ENHANCED
+        const enemies = {
+            'ghost': {
+                name: "Ghost",
+                health: 30,
+                maxHealth: 30,
+                attack: 8,
+                defense: 0,
+                description: "A pale, translucent figure drifting above the fountain. She looks sad rather than hostile.",
+                defeatMessage: "The ghost lets out a mournful wail and fades away.",
+                pacifyMessage: "You learn the ghost's story and help her find peace. She leaves behind a SILVER AMULET.",
+                loot: ['silver amulet'],
+                special: "immune to normal weapons",
+                weaknesses: ['silver', 'holy'],
+                // NEW: Non-combat solutions
+                canPacify: true,
+                pacifyMethods: ['listen', 'pray', 'bury']
+            },
+            'skeleton': {
+                name: "Skeleton Warrior",
+                health: 40,
+                maxHealth: 40,
+                attack: 10,
+                defense: 5,
+                description: "An animated skeleton in rusted chainmail, clutching a notched sword.",
+                defeatMessage: "The skeleton collapses into a pile of bones, dropping a RUSTY SWORD.",
+                pacifyMessage: "You provide a proper burial shroud. The skeleton gratefully crumbles to dust.",
+                loot: ['rusty sword'],
+                weaknesses: ['blunt', 'holy'],
+                // NEW: Non-combat solutions
+                canPacify: true,
+                pacifyMethods: ['answer', 'bless', 'bury'],
+                riddle: {
+                    question: "I speak without a mouth and hear without ears. I have no body, but I come alive with wind. What am I?",
+                    answer: "echo"
+                }
+            },
+            'rat swarm': {
+                name: "Rat Swarm",
+                health: 25,
+                maxHealth: 25,
+                attack: 6,
+                defense: 0,
+                description: "A seething mass of large, aggressive rats with glowing red eyes.",
+                defeatMessage: "The rats scatter, leaving behind a HEALTH POTION.",
+                pacifyMessage: "You feed the rats and they become docile, revealing a hidden HEALTH POTION.",
+                loot: ['health potion'],
+                special: "attacks multiple times",
+                // NEW: Non-combat solutions
+                canPacify: true,
+                pacifyMethods: ['feed', 'scare']
+            },
+            'wolf': {
+                name: "Mangy Wolf",
+                health: 35,
+                maxHealth: 35,
+                attack: 12,
+                defense: 2,
+                description: "A large, mangy wolf with bared teeth. It growls low in its throat.",
+                defeatMessage: "The wolf whimpers and falls, defeated.",
+                pacifyMessage: "The wolf accepts your offering and lets you pass.",
+                loot: [],
+                special: "high attack damage",
+                // NEW: Non-combat solutions
+                canPacify: true,
+                pacifyMethods: ['feed', 'calm']
+            }
+        };
+
+        // Item Data - ORIGINAL with additions
+        const items = {
+            // ORIGINAL ITEMS - KEPT INTACT
+            'rusty sword': {
+                type: 'weapon',
+                damage: 10,
+                description: "A simple iron sword, its blade pitted with rust. Better than nothing.",
+                value: 5
+            },
+            'iron dagger': {
+                type: 'weapon',
+                damage: 8,
+                description: "A short, sharp dagger made of iron. Light and quick.",
+                value: 3
+            },
+            'short bow': {
+                type: 'weapon',
+                damage: 12,
+                description: "A small bow made of yew wood. A quiver of arrows is attached.",
+                value: 15
+            },
+            'chainmail armor': {
+                type: 'armor',
+                defense: 8,
+                description: "A suit of chainmail, somewhat rusted but still serviceable.",
+                value: 20
+            },
+            'leather armor': {
+                type: 'armor',
+                defense: 4,
+                description: "A suit of hardened leather armor. Light and flexible.",
+                value: 10
+            },
+            'wooden shield': {
+                type: 'armor',
+                defense: 3,
+                description: "A round shield made of oak, bound with iron.",
+                value: 8
+            },
+            'health potion': {
+                type: 'consumable',
+                heal: 30,
+                description: "A small vial of red liquid that glows faintly.",
+                value: 10
+            },
+            'silver amulet': {
+                type: 'accessory',
+                special: "Protects against ghosts",
+                description: "An amulet made of silver, engraved with protective runes.",
+                value: 25
+            },
+            'holy water': {
+                type: 'consumable',
+                damage: 20,
+                description: "A flask of water that has been blessed by a priest. Effective against undead.",
+                value: 15,
+                special: "extra damage to undead"
+            },
+            'torch': {
+                type: 'tool',
+                description: "A wooden torch wrapped in oil-soaked rags.",
+                value: 2
+            },
+            'lantern': {
+                type: 'tool',
+                description: "A simple iron lantern with cloudy glass.",
+                value: 3
+            },
+            'small iron key': {
+                type: 'key',
+                description: "A small, simple iron key.",
+                value: 1
+            },
+            'gold coin': {
+                type: 'currency',
+                description: "A shiny gold coin.",
+                value: 10
+            },
+            'pungent herb': {
+                type: 'consumable',
+                heal: 15,
+                description: "A fragrant herb with medicinal properties.",
+                value: 5
+            },
+            
+            // NEW ITEMS for gameplay enhancements
+            'moonstone': {
+                type: 'ritual',
+                description: "A smooth, white stone that glows faintly with an inner light.",
+                value: 30
+            },
+            'ritual candle': {
+                type: 'ritual',
+                description: "A black candle made of beeswax. It smells of myrrh and sage.",
+                value: 15
+            },
+            'prayer book': {
+                type: 'knowledge',
+                description: "A small, leather-bound prayer book with silver clasps.",
+                value: 20
+            },
+            'ritual incense': {
+                type: 'ritual',
+                description: "Dried herbs and resins bound together with twine.",
+                value: 12
+            },
+            'silver mirror': {
+                type: 'tool',
+                description: "A small, ornate hand mirror made of polished silver.",
+                value: 25
+            },
+            'burial shroud': {
+                type: 'ritual',
+                description: "A tattered but once-fine linen shroud.",
+                value: 5
+            },
+            'vorin family journal': {
+                type: 'knowledge',
+                description: "Lord Vorin's personal journal.",
+                value: 40
+            }
+        };
+
+        // Game Output Element
+        const gameOutput = document.getElementById('game-output');
+        const commandInput = document.getElementById('command-input');
+
+        // Display initial room description
+        function initGame() {
+            displayRoomDescription();
+            commandInput.focus();
+        }
+
+        // Display current room description
+        function displayRoomDescription() {
+            const room = rooms[gameState.currentRoom];
+            const roomState = gameState.roomStates[gameState.currentRoom];
+            
+            if (roomState.visited) {
+                addOutput(`\n${room.desc_short}\n`, 'room-desc');
+            } else {
+                addOutput(`\n${room.desc}\n`, 'room-desc');
+                roomState.visited = true;
+            }
+            
+            // Special descriptions based on world state
+            if (gameState.currentRoom === 'outside_gates' && gameState.worldState.time === 'night') {
+                addOutput("A full moon casts eerie shadows across the ground.", 'response');
+                if (gameState.puzzles.gargoyle_puzzle.left_activated) {
+                    addOutput("The left gargoyle's eye glows faintly.", 'puzzle');
+                }
+                if (gameState.puzzles.gargoyle_puzzle.right_activated) {
+                    addOutput("The right gargoyle's eye glows faintly.", 'puzzle');
+                }
+            }
+            
+            if (gameState.currentRoom === 'courtyard' && gameState.worldState.fountain_consecrated) {
+                addOutput("The fountain water now glows with a soft, holy light.", 'puzzle');
+            }
+            
+            // Check for enemies in the room
+            checkForEnemies();
+        }
+
+        // Add output to game window
+        function addOutput(text, className = '') {
+            const outputDiv = document.createElement('div');
+            outputDiv.className = `output ${className}`;
+            outputDiv.textContent = text;
+            gameOutput.appendChild(outputDiv);
+            gameOutput.scrollTop = gameOutput.scrollHeight;
+        }
+
+        // Helper function for adding responses
+        function addResponse(text, className = '') {
+            const outputDiv = document.createElement('div');
+            outputDiv.className = `output ${className}`;
+            outputDiv.textContent = text;
+            gameOutput.appendChild(outputDiv);
+            gameOutput.scrollTop = gameOutput.scrollHeight;
+        }
+
+        // Show inventory with equipment
+        function showInventory() {
+            addOutput("=== INVENTORY ===", 'inventory');
+            
+            if (gameState.inventory.length === 0) {
+                addOutput("You are carrying nothing.", 'inventory');
+            } else {
+                gameState.inventory.forEach(item => {
+                    const itemData = items[item];
+                    if (itemData) {
+                        let itemText = `- ${item}`;
+                        if (itemData.type === 'weapon') {
+                            itemText += ` (Damage: ${itemData.damage})`;
+                        } else if (itemData.type === 'armor') {
+                            itemText += ` (Defense: ${itemData.defense})`;
+                        }
+                        addOutput(itemText, 'inventory');
+                    } else {
+                        addOutput(`- ${item}`, 'inventory');
+                    }
+                });
+            }
+            
+            addOutput("", 'inventory');
+            addOutput("=== EQUIPMENT ===", 'inventory');
+            addOutput(`Weapon: ${gameState.equippedWeapon || 'None'}`, 'inventory');
+            addOutput(`Armor: ${gameState.equippedArmor || 'None'}`, 'inventory');
+            addOutput(`Health: ${gameState.health}/${gameState.maxHealth}`, 'health');
+        }
+
+        // Show player status
+        function showStatus() {
+            addOutput("=== STATUS ===", 'response');
+            addOutput(`Health: ${gameState.health}/${gameState.maxHealth}`, 'health');
+            
+            // Calculate equipped stats
+            let totalAttack = gameState.playerAttack;
+            let totalDefense = gameState.playerDefense;
+            
+            if (gameState.equippedWeapon && items[gameState.equippedWeapon]) {
+                totalAttack += items[gameState.equippedWeapon].damage;
+            }
+            
+            if (gameState.equippedArmor && items[gameState.equippedArmor]) {
+                totalDefense += items[gameState.equippedArmor].defense;
+            }
+            
+            addOutput(`Attack: ${totalAttack}`, 'response');
+            addOutput(`Defense: ${totalDefense}`, 'response');
+            addOutput(`Weapon: ${gameState.equippedWeapon || 'None'}`, 'weapon');
+            addOutput(`Armor: ${gameState.equippedArmor || 'None'}`, 'armor');
+        }
+
+        // Normalize object names - SIMPLIFIED to avoid issues
+        function normalizeObjectName(name) {
+            if (!name) return '';
+            
+            name = name.toLowerCase().trim();
+            
+            // Only handle directions and very basic synonyms
+            const basicSynonyms = {
+                // Directions
+                'n': 'north',
+                's': 'south', 
+                'e': 'east',
+                'w': 'west',
+                'u': 'up',
+                'd': 'down',
+                
+                // Basic combat verbs
+                'hit': 'attack',
+                'kill': 'attack',
+                'fight': 'attack',
+                
+                // Basic movement
+                'go': 'go',
+                
+                // Inventory
+                'i': 'inventory',
+                'inv': 'inventory',
+                
+                // Examination
+                'x': 'examine',
+                'l': 'look'
+            };
+            
+            return basicSynonyms[name] || name;
+        }
+
+        // Parse command with natural language - SIMPLIFIED
+        function parseCommand(command) {
+            const cmd = command.toLowerCase().trim();
+            
+            // Handle USE X ON Y pattern
+            const useMatch = cmd.match(/^use\s+(.+?)\s+(?:on|with|to)\s+(.+)$/);
+            if (useMatch) {
+                return {
+                    verb: 'use',
+                    object: useMatch[1].trim(),
+                    target: useMatch[2].trim()
+                };
+            }
+            
+            // Handle GIVE X TO Y pattern
+            const giveMatch = cmd.match(/^give\s+(.+?)\s+(?:to)\s+(.+)$/);
+            if (giveMatch) {
+                return {
+                    verb: 'give',
+                    object: giveMatch[1].trim(),
+                    target: giveMatch[2].trim()
+                };
+            }
+            
+            // Handle ASK X ABOUT Y pattern
+            const askMatch = cmd.match(/^ask\s+(.+?)\s+(?:about)\s+(.+)$/);
+            if (askMatch) {
+                return {
+                    verb: 'ask',
+                    object: askMatch[1].trim(),
+                    target: askMatch[2].trim()
+                };
+            }
+            
+            // Simple verb-object pattern
+            const parts = cmd.split(/\s+/);
+            const verb = parts[0];
+            const object = parts.slice(1).join(' ');
+            
+            return {
+                verb: verb,
+                object: object,
+                target: null
+            };
+        }
+
+        // Process player command
+        function processCommand(command) {
+            const parsed = parseCommand(command);
+            const verb = parsed.verb;
+            const object = parsed.object;
+            const target = parsed.target;
+            
+            addOutput(`> ${command}`, 'response');
+            
+            // Handle combat commands first if in combat
+            if (gameState.inCombat && ['attack', 'hit', 'kill', 'stab', 'punch', 'fight'].includes(verb)) {
+                handleCombat(object);
+                return;
+            }
+            
+            // Handle directional commands
+            if (['n', 'north', 's', 'south', 'e', 'east', 'w', 'west'].includes(verb)) {
+                handleDirection(verb);
+                return;
+            }
+            
+            // Handle special non-combat verbs
+            if (gameState.inCombat && ['listen', 'pray', 'feed', 'answer', 'bury', 'bless'].includes(verb)) {
+                handleNonCombatAction(verb, object, target);
+                return;
+            }
+            
+            switch(verb) {
+                case 'look':
+                case 'examine':
+                case 'x':
+                case 'l':
+                    handleLook(object);
+                    break;
+                case 'take':
+                case 'get':
+                    handleTake(object);
+                    break;
+                case 'use':
+                    handleUse(object, target);
+                    break;
+                case 'talk':
+                case 'speak':
+                    handleTalk(object);
+                    break;
+                case 'ask':
+                    handleAsk(object, target);
+                    break;
+                case 'read':
+                    handleRead(object);
+                    break;
+                case 'attack':
+                case 'hit':
+                case 'kill':
+                case 'stab':
+                case 'punch':
+                case 'fight':
+                    handleAttack(object);
+                    break;
+                case 'give':
+                    handleGive(object, target);
+                    break;
+                case 'drop':
+                    handleDrop(object);
+                    break;
+                case 'open':
+                    handleOpen(object);
+                    break;
+                case 'search':
+                case 'inspect':
+                    handleSearch(object);
+                    break;
+                case 'equip':
+                    handleEquip(object);
+                    break;
+                case 'unequip':
+                    handleUnequip(object);
+                    break;
+                case 'inventory':
+                case 'i':
+                case 'inv':
+                    showInventory();
+                    break;
+                case 'status':
+                case 'stats':
+                    showStatus();
+                    break;
+                case 'help':
+                case '?':
+                    showHelp();
+                    break;
+                case 'go':
+                    if (object) {
+                        const dir = normalizeObjectName(object);
+                        if (['north', 'south', 'east', 'west', 'n', 's', 'e', 'w', 'up', 'down', 'u', 'd'].includes(dir)) {
+                            handleDirection(dir);
+                        } else if (dir === 'gate' && gameState.currentRoom === 'outside_gates') {
+                            handleDirection('north');
+                        } else if (dir === 'inside' && gameState.currentRoom === 'outside_gates') {
+                            handleDirection('north');
+                        } else {
+                            addResponse(`Go where?`, 'error');
+                        }
+                    } else {
+                        addResponse(`Go where?`, 'error');
+                    }
+                    break;
+                case 'push':
+                case 'pull':
+                    handleManipulate(verb, object, target);
+                    break;
+                case 'pray':
+                    handlePray(object);
+                    break;
+                default:
+                    addResponse("I don't understand that command. Type HELP for a list of commands.", 'error');
+            }
+        }
+
+        // Handle directional movement - ORIGINAL CODE
+        function handleDirection(direction) {
+            // Can't move while in combat
+            if (gameState.inCombat) {
+                addResponse("You can't move while in combat!", 'error');
+                return;
+            }
+            
+            const dir = normalizeObjectName(direction);
+            const currentRoom = gameState.currentRoom;
+            const connections = roomConnections[currentRoom];
+            
+            let exitDirection = dir;
+            if (dir === 'n') exitDirection = 'north';
+            if (dir === 's') exitDirection = 'south';
+            if (dir === 'e') exitDirection = 'east';
+            if (dir === 'w') exitDirection = 'west';
+            if (dir === 'u') exitDirection = 'up';
+            if (dir === 'd') exitDirection = 'down';
+            
+            const destination = connections[exitDirection];
+            
+            if (!destination) {
+                addResponse(`You cannot go ${exitDirection}.`, 'error');
+                return;
+            }
+            
+            // Special checks for specific exits
+            if (currentRoom === 'outside_gates' && exitDirection === 'north') {
+                if (gameState.roomStates.outside_gates.gate_locked) {
+                    addResponse("The gate is locked.", 'error');
+                    return;
+                }
+            }
+            
+            // Move to new room
+            gameState.currentRoom = destination;
+            displayRoomDescription();
+        }
+
+        // Check for enemies in current room
+        function checkForEnemies() {
+            const room = rooms[gameState.currentRoom];
+            const roomState = gameState.roomStates[gameState.currentRoom];
+            
+            // Check each enemy in the room
+            room.enemies.forEach(enemyType => {
+                if (!roomState[enemyType + '_defeated'] && !gameState.worldState[enemyType + '_pacified']) {
+                    const enemy = enemies[enemyType];
+                    addResponse(`You see a ${enemy.name} here!`, 'combat');
+                    
+                    // Start combat if not already in combat
+                    if (!gameState.inCombat) {
+                        gameState.inCombat = true;
+                        gameState.currentEnemy = enemyType;
+                        // Reset enemy health when encounter starts
+                        enemies[enemyType].health = enemies[enemyType].maxHealth;
+                        addResponse(`The ${enemy.name} ${enemyType === 'ghost' ? 'drifts toward you' : enemyType === 'skeleton' ? 'raises its sword' : 'prepares to attack'}!`, 'combat');
+                        // NEW: Hint about non-combat solutions
+                        if (enemy.canPacify) {
+                            addResponse(`You could try to ${enemy.pacifyMethods.join(' or ')} it.`, 'hint');
+                        }
+                    }
+                }
+            });
+        }
+
+        // Handle non-combat actions on enemies - NEW FEATURE
+        function handleNonCombatAction(action, target, extra) {
+            const enemyType = gameState.currentEnemy;
+            
+            if (!gameState.inCombat || !enemyType) {
+                addResponse(`There's nothing to ${action} here.`, 'error');
+                return;
+            }
+            
+            const enemy = enemies[enemyType];
+            const roomState = gameState.roomStates[gameState.currentRoom];
+            
+            if (!enemy.canPacify || !enemy.pacifyMethods.includes(action)) {
+                addResponse(`You can't ${action} the ${enemy.name}.`, 'error');
+                return;
+            }
+            
+            switch(action) {
+                case 'listen':
+                    if (enemyType === 'ghost') {
+                        addResponse("You listen to the ghost's mournful whispers...", 'dialogue');
+                        addResponse("She was Lady Elara, wife of Lord Vorin. She cannot rest until her story is heard.", 'dialogue');
+                        gameState.worldState.ghost_pacified = true;
+                        endCombatPeacefully(enemyType, "The ghost fades slightly, looking at you with gratitude.");
+                        if (!hasItem('silver amulet')) {
+                            gameState.inventory.push('silver amulet');
+                            addResponse("She leaves behind her SILVER AMULET.", 'response');
+                        }
+                    }
+                    break;
+                    
+                case 'pray':
+                    if (enemyType === 'ghost') {
+                        if (hasItem('prayer book')) {
+                            addResponse("You pray from the prayer book for the ghost's soul...", 'dialogue');
+                            addResponse("A peaceful light fills the area. The ghost smiles faintly before fading away.", 'dialogue');
+                            gameState.worldState.ghost_pacified = true;
+                            endCombatPeacefully(enemyType, "The ghost finds peace.");
+                            if (!hasItem('silver amulet')) {
+                                gameState.inventory.push('silver amulet');
+                                addResponse("She leaves behind her SILVER AMULET.", 'response');
+                            }
+                        } else {
+                            addResponse("You pray, but without proper prayers, it has little effect.", 'error');
+                        }
+                    }
+                    break;
+                    
+                case 'feed':
+                    if (enemyType === 'rat swarm' && hasItem('pungent herb')) {
+                        addResponse("You toss the pungent herb to the rats...", 'dialogue');
+                        addResponse("The rats stop attacking and begin eating hungrily.", 'dialogue');
+                        removeItem('pungent herb');
+                        gameState.worldState.rats_fed = true;
+                        endCombatPeacefully(enemyType, "The rats become docile.");
+                        if (!hasItem('health potion')) {
+                            gameState.inventory.push('health potion');
+                            addResponse("They reveal a HEALTH POTION they were hiding.", 'response');
+                        }
+                    } else {
+                        addResponse("You have nothing to feed them with.", 'error');
+                    }
+                    break;
+                    
+                case 'answer':
+                    if (enemyType === 'skeleton' && extra) {
+                        const answer = extra.toLowerCase();
+                        if (answer === 'echo') {
+                            addResponse("You answer: 'An echo!'", 'dialogue');
+                            addResponse("The skeleton lowers its sword. 'CORRECT. The guardian may pass.'", 'dialogue');
+                            gameState.worldState.skeleton_laid_to_rest = true;
+                            endCombatPeacefully(enemyType, "The skeleton returns to its eternal watch.");
+                            if (!hasItem('rusty sword')) {
+                                gameState.inventory.push('rusty sword');
+                                addResponse("It offers you its RUSTY SWORD as a reward.", 'response');
+                            }
+                        } else {
+                            addResponse("'INCORRECT!' The skeleton attacks!", 'error');
+                            handleCombat(enemyType);
+                        }
+                    } else {
+                        addResponse("Answer what?", 'error');
+                    }
+                    break;
+                    
+                case 'bury':
+                    if (enemyType === 'skeleton' && hasItem('burial shroud')) {
+                        addResponse("You wrap the skeleton in the burial shroud...", 'dialogue');
+                        addResponse("The skeleton's red eyes fade as it crumbles to peaceful dust.", 'dialogue');
+                        removeItem('burial shroud');
+                        gameState.worldState.skeleton_laid_to_rest = true;
+                        endCombatPeacefully(enemyType, "The guardian is finally laid to rest.");
+                        if (!hasItem('rusty sword')) {
+                            gameState.inventory.push('rusty sword');
+                            addResponse("Its RUSTY SWORD falls to the ground.", 'response');
+                        }
+                    } else {
+                        addResponse("You have nothing to bury it with.", 'error');
+                    }
+                    break;
+                    
+                case 'bless':
+                    if (enemyType === 'skeleton' && hasItem('holy water')) {
+                        addResponse("You sprinkle holy water on the skeleton...", 'dialogue');
+                        addResponse("The skeleton convulses as the holy water cleanses its unnatural existence.", 'dialogue');
+                        removeItem('holy water');
+                        gameState.worldState.skeleton_laid_to_rest = true;
+                        endCombatPeacefully(enemyType, "The skeleton is purified.");
+                        if (!hasItem('rusty sword')) {
+                            gameState.inventory.push('rusty sword');
+                            addResponse("Its RUSTY SWORD drops to the ground.", 'response');
+                        }
+                    } else {
+                        addResponse("You have no way to bless it.", 'error');
+                    }
+                    break;
+                    
+                default:
+                    addResponse(`You try to ${action} the ${enemy.name}, but it doesn't work.`, 'error');
+            }
+        }
+
+        function endCombatPeacefully(enemyType, message) {
+            addResponse(message, 'dialogue');
+            gameState.inCombat = false;
+            gameState.currentEnemy = null;
+            const roomState = gameState.roomStates[gameState.currentRoom];
+            roomState[enemyType + '_defeated'] = true;
+        }
+
+        // Handle combat - ORIGINAL CODE
+        function handleCombat(target) {
+            if (!gameState.inCombat) {
+                addResponse("You're not in combat!", 'error');
+                return;
+            }
+            
+            const enemyType = gameState.currentEnemy;
+            const enemy = enemies[enemyType];
+            const roomState = gameState.roomStates[gameState.currentRoom];
+            
+            // Player attacks
+            let playerDamage = gameState.playerAttack;
+            
+            // Add weapon damage if equipped
+            if (gameState.equippedWeapon && items[gameState.equippedWeapon]) {
+                playerDamage += items[gameState.equippedWeapon].damage;
+            }
+            
+            // Apply special weaknesses
+            if (enemy.weaknesses) {
+                if (enemy.weaknesses.includes('holy') && hasItem('holy water')) {
+                    playerDamage += 20;
+                    addResponse("Your holy water glows with divine power!", 'combat');
+                }
+                if (enemy.weaknesses.includes('silver') && (hasItem('silver amulet') || gameState.equippedWeapon === 'silver amulet')) {
+                    playerDamage += 10;
+                    addResponse("Your silver amulet pulses with energy!", 'combat');
+                }
+            }
+            
+            // Calculate actual damage (subtract enemy defense)
+            const actualDamage = Math.max(1, playerDamage - enemy.defense);
+            enemy.health -= actualDamage;
+            
+            addResponse(`You attack the ${enemy.name} for ${actualDamage} damage!`, 'damage');
+            addResponse(`${enemy.name} Health: ${Math.max(0, enemy.health)}/${enemy.maxHealth}`, 'combat');
+            
+            // Check if enemy is defeated
+            if (enemy.health <= 0) {
+                addResponse(enemy.defeatMessage, 'combat');
+                roomState[enemyType + '_defeated'] = true;
+                gameState.inCombat = false;
+                gameState.currentEnemy = null;
+                
+                // Give loot
+                enemy.loot.forEach(item => {
+                    if (!hasItem(item)) {
+                        gameState.inventory.push(item);
+                        addResponse(`You found: ${item}!`, 'response');
+                    }
+                });
+                
+                return;
+            }
+            
+            // Enemy attacks back
+            let enemyDamage = enemy.attack;
+            
+            // Subtract player defense
+            if (gameState.equippedArmor && items[gameState.equippedArmor]) {
+                enemyDamage = Math.max(1, enemyDamage - items[gameState.equippedArmor].defense - gameState.playerDefense);
+            } else {
+                enemyDamage = Math.max(1, enemyDamage - gameState.playerDefense);
+            }
+            
+            gameState.health -= enemyDamage;
+            addResponse(`The ${enemy.name} attacks you for ${enemyDamage} damage!`, 'damage');
+            
+            // Check if player is defeated
+            if (gameState.health <= 0) {
+                addResponse("You have been defeated! The world fades to black...", 'error');
+                gameState.health = 50; // Respawn with half health
+                gameState.currentRoom = 'outside_gates';
+                gameState.inCombat = false;
+                gameState.currentEnemy = null;
+                addResponse("You awaken back at the castle gates, wounded but alive.", 'health');
+                displayRoomDescription();
+                return;
+            }
+            
+            addResponse(`Your health: ${gameState.health}/${gameState.maxHealth}`, 'health');
+        }
+
+        // Command Handlers - CORRECTED with original object names
+        function handleLook(object) {
+            if (!object || object === 'around' || object === 'room') {
+                displayRoomDescription();
+                return;
+            }
+            
+            const objName = object.toLowerCase();
+            
+            // Check if it's a direction
+            if (['north', 'south', 'east', 'west', 'n', 's', 'e', 'w'].includes(objName)) {
+                const room = rooms[gameState.currentRoom];
+                const connections = roomConnections[gameState.currentRoom];
+                let dir = objName;
+                if (dir === 'n') dir = 'north';
+                if (dir === 's') dir = 'south';
+                if (dir === 'e') dir = 'east';
+                if (dir === 'w') dir = 'west';
+                
+                const destination = connections[dir];
+                if (destination) {
+                    if (gameState.currentRoom === 'outside_gates' && dir === 'north') {
+                        if (gameState.roomStates.outside_gates.gate_locked) {
+                            addResponse("To the north is the iron gate. It is locked.");
+                        } else {
+                            addResponse("To the north, the iron gate stands open, leading into the courtyard.");
+                        }
+                    } else {
+                        addResponse(`To the ${dir} is the ${rooms[destination].name.toLowerCase()}.`);
+                    }
+                } else {
+                    addResponse(`There is nothing notable to the ${dir}.`);
+                }
+                return;
+            }
+            
+            // Check if it's an enemy
+            if (enemies[objName]) {
+                const enemy = enemies[objName];
+                addResponse(`${enemy.description}`);
+                addResponse(`Health: ${enemy.health}/${enemy.maxHealth}, Attack: ${enemy.attack}, Defense: ${enemy.defense}`);
+                if (enemy.special) {
+                    addResponse(`Special: ${enemy.special}`);
+                }
+                if (enemy.weaknesses) {
+                    addResponse(`Weaknesses: ${enemy.weaknesses.join(', ')}`);
+                }
+                if (enemy.canPacify && gameState.inCombat && gameState.currentEnemy === objName) {
+                    addResponse(`You could try to: ${enemy.pacifyMethods.join(', ')}`, 'hint');
+                }
+                return;
+            }
+            
+            // Check if it's an item
+            if (items[objName]) {
+                const item = items[objName];
+                let desc = item.description;
+                if (item.type === 'weapon') {
+                    desc += ` (Damage: ${item.damage})`;
+                } else if (item.type === 'armor') {
+                    desc += ` (Defense: ${item.defense})`;
+                } else if (item.type === 'consumable' && item.heal) {
+                    desc += ` (Heals: ${item.heal})`;
+                }
+                addResponse(desc);
+                return;
+            }
+            
+            // Room specific look responses - ORIGINAL CODE
+            if (gameState.currentRoom === 'outside_gates') {
+                if (objName === 'guard post') {
+                    if (gameState.roomStates.outside_gates.guard_post_locked) {
+                        addResponse("The guard post door is locked.");
+                    } else {
+                        addResponse("The guard post door is unlocked. Inside you see a bedroll and a NOTE.");
+                    }
+                    return;
+                } else if (objName === 'gargoyles') {
+                    let desc = objectDescriptions.gargoyles;
+                    if (gameState.puzzles.gargoyle_puzzle.left_activated) {
+                        desc += "\nThe left gargoyle's eye socket glows with a faint blue light.";
+                    }
+                    if (gameState.puzzles.gargoyle_puzzle.right_activated) {
+                        desc += "\nThe right gargoyle's eye socket glows with a faint blue light.";
+                    }
+                    if (gameState.puzzles.gargoyle_puzzle.completed) {
+                        desc += "\nBoth gargoyles are now active! A secret mechanism has been triggered...";
+                    }
+                    addResponse(desc);
+                    return;
+                }
+            }
+            
+            // Default object descriptions
+            if (objectDescriptions[objName]) {
+                addResponse(objectDescriptions[objName]);
+            } else {
+                addResponse(`I don't see any ${object} here.`, 'error');
+            }
+        }
+
+        function handleTake(object) {
+            const objName = object.toLowerCase();
+            
+            // Check if in combat
+            if (gameState.inCombat) {
+                addResponse("You can't take items while in combat!", 'error');
+                return;
+            }
+            
+            // Room specific items - ORIGINAL CODE
+            if (gameState.currentRoom === 'outside_gates') {
+                if (objName === 'lantern') {
+                    if (gameState.roomStates.outside_gates.lantern_hanging) {
+                        if (!hasItem('lantern')) {
+                            gameState.inventory.push('lantern');
+                            gameState.roomStates.outside_gates.lantern_hanging = false;
+                            addResponse("You take the lantern from its hook. Its light wavers.");
+                        } else {
+                            addResponse("You already have the lantern.", 'error');
+                        }
+                    } else {
+                        addResponse("The lantern is not here.", 'error');
+                    }
+                    return;
+                } else if (objName === 'note') {
+                    if (!gameState.roomStates.outside_gates.guard_post_locked) {
+                        addResponse("You take the note. Now READ it to see what it says.");
+                        // Note isn't added to inventory, it's just read
+                    } else {
+                        addResponse("You don't see a note here.", 'error');
+                    }
+                    return;
+                }
+            }
+            
+            // Can't take non-item objects
+            if (objectDescriptions[objName] && !items[objName]) {
+                addResponse(`You cannot take the ${object}.`, 'error');
+                return;
+            }
+            
+            addResponse(`There is no ${object} here to take.`, 'error');
+        }
+
+        function handleUse(object, target) {
+            const objName = object.toLowerCase();
+            const targetName = target ? target.toLowerCase() : null;
+            
+            // Use health potion - ORIGINAL CODE
+            if (objName === 'health potion') {
+                if (hasItem('health potion')) {
+                    removeItem('health potion');
+                    const healAmount = items['health potion'].heal;
+                    gameState.health = Math.min(gameState.maxHealth, gameState.health + healAmount);
+                    addResponse(`You drink the health potion and restore ${healAmount} health.`, 'health');
+                    addResponse(`Health: ${gameState.health}/${gameState.maxHealth}`, 'health');
+                    return;
+                }
+            }
+            
+            // Use pungent herb - ORIGINAL CODE
+            if (objName === 'pungent herb') {
+                if (hasItem('pungent herb')) {
+                    removeItem('pungent herb');
+                    const healAmount = items['pungent herb'].heal;
+                    gameState.health = Math.min(gameState.maxHealth, gameState.health + healAmount);
+                    addResponse(`You chew the pungent herb and restore ${healAmount} health.`, 'health');
+                    addResponse(`Health: ${gameState.health}/${gameState.maxHealth}`, 'health');
+                    return;
+                }
+            }
+            
+            // Use holy water in combat - ORIGINAL CODE
+            if (objName === 'holy water' && gameState.inCombat) {
+                if (hasItem('holy water')) {
+                    const enemyType = gameState.currentEnemy;
+                    const enemy = enemies[enemyType];
+                    
+                    if (enemy.weaknesses && enemy.weaknesses.includes('holy')) {
+                        removeItem('holy water');
+                        enemy.health -= 20;
+                        addResponse("You throw holy water at the enemy! It sizzles and burns!", 'combat');
+                        
+                        if (enemy.health <= 0) {
+                            addResponse(enemy.defeatMessage, 'combat');
+                            gameState.roomStates[gameState.currentRoom][enemyType + '_defeated'] = true;
+                            gameState.inCombat = false;
+                            gameState.currentEnemy = null;
+                            
+                            enemy.loot.forEach(item => {
+                                if (!hasItem(item)) {
+                                    gameState.inventory.push(item);
+                                    addResponse(`You found: ${item}!`, 'response');
+                                }
+                            });
+                        }
+                        return;
+                    }
+                }
+            }
+            
+            // Room 1 specific interactions - ORIGINAL CODE FIXED
+            if (gameState.currentRoom === 'outside_gates') {
+                if (objName === 'tree trunk' || objName === 'trunk') {
+                    if (!gameState.roomStates.outside_gates.tree_searched) {
+                        gameState.roomStates.outside_gates.tree_searched = true;
+                        if (!hasItem('small iron key')) {
+                            gameState.inventory.push('small iron key');
+                            addResponse("You reach into the hollow trunk. Your fingers find a SMALL IRON KEY!");
+                        }
+                    } else if (!hasItem('small iron key')) {
+                        addResponse("You search again but find nothing.");
+                    } else {
+                        addResponse("You've already searched the tree trunk.");
+                    }
+                    return;
+                }
+                
+                // FIXED: Chest opening with correct object name
+                if (objName === 'small iron key' && targetName === 'chest') {
+                    if (hasItem('small iron key')) {
+                        if (gameState.roomStates.outside_gates.chest_locked) {
+                            gameState.roomStates.outside_gates.chest_locked = false;
+                            if (!hasItem('gold coin')) {
+                                gameState.inventory.push('gold coin');
+                            }
+                            if (!hasItem('pungent herb')) {
+                                gameState.inventory.push('pungent herb');
+                            }
+                            if (!hasItem('iron dagger')) {
+                                gameState.inventory.push('iron dagger');
+                            }
+                            addResponse("The padlock clicks open! Inside the chest you find a GOLD COIN, some PUNGENT HERB, and an IRON DAGGER.");
+                        } else {
+                            addResponse("The chest is already open.");
+                        }
+                    } else {
+                        addResponse("You don't have the key.", 'error');
+                    }
+                    return;
+                }
+                
+                // FIXED: Lantern on gargoyles
+                if (objName === 'lantern' && targetName === 'gargoyles') {
+                    if (hasItem('lantern')) {
+                        gameState.roomStates.outside_gates.gargoyle_activated = true;
+                        gameState.roomStates.outside_gates.guard_post_locked = false;
+                        addResponse("You hold the lantern up to the right gargoyle. Light falls into its outstretched claws. There's a soft CLICK from the guard post door!");
+                    } else {
+                        addResponse("You don't have the lantern.", 'error');
+                    }
+                    return;
+                }
+                
+                // NEW: Silver mirror on gargoyles (puzzle)
+                if (objName === 'silver mirror' && targetName === 'gargoyles') {
+                    if (hasItem('silver mirror')) {
+                        if (gameState.worldState.time === 'night') {
+                            addResponse("You reflect moonlight onto the gargoyles with the silver mirror...", 'puzzle');
+                            gameState.puzzles.gargoyle_puzzle.left_activated = true;
+                            gameState.puzzles.gargoyle_puzzle.right_activated = true;
+                            gameState.puzzles.gargoyle_puzzle.completed = true;
+                            addResponse("Both gargoyles' eyes glow! A section of the wall rumbles open!", 'secret');
+                            gameState.roomStates.outside_gates.secret_passage_found = true;
+                            roomConnections.outside_gates.down = 'hidden_library';
+                        } else {
+                            addResponse("The mirror reflects sunlight, but nothing happens. Maybe try at night?", 'hint');
+                        }
+                    } else {
+                        addResponse("You don't have a silver mirror.", 'error');
+                    }
+                    return;
+                }
+                
+                if (objName === 'gate') {
+                    if (gameState.roomStates.outside_gates.gate_locked) {
+                        addResponse("The gate is locked.");
+                    } else {
+                        addResponse("The gate is open. You can go NORTH through it.");
+                    }
+                    return;
+                }
+            }
+            
+            // Fountain in courtyard - ENHANCED
+            if (gameState.currentRoom === 'courtyard' && targetName === 'fountain') {
+                if (objName === 'moonstone' && hasItem('moonstone')) {
+                    addResponse("You place the moonstone in the fountain...", 'puzzle');
+                    addResponse("The water begins to glow with a soft blue light!", 'puzzle');
+                    gameState.worldState.fountain_consecrated = true;
+                    gameState.puzzles.moon_ritual.components_found++;
+                    checkMoonRitual();
+                    return;
+                }
+                handleSearch('fountain');
+                return;
+            }
+            
+            // Altar in chapel - ENHANCED
+            if (gameState.currentRoom === 'chapel' && targetName === 'altar') {
+                if (objName === 'ritual candle' && hasItem('ritual candle')) {
+                    addResponse("You place the ritual candle on the altar...", 'puzzle');
+                    addResponse("The candle lights itself with a blue flame!", 'puzzle');
+                    gameState.puzzles.moon_ritual.components_found++;
+                    checkMoonRitual();
+                    return;
+                }
+                handleSearch('altar');
+                return;
+            }
+            
+            // Ancient tome in library - NEW
+            if (gameState.currentRoom === 'hidden_library' && objName === 'ancient tome') {
+                addResponse("You read from the ancient tome...", 'dialogue');
+                addResponse("It describes a 'Ritual of the Full Moon' requiring three components.", 'puzzle');
+                gameState.playerKnowledge.moon_ritual = true;
+                if (!gameState.roomStates.hidden_library.tome_found) {
+                    gameState.roomStates.hidden_library.tome_found = true;
+                    if (!hasItem('vorin family journal')) {
+                        gameState.inventory.push('vorin family journal');
+                        addResponse("Inside the tome, you find LORD VORIN'S FAMILY JOURNAL!", 'secret');
+                    }
+                }
+                return;
+            }
+            
+            addResponse("That doesn't seem to work.", 'error');
+        }
+
+        function handleTalk(object) {
+            const objName = object.toLowerCase();
+            
+            if (objName === 'gatekeeper' && gameState.currentRoom === 'outside_gates') {
+                const npc = gameState.npcStates.gatekeeper;
+                
+                if (gameState.worldState.gatekeeper_attitude === 'hostile') {
+                    if (npc.dialogue_stage === 0) {
+                        addResponse('Gatekeeper: "No one enters. Master\'s orders. The gate stays shut. Unless... you have business within?"', 'dialogue');
+                        npc.dialogue_stage = 1;
+                    } else if (npc.dialogue_stage === 1) {
+                        addResponse('Gatekeeper: "My old bones ache in this cold. If you were to find me some medicine... or coin for medicine..."', 'dialogue');
+                        npc.dialogue_stage = 2;
+                    } else {
+                        addResponse('Gatekeeper: "Well? Have you found anything?"', 'dialogue');
+                    }
+                } else if (gameState.worldState.gatekeeper_attitude === 'neutral') {
+                    addResponse('Gatekeeper: "You seem alright. But rules are rules."', 'dialogue');
+                } else {
+                    addResponse('Gatekeeper: "The gate is open for you. Mind your step inside."', 'dialogue');
+                }
+                return;
+            }
+            
+            addResponse(`Talking to the ${object} produces no response.`);
+        }
+
+        function handleAsk(object, about) {
+            const objName = object.toLowerCase();
+            const aboutName = about ? about.toLowerCase() : null;
+            
+            if (objName === 'gatekeeper' && gameState.currentRoom === 'outside_gates') {
+                if (!aboutName) {
+                    addResponse("Ask the gatekeeper about what?", 'error');
+                    return;
+                }
+                
+                // ENHANCED: Dialogue tree
+                if (aboutName === 'castle' || aboutName === 'vorin') {
+                    if (gameState.worldState.gatekeeper_attitude !== 'hostile') {
+                        addResponse('Gatekeeper: "The Vorins were good masters. Until the curse. Lord Vorin sought forbidden knowledge."', 'dialogue');
+                        gameState.playerKnowledge.vorin_history = true;
+                    } else {
+                        addResponse('Gatekeeper: "The Vorins? Gone. All gone. Best leave it at that."', 'dialogue');
+                    }
+                } else if (aboutName === 'ghost') {
+                    if (gameState.playerKnowledge.vorin_history) {
+                        addResponse('Gatekeeper: "Lady Elara... she tried to stop him. Now she wanders, unable to rest."', 'dialogue');
+                    } else {
+                        addResponse('Gatekeeper: "Some spirits remain. Best not to disturb them."', 'dialogue');
+                    }
+                } else if (aboutName === 'gargoyles') {
+                    addResponse('Gatekeeper: "The stone watchers? Moonlight reveals their purpose."', 'dialogue');
+                    gameState.playerKnowledge.gargoyle_secret = true;
+                } else if (aboutName === 'key') {
+                    if (gameState.worldState.gatekeeper_attitude === 'neutral') {
+                        addResponse('Gatekeeper: "The master lost it in the courtyard fountain, I think."', 'dialogue');
+                    } else {
+                        addResponse('Gatekeeper: "What key?"', 'dialogue');
+                    }
+                } else {
+                    addResponse(`The gatekeeper doesn't know anything about ${about}.`, 'dialogue');
+                }
+                return;
+            }
+            
+            addResponse(`You can't ask ${object} about that.`);
+        }
+
+        function handleRead(object) {
+            const objName = object.toLowerCase();
+            
+            if (objName === 'engravings' && gameState.currentRoom === 'outside_gates') {
+                addResponse('You read the engravings: "Beware the keepers of stone. Offer light to the silent watcher, and the way may be granted."', 'puzzle');
+                return;
+            }
+            
+            if (objName === 'note' && gameState.currentRoom === 'outside_gates') {
+                if (!gameState.roomStates.outside_gates.guard_post_locked) {
+                    addResponse('You read the note: "The old fool hides the spare key in his \'seat\'. Thinks I don\'t know. - M"', 'puzzle');
+                    gameState.roomStates.outside_gates.note_read = true;
+                } else {
+                    addResponse("You need to get into the guard post first.");
+                }
+                return;
+            }
+            
+            if (objName === 'vorin family journal' && hasItem('vorin family journal')) {
+                addResponse("You read Lord Vorin's journal...", 'dialogue');
+                addResponse('"The ritual requires three phases under the full moon."', 'puzzle');
+                addResponse('"The gargoyles guard a secret. Moonlight is the key."', 'puzzle');
+                gameState.playerKnowledge.vorin_history = true;
+                gameState.playerKnowledge.moon_ritual = true;
+                gameState.playerKnowledge.gargoyle_secret = true;
+                return;
+            }
+            
+            addResponse(`There's nothing to read on the ${object}.`);
+        }
+
+        function handleAttack(object) {
+            const objName = object.toLowerCase();
+            
+            // Check if attacking an enemy
+            const room = rooms[gameState.currentRoom];
+            const roomState = gameState.roomStates[gameState.currentRoom];
+            
+            // Check if object is an enemy in the room
+            if (room.enemies.includes(objName) && !roomState[objName + '_defeated'] && !gameState.worldState[objName + '_pacified']) {
+                if (!gameState.inCombat) {
+                    gameState.inCombat = true;
+                    gameState.currentEnemy = objName;
+                    // Reset enemy health when encounter starts
+                    enemies[objName].health = enemies[objName].maxHealth;
+                    addResponse(`You attack the ${objName}!`, 'combat');
+                    handleCombat(objName);
+                } else {
+                    // Already in combat, just continue attacking
+                    handleCombat(objName);
+                }
+                return;
+            }
+            
+            // Non-enemy attacks - ORIGINAL CODE
+            if (objName === 'gatekeeper' && gameState.currentRoom === 'outside_gates') {
+                addResponse('The gatekeeper raises his staff! "Think again, fool!" (Violence might not be the best approach here.)', 'error');
+                gameState.worldState.gatekeeper_attitude = 'hostile';
+                return;
+            }
+            
+            if (objName === 'chest' && gameState.currentRoom === 'outside_gates') {
+                addResponse("You strike the chest. The wood is stout and the lock holds. You only hurt your hand.", 'error');
+                return;
+            }
+            
+            if (objName === 'tree trunk' && gameState.currentRoom === 'outside_gates') {
+                addResponse("You kick the rotten trunk. Some wood splinters off, revealing the hollow interior more clearly.");
+                if (!gameState.roomStates.outside_gates.tree_searched) {
+                    addResponse("You notice something inside... maybe you should search it.");
+                }
+                return;
+            }
+            
+            addResponse(`Attacking the ${object} seems pointless.`, 'error');
+        }
+
+        function handleGive(object, target) {
+            if (!object) {
+                addResponse("Give what?", 'error');
+                return;
+            }
+            
+            if (!target) {
+                addResponse(`Give ${object} to whom?`, 'error');
+                return;
+            }
+            
+            const objName = object.toLowerCase();
+            const targetName = target.toLowerCase();
+            
+            if (targetName !== 'gatekeeper' || gameState.currentRoom !== 'outside_gates') {
+                addResponse(`The ${target} doesn't want anything from you.`);
+                return;
+            }
+            
+            // Check if player has the item
+            if (!hasItem(objName)) {
+                addResponse(`You don't have ${object}.`, 'error');
+                return;
+            }
+            
+            // Handle giving specific items - ORIGINAL CODE
+            if (objName === 'lantern') {
+                removeItem('lantern');
+                gameState.npcStates.gatekeeper.lantern_returned = true;
+                addResponse('You give the lantern back to the gatekeeper. "Ah, good. The wind nips without it."', 'dialogue');
+                gameState.worldState.gatekeeper_attitude = 'neutral';
+            } else if (objName === 'gold coin') {
+                removeItem('gold coin');
+                gameState.npcStates.gatekeeper.coin_given = true;
+                addResponse('You give the gold coin to the gatekeeper. His milky eyes widen. "A coin? For me? Well..."', 'dialogue');
+                gameState.worldState.gatekeeper_attitude = 'neutral';
+                checkGateOpen();
+            } else if (objName === 'pungent herb') {
+                removeItem('pungent herb');
+                gameState.npcStates.gatekeeper.herb_given = true;
+                addResponse('You give the herb to the gatekeeper. He sniffs it and smiles. "Ah! Wolf\'s-bane mint. For my old joints. You\'re alright, stranger."', 'dialogue');
+                gameState.worldState.gatekeeper_attitude = 'friendly';
+                checkGateOpen();
+            } else if (objName === 'small iron key') {
+                removeItem('small iron key');
+                addResponse('You give the key to the gatekeeper. "A key? Not mine, but useful perhaps."', 'dialogue');
+                gameState.npcStates.gatekeeper.quests_completed.find_lost_key = true;
+                checkGateOpen();
+            } else {
+                addResponse(`The gatekeeper doesn't want ${object}.`, 'dialogue');
+            }
+        }
+
+        function handleDrop(object) {
+            const objName = object.toLowerCase();
+            
+            if (gameState.inCombat) {
+                addResponse("You can't drop items while in combat!", 'error');
+                return;
+            }
+            
+            if (hasItem(objName)) {
+                // Check if it's equipped
+                if (gameState.equippedWeapon === objName) {
+                    gameState.equippedWeapon = null;
+                }
+                if (gameState.equippedArmor === objName) {
+                    gameState.equippedArmor = null;
+                }
+                
+                removeItem(objName);
+                addResponse(`You drop the ${object}.`);
+            } else {
+                addResponse(`You're not carrying ${object}.`, 'error');
+            }
+        }
+
+        function handleEquip(object) {
+            const objName = object.toLowerCase();
+            
+            if (!hasItem(objName)) {
+                addResponse(`You don't have ${object}.`, 'error');
+                return;
+            }
+            
+            const item = items[objName];
+            if (!item) {
+                addResponse(`You can't equip ${object}.`, 'error');
+                return;
+            }
+            
+            if (item.type === 'weapon') {
+                if (gameState.equippedWeapon === objName) {
+                    addResponse(`You're already wielding the ${object}.`);
+                } else {
+                    const oldWeapon = gameState.equippedWeapon;
+                    gameState.equippedWeapon = objName;
+                    addResponse(`You equip the ${object}.`, 'weapon');
+                    if (oldWeapon) {
+                        addResponse(`You put away your ${oldWeapon}.`);
+                    }
+                }
+            } else if (item.type === 'armor') {
+                if (gameState.equippedArmor === objName) {
+                    addResponse(`You're already wearing the ${object}.`);
+                } else {
+                    const oldArmor = gameState.equippedArmor;
+                    gameState.equippedArmor = objName;
+                    addResponse(`You equip the ${object}.`, 'armor');
+                    if (oldArmor) {
+                        addResponse(`You remove your ${oldArmor}.`);
+                    }
+                }
+            } else {
+                addResponse(`You can't equip ${object}.`, 'error');
+            }
+        }
+
+        function handleUnequip(object) {
+            const objName = object.toLowerCase();
+            
+            if (objName === 'weapon' || gameState.equippedWeapon === objName) {
+                if (gameState.equippedWeapon) {
+                    addResponse(`You unequip the ${gameState.equippedWeapon}.`);
+                    gameState.equippedWeapon = null;
+                } else {
+                    addResponse("You're not wielding a weapon.");
+                }
+            } else if (objName === 'armor' || gameState.equippedArmor === objName) {
+                if (gameState.equippedArmor) {
+                    addResponse(`You unequip the ${gameState.equippedArmor}.`);
+                    gameState.equippedArmor = null;
+                } else {
+                    addResponse("You're not wearing armor.");
+                }
+            } else {
+                addResponse(`You don't have ${object} equipped.`, 'error');
+            }
+        }
+
+        function handleOpen(object) {
+            const objName = object.toLowerCase();
+            
+            if (objName === 'gate' && gameState.currentRoom === 'outside_gates') {
+                if (gameState.roomStates.outside_gates.gate_locked) {
+                    addResponse("The gate is locked.");
+                } else {
+                    addResponse("The gate is already open.");
+                }
+                return;
+            }
+            
+            if (objName === 'chest' && gameState.currentRoom === 'outside_gates') {
+                if (gameState.roomStates.outside_gates.chest_locked) {
+                    addResponse("The chest is locked.");
+                } else {
+                    addResponse("The chest is already open.");
+                }
+                return;
+            }
+            
+            if (objName === 'guard post' && gameState.currentRoom === 'outside_gates') {
+                if (gameState.roomStates.outside_gates.guard_post_locked) {
+                    addResponse("The guard post is locked.");
+                } else {
+                    addResponse("The guard post door is already unlocked.");
+                }
+                return;
+            }
+            
+            addResponse(`You cannot open the ${object}.`);
+        }
+
+        function handleSearch(object) {
+            const objName = object.toLowerCase();
+            
+            if (objName === 'tree trunk' && gameState.currentRoom === 'outside_gates') {
+                handleUse('tree trunk', null);
+                return;
+            }
+            
+            if (objName === 'chest' && gameState.currentRoom === 'outside_gates') {
+                if (gameState.roomStates.outside_gates.chest_locked) {
+                    addResponse("The chest is locked.");
+                } else {
+                    addResponse("The chest is empty.");
+                }
+                return;
+            }
+            
+            // Search hay in stable - ENHANCED
+            if (gameState.currentRoom === 'stable' && objName === 'hay') {
+                const roomState = gameState.roomStates.stable;
+                if (!roomState.hay_searched) {
+                    roomState.hay_searched = true;
+                    const finds = [];
+                    
+                    if (!hasItem('leather armor')) {
+                        gameState.inventory.push('leather armor');
+                        finds.push('LEATHER ARMOR');
+                    }
+                    
+                    if (!hasItem('ritual candle')) {
+                        gameState.inventory.push('ritual candle');
+                        finds.push('RITUAL CANDLE');
+                    }
+                    
+                    if (finds.length > 0) {
+                        addResponse(`You search the hay and find: ${finds.join(', ')}!`);
+                    } else {
+                        addResponse("The hay piles contain nothing but dust and cobwebs.");
+                    }
+                } else {
+                    addResponse("The hay piles contain nothing but dust and cobwebs.");
+                }
+                return;
+            }
+            
+            // Search fountain in courtyard - ENHANCED
+            if (gameState.currentRoom === 'courtyard' && objName === 'fountain') {
+                const roomState = gameState.roomStates.courtyard;
+                if (!roomState.fountain_searched) {
+                    roomState.fountain_searched = true;
+                    const finds = [];
+                    
+                    if (!hasItem('wooden shield')) {
+                        gameState.inventory.push('wooden shield');
+                        finds.push('WOODEN SHIELD');
+                    }
+                    
+                    if (!hasItem('moonstone')) {
+                        gameState.inventory.push('moonstone');
+                        finds.push('MOONSTONE');
+                    }
+                    
+                    if (!hasItem('silver mirror')) {
+                        gameState.inventory.push('silver mirror');
+                        finds.push('SILVER MIRROR');
+                    }
+                    
+                    if (finds.length > 0) {
+                        addResponse(`You search the fountain and find: ${finds.join(', ')}!`);
+                    } else {
+                        addResponse("The fountain is empty.");
+                    }
+                } else {
+                    addResponse("The fountain is empty.");
+                }
+                return;
+            }
+            
+            // Search altar in chapel - ENHANCED
+            if (gameState.currentRoom === 'chapel' && objName === 'altar') {
+                const roomState = gameState.roomStates.chapel;
+                if (!roomState.altar_searched) {
+                    roomState.altar_searched = true;
+                    const finds = [];
+                    
+                    if (!hasItem('holy water')) {
+                        gameState.inventory.push('holy water');
+                        finds.push('HOLY WATER');
+                    }
+                    
+                    if (!hasItem('prayer book')) {
+                        gameState.inventory.push('prayer book');
+                        finds.push('PRAYER BOOK');
+                    }
+                    
+                    if (!hasItem('burial shroud')) {
+                        gameState.inventory.push('burial shroud');
+                        finds.push('BURIAL SHROUD');
+                    }
+                    
+                    if (finds.length > 0) {
+                        addResponse(`You search the altar and find: ${finds.join(', ')}!`);
+                    } else {
+                        addResponse("The altar is empty.");
+                    }
+                } else {
+                    addResponse("The altar is empty.");
+                }
+                return;
+            }
+            
+            // Search throne in great hall
+            if (gameState.currentRoom === 'great_hall' && objName === 'stone throne') {
+                const roomState = gameState.roomStates.great_hall;
+                if (!roomState.throne_searched) {
+                    roomState.throne_searched = true;
+                    if (!hasItem('torch')) {
+                        gameState.inventory.push('torch');
+                        addResponse("You search behind the throne and find a TORCH!");
+                    }
+                } else {
+                    addResponse("The throne is just an empty stone chair.");
+                }
+                return;
+            }
+            
+            // Search book shelves in library - NEW
+            if (gameState.currentRoom === 'hidden_library' && objName === 'book shelves') {
+                const roomState = gameState.roomStates.hidden_library;
+                if (!roomState.ritual_incense_found) {
+                    roomState.ritual_incense_found = true;
+                    if (!hasItem('ritual incense')) {
+                        gameState.inventory.push('ritual incense');
+                        addResponse("You search the shelves and find RITUAL INCENSE!", 'secret');
+                        gameState.puzzles.moon_ritual.components_found++;
+                        checkMoonRitual();
+                    }
+                } else {
+                    addResponse("The shelves contain only dusty old books.");
+                }
+                return;
+            }
+            
+            addResponse(`You search the ${object} but find nothing of interest.`);
+        }
+
+        function handleManipulate(action, object, target) {
+            const objName = object.toLowerCase();
+            
+            // NEW: Push/pull gargoyle eyes for puzzle
+            if (gameState.currentRoom === 'outside_gates' && objName === 'gargoyles') {
+                if (target && (target.includes('left') || target.includes('right'))) {
+                    const isLeft = target.includes('left');
+                    addResponse(`You ${action} the ${target}...`, 'puzzle');
+                    
+                    if (gameState.worldState.time === 'night') {
+                        if (isLeft && !gameState.puzzles.gargoyle_puzzle.left_activated) {
+                            gameState.puzzles.gargoyle_puzzle.left_activated = true;
+                            addResponse("The eye socket glows with blue light!", 'puzzle');
+                        } else if (!isLeft && !gameState.puzzles.gargoyle_puzzle.right_activated) {
+                            gameState.puzzles.gargoyle_puzzle.right_activated = true;
+                            addResponse("The eye socket glows with blue light!", 'puzzle');
+                        }
+                        
+                        // Check if puzzle complete
+                        if (gameState.puzzles.gargoyle_puzzle.left_activated && 
+                            gameState.puzzles.gargoyle_puzzle.right_activated &&
+                            !gameState.puzzles.gargoyle_puzzle.completed) {
+                            gameState.puzzles.gargoyle_puzzle.completed = true;
+                            addResponse("Both gargoyles glow! A secret passage opens!", 'secret');
+                            gameState.roomStates.outside_gates.secret_passage_found = true;
+                            roomConnections.outside_gates.down = 'hidden_library';
+                        }
+                    } else {
+                        addResponse("Nothing happens. Maybe it needs moonlight?", 'hint');
+                    }
+                    return;
+                }
+            }
+            
+            addResponse(`You can't ${action} the ${object} like that.`);
+        }
+
+        function handlePray(object) {
+            const objName = object ? object.toLowerCase() : '';
+            
+            if (gameState.currentRoom === 'chapel') {
+                if (objName === 'ghost' && gameState.inCombat && gameState.currentEnemy === 'ghost') {
+                    handleNonCombatAction('pray', 'ghost');
+                    return;
+                }
+                
+                addResponse("You pray in the chapel. A sense of peace washes over you.");
+                if (hasItem('ritual incense')) {
+                    addResponse("You burn the ritual incense while praying...", 'puzzle');
+                    gameState.puzzles.moon_ritual.components_found++;
+                    checkMoonRitual();
+                }
+                return;
+            }
+            
+            addResponse("This doesn't seem like an appropriate place to pray.");
+        }
+
+        // Helper functions - ORIGINAL CODE
+        function hasItem(itemName) {
+            const normalized = itemName.toLowerCase();
+            return gameState.inventory.some(item => item.toLowerCase() === normalized);
+        }
+
+        function removeItem(itemName) {
+            const normalized = itemName.toLowerCase();
+            for (let i = 0; i < gameState.inventory.length; i++) {
+                if (gameState.inventory[i].toLowerCase() === normalized) {
+                    gameState.inventory.splice(i, 1);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function checkGateOpen() {
+            if ((gameState.npcStates.gatekeeper.coin_given && gameState.npcStates.gatekeeper.herb_given) ||
+                gameState.npcStates.gatekeeper.quests_completed.find_lost_key) {
+                gameState.roomStates.outside_gates.gate_locked = false;
+                gameState.roomStates.outside_gates.gate_opened = true;
+                addResponse('\nThe gatekeeper unlocks the gate. "You may enter."\nThe great iron gate swings open.\nYou can now go NORTH through the gate.', 'dialogue');
+            }
+        }
+
+        // NEW: Check moon ritual completion
+        function checkMoonRitual() {
+            if (gameState.puzzles.moon_ritual.components_found >= gameState.puzzles.moon_ritual.components_needed &&
+                !gameState.puzzles.moon_ritual.completed) {
+                gameState.puzzles.moon_ritual.completed = true;
+                addResponse("\n=== THE MOON RITUAL IS COMPLETE ===", 'puzzle');
+                addResponse("A wave of energy passes through the castle!", 'puzzle');
+                addResponse("The fountain glows brilliantly and a hidden compartment opens!", 'secret');
+                
+                // Reward: Ancestral sword (new item)
+                if (!hasItem('ancestral sword')) {
+                    gameState.inventory.push('ancestral sword');
+                    items['ancestral sword'] = {
+                        type: 'weapon',
+                        damage: 25,
+                        description: "A beautifully crafted longsword that glows with magical energy.",
+                        value: 100
+                    };
+                    addResponse("You find the ANCESTRAL SWORD of the Vorin family!", 'secret');
+                }
+            }
+        }
+
+        function showHelp() {
+            addResponse("=== COMMANDS ===");
+            addResponse("MOVEMENT: N, S, E, W, GO [direction], U(p), D(own)");
+            addResponse("EXAMINATION: LOOK, EXAMINE, SEARCH");
+            addResponse("INVENTORY: TAKE, DROP, INVENTORY (I)");
+            addResponse("COMBAT: ATTACK, USE [item] ON [enemy]");
+            addResponse("NON-COMBAT: LISTEN, PRAY, FEED, ANSWER, BURY, BLESS (during combat)");
+            addResponse("EQUIPMENT: EQUIP [item], UNEQUIP [item/weapon/armor]");
+            addResponse("INTERACTION: USE, TALK, ASK [npc] ABOUT [topic], READ, GIVE, OPEN");
+            addResponse("PUZZLES: PUSH, PULL, PRAY (with incense)");
+            addResponse("OTHER: STATUS, HELP");
+            addResponse("");
+            addResponse("=== NEW GAMEPLAY FEATURES ===");
+            addResponse("- Non-combat solutions for all enemies");
+            addResponse("- Dialogue trees with NPCs (ASK GATEKEEPER ABOUT...)");
+            addResponse("- Multi-stage Moon Ritual puzzle");
+            addResponse("- Gargoyle puzzle (requires moonlight)");
+            addResponse("- Hidden library with secrets");
+            addResponse("- World state that changes based on your actions");
+        }
+
+        // Handle Enter key in input
+        commandInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                const command = commandInput.value;
+                if (command.trim()) {
+                    processCommand(command);
+                    commandInput.value = '';
+                }
+            }
+        });
+
+        // Initialize game
+        window.onload = initGame;
+    </script>
+</body>
+</html>
