@@ -1,0 +1,1476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Castle of the Dammed 1984</title>
+    <!-- Add the Google Fonts link -->
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        /* Remove the @font-face rule for Atari ST */
+        /* Add the Google Fonts import via CSS */
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background-color: #000;
+            color: #fff;
+            /* Change to Press Start 2P */
+            font-family: 'Press Start 2P', monospace;
+            font-size: 16px;
+            line-height: 1.4;
+            padding: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        #game-title {
+            color: #ff0000;
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 20px;
+            text-shadow: 0 0 5px #ff0000;
+            letter-spacing: 2px;
+        }
+        
+        #game-container {
+            border: 2px solid #fff;
+            padding: 15px;
+            min-height: 500px;
+            background-color: #000;
+            overflow-y: auto;
+            max-height: 70vh;
+        }
+        
+        #game-text {
+            margin-bottom: 20px;
+            white-space: pre-wrap;
+        }
+        
+        #input-area {
+            display: flex;
+            margin-top: 20px;
+            border-top: 1px solid #fff;
+            padding-top: 15px;
+        }
+        
+        #command-input {
+            flex-grow: 1;
+            background-color: #000;
+            color: #fff;
+            border: 1px solid #fff;
+            padding: 10px;
+            /* Change to Press Start 2P */
+            font-family: 'Press Start 2P', monospace;
+            font-size: 16px;
+        }
+        
+        #command-input:focus {
+            outline: none;
+            border-color: #ff0000;
+        }
+        
+        #submit-button {
+            background-color: #000;
+            color: #fff;
+            border: 1px solid #fff;
+            padding: 10px 20px;
+            /* Change to Press Start 2P */
+            font-family: 'Press Start 2P', monospace;
+            font-size: 16px;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+        
+        #submit-button:hover {
+            background-color: #222;
+        }
+        
+        .item {
+            color: #ffff00;
+        }
+        
+        .npc {
+            color: #ff00ff;
+        }
+        
+        .enemy {
+            color: #ff0000;
+        }
+        
+        .command {
+            color: #00ffff;
+            font-weight: bold;
+        }
+
+ .spell {
+    color: #ff8800;
+    font-weight: bold;
+}       
+
+        .location {
+            text-decoration: underline;
+        }
+        
+        .help-text {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #aaa;
+        }
+        
+        .inventory-item {
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        
+        .inventory-item:hover {
+            color: #ffff00;
+        }
+        
+        #game-status {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px dashed #fff;
+        }
+        
+        .status-item {
+            display: inline-block;
+            margin-right: 15px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1 id="game-title">CASTLE OF THE DAMMED 1984</h1>
+    
+    <div id="game-status">
+        <div class="status-item">HEALTH: <span id="health">100</span></div>
+        <div class="status-item">ROOM: <span id="current-room">Outside Castle Gates</span></div>
+        <div class="status-item">INVENTORY: <span id="inventory-count">0</span>/10</div>
+    </div>
+    
+    <div id="game-container">
+        <div id="game-text"></div>
+    </div>
+    
+    <div id="input-area">
+        <input type="text" id="command-input" placeholder="Enter command (type HELP for commands)" autofocus>
+        <button id="submit-button">EXECUTE</button>
+    </div>
+    
+    <div class="help-text">
+        Available commands: LOOK, GO, TAKE, USE, INVENTORY, TALK, ATTACK, EXAMINE, MAP, REST, STATS, HELP, QUIT
+    </div>
+          <script>
+    // Game state
+    const gameState = {
+        currentRoom: "outside",
+        player: {
+            health: 100,
+            maxHealth: 100,
+            mana: 50,
+            maxMana: 50,
+            inventory: [],
+            equippedWeapon: null,
+            equippedArmor: null,
+            knownSpells: []  // Start with no known spells
+        },
+        rooms: {},
+        gameActive: true,
+        inCombat: false,
+        currentEnemy: null
+    };
+
+    // Game data - rooms, items, NPCs, enemies
+    const gameData = {
+        rooms: {
+            outside: {
+                name: "Outside Castle Gates",
+                description: "You stand before the imposing CASTLE OF THE DAMMED. The massive iron gates are slightly ajar. A cold wind howls through the dead trees surrounding the castle. To the NORTH, the castle entrance awaits.",
+                exits: { north: "courtyard" },
+                items: ["rusted key"],
+                npcs: ["gatekeeper"],
+                enemies: [],
+                visited: false
+            },
+            courtyard: {
+                name: "Castle Courtyard",
+                description: "You enter a desolate courtyard. Broken statues line the pathway to the main keep. The ground is littered with bones and debris. To the SOUTH are the gates, to the WEST a tower entrance, and to the NORTH the grand hall doors.",
+                exits: { south: "outside", north: "hall", west: "tower" },
+                items: ["old sword", "health potion"],
+                npcs: [],
+                enemies: ["skeletal guard"],
+                visited: false
+            },
+            hall: {
+                name: "Grand Hall",
+                description: "The grand hall is a cavernous room with a high ceiling. Tattered banners hang from the walls. A large throne sits at the far end, occupied by a silent figure. Exits are to the SOUTH and EAST.",
+                exits: { south: "courtyard", east: "dungeon" },
+                items: ["tattered scroll", "mana potion"],
+                npcs: ["cursed king"],
+                enemies: [],
+                visited: false
+            },
+            dungeon: {
+                name: "Dungeon",
+                description: "A foul-smelling dungeon with cells lining the walls. The air is thick with despair. Torches flicker weakly. To the WEST is the grand hall, and a dark staircase leads DOWN.",
+                exits: { west: "hall", down: "catacombs" },
+                items: ["iron key", "torch"],
+                npcs: ["prisoner"],
+                enemies: ["dungeon rat"],
+                visited: false
+            },
+            tower: {
+                name: "Tower",
+                description: "A narrow spiral staircase leads up to this dimly lit tower room. A large window overlooks the cursed lands. There's a workbench with alchemical equipment. Exits are to the EAST and UP.",
+                exits: { east: "courtyard", up: "roof" },
+                items: ["magic amulet", "scroll of firebolt"],
+                npcs: ["mad wizard"],
+                enemies: [],
+                visited: false
+            },
+            catacombs: {
+                name: "Catacombs",
+                description: "The air grows colder as you descend into the catacombs. Ancient tombs line the walls, and the sound of dripping water echoes. The only exit is UP.",
+                exits: { up: "dungeon" },
+                items: ["ancient bone", "gold coin"],
+                npcs: [],
+                enemies: ["vengeful spirit"],
+                visited: false
+            },
+            roof: {
+                name: "Tower Roof",
+                description: "You emerge onto the windy tower roof. The entire cursed landscape is visible from here. A large bell hangs in the center. The only exit is DOWN.",
+                exits: { down: "tower" },
+                items: ["bell rope"],
+                npcs: [],
+                enemies: ["gargoyle"],
+                visited: false
+            }
+        },
+        
+        items: {
+            "rusted key": {
+                name: "rusted key",
+                description: "An old, rusted iron key. It might open a simple lock.",
+                type: "key",
+                usable: true
+            },
+            "old sword": {
+                name: "old sword",
+                description: "A battered but serviceable sword. Better than fighting bare-handed.",
+                type: "weapon",
+                damage: 15,
+                usable: true
+            },
+            "health potion": {
+                name: "health potion",
+                description: "A red potion that restores health when consumed.",
+                type: "consumable",
+                heal: 30,
+                usable: true
+            },
+            "mana potion": {
+                name: "mana potion",
+                description: "A blue potion that restores magical energy.",
+                type: "consumable",
+                manaRestore: 25,
+                usable: true
+            },
+            "tattered scroll": {
+                name: "tattered scroll",
+                description: "A scroll with faded writing. It appears to be a warning.",
+                type: "readable",
+                content: "BEWARE THE CURSE OF THE DAMMED. ONLY THE RIGHTEOUS MAY LEAVE.",
+                usable: true
+            },
+            "iron key": {
+                name: "iron key",
+                description: "A sturdy iron key, recently forged.",
+                type: "key",
+                usable: true
+            },
+            "torch": {
+                name: "torch",
+                description: "A lit torch that illuminates dark areas.",
+                type: "tool",
+                usable: true
+            },
+            "magic amulet": {
+                name: "magic amulet",
+                description: "A silver amulet that glows with a faint blue light. Increases mana by 20.",
+                type: "artifact",
+                manaBonus: 20,
+                usable: true
+            },
+            "scroll of firebolt": {
+                name: "scroll of firebolt",
+                description: "A magical scroll containing the FIREBOLT spell. Reading it will teach you the spell permanently. Can also be used as a one-time consumable in combat.",
+                type: "spell_scroll",
+                spell: "firebolt",
+                damage: 35,
+                manaCost: 15,
+                usable: true
+            },
+            "ancient bone": {
+                name: "ancient bone",
+                description: "A yellowed bone from some long-dead creature.",
+                type: "misc",
+                usable: false
+            },
+            "gold coin": {
+                name: "gold coin",
+                description: "A shiny gold coin, perhaps part of a treasure.",
+                type: "misc",
+                usable: false
+            },
+            "bell rope": {
+                name: "bell rope",
+                description: "A thick rope used to ring the tower bell.",
+                type: "tool",
+                usable: true
+            }
+        },
+        
+        spells: {
+            "firebolt": {
+                name: "firebolt",
+                description: "A basic fire spell that launches a bolt of flame at your enemy.",
+                damage: 35,
+                manaCost: 15,
+                element: "fire"
+            },
+            // More spells can be added later
+        },
+        
+        npcs: {
+            "gatekeeper": {
+                name: "gatekeeper",
+                description: "A hooded figure standing by the gates. He seems to be waiting.",
+                dialogue: [
+                    "Welcome to the Castle of the Dammed, traveler.",
+                    "Many have entered, but few have returned.",
+                    "Take this <span class='item'>rusted key</span> - it may prove useful.",
+                    "Beware the <span class='enemy'>skeletal guard</span> in the courtyard.",
+                    "The mad wizard in the tower knows much about magic. Seek him if you wish to learn spells."
+                ]
+            },
+            "cursed king": {
+                name: "cursed king",
+                description: "The silent king sits on his throne, unmoving.",
+                dialogue: [
+                    "...",
+                    "The king does not respond to your presence.",
+                    "His eyes seem to follow you, but he remains still.",
+                    "Perhaps he is bound by the same curse as this castle.",
+                    "A faint magical aura surrounds him."
+                ]
+            },
+            "prisoner": {
+                name: "prisoner",
+                description: "A ragged man in one of the dungeon cells.",
+                dialogue: [
+                    "Help me! Please!",
+                    "I've been trapped here for weeks.",
+                    "The <span class='enemy'>dungeon rat</span> attacked the guard and took his key.",
+                    "If you defeat it, you might find the <span class='item'>iron key</span> to free me.",
+                    "I've heard the wizard in the tower keeps powerful magical scrolls."
+                ]
+            },
+            "mad wizard": {
+                name: "mad wizard",
+                description: "An old wizard muttering over his alchemical experiments.",
+                dialogue: [
+                    "Ah, a visitor! Don't mind the explosions.",
+                    "I've been studying the castle's curse for decades.",
+                    "Take this <span class='item'>magic amulet</span> - it may protect you and increase your mana.",
+                    "The <span class='enemy'>gargoyle</span> on the roof is particularly nasty to fire spells.",
+                    "I see you've found my <span class='item'>scroll of firebolt</span>. Read it to learn the spell permanently, or use it once in combat."
+                ]
+            }
+        },
+        
+        enemies: {
+            "skeletal guard": {
+                name: "skeletal guard",
+                description: "An animated skeleton clutching a rusty sword.",
+                health: 40,
+                damage: 10,
+                defeatText: "The skeleton collapses into a pile of bones.",
+                itemDrop: "old sword",
+                weakness: "blunt"  // Could be used for combat bonuses
+            },
+            "dungeon rat": {
+                name: "dungeon rat",
+                description: "A giant, aggressive rat with sharp teeth.",
+                health: 25,
+                damage: 8,
+                defeatText: "The rat squeals one last time and dies.",
+                itemDrop: "iron key",
+                weakness: "fire"  // Fire spells do extra damage
+            },
+            "vengeful spirit": {
+                name: "vengeful spirit",
+                description: "A translucent figure that wails as it floats toward you.",
+                health: 60,
+                damage: 15,
+                defeatText: "The spirit dissipates with a final mournful cry.",
+                itemDrop: "gold coin",
+                weakness: "holy"  // Could be used for combat bonuses
+            },
+            "gargoyle": {
+                name: "gargoyle",
+                description: "A stone creature that has come to life, with sharp claws.",
+                health: 75,
+                damage: 20,
+                defeatText: "The gargoyle crumbles back into stone.",
+                itemDrop: "bell rope",
+                weakness: null  // No particular weakness
+            }
+        }
+    };
+
+    // Initialize the game
+    function initGame() {
+        // Initialize rooms
+        gameState.rooms = JSON.parse(JSON.stringify(gameData.rooms));
+        
+        // Display initial room description
+        look();
+        
+        // Set up event listeners
+        document.getElementById('command-input').addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                processCommand();
+            }
+        });
+        
+        document.getElementById('submit-button').addEventListener('click', function() {
+            processCommand();
+        });
+    }
+
+    // Add text to the game display
+    function addGameText(text) {
+        const gameText = document.getElementById('game-text');
+        gameText.innerHTML += text;
+        
+        // Scroll to bottom
+        const container = document.getElementById('game-container');
+        container.scrollTop = container.scrollHeight;
+    }
+
+    // Process player command
+    function processCommand() {
+        if (!gameState.gameActive) return;
+        
+        const inputField = document.getElementById('command-input');
+        const command = inputField.value.trim().toLowerCase();
+        inputField.value = '';
+        
+        if (command === '') return;
+        
+        // Display the command
+        addGameText(`\n> ${command}\n`);
+        
+        // Handle combat separately if in combat
+        if (gameState.inCombat) {
+            handleCombatCommand(command);
+            return;
+        }
+        
+        // Parse the command
+        const parts = command.split(' ');
+        const verb = parts[0];
+        const object = parts.slice(1).join(' ');
+        
+        switch(verb) {
+            case 'look':
+            case 'l':
+                look();
+                break;
+                
+            case 'go':
+            case 'move':
+            case 'walk':
+            case 'n':
+            case 's':
+            case 'e':
+            case 'w':
+            case 'north':
+            case 'south':
+            case 'east':
+            case 'west':
+            case 'up':
+            case 'down':
+                go(verb, object);
+                break;
+                
+            case 'take':
+            case 'get':
+                takeItem(object);
+                break;
+                
+            case 'use':
+                useItem(object);
+                break;
+                
+            case 'cast':
+                castSpell(object);
+                break;
+                
+            case 'inventory':
+            case 'i':
+                showInventory();
+                break;
+                
+            case 'talk':
+                if (object.toLowerCase().includes('to')) {
+                    const npcName = object.substring(object.indexOf('to') + 3);
+                    talkToNPC(npcName);
+                } else {
+                    talkToNPC(object);
+                }
+                break;
+                
+            case 'attack':
+            case 'fight':
+                if (object) {
+                    attackEnemy(object);
+                } else {
+                    attackEnemy();
+                }
+                break;
+                
+            case 'examine':
+            case 'inspect':
+                examine(object);
+                break;
+                
+            case 'read':
+                readItem(object);
+                break;
+                
+            case 'equip':
+                equipItem(object);
+                break;
+                
+            case 'map':
+                showMap();
+                break;
+                
+            case 'rest':
+                rest();
+                break;
+                
+            case 'stats':
+                showStats();
+                break;
+                
+            case 'help':
+            case '?':
+                showHelp();
+                break;
+                
+            case 'quit':
+            case 'exit':
+                addGameText("Are you sure you want to quit? Type 'YES' to confirm.");
+                document.getElementById('command-input').placeholder = "Type YES to quit";
+                document.getElementById('command-input').addEventListener('keypress', function confirmQuit(event) {
+                    if (event.key === 'Enter') {
+                        const confirm = this.value.trim().toLowerCase();
+                        if (confirm === 'yes') {
+                            addGameText("\n\nThanks for playing CASTLE OF THE DAMMED 1984!");
+                            gameState.gameActive = false;
+                            this.removeEventListener('keypress', confirmQuit);
+                        } else {
+                            addGameText("\nContinue your adventure!");
+                            this.removeEventListener('keypress', confirmQuit);
+                            document.getElementById('command-input').placeholder = "Enter command (type HELP for commands)";
+                        }
+                        this.value = '';
+                    }
+                });
+                break;
+                
+            default:
+                addGameText(`I don't understand "${command}". Type HELP for available commands.`);
+        }
+    }
+
+    // Look at current room
+    function look() {
+        const room = gameState.rooms[gameState.currentRoom];
+        
+        let description = `\n<span class="location">${room.name}</span>\n\n`;
+        description += room.description + "\n\n";
+        
+        // Show exits
+        description += "Exits: ";
+        const exits = Object.keys(room.exits).map(exit => exit.toUpperCase());
+        description += exits.join(", ") + "\n";
+        
+        // Show items in room
+        if (room.items.length > 0) {
+            description += "\nYou see: ";
+            description += room.items.map(item => `<span class="item">${item}</span>`).join(", ");
+            description += "\n";
+        }
+        
+        // Show NPCs in room
+        if (room.npcs.length > 0) {
+            description += "\nYou see: ";
+            description += room.npcs.map(npc => `<span class="npc">${npc}</span>`).join(", ");
+            description += "\n";
+        }
+        
+        // Show enemies in room
+        if (room.enemies.length > 0) {
+            description += "\nYou see: ";
+            description += room.enemies.map(enemy => `<span class="enemy">${enemy}</span>`).join(", ");
+            description += "\n";
+        }
+        
+        addGameText(description);
+        
+        // Mark room as visited
+        room.visited = true;
+        
+        // Update room display
+        document.getElementById('current-room').textContent = room.name;
+    }
+
+    // Move to a different room
+    function go(direction, object) {
+        const room = gameState.rooms[gameState.currentRoom];
+        
+        // Handle direction shortcuts
+        let dir = direction;
+        if (dir === 'n') dir = 'north';
+        if (dir === 's') dir = 'south';
+        if (dir === 'e') dir = 'east';
+        if (dir === 'w') dir = 'west';
+        
+        // If no object provided, use the direction from the verb
+        if (!object && ['north', 'south', 'east', 'west', 'up', 'down'].includes(dir)) {
+            direction = dir;
+        } else if (object) {
+            direction = object.toLowerCase();
+        }
+        
+        // Check if the exit exists
+        if (room.exits[direction]) {
+            gameState.currentRoom = room.exits[direction];
+            addGameText(`You go ${direction.toUpperCase()}.\n`);
+            look();
+        } else {
+            addGameText(`You cannot go ${direction.toUpperCase()} from here.\n`);
+        }
+    }
+
+    // Take an item from the room
+    function takeItem(itemName) {
+        const room = gameState.rooms[gameState.currentRoom];
+        const items = room.items;
+        
+        if (!itemName) {
+            addGameText("Take what?");
+            return;
+        }
+        
+        // Find the item
+        const itemIndex = items.findIndex(item => 
+            item.toLowerCase().includes(itemName.toLowerCase()) || 
+            itemName.toLowerCase().includes(item.toLowerCase())
+        );
+        
+        if (itemIndex === -1) {
+            addGameText(`There is no ${itemName} here.`);
+            return;
+        }
+        
+        const item = items[itemIndex];
+        
+        // Check inventory space
+        if (gameState.player.inventory.length >= 10) {
+            addGameText("Your inventory is full. You must drop something first.");
+            return;
+        }
+        
+        // Remove from room and add to inventory
+        items.splice(itemIndex, 1);
+        gameState.player.inventory.push(item);
+        
+        addGameText(`You take the <span class="item">${item}</span>.\n`);
+        
+        // Update inventory count
+        document.getElementById('inventory-count').textContent = gameState.player.inventory.length;
+    }
+
+    // Use an item
+    function useItem(itemName) {
+        if (!itemName) {
+            addGameText("Use what?");
+            return;
+        }
+        
+        // Find the item in inventory
+        const itemIndex = gameState.player.inventory.findIndex(item => 
+            item.toLowerCase().includes(itemName.toLowerCase()) || 
+            itemName.toLowerCase().includes(item.toLowerCase())
+        );
+        
+        if (itemIndex === -1) {
+            addGameText(`You don't have ${itemName}.`);
+            return;
+        }
+        
+        const itemKey = gameState.player.inventory[itemIndex];
+        const item = gameData.items[itemKey];
+        
+        if (!item.usable) {
+            addGameText(`You can't use the ${itemKey}.`);
+            return;
+        }
+        
+        // Handle different item types
+        switch(item.type) {
+            case 'consumable':
+                if (item.heal) {
+                    gameState.player.health = Math.min(gameState.player.maxHealth, gameState.player.health + item.heal);
+                    addGameText(`You drink the <span class="item">${itemKey}</span> and restore ${item.heal} health.\n`);
+                    document.getElementById('health').textContent = gameState.player.health;
+                    
+                    // Remove from inventory
+                    gameState.player.inventory.splice(itemIndex, 1);
+                    document.getElementById('inventory-count').textContent = gameState.player.inventory.length;
+                } else if (item.manaRestore) {
+                    gameState.player.mana = Math.min(gameState.player.maxMana, gameState.player.mana + item.manaRestore);
+                    addGameText(`You drink the <span class="item">${itemKey}</span> and restore ${item.manaRestore} mana.\n`);
+                    
+                    // Remove from inventory
+                    gameState.player.inventory.splice(itemIndex, 1);
+                    document.getElementById('inventory-count').textContent = gameState.player.inventory.length;
+                }
+                break;
+                
+            case 'weapon':
+                gameState.player.equippedWeapon = itemKey;
+                addGameText(`You equip the <span class="item">${itemKey}</span>.\n`);
+                break;
+                
+            case 'readable':
+                addGameText(`You read the <span class="item">${itemKey}</span>:\n"${item.content}"\n`);
+                break;
+                
+            case 'spell_scroll':
+                // Learn the spell from the scroll
+                if (!gameState.player.knownSpells.includes(item.spell)) {
+                    gameState.player.knownSpells.push(item.spell);
+                    addGameText(`You read the <span class="item">${itemKey}</span> and learn the <span class="spell">${item.spell.toUpperCase()}</span> spell!\n`);
+                    addGameText(`You can now CAST ${item.spell.toUpperCase()} in combat (Cost: ${item.manaCost} mana).\n`);
+                    
+                    // Remove the scroll from inventory (it's consumed when learned)
+                    gameState.player.inventory.splice(itemIndex, 1);
+                    document.getElementById('inventory-count').textContent = gameState.player.inventory.length;
+                } else {
+                    addGameText(`You already know the <span class="spell">${item.spell.toUpperCase()}</span> spell.\n`);
+                    addGameText(`You can still use this scroll as a one-time consumable in combat.\n`);
+                }
+                break;
+                
+            case 'artifact':
+                if (item.manaBonus) {
+                    gameState.player.maxMana += item.manaBonus;
+                    gameState.player.mana = Math.min(gameState.player.maxMana, gameState.player.mana + item.manaBonus);
+                    addGameText(`You equip the <span class="item">${itemKey}</span>. Your maximum mana increases by ${item.manaBonus}!\n`);
+                    
+                    // Remove from inventory
+                    gameState.player.inventory.splice(itemIndex, 1);
+                    document.getElementById('inventory-count').textContent = gameState.player.inventory.length;
+                }
+                break;
+                
+            case 'key':
+                addGameText(`You examine the <span class="item">${itemKey}</span>. It might unlock something.\n`);
+                break;
+                
+            default:
+                addGameText(`You use the <span class="item">${itemKey}</span>, but nothing happens.\n`);
+        }
+    }
+
+    // Cast a spell (outside of combat)
+    function castSpell(spellName) {
+        if (!spellName) {
+            addGameText("Cast what spell? You know: " + 
+                (gameState.player.knownSpells.length > 0 ? 
+                    gameState.player.knownSpells.map(s => `<span class="spell">${s}</span>`).join(", ") : 
+                    "No spells yet") + "\n");
+            return;
+        }
+        
+        // Check if player knows the spell
+        const spellKey = spellName.toLowerCase();
+        if (!gameState.player.knownSpells.includes(spellKey)) {
+            addGameText(`You don't know the ${spellName} spell.\n`);
+            return;
+        }
+        
+        const spell = gameData.spells[spellKey];
+        
+        if (!spell) {
+            addGameText(`The ${spellName} spell doesn't exist.\n`);
+            return;
+        }
+        
+        // Check if in combat
+        if (!gameState.inCombat) {
+            addGameText(`You prepare to cast <span class="spell">${spell.name.toUpperCase()}</span>, but there's nothing to cast it at.\n`);
+            addGameText(`(This spell can only be used in combat)\n`);
+        } else {
+            addGameText(`You must be in combat to cast ${spellName}.\n`);
+        }
+    }
+
+    // Show player inventory
+    function showInventory() {
+        if (gameState.player.inventory.length === 0) {
+            addGameText("Your inventory is empty.\n");
+        } else {
+            let inventoryText = "\n=== INVENTORY ===\n";
+            
+            gameState.player.inventory.forEach((item, index) => {
+                inventoryText += `${index + 1}. <span class="inventory-item" onclick="useItem('${item}')">${item}</span>\n`;
+            });
+            
+            if (gameState.player.equippedWeapon) {
+                inventoryText += `\nEquipped weapon: <span class="item">${gameState.player.equippedWeapon}</span>\n`;
+            }
+            
+            inventoryText += `\nCapacity: ${gameState.player.inventory.length}/10\n`;
+            
+            addGameText(inventoryText);
+        }
+        
+        // Show known spells
+        if (gameState.player.knownSpells.length > 0) {
+            let spellsText = "\n=== KNOWN SPELLS ===\n";
+            gameState.player.knownSpells.forEach(spell => {
+                const spellData = gameData.spells[spell];
+                if (spellData) {
+                    spellsText += `<span class="spell">${spell.toUpperCase()}</span> - ${spellData.description} (Cost: ${spellData.manaCost} mana)\n`;
+                }
+            });
+            addGameText(spellsText);
+        }
+    }
+
+    // Talk to an NPC
+    function talkToNPC(npcName) {
+        const room = gameState.rooms[gameState.currentRoom];
+        
+        if (!npcName) {
+            addGameText("Talk to who?");
+            return;
+        }
+        
+        // Find the NPC
+        const npcKey = room.npcs.find(npc => 
+            npc.toLowerCase().includes(npcName.toLowerCase()) || 
+            npcName.toLowerCase().includes(npc.toLowerCase())
+        );
+        
+        if (!npcKey) {
+            addGameText(`There is no ${npcName} here.`);
+            return;
+        }
+        
+        const npc = gameData.npcs[npcKey];
+        
+        let dialogueText = `\n<span class="npc">${npcKey.toUpperCase()}</span>:\n`;
+        
+        // Show random dialogue
+        const randomIndex = Math.floor(Math.random() * npc.dialogue.length);
+        dialogueText += npc.dialogue[randomIndex] + "\n";
+        
+        // Special case for gatekeeper giving key
+        if (npcKey === "gatekeeper" && room.items.includes("rusted key")) {
+            dialogueText += "\n(The gatekeeper gestures toward the rusted key on the ground.)\n";
+        }
+        
+        addGameText(dialogueText);
+    }
+
+    // Attack an enemy
+    function attackEnemy(enemyName) {
+        const room = gameState.rooms[gameState.currentRoom];
+        
+        // If no enemy specified and there's only one in the room
+        if (!enemyName && room.enemies.length === 1) {
+            enemyName = room.enemies[0];
+        }
+        
+        if (!enemyName) {
+            if (room.enemies.length === 0) {
+                addGameText("There's nothing to attack here.");
+            } else {
+                addGameText("Attack what? You see: " + 
+                    room.enemies.map(enemy => `<span class="enemy">${enemy}</span>`).join(", "));
+            }
+            return;
+        }
+        
+        // Find the enemy
+        const enemyKey = room.enemies.find(enemy => 
+            enemy.toLowerCase().includes(enemyName.toLowerCase()) || 
+            enemyName.toLowerCase().includes(enemy.toLowerCase())
+        );
+        
+        if (!enemyKey) {
+            addGameText(`There is no ${enemyName} here.`);
+            return;
+        }
+        
+        // Start combat
+        gameState.inCombat = true;
+        gameState.currentEnemy = enemyKey;
+        
+        addGameText(`\n=== COMBAT STARTED ===\n`);
+        addGameText(`You attack the <span class="enemy">${enemyKey}</span>!\n`);
+        
+        // Show combat commands
+        addGameText("Combat commands: ATTACK, CAST [spell], USE [item], FLEE\n");
+        
+        // Show available spells
+        if (gameState.player.knownSpells.length > 0) {
+            addGameText("Known spells: " + 
+                gameState.player.knownSpells.map(s => `<span class="spell">${s}</span>`).join(", ") + "\n");
+        }
+    }
+
+    // Handle combat commands
+    function handleCombatCommand(command) {
+        const enemy = gameData.enemies[gameState.currentEnemy];
+        const parts = command.split(' ');
+        const verb = parts[0];
+        const object = parts.slice(1).join(' ');
+        
+        switch(verb) {
+            case 'attack':
+                // Player attacks
+                let playerDamage = 5; // Base damage
+                
+                if (gameState.player.equippedWeapon) {
+                    const weapon = gameData.items[gameState.player.equippedWeapon];
+                    playerDamage = weapon.damage || playerDamage;
+                }
+                
+                enemy.health -= playerDamage;
+                
+                addGameText(`You hit the <span class="enemy">${gameState.currentEnemy}</span> for ${playerDamage} damage!\n`);
+                
+                // Check if enemy is defeated
+                if (enemy.health <= 0) {
+                    endCombat(true);
+                    return;
+                }
+                
+                // Enemy attacks back
+                const enemyDamage = enemy.damage;
+                gameState.player.health -= enemyDamage;
+                
+                addGameText(`The <span class="enemy">${gameState.currentEnemy}</span> hits you for ${enemyDamage} damage!\n`);
+                document.getElementById('health').textContent = gameState.player.health;
+                
+                // Check if player is defeated
+                if (gameState.player.health <= 0) {
+                    addGameText("\n=== YOU HAVE DIED ===\n");
+                    addGameText("The Castle of the Dammed claims another victim...\n");
+                    gameState.gameActive = false;
+                    return;
+                }
+                
+                // Show combat status
+                addGameText(`Your health: ${gameState.player.health}/${gameState.player.maxHealth}\n`);
+                addGameText(`Enemy health: ${enemy.health}\n`);
+                break;
+                
+            case 'cast':
+                if (!object) {
+                    addGameText("Cast what spell? You know: " + 
+                        (gameState.player.knownSpells.length > 0 ? 
+                            gameState.player.knownSpells.map(s => `<span class="spell">${s}</span>`).join(", ") : 
+                            "No spells") + "\n");
+                    break;
+                }
+                
+                const spellKey = object.toLowerCase();
+                
+                // Check if player knows the spell
+                if (!gameState.player.knownSpells.includes(spellKey)) {
+                    // Check if player has a scroll of this spell
+                    const scrollItem = gameState.player.inventory.find(item => {
+                        const itemData = gameData.items[item];
+                        return itemData && itemData.type === 'spell_scroll' && itemData.spell === spellKey;
+                    });
+                    
+                    if (scrollItem) {
+                        // Use the scroll as a one-time consumable
+                        useScrollInCombat(scrollItem, enemy);
+                    } else {
+                        addGameText(`You don't know the ${object} spell and don't have a scroll for it.\n`);
+                    }
+                    break;
+                }
+                
+                // Player knows the spell, cast it
+                const spell = gameData.spells[spellKey];
+                
+                if (!spell) {
+                    addGameText(`The ${object} spell doesn't exist.\n`);
+                    break;
+                }
+                
+                // Check mana
+                if (gameState.player.mana < spell.manaCost) {
+                    addGameText(`Not enough mana to cast ${object}. You need ${spell.manaCost} mana, but only have ${gameState.player.mana}.\n`);
+                    break;
+                }
+                
+                // Cast the spell
+                let spellDamage = spell.damage;
+                
+                // Check for weaknesses
+                if (enemy.weakness === 'fire' && spell.element === 'fire') {
+                    spellDamage = Math.floor(spellDamage * 1.5); // 50% extra damage
+                    addGameText(`The <span class="enemy">${gameState.currentEnemy}</span> is weak to fire! `);
+                }
+                
+                enemy.health -= spellDamage;
+                gameState.player.mana -= spell.manaCost;
+                
+                addGameText(`You cast <span class="spell">${spell.name.toUpperCase()}</span> at the <span class="enemy">${gameState.currentEnemy}</span> for ${spellDamage} damage! (Cost: ${spell.manaCost} mana)\n`);
+                
+                // Check if enemy is defeated
+                if (enemy.health <= 0) {
+                    endCombat(true);
+                    return;
+                }
+                
+                // Enemy attacks back
+                const enemyDamage2 = enemy.damage;
+                gameState.player.health -= enemyDamage2;
+                
+                addGameText(`The <span class="enemy">${gameState.currentEnemy}</span> hits you for ${enemyDamage2} damage!\n`);
+                document.getElementById('health').textContent = gameState.player.health;
+                
+                // Check if player is defeated
+                if (gameState.player.health <= 0) {
+                    addGameText("\n=== YOU HAVE DIED ===\n");
+                    addGameText("The Castle of the Dammed claims another victim...\n");
+                    gameState.gameActive = false;
+                    return;
+                }
+                
+                // Show combat status
+                addGameText(`Your health: ${gameState.player.health}/${gameState.player.maxHealth}, Mana: ${gameState.player.mana}/${gameState.player.maxMana}\n`);
+                addGameText(`Enemy health: ${enemy.health}\n`);
+                break;
+                
+            case 'use':
+                if (object) {
+                    // Check if it's a health potion
+                    if (object.toLowerCase().includes('potion')) {
+                        const potionIndex = gameState.player.inventory.findIndex(item => 
+                            item.toLowerCase().includes('potion')
+                        );
+                        
+                        if (potionIndex !== -1) {
+                            const potion = gameData.items[gameState.player.inventory[potionIndex]];
+                            
+                            if (potion.type === 'consumable') {
+                                if (potion.heal) {
+                                    gameState.player.health = Math.min(gameState.player.maxHealth, gameState.player.health + potion.heal);
+                                    
+                                    addGameText(`You use the <span class="item">${gameState.player.inventory[potionIndex]}</span> and heal ${potion.heal} health.\n`);
+                                    document.getElementById('health').textContent = gameState.player.health;
+                                    
+                                    // Remove from inventory
+                                    gameState.player.inventory.splice(potionIndex, 1);
+                                    document.getElementById('inventory-count').textContent = gameState.player.inventory.length;
+                                } else if (potion.manaRestore) {
+                                    gameState.player.mana = Math.min(gameState.player.maxMana, gameState.player.mana + potion.manaRestore);
+                                    
+                                    addGameText(`You use the <span class="item">${gameState.player.inventory[potionIndex]}</span> and restore ${potion.manaRestore} mana.\n`);
+                                    
+                                    // Remove from inventory
+                                    gameState.player.inventory.splice(potionIndex, 1);
+                                    document.getElementById('inventory-count').textContent = gameState.player.inventory.length;
+                                }
+                            } else {
+                                addGameText(`You can't use ${object} in combat.\n`);
+                            }
+                        } else {
+                            addGameText(`You don't have ${object}.\n`);
+                        }
+                    } 
+                    // Check if it's a spell scroll
+                    else if (object.toLowerCase().includes('scroll')) {
+                        const scrollIndex = gameState.player.inventory.findIndex(item => 
+                            item.toLowerCase().includes('scroll')
+                        );
+                        
+                        if (scrollIndex !== -1) {
+                            const scroll = gameState.player.inventory[scrollIndex];
+                            useScrollInCombat(scroll, enemy);
+                        } else {
+                            addGameText(`You don't have ${object}.\n`);
+                        }
+                    } else {
+                        addGameText(`You can't use ${object} in combat.\n`);
+                    }
+                } else {
+                    addGameText("Use what?\n");
+                }
+                break;
+                
+            case 'flee':
+            case 'run':
+                addGameText(`You flee from the <span class="enemy">${gameState.currentEnemy}</span>!\n`);
+                endCombat(false);
+                break;
+                
+            default:
+                addGameText(`You can't ${command} in combat! Try ATTACK, CAST, USE, or FLEE.\n`);
+        }
+    }
+
+    // Use a scroll in combat (one-time consumable)
+    function useScrollInCombat(scrollItem, enemy) {
+        const item = gameData.items[scrollItem];
+        
+        if (!item || item.type !== 'spell_scroll') {
+            addGameText(`The ${scrollItem} cannot be used like this.\n`);
+            return;
+        }
+        
+        // Find the scroll in inventory
+        const scrollIndex = gameState.player.inventory.findIndex(item => item === scrollItem);
+        
+        if (scrollIndex === -1) {
+            addGameText(`You don't have ${scrollItem}.\n`);
+            return;
+        }
+        
+        let scrollDamage = item.damage;
+        
+        // Check for weaknesses
+        if (enemy.weakness === 'fire' && item.spell === 'firebolt') {
+            scrollDamage = Math.floor(scrollDamage * 1.5); // 50% extra damage
+            addGameText(`The <span class="enemy">${gameState.currentEnemy}</span> is weak to fire! `);
+        }
+        
+        enemy.health -= scrollDamage;
+        
+        addGameText(`You use the <span class="item">${scrollItem}</span> and cast <span class="spell">${item.spell.toUpperCase()}</span> for ${scrollDamage} damage!\n`);
+        
+        // Remove the scroll from inventory
+        gameState.player.inventory.splice(scrollIndex, 1);
+        document.getElementById('inventory-count').textContent = gameState.player.inventory.length;
+        
+        // Check if enemy is defeated
+        if (enemy.health <= 0) {
+            endCombat(true);
+            return;
+        }
+        
+        // Enemy attacks back
+        const enemyDamage = enemy.damage;
+        gameState.player.health -= enemyDamage;
+        
+        addGameText(`The <span class="enemy">${gameState.currentEnemy}</span> hits you for ${enemyDamage} damage!\n`);
+        document.getElementById('health').textContent = gameState.player.health;
+        
+        // Check if player is defeated
+        if (gameState.player.health <= 0) {
+            addGameText("\n=== YOU HAVE DIED ===\n");
+            addGameText("The Castle of the Dammed claims another victim...\n");
+            gameState.gameActive = false;
+            return;
+        }
+        
+        // Show combat status
+        addGameText(`Your health: ${gameState.player.health}/${gameState.player.maxHealth}\n`);
+        addGameText(`Enemy health: ${enemy.health}\n`);
+    }
+
+    // End combat
+    function endCombat(playerWon) {
+        const room = gameState.rooms[gameState.currentRoom];
+        const enemyKey = gameState.currentEnemy;
+        const enemy = gameData.enemies[enemyKey];
+        
+        if (playerWon) {
+            addGameText(`\n${enemy.defeatText}\n`);
+            
+            // Remove enemy from room
+            const enemyIndex = room.enemies.indexOf(enemyKey);
+            if (enemyIndex !== -1) {
+                room.enemies.splice(enemyIndex, 1);
+            }
+            
+            // Drop item if any
+            if (enemy.itemDrop && !room.items.includes(enemy.itemDrop)) {
+                room.items.push(enemy.itemDrop);
+                addGameText(`The enemy dropped: <span class="item">${enemy.itemDrop}</span>\n`);
+            }
+            
+            addGameText("=== COMBAT ENDED ===\n");
+        }
+        
+        gameState.inCombat = false;
+        gameState.currentEnemy = null;
+        
+        // Reset enemy health for next encounter
+        if (playerWon) {
+            // Clone the enemy data to reset health
+            const originalEnemy = gameData.enemies[enemyKey];
+            enemy.health = JSON.parse(JSON.stringify(originalEnemy)).health;
+        }
+    }
+
+    // Examine an object
+    function examine(object) {
+        if (!object) {
+            addGameText("Examine what?");
+            return;
+        }
+        
+        // Check if it's in inventory
+        const inventoryItem = gameState.player.inventory.find(item => 
+            item.toLowerCase().includes(object.toLowerCase()) || 
+            object.toLowerCase().includes(item.toLowerCase())
+        );
+        
+        if (inventoryItem) {
+            const item = gameData.items[inventoryItem];
+            addGameText(`<span class="item">${inventoryItem.toUpperCase()}</span>: ${item.description}\n`);
+            return;
+        }
+        
+        // Check if it's in the room
+        const room = gameState.rooms[gameState.currentRoom];
+        
+        // Check items
+        const roomItem = room.items.find(item => 
+            item.toLowerCase().includes(object.toLowerCase()) || 
+            object.toLowerCase().includes(item.toLowerCase())
+        );
+        
+        if (roomItem) {
+            const item = gameData.items[roomItem];
+            addGameText(`<span class="item">${roomItem.toUpperCase()}</span>: ${item.description}\n`);
+            return;
+        }
+        
+        // Check NPCs
+        const npc = room.npcs.find(npc => 
+            npc.toLowerCase().includes(object.toLowerCase()) || 
+            object.toLowerCase().includes(npc.toLowerCase())
+        );
+        
+        if (npc) {
+            const npcData = gameData.npcs[npc];
+            addGameText(`<span class="npc">${npc.toUpperCase()}</span>: ${npcData.description}\n`);
+            return;
+        }
+        
+        // Check enemies
+        const enemy = room.enemies.find(enemy => 
+            enemy.toLowerCase().includes(object.toLowerCase()) || 
+            object.toLowerCase().includes(enemy.toLowerCase())
+        );
+        
+        if (enemy) {
+            const enemyData = gameData.enemies[enemy];
+            addGameText(`<span class="enemy">${enemy.toUpperCase()}</span>: ${enemyData.description}\n`);
+            return;
+        }
+        
+        addGameText(`You don't see ${object} here.\n`);
+    }
+
+    // Read an item
+    function readItem(itemName) {
+        if (!itemName) {
+            addGameText("Read what?");
+            return;
+        }
+        
+        // Find the item in inventory
+        const itemIndex = gameState.player.inventory.findIndex(item => 
+            item.toLowerCase().includes(itemName.toLowerCase()) || 
+            itemName.toLowerCase().includes(item.toLowerCase())
+        );
+        
+        if (itemIndex === -1) {
+            addGameText(`You don't have ${itemName}.`);
+            return;
+        }
+        
+        const itemKey = gameState.player.inventory[itemIndex];
+        const item = gameData.items[itemKey];
+        
+        // Check if it's readable
+        if (item.type === 'readable' || item.type === 'spell_scroll') {
+            useItem(itemKey); // Reuse the useItem function
+        } else {
+            addGameText(`You can't read the ${itemKey}.\n`);
+        }
+    }
+
+    // Equip an item
+    function equipItem(itemName) {
+        if (!itemName) {
+            addGameText("Equip what?");
+            return;
+        }
+        
+        // Find the item in inventory
+        const itemIndex = gameState.player.inventory.findIndex(item => 
+            item.toLowerCase().includes(itemName.toLowerCase()) || 
+            itemName.toLowerCase().includes(item.toLowerCase())
+        );
+        
+        if (itemIndex === -1) {
+            addGameText(`You don't have ${itemName}.`);
+            return;
+        }
+        
+        const itemKey = gameState.player.inventory[itemIndex];
+        const item = gameData.items[itemKey];
+        
+        // Check if it's equippable
+        if (item.type === 'weapon') {
+            gameState.player.equippedWeapon = itemKey;
+            addGameText(`You equip the <span class="item">${itemKey}</span>.\n`);
+        } else {
+            addGameText(`You can't equip the ${itemKey}.\n`);
+        }
+    }
+
+    // Show map
+    function showMap() {
+        let mapText = "\n=== CASTLE MAP ===\n\n";
+        
+        // Simple ASCII map
+        mapText += "          [ROOF]\n";
+        mapText += "            |\n";
+        mapText += "          [TOWER]\n";
+        mapText += "            |\n";
+        mapText += "[OUTSIDE] - [COURTYARD] - [GRAND HALL] - [DUNGEON]\n";
+        mapText += "                            |\n";
+        mapText += "                         [CATACOMBS]\n\n";
+        
+        // Show current location
+        mapText += `You are in: <span class="location">${gameState.rooms[gameState.currentRoom].name}</span>\n`;
+        
+        // Show visited rooms
+        const visitedRooms = Object.values(gameState.rooms)
+            .filter(room => room.visited)
+            .map(room => room.name);
+            
+        mapText += `\nVisited locations: ${visitedRooms.join(", ")}\n`;
+        
+        addGameText(mapText);
+    }
+
+    // Rest to recover health and mana
+    function rest() {
+        if (gameState.inCombat) {
+            addGameText("You can't rest while in combat!\n");
+            return;
+        }
+        
+        const room = gameState.rooms[gameState.currentRoom];
+        
+        // Check if there are enemies in the room
+        if (room.enemies.length > 0) {
+            addGameText("You can't rest with enemies nearby!\n");
+            return;
+        }
+        
+        // Heal the player
+        const healAmount = 20;
+        const manaAmount = 15;
+        gameState.player.health = Math.min(gameState.player.maxHealth, gameState.player.health + healAmount);
+        gameState.player.mana = Math.min(gameState.player.maxMana, gameState.player.mana + manaAmount);
+        
+        addGameText(`You rest for a while and recover ${healAmount} health and ${manaAmount} mana.\n`);
+        document.getElementById('health').textContent = gameState.player.health;
+    }
+
+    // Show player stats
+    function showStats() {
+        let statsText = "\n=== PLAYER STATS ===\n\n";
+        statsText += `Health: ${gameState.player.health}/${gameState.player.maxHealth}\n`;
+        statsText += `Mana: ${gameState.player.mana}/${gameState.player.maxMana}\n`;
+        statsText += `Location: ${gameState.rooms[gameState.currentRoom].name}\n`;
+        statsText += `Equipped weapon: ${gameState.player.equippedWeapon || "None"}\n`;
+        statsText += `Inventory: ${gameState.player.inventory.length}/10 items\n`;
+        statsText += `Known spells: ${gameState.player.knownSpells.length}\n`;
+        
+        if (gameState.player.knownSpells.length > 0) {
+            statsText += "Spells: " + gameState.player.knownSpells.map(s => `<span class="spell">${s}</span>`).join(", ") + "\n";
+        }
+        
+        // Show discovered rooms count
+        const discoveredRooms = Object.values(gameState.rooms).filter(room => room.visited).length;
+        const totalRooms = Object.keys(gameState.rooms).length;
+        statsText += `Exploration: ${discoveredRooms}/${totalRooms} rooms discovered\n`;
+        
+        addGameText(statsText);
+    }
+
+    // Show help
+    function showHelp() {
+        addGameText("\n\n=== COMPLETE COMMAND LIST ===\n");
+        addGameText("LOOK/L - Examine surroundings\n");
+        addGameText("GO [direction] - Move (NORTH, SOUTH, EAST, WEST, UP, DOWN)\n");
+        addGameText("TALK TO [npc] - Talk to an NPC\n");
+        addGameText("USE [item] - Use an item\n");
+        addGameText("EQUIP [item] - Equip weapon/armor\n");
+        addGameText("EXAMINE [item] - Examine item details\n");
+        addGameText("READ [item] - Read readable items\n");
+        addGameText("SOLVE [puzzle] - Attempt to solve puzzle\n");
+        addGameText("ATTACK/FIGHT - Attack enemy\n");
+        addGameText("CAST [spell] - Cast spell\n");
+        addGameText("INVENTORY/I - Check inventory\n");
+        addGameText("STATS - Check status\n");
+        addGameText("QUESTS - Check active quests\n");
+        addGameText("REST - Rest to recover HP/MP\n");
+        addGameText("FLEE - Run from combat\n");
+        addGameText("EXPLORE - Search the area\n");
+        addGameText("MAP - Show castle map\n");
+        addGameText("SEARCH - Search the room thoroughly\n");
+        addGameText("TAKE [item] - Take item from room\n");
+        addGameText("DROP [item] - Drop item from inventory\n");
+        addGameText("SELL [item] - Sell item to NPC (if available)\n");
+        addGameText("BUY [item] - Buy item from NPC (if available)\n");
+        addGameText("\nClick on items in inventory to use them!\n");
+        addGameText("\n> ");
+    }
+
+    // Initialize the game when page loads
+    window.onload = initGame;
+</script>                   
+</body>
+</html>
