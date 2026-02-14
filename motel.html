@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Last Stop Motel — 1984 (Expanded)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background: black;
+            color: #fff;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 16px;
+            margin: 0;
+        }
+        #game-container {
+            width: 100%;
+            max-width: 900px;
+            background: #000;
+            border: 2px solid #333;
+            box-shadow: 0 0 20px rgba(255,255,255,0.1);
+            padding: 24px 20px 20px 20px;
+        }
+        .title {
+            font-size: 22px;
+            text-align: center;
+            color: #fff;
+            margin-bottom: 8px;
+            letter-spacing: 2px;
+            text-shadow: 0 0 5px #ffffff80;
+            border-bottom: 2px solid #444;
+            padding-bottom: 14px;
+        }
+        .subtitle {
+            text-align: center;
+            font-size: 10px;
+            color: #aaa;
+            margin-bottom: 24px;
+            text-transform: uppercase;
+        }
+        #output {
+            background: #0a0a0a;
+            border: 2px inset #333;
+            height: 360px;
+            overflow-y: auto;
+            padding: 20px 16px;
+            margin-bottom: 24px;
+            font-size: 13px;
+            line-height: 1.8;
+            scroll-behavior: smooth;
+            box-shadow: inset 0 0 20px #000;
+        }
+        #output p {
+            margin: 0 0 12px 0;
+            word-break: break-word;
+        }
+        #output p:last-child {
+            margin-bottom: 0;
+        }
+        .command-line {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            border-top: 2px solid #333;
+            padding-top: 20px;
+        }
+        .prompt {
+            font-size: 14px;
+            color: #8f8f8f;
+            white-space: nowrap;
+        }
+        #command-input {
+            flex: 1;
+            background: black;
+            border: 2px solid #555;
+            color: white;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 14px;
+            padding: 12px 14px;
+            outline: none;
+            min-width: 200px;
+        }
+        #command-input:focus {
+            border-color: #fff;
+            background: #111;
+        }
+        button {
+            background: black;
+            border: 2px solid #777;
+            color: white;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 14px;
+            padding: 12px 20px;
+            cursor: pointer;
+            transition: 0.1s ease;
+        }
+        button:hover {
+            background: #222;
+            border-color: #fff;
+        }
+        .footer-note {
+            font-size: 9px;
+            color: #444;
+            text-align: right;
+            margin-top: 20px;
+            border-top: 1px solid #222;
+            padding-top: 12px;
+        }
+        .glow {
+            text-shadow: 0 0 3px cyan;
+        }
+        #output::-webkit-scrollbar {
+            width: 8px;
+            background: #111;
+        }
+        #output::-webkit-scrollbar-thumb {
+            background: #444;
+            border: 1px solid #666;
+        }
+    </style>
+</head>
+<body>
+<div id="game-container">
+    <div class="title">LAST STOP MOTEL</div>
+    <div class="subtitle">created 1984 by NIGHTFALL GAMES // LYNCH / KING / HITCHCOCK</div>
+
+    <div id="output">
+        <p>⏾  The air tastes of dust and old static. You're standing in the motel lobby.<br>
+        ⏾  A reception desk with a dead bell. Flickering neon outside spells 'VACANCY'.<br>
+        ⏾  Exits: <span class="glow">N</span> (corridor), <span class="glow">S</span> (office), <span class="glow">E</span> (laundry), <span class="glow">W</span> (bar).</p>
+        <p>➤  Type a command. (n/s/e/w, use, take, give, talk, look, examine, punch, abuse, inventory, press, enter)</p>
+    </div>
+
+    <div class="command-line">
+        <span class="prompt">></span>
+        <input type="text" id="command-input" placeholder="..." autofocus>
+        <button id="submit-btn">ENTER</button>
+    </div>
+    <div class="footer-note">[ NIGHTFALL GAMES • 1984 • analog horror ]</div>
+</div>
+
+<script>
+    (function() {
+        // ---------- GAME WORLD ----------
+        const items = {
+            key: { name: 'key', description: 'Brass key with red tag: ROOM 101.', takeable: true },
+            note: { name: 'note', description: 'Creased paper: "the walls have eyes — and they weep".', takeable: true },
+            flashlight: { name: 'flashlight', description: 'Heavy black flashlight. Flickers when you tap it.', takeable: true },
+            doll: { name: 'doll', description: 'Porcelain doll. One eye missing. It seems warmer than the air.', takeable: true },
+            moth: { name: 'moth', description: 'A dead moth, perfectly preserved. Its wings shimmer with an oily pattern.', takeable: true },
+            card: { name: 'card', description: 'White plastic keycard with magnetic stripe. Says "ELEVATOR".', takeable: true },
+            wallet: { name: 'wallet', description: 'A worn leather wallet. Empty, but smells of mothballs.', takeable: true },
+            broom: { name: 'broom', description: 'A janitor’s broom, the bristles stained with something dark.', takeable: true },
+            lighter: { name: 'lighter', description: 'A cheap plastic lighter. Still has fluid.', takeable: true }
+        };
+
+        // NPCs
+        const characters = {
+            clerk: {
+                name: 'clerk',
+                description: 'A gaunt man with a name tag "IRVING". He stares through you.',
+                dialogue: 'Irving whispers: "Check-out is 11... but nobody ever leaves."',
+                conscious: true,
+                knockoutable: true,
+                dropItem: 'wallet'
+            },
+            woman: {
+                name: 'woman',
+                description: 'A pale woman in a torn party dress. She flickers like a bad signal.',
+                dialogue: 'She mouths words you can\'t hear. Then grins.',
+                conscious: true,
+                knockoutable: false,
+                dropItem: null
+            },
+            janitor: {
+                name: 'janitor',
+                description: 'An old man in gray overalls, mopping the same spot over and over.',
+                dialogue: '"This floor... ain\'t right. Stay out of 203." He chuckles darkly.',
+                conscious: true,
+                knockoutable: true,
+                dropItem: 'broom'
+            },
+            hooker: {
+                name: 'hooker',
+                description: 'A hollow-eyed woman in a torn sequined dress. She reeks of stale smoke.',
+                dialogue: '"You got a light? Or something to take the edge off?"',
+                conscious: true,
+                knockoutable: true,
+                dropItem: 'lighter'
+            }
+        };
+
+        // Personalized abuse insults (swear-filled, directed at each NPC)
+        const abuseResponses = {
+            clerk: [
+                "You sneer at the clerk: 'Look at you, you lazy motherfucker. Get off your dead ass.'",
+                "You sneer at the clerk: 'You fat fuck, your mother should have drowned you at birth.'",
+                "You sneer at the clerk: 'You're so useless even the roaches avoid you, you piece of shit.'",
+                "You sneer at the clerk: 'I've seen more life in a morgue, you worthless cunt.'"
+            ],
+            woman: [
+                "You sneer at the woman: 'You're nothing but a cheap ghost, you flickering cunt.'",
+                "You sneer at the woman: 'Even in death you're a disappointment, you dress like a corpse dragged through a dumpster.'",
+                "You sneer at the woman: 'Your face looks like it was hit with a frying pan, you ugly fucking apparition.'",
+                "You sneer at the woman: 'You can't even haunt properly, you pathetic shade.'"
+            ],
+            janitor: [
+                "You sneer at the janitor: 'You call that mopping? You blind fuck, you're spreading the stain.'",
+                "You sneer at the janitor: 'You're so old your mop should be in a museum, you senile shit.'",
+                "You sneer at the janitor: 'I've seen better hygiene in a sewer, you stinking bastard.'",
+                "You sneer at the janitor: 'Your overalls smell like a dead hobo, you disgusting fuck.'"
+            ],
+            hooker: [
+                "You sneer at the hooker: 'You're nothing but a dirty whore. Go wash your face, you trash.'",
+                "You sneer at the hooker: 'Your ugly fucking junkie ass, I wouldn't touch you with a stolen dick.'",
+                "You sneer at the hooker: 'You'd sell your own mother for a fix, you worthless bitch.'",
+                "You sneer at the hooker: 'Your makeup looks like it was applied by a blind clown on crack.'"
+            ]
+        };
+
+        // rooms: id, name, desc, items[], dynamicItems[], chars[], exits, examineMap
+        const rooms = [
+            { // 0: LOBBY
+                id: 0, name: 'LOBBY',
+                desc: 'Dusty lobby. The reception desk has a drawer slightly open. Faded painting of a lake.',
+                items: ['note'],
+                dynamicItems: [],
+                chars: [],
+                exits: { n: 1, s: 2, e: 3, w: 4 },
+                examineMap: {
+                    'desk': 'Oak reception desk, scratched. A drawer is ajar.',
+                    'drawer': function() {
+                        let room = rooms[0];
+                        if (!room.dynamicItems.includes('moth')) {
+                            room.dynamicItems.push('moth');
+                            return 'The drawer contains nothing but a dead moth.';
+                        } else {
+                            return 'The drawer is now empty, save for dust.';
+                        }
+                    },
+                    'painting': 'A lake at dusk. The water seems to move when you blink.',
+                    'neon': 'The VACANCY sign flickers. The "V" is dead.',
+                    'bell': 'A brass bell. You tap it — no sound comes out.',
+                    'lobby': 'You are in the lobby. Dust motes dance in the dim light.'
+                }
+            },
+            { // 1: CORRIDOR
+                id: 1, name: 'CORRIDOR',
+                desc: 'Long hallway with buzzing lights. Doors 99, 100, 101. A payphone off the hook. At the far end, you notice an elevator door.',
+                items: [],
+                dynamicItems: [],
+                chars: [],
+                exits: { s: 0, n: 5, e: 6 },
+                examineMap: {
+                    'payphone': 'The receiver dangles, swinging slightly. You hear faint breathing from the earpiece.',
+                    'door 99': 'Door 99. A sign: "DO NOT DISTURB". A faint mewling comes from inside.',
+                    'door 100': 'Door 100. The number is upside down. Peephole is dark.',
+                    'door 101': 'Door 101. Brass plate. It looks heavier than the others.',
+                    'lights': 'Fluorescent tubes flicker in sequence, like a countdown.',
+                    'hallway': 'Long, narrow. The carpet is stained.',
+                    'doors': 'Three doors. Each one slightly different.',
+                    'elevator': 'A metal elevator door with a card swipe slot next to it.',
+                    'slot': 'The slot glows faintly. It expects a card.'
+                }
+            },
+            { // 2: OFFICE
+                id: 2, name: 'OFFICE',
+                desc: 'Cramped office. Static on a monitor. Clerk sits motionless.',
+                items: ['key'],
+                dynamicItems: [],
+                chars: ['clerk'],
+                exits: { n: 0 },
+                examineMap: {
+                    'monitor': 'Black and white static. Sometimes you see a figure standing behind you.',
+                    'clerk': characters.clerk.description,
+                    'desk': 'Metal desk, drawer with a key visible.',
+                    'drawer': 'The drawer holds a brass key.',
+                    'office': 'Small, windowless. The air is thick.'
+                }
+            },
+            { // 3: LAUNDRY
+                id: 3, name: 'LAUNDRY',
+                desc: 'Rows of dryers tumbling with shadows. A red stain spreads from a broken machine.',
+                items: ['flashlight'],
+                dynamicItems: [],
+                chars: [],
+                exits: { w: 0 },
+                examineMap: {
+                    'dryers': 'The dryers are all running, but they\'re empty. Shadows tumble inside.',
+                    'stain': 'It looks like blood, but it smells like rust.',
+                    'machine': 'The broken dryer. Its door is open, revealing darkness.',
+                    'laundry': 'Hot and damp. The walls sweat.'
+                }
+            },
+            { // 4: BAR
+                id: 4, name: 'BAR',
+                desc: 'The bar is empty except for a jukebox playing a warped tune. A woman in the corner.',
+                items: [],
+                dynamicItems: [],
+                chars: ['woman'],
+                exits: { e: 0 },
+                examineMap: {
+                    'jukebox': 'It plays the same few notes on loop. The selection buttons are all "B9".',
+                    'woman': characters.woman.description,
+                    'bar': 'The counter is sticky with old liquor. Bottles are dusty.',
+                    'corner': 'The woman sits there. She never moves.'
+                }
+            },
+            { // 5: ROOM 101
+                id: 5, name: 'ROOM 101',
+                desc: 'Small, suffocating room. The wallpaper pulses slightly. A doll on the pillow.',
+                items: ['doll'],
+                dynamicItems: [],
+                chars: [],
+                exits: { s: 1 },
+                locked: true,
+                examineMap: {
+                    'wallpaper': 'It breathes. The pattern seems to form faces that disappear when focused.',
+                    'doll': items.doll.description,
+                    'pillow': 'A damp pillow. It smells of old perfume.',
+                    'bed': 'An unmade bed. The sheets are cold.',
+                    'room': 'Tiny. The air is heavy, as if something else is here.'
+                }
+            },
+            { // 6: ELEVATOR
+                id: 6, name: 'ELEVATOR',
+                desc: 'Scratched metal walls. A panel with three buttons: 1, 2, ROOF. The doors are open behind you.',
+                items: [],
+                dynamicItems: [],
+                chars: [],
+                exits: { w: 1 },
+                examineMap: {
+                    'panel': 'Three buttons: 1, 2, and ROOF. The 1 button is lit.',
+                    'button 1': 'Button 1 is lit. It will take you back to the ground floor.',
+                    'button 2': 'Button 2 is unlit. It probably goes to the second floor.',
+                    'button roof': 'The roof button. It might lead to the rooftop.',
+                    'buttons': '1 (lit), 2, ROOF.',
+                    'walls': 'Scratched metal. Some marks look like fingernail scratches.'
+                }
+            },
+            { // 7: FLOOR 2 HALLWAY
+                id: 7, name: 'FLOOR 2 HALLWAY',
+                desc: 'A long hallway with flickering lights. The carpet is worn. A janitor mops silently. Doors: 201, 202, 203. At the end, a fire exit door.',
+                items: [],
+                dynamicItems: [],
+                chars: ['janitor'],
+                exits: { s: 6, e: 11 },
+                examineMap: {
+                    'janitor': characters.janitor.description,
+                    'door 201': 'Room 201. A faint smell of cigarette smoke.',
+                    'door 202': 'Room 202. The door is ajar.',
+                    'door 203': 'Room 203. Locked. Scratching sounds from inside.',
+                    'fire exit': 'A heavy metal door with a push bar.',
+                    'lights': 'Flickering fluorescent tubes, buzzing loudly.',
+                    'hallway': 'Long, with threadbare carpet. Stains mark the floor.'
+                }
+            },
+            { // 8: ROOM 201
+                id: 8, name: 'ROOM 201',
+                desc: 'Small, squalid room. Bed unmade, ashtrays overflow. A woman leans against the wall.',
+                items: [],
+                dynamicItems: [],
+                chars: ['hooker'],
+                exits: { w: 7 },
+                examineMap: {
+                    'hooker': characters.hooker.description,
+                    'bed': 'Stained sheets, cigarette burns.',
+                    'ashtrays': 'Overflowing with butts. Some are lipstick-stained.',
+                    'room': 'Depressing. The wallpaper is peeling.'
+                }
+            },
+            { // 9: ROOM 202
+                id: 9, name: 'ROOM 202',
+                desc: 'The door is ajar. Inside, bloodstains cover the floor and bed. The room is cold.',
+                items: [],
+                dynamicItems: [],
+                chars: [],
+                exits: { w: 7 },
+                examineMap: {
+                    'blood': 'Dark, dried blood. It forms a pattern that looks almost like a body.',
+                    'bed': 'Soaked in blood. The mattress is torn.',
+                    'floor': 'Creaky wooden floor with dark stains.',
+                    'room': 'Abandoned, but something feels recent.'
+                }
+            },
+            { // 10: ROOM 203 (locked)
+                id: 10, name: 'ROOM 203',
+                desc: 'The door is locked. You cannot enter.',
+                items: [],
+                dynamicItems: [],
+                chars: [],
+                exits: {},
+                examineMap: {}
+            },
+            { // 11: FIRE ESCAPE LANDING
+                id: 11, name: 'FIRE ESCAPE LANDING',
+                desc: 'Rusted metal platform. The stairwell is broken – steps lead up to the roof and down to the ground, but they are unsafe. You can see into the windows of rooms 201–203.',
+                items: [],
+                dynamicItems: [],
+                chars: [],
+                exits: { w: 7 },
+                examineMap: {
+                    'windows': 'Through the grimy glass, you see vague shapes. In 201, a figure moves. In 202, darkness. In 203, something scratches at the glass.',
+                    'stairs up': 'The stairs to the roof are rusted and missing steps. Too dangerous.',
+                    'stairs down': 'The stairs down end abruptly, crumbling away. No exit.',
+                    'platform': 'The metal groans under your weight.'
+                }
+            },
+            { // 12: ROOF
+                id: 12, name: 'ROOF',
+                desc: 'The roof is flat and covered in gravel. A TV antenna sways in the wind. You can see the whole motel and the dark woods beyond.',
+                items: [],
+                dynamicItems: [],
+                chars: [],
+                exits: { s: 6 },
+                examineMap: {
+                    'antenna': 'An old TV antenna, creaking in the wind.',
+                    'gravel': 'Small stones crunch underfoot.',
+                    'woods': 'The forest surrounding the motel is pitch black. No lights.',
+                    'sky': 'Overcast, no stars.'
+                }
+            }
+        ];
+
+        // player data
+        let player = {
+            location: 0,
+            inventory: []
+        };
+
+        let room101Unlocked = false;
+        let elevatorUnlocked = false;
+
+        // Helper: get current room
+        function currentRoom() {
+            return rooms[player.location];
+        }
+
+        // Helper: check if item in inventory
+        function hasItem(itemName) {
+            return player.inventory.includes(itemName);
+        }
+
+        // Helper: get character object by name
+        function getCharacter(charName) {
+            return characters[charName];
+        }
+
+        // Describe room
+        function describeRoom(room) {
+            let text = `\n${room.name}\n${room.desc}`;
+            let allItems = [...room.items, ...room.dynamicItems];
+            if (allItems.length > 0) {
+                let itemList = allItems.map(id => items[id].name).join(', ');
+                text += `\nYou see: ${itemList}.`;
+            }
+            if (room.chars && room.chars.length > 0) {
+                let charDesc = room.chars.map(name => {
+                    let ch = getCharacter(name);
+                    if (ch && !ch.conscious) return `unconscious ${ch.name}`;
+                    return ch ? ch.name : name;
+                }).join(', ');
+                text += `\nPresent: ${charDesc}.`;
+            }
+            let exitDirs = [];
+            if (room.exits.n !== undefined) exitDirs.push('north');
+            if (room.exits.s !== undefined) exitDirs.push('south');
+            if (room.exits.e !== undefined) exitDirs.push('east');
+            if (room.exits.w !== undefined) exitDirs.push('west');
+            text += `\nExits: ${exitDirs.join(', ')}.`;
+            return text;
+        }
+
+        // Examine
+        function examineItem(arg) {
+            if (!arg) return "Examine what?";
+            arg = arg.toLowerCase().trim();
+
+            if (player.inventory.includes(arg)) {
+                return items[arg]?.description || "You see nothing special.";
+            }
+
+            let room = currentRoom();
+
+            if (room.items.includes(arg)) {
+                return items[arg]?.description || "It's indescribable.";
+            }
+
+            if (room.dynamicItems.includes(arg)) {
+                return items[arg]?.description || "It's indescribable.";
+            }
+
+            if (room.chars.includes(arg)) {
+                let ch = getCharacter(arg);
+                if (ch) {
+                    if (!ch.conscious) return `${ch.name} is unconscious, slumped on the floor.`;
+                    return ch.description;
+                }
+                return "A figure from a nightmare.";
+            }
+
+            if (room.examineMap && room.examineMap[arg] !== undefined) {
+                let result = room.examineMap[arg];
+                if (typeof result === 'function') return result();
+                return result;
+            }
+
+            let partialMatches = [];
+            if (room.examineMap) {
+                for (let key in room.examineMap) {
+                    if (key.includes(arg) || arg.includes(key)) partialMatches.push(key);
+                }
+            }
+            if (partialMatches.length === 1) {
+                let result = room.examineMap[partialMatches[0]];
+                if (typeof result === 'function') return result();
+                return result;
+            } else if (partialMatches.length > 1) {
+                return "Which one? " + partialMatches.join(', ') + "?";
+            }
+
+            return "You don't see that here.";
+        }
+
+        // Take item
+        function takeItem(arg) {
+            if (!arg) return "Take what?";
+            arg = arg.toLowerCase();
+            let room = currentRoom();
+
+            if (room.items.includes(arg)) {
+                if (!items[arg]?.takeable) return "You can't take that.";
+                player.inventory.push(arg);
+                room.items = room.items.filter(i => i !== arg);
+                return "You take the " + arg + ".";
+            }
+            if (room.dynamicItems.includes(arg)) {
+                if (!items[arg]?.takeable) return "You can't take that.";
+                player.inventory.push(arg);
+                room.dynamicItems = room.dynamicItems.filter(i => i !== arg);
+                return "You take the " + arg + ".";
+            }
+            return "There's no " + arg + " here.";
+        }
+
+        // Move
+        function move(dir) {
+            let room = currentRoom();
+            let targetId = room.exits[dir];
+            if (targetId === undefined) return "You can't go that way.";
+            if (targetId === 6 && !elevatorUnlocked && player.location === 1) {
+                return "The elevator door is closed. There's a card slot next to it.";
+            }
+            if (targetId === 5 && !room101Unlocked) {
+                return "The door to Room 101 is locked. A faint whisper comes from inside.";
+            }
+            player.location = targetId;
+            return describeRoom(currentRoom());
+        }
+
+        // Enter door
+        function enterDoor(arg) {
+            if (!arg) return "Enter what?";
+            arg = arg.toLowerCase().trim();
+            if (player.location !== 7) return "There's no door to enter here.";
+
+            if (arg === '201' || arg === 'room 201') {
+                player.location = 8;
+                return describeRoom(rooms[8]);
+            } else if (arg === '202' || arg === 'room 202') {
+                player.location = 9;
+                return describeRoom(rooms[9]);
+            } else if (arg === '203' || arg === 'room 203') {
+                return "Room 203 is locked. You hear scratching from inside.";
+            } else {
+                return "You can't enter that.";
+            }
+        }
+
+        // Press elevator button
+        function pressButton(arg) {
+            if (!arg) return "Press which button?";
+            arg = arg.toLowerCase().trim();
+            if (player.location !== 6) return "You're not in the elevator.";
+
+            if (arg === '1' || arg === 'button 1') {
+                player.location = 1;
+                return "The elevator descends. Doors open to the corridor.";
+            } else if (arg === '2' || arg === 'button 2') {
+                player.location = 7;
+                return "The elevator ascends with a groan. Doors open to the second floor.";
+            } else if (arg === 'roof' || arg === 'button roof') {
+                player.location = 12;
+                return "The elevator creaks upward. Doors open to the roof.";
+            } else {
+                return "That button doesn't exist.";
+            }
+        }
+
+        // Look
+        function lookAround() {
+            return describeRoom(currentRoom());
+        }
+
+        // Inventory
+        function showInventory() {
+            if (player.inventory.length === 0) return "You carry nothing but your own dread.";
+            return "Inventory: " + player.inventory.join(', ') + ".";
+        }
+
+        // Talk
+        function talkTo(arg) {
+            if (!arg) return "Talk to whom?";
+            arg = arg.toLowerCase();
+            let room = currentRoom();
+            if (!room.chars.includes(arg)) return "That person isn't here.";
+            let ch = getCharacter(arg);
+            if (!ch.conscious) return ch.name + " is unconscious and can't respond.";
+            return ch.dialogue || "They stare in silence.";
+        }
+
+        // Abuse - personalized insults with swearing
+        function abuseNPC(arg) {
+            if (!arg) return "Abuse whom?";
+            arg = arg.toLowerCase();
+            let room = currentRoom();
+            if (!room.chars.includes(arg)) return "That person isn't here.";
+            let ch = getCharacter(arg);
+            if (!ch.conscious) return ch.name + " is already out cold. You kick them, but they don't stir.";
+
+            // Get the list of insults for this NPC
+            let insults = abuseResponses[arg];
+            if (!insults || insults.length === 0) {
+                // Fallback generic insult (should not happen)
+                return "You sneer at " + ch.name + ", but they don't seem to care.";
+            }
+            let insult = insults[Math.floor(Math.random() * insults.length)];
+            return insult;
+        }
+
+        // Punch with knockout
+        function punchAction(arg) {
+            let target = arg ? arg.toLowerCase() : '';
+            let room = currentRoom();
+            if (target && room.chars.includes(target)) {
+                let ch = getCharacter(target);
+                if (!ch.conscious) return ch.name + " is already unconscious. Beating a downed person? Classy.";
+                if (!ch.knockoutable) {
+                    if (target === 'woman') {
+                        return "You swing at the woman. She shatters like glass, but the shards vanish before they hit the floor.";
+                    } else {
+                        return "You punch " + ch.name + ", but they don't even flinch.";
+                    }
+                }
+                ch.conscious = false;
+                if (ch.dropItem && items[ch.dropItem]) {
+                    room.dynamicItems.push(ch.dropItem);
+                    return "You punch " + ch.name + " and they crumple to the floor. They drop a " + items[ch.dropItem].name + ".";
+                } else {
+                    return "You punch " + ch.name + " and they crumple to the floor, unconscious.";
+                }
+            } else if (!target && room.chars.length > 0) {
+                return punchAction(room.chars[0]);
+            } else {
+                return "You punch the air. The air punches back—a dull pain in your chest.";
+            }
+        }
+
+        // Give item
+        function giveItem(arg) {
+            if (!arg) return "Give what?";
+            arg = arg.toLowerCase();
+            if (!player.inventory.includes(arg)) return "You don't have that.";
+            let room = currentRoom();
+            if (room.chars.length === 0) return "No one here to receive your gift.";
+            let recipient = room.chars[0];
+            let ch = getCharacter(recipient);
+            if (!ch.conscious) return ch.name + " is unconscious and can't accept gifts.";
+
+            if (arg === 'key' && recipient === 'clerk') {
+                room101Unlocked = true;
+                player.inventory = player.inventory.filter(i => i !== 'key');
+                return "The clerk takes the key without blinking. He points a crooked finger toward the corridor. A click echoes—Room 101 is now unlocked.";
+            } else if (arg === 'doll' && recipient === 'woman') {
+                player.inventory = player.inventory.filter(i => i !== 'doll');
+                if (!player.inventory.includes('card')) {
+                    player.inventory.push('card');
+                }
+                rooms[4].chars = rooms[4].chars.filter(c => c !== 'woman');
+                return "The woman cradles the doll. For a second she looks almost alive. Then she fades, leaving behind a white keycard. The card is now in your inventory.";
+            } else if (arg === 'moth' && recipient === 'clerk') {
+                player.inventory = player.inventory.filter(i => i !== 'moth');
+                return "Irving takes the moth. For the first time, he smiles. 'A gift,' he rasps. He places it on the monitor. The static clears for a moment, showing a child's bedroom.";
+            } else {
+                player.inventory = player.inventory.filter(i => i !== arg);
+                return "You hand over the " + arg + ". " + ch.name + " accepts it without a word.";
+            }
+        }
+
+        // Use item
+        function useItem(arg) {
+            if (!arg) return "Use what?";
+            arg = arg.toLowerCase();
+            if (!player.inventory.includes(arg)) return "You don't have that.";
+
+            if (arg === 'key') {
+                if (currentRoom().id === 1) {
+                    if (!room101Unlocked) {
+                        room101Unlocked = true;
+                        return "You slide the key into an invisible lock in the air. The door to 101 clicks.";
+                    } else return "It's already unlocked.";
+                } else return "You fumble the key. Nothing happens here.";
+            } else if (arg === 'flashlight') {
+                return "You click the flashlight. It pulses, revealing faint handprints on every surface.";
+            } else if (arg === 'note') {
+                return "You read the note again: 'the walls have eyes — and they weep'. The ink seems fresher.";
+            } else if (arg === 'doll') {
+                return "You hold the doll. Its remaining eye twitches toward you. You quickly put it down.";
+            } else if (arg === 'moth') {
+                return "You hold the moth. Its wings crumble slightly, leaving glittering dust on your fingers.";
+            } else if (arg === 'card') {
+                if (currentRoom().id === 1) {
+                    if (!elevatorUnlocked) {
+                        elevatorUnlocked = true;
+                        rooms[1].exits.e = 6;
+                        return "You swipe the card. The elevator doors slide open with a groan. A new exit appears: east.";
+                    } else {
+                        return "The elevator is already open.";
+                    }
+                } else {
+                    return "There's nowhere to use the card here.";
+                }
+            } else if (arg === 'lighter') {
+                return "You flick the lighter. A small flame dances. It illuminates nothing useful.";
+            } else if (arg === 'broom') {
+                return "You sweep the floor a bit. It doesn't help.";
+            } else if (arg === 'wallet') {
+                return "You open the wallet. It's empty, but there's a faint smell of mothballs.";
+            }
+            return "Using that has no effect. Yet.";
+        }
+
+        // Main parser
+        function processCommand(cmd) {
+            cmd = cmd.trim().toLowerCase().replace(/\s+/g, ' ');
+            if (cmd === '') return "Please enter a command.";
+
+            let parts = cmd.split(' ');
+            let verb = parts[0];
+            let object = parts.slice(1).join(' ') || null;
+
+            if (verb === 'n' || verb === 'north') return move('n');
+            if (verb === 's' || verb === 'south') return move('s');
+            if (verb === 'e' || verb === 'east') return move('e');
+            if (verb === 'w' || verb === 'west') return move('w');
+            if (verb === 'enter') return enterDoor(object);
+            if (verb === 'press') return pressButton(object);
+
+            switch (verb) {
+                case 'look': return lookAround();
+                case 'examine': return examineItem(object);
+                case 'take': return takeItem(object);
+                case 'inventory': return showInventory();
+                case 'inv': return showInventory();
+                case 'talk': return talkTo(object);
+                case 'abuse': return abuseNPC(object);
+                case 'give': return giveItem(object);
+                case 'use': return useItem(object);
+                case 'punch': return punchAction(object);
+                default: return "Unknown command. Try: n/s/e/w, look, examine, take, give, talk, use, punch, abuse, inventory, press, enter.";
+            }
+        }
+
+        // UI
+        const outputDiv = document.getElementById('output');
+        const inputField = document.getElementById('command-input');
+        const submitBtn = document.getElementById('submit-btn');
+
+        function addOutput(text) {
+            let p = document.createElement('p');
+            p.textContent = '> ' + text;
+            outputDiv.appendChild(p);
+            outputDiv.scrollTop = outputDiv.scrollHeight;
+        }
+
+        function handleInput() {
+            let raw = inputField.value;
+            if (raw.trim() === '') return;
+            addOutput(raw);
+            let result = processCommand(raw);
+            addOutput(result);
+            inputField.value = '';
+        }
+
+        submitBtn.addEventListener('click', handleInput);
+        inputField.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleInput();
+            }
+        });
+
+        inputField.focus();
+    })();
+</script>
+</body>
+</html>
