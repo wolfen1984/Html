@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lumberton (1982) – Nightfall Games</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            font-family: 'Press Start 2P', cursive;
+            margin: 20px;
+            font-size: 16px;
+            line-height: 1.5;
+        }
+        #game-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        #output {
+            border: 1px solid #333;
+            padding: 10px;
+            height: 400px;
+            overflow-y: auto;
+            background-color: #111;
+        }
+        #output div {
+            margin-bottom: 6px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        #input {
+            width: 100%;
+            background-color: #222;
+            color: white;
+            border: 1px solid #333;
+            padding: 10px;
+            font-family: inherit;
+            margin-top: 10px;
+            box-sizing: border-box;
+        }
+        #title {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .exit-line {
+            margin-top: 8px;
+            color: #aaf;
+            font-size: 14px;
+            display: block;
+        }
+        .command-example {
+            color: #8af;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+<div id="game-container">
+    <div id="title">
+        <h1>└─ LUMBERTON ─┘</h1>
+        <p>Created in 1982 by Nightfall Games</p>
+        <p>A town of sawdust, silence, and secrets.</p>
+        <div class="command-example">Commands: n/s/e/w/up/down/out/enter/back • take • use [item] on [target] • give [item] to [npc] • talk to [npc] • examine • look • inventory • punch</div>
+    </div>
+    <div id="output"></div>
+    <input type="text" id="input" placeholder="> Enter command...">
+</div>
+
+<script>
+    // Initialize everything when the page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        
+        const output = document.getElementById('output');
+        const input = document.getElementById('input');
+
+        // ==================== GAME STATE ====================
+        let currentRoom = 'mainStreet';
+        let inventory = [];
+        let gameOver = false;
+        let gameWon = false;
+        let winCondition = '';
+
+        // ==================== NPC STATES ====================
+        let npcStates = {
+            marge: { talked: 0, trusted: false, gaveKey: false, knowsAboutMill: false, conscious: true },
+            darlene: { talked: 0, flirted: false, gavePhoto: false, conscious: true },
+            sheriff_cole: { talked: 0, suspicious: 0, gaveWarrant: false, believes: false, conscious: true },
+            deputy_earle: { talked: 0, helped: false, foundEvidence: false, conscious: true },
+            dispatch_iris: { talked: 0, gaveCode: false, conscious: true },
+            foreman_garland: { talked: 0, hostile: false, gaveKeys: false, conscious: true },
+            millWorker_vern: { talked: 0, scared: false, tippedOff: false, conscious: true },
+            bartender_sully: { talked: 0, gaveInfo: false, conscious: true },
+            regular_wally: { talked: 0, drunk: false, toldStory: false, conscious: true },
+            singer_jenna: { talked: 0, frightened: false, gaveLocket: false, conscious: true },
+            gas_attendant_earl: { talked: 0, suspicious: 0, gaveReceipt: false, conscious: true },
+            cabin_hermit_ezra: { talked: 0, trusts: false, gaveMap: false, conscious: true },
+            logLady_edna: { talked: 0, gaveRing: false, prophecy: false, conscious: true },
+            giant_elias: { appeared: false, gaveKey: false },
+            jonah_whitman: { talked: 0, rage: 0, confronted: false, confessed: false, conscious: true },
+            sarah_whitman: { talked: 0, grieving: false, gaveDiary: false, conscious: true },
+            jimmy_ray: { talked: 0, scared: false, toldAboutLake: false, conscious: true },
+            donna_marie: { talked: 0, trusted: false, gaveLetter: false, conscious: true },
+            victor_cross: { talked: 0, smug: false, exposed: false, conscious: true },
+            beatrice_cross: { talked: 0, bitter: false, gaveFiles: false, conscious: true },
+            stranger_black: { talked: 0, vanished: false, gaveWarning: false },
+            clerk: { talked: 0 }
+        };
+
+        // ==================== PUZZLE FLAGS ====================
+        let flags = {
+            dinerPiePlate: false,
+            dinerBackRoom: false,
+            evidenceLockerOpen: false,
+            millOfficeDrawer: false,
+            millLockCut: false,
+            lakeShallowsBox: false,
+            cabinFloorLifted: false,
+            cabinWallHidden: false,
+            roadsideDitch: false,
+            confessionFound: false,
+            caseSolved: false
+        };
+
+        // ==================== ROOMS ====================
+        const rooms = {
+            mainStreet: {
+                desc: "MAIN STREET - Lumberton's spine. Weathered storefronts huddle in the morning fog. To the east, the BLUE SPRUCE DINER glows warm. West, the SHERIFF'S STATION stands solid. North, the road leads toward the MILL. A payphone crackles with static.",
+                exits: { e: 'diner', w: 'sheriffStation', n: 'millRoad' },
+                items: [],
+                npcs: [],
+                exam: {
+                    payphone: "You lift the receiver. A whisper: 'The owls are not what they seem.' Then dial tone.",
+                    street: "Cobblestones slick with dew. A child's doll lies in the gutter, one eye missing."
+                }
+            },
+            diner: {
+                desc: "BLUE SPRUCE DINER - Red vinyl booths, chrome trim, the smell of coffee and pie. MARGE works the counter, her smile tired. Waitress DARLENE refills saltshakers. A jukebox plays something sad. Kitchen east, main street west.",
+                exits: { w: 'mainStreet', e: 'dinerKitchen', n: 'dinerOffice' },
+                items: ['menu'],
+                npcs: ['marge', 'darlene'],
+                exam: {
+                    counter: "Glass case full of pies - cherry, apple, rhubarb. A plate with a half-eaten slice of cherry.",
+                    jukebox: "Selection B4: 'Whispering Winds'. The glass is smudged with fingerprints.",
+                    piecase: "The cherry pie is still warm. Under the plate, a corner of paper sticks out."
+                }
+            },
+            dinerKitchen: {
+                desc: "DINER KITCHEN - Grease and steam. Pots bubble on the stove. A back door leads to an alley. Shelves hold canned goods and supplies.",
+                exits: { w: 'diner', out: 'alley' },
+                items: ['kitchen knife'],
+                npcs: [],
+                exam: {
+                    stove: "A pot of chili simmers. Something metallic stirs at the bottom.",
+                    shelves: "Canned peaches, flour, and a box of 'Log Lady Firewood' matches.",
+                    backdoor: "Through the window, you see the alley and the gas station beyond."
+                }
+            },
+            dinerOffice: {
+                desc: "DINER OFFICE - A small desk, filing cabinet, calendar from 1981. Pay stubs scattered.",
+                exits: { s: 'diner' },
+                items: [],
+                npcs: [],
+                exam: {
+                    desk: "Drawer locked. A sticky note: 'Marge - check the basement drain.'",
+                    calendar: "A date circled: October 23rd. 'T's last day' written in red.",
+                    filing: "Employee records. Teresa Whitman terminated Oct 24, 1981."
+                }
+            },
+            alley: {
+                desc: "BACK ALLEY - Trash bins, discarded pallets. The diner kitchen door is south. A path leads north to the GAS STATION. East toward the BAR.",
+                exits: { s: 'dinerKitchen', n: 'gasStation', e: 'barAlley' },
+                items: ['empty bottle'],
+                npcs: [],
+                exam: {
+                    bins: "Overflowing. A torn photograph sticks out - a young woman with 'T' written on back.",
+                    pallets: "Stacked high. Something's wedged between: a key to the diner office."
+                }
+            },
+            gasStation: {
+                desc: "GAS STATION - Two pumps, a garage bay. EARL, the attendant, wipes grease from his hands. A bell rings when you enter. Office east, garage west.",
+                exits: { s: 'alley', e: 'gasOffice', w: 'gasGarage' },
+                items: ['oil can'],
+                npcs: ['earl'],
+                exam: {
+                    pumps: "Analog dials. A truck from Cross Mill is filling up.",
+                    bell: "An old brass bell on a spring. 'Ring for service'."
+                }
+            },
+            gasOffice: {
+                desc: "GAS OFFICE - Cluttered desk, coffee pot, filing. A safe under the counter. Receipts everywhere.",
+                exits: { w: 'gasStation' },
+                items: [],
+                npcs: [],
+                exam: {
+                    desk: "Drawers stuffed with papers. One receipt: 'Cross Mill - 50 gal - paid cash'.",
+                    safe: "Old combination safe. Spins easily. Needs three numbers.",
+                    filing: "Delivery logs. Cross Mill ordered double fuel last October."
+                }
+            },
+            gasGarage: {
+                desc: "GARAGE BAY - A car on the lift, tools scattered. Oil stains. A back door leads to an alley.",
+                exits: { e: 'gasStation', out: 'gasBack' },
+                items: ['crowbar', 'wrench'],
+                npcs: [],
+                exam: {
+                    car: "A black sedan. Mud on the tires - red clay like near the lake.",
+                    lift: "Underneath, a key taped to the frame. 'Basement key'.",
+                    tools: "A crowbar with dark stains. You hope it's oil."
+                }
+            },
+            gasBack: {
+                desc: "GAS BACK LOT - Old tires, a dumpster. Path to the bar alley.",
+                exits: { w: 'gasGarage', e: 'barAlley' },
+                items: [],
+                npcs: [],
+                exam: {
+                    dumpster: "Open. Inside, a briefcase with papers. 'CROSS MILL - OFFSHORE'."
+                }
+            },
+            barAlley: {
+                desc: "BAR ALLEY - Behind the Sawdust Lounge. Crates of empty bottles, a back door. Music thumps inside.",
+                exits: { w: 'alley', enter: 'bar' },
+                items: [],
+                npcs: [],
+                exam: {
+                    crates: "Stamped 'CROSS DISTRIBUTING'. One crate open: whiskey bottles, but labeled 'Water'.",
+                    door: "Heavy steel. A sign: 'EMPLOYEES ONLY'."
+                }
+            },
+            bar: {
+                desc: "SAWDUST LOUNGE - Dark, smoky. A long bar with red lights. SULLY the bartender polishes glasses. WALLY, a regular, nurses a beer. A stage in back.",
+                exits: { out: 'barAlley', e: 'barStage', n: 'barOffice' },
+                items: ['coaster'],
+                npcs: ['sully', 'wally'],
+                exam: {
+                    bar: "Scarred wood. A photo tucked under the register - a woman with 'T' on the back.",
+                    shelves: "Liquor bottles. One - bourbon - is covered in dust, untouched since October '81.",
+                    register: "Open. A receipt for '1 case Jack' signed by Victor Cross."
+                }
+            },
+            barStage: {
+                desc: "STAGE AREA - A microphone, piano. JENNA, the singer, sits alone, looking scared.",
+                exits: { w: 'bar' },
+                items: [],
+                npcs: ['jenna'],
+                exam: {
+                    piano: "Sheet music: 'Falling'. A note inside: 'Jenna - don't talk. -VC'",
+                    mic: "Still warm. Lipstick on the stand."
+                }
+            },
+            barOffice: {
+                desc: "BAR OFFICE - Desk, safe, filing. A window overlooks the alley.",
+                exits: { s: 'bar' },
+                items: [],
+                npcs: [],
+                exam: {
+                    desk: "Open ledger. Payments to 'Sheriff's Benevolent Fund' monthly, large sums.",
+                    safe: "Combination lock. Papers visible through the crack.",
+                    window: "You see the alley. Someone's watching from the shadows."
+                }
+            },
+            sheriffStation: {
+                desc: "SHERIFF'S STATION - Fluorescent lights. Dispatch desk with IRIS on the radio. Cells in back. Offices east, bullpen west.",
+                exits: { e: 'mainStreet', w: 'sheriffBullpen', n: 'sheriffOffice', s: 'cells' },
+                items: [],
+                npcs: ['iris'],
+                exam: {
+                    desk: "Radio crackles. Logbook: '10/23 - Missing person: Teresa Whitman'.",
+                    board: "Bulletin with photos. Teresa's case is cold. 'Last seen at Cross Mill'."
+                }
+            },
+            sheriffBullpen: {
+                desc: "BULLPEN - Desks, filing cabinets. DEPUTY EARLE types a report. Coffee stains on the floor.",
+                exits: { e: 'sheriffStation' },
+                items: ['case file'],
+                npcs: ['earle'],
+                exam: {
+                    desks: "Earle's desk has a photo of a woman - his wife?",
+                    filing: "Cabinets labeled 'OPEN', 'COLD', 'EVIDENCE'."
+                }
+            },
+            sheriffOffice: {
+                desc: "SHERIFF'S OFFICE - SHERIFF COLE sits behind a large desk, pipe in hand. Wood paneling, flags. Evidence locker in corner.",
+                exits: { s: 'sheriffStation' },
+                items: [],
+                npcs: ['cole'],
+                exam: {
+                    desk: "Drawers locked. A photo of Cole with Victor Cross.",
+                    locker: "Combination lock. Stenciled: 'EVIDENCE - CASE 84-7'.",
+                    flags: "State flag. Behind it, a safe bolted to the wall."
+                }
+            },
+            cells: {
+                desc: "HOLDING CELLS - Two empty cells, one occupied? A figure sits in the dark.",
+                exits: { n: 'sheriffStation' },
+                items: [],
+                npcs: ['stranger'],
+                exam: {
+                    cell1: "Empty. A message scratched: 'She's in the walls'.",
+                    cell2: "A man in black. He doesn't move. 'The giant sent me.'"
+                }
+            },
+            millRoad: {
+                desc: "MILL ROAD - Gravel leading north. The CROSS SAWMILL looms ahead, smoke rising. Side road east to LAKE. Forest west.",
+                exits: { s: 'mainStreet', n: 'millYard', e: 'lakePath', w: 'forestEdge' },
+                items: [],
+                npcs: [],
+                exam: {
+                    gravel: "Tire tracks - heavy trucks. Red clay in the ruts.",
+                    sign: "'CROSS MILL - PRIVATE PROPERTY - KEEP OUT'"
+                }
+            },
+            millYard: {
+                desc: "MILL YARD - Mountains of logs, sawdust piles. The mill building north. Office east. FOREMAN GARLAND shouts orders.",
+                exits: { s: 'millRoad', e: 'millOffice', n: 'millInterior' },
+                items: ['work gloves'],
+                npcs: ['garland'],
+                exam: {
+                    logs: "One log has a painted X. The ones with X go to a separate pile.",
+                    sawdust: "A boot print, then drag marks toward the forest."
+                }
+            },
+            millOffice: {
+                desc: "MILL OFFICE - Desks, time cards, a window overlooking the yard. BEATRICE CROSS (Victor's sister) reviews papers.",
+                exits: { w: 'millYard' },
+                items: [],
+                npcs: ['beatrice'],
+                exam: {
+                    desk: "Drawers locked. Papers visible: 'Offshore Holdings'.",
+                    timecards: "Teresa Whitman's card: 10/23/81 - punched out at 11pm. Last day."
+                }
+            },
+            millInterior: {
+                desc: "INSIDE THE MILL - Deafening machinery. Conveyors, saws, dust everywhere. VERN works a station, looking over his shoulder.",
+                exits: { s: 'millYard', e: 'millCloset' },
+                items: ['ear plugs'],
+                npcs: ['vern'],
+                exam: {
+                    saw: "The main blade. Something's caught in the teeth - fabric. Blue plaid.",
+                    conveyor: "Logs moving toward the debarker. One has red stains."
+                }
+            },
+            millCloset: {
+                desc: "MAINTENANCE CLOSET - Mops, chemicals, tools. A door at back leads to the woods.",
+                exits: { w: 'millInterior', out: 'forestClearing' },
+                items: ['bolt cutters'],
+                npcs: [],
+                exam: {
+                    tools: "A saw blade with dark residue. Bagged as evidence?",
+                    door: "Unlocked. Leads into dense forest."
+                }
+            },
+            lakePath: {
+                desc: "LAKE PATH - Winding through pines. Glimpses of water ahead. DOCK to the east, CABIN trail north.",
+                exits: { w: 'millRoad', e: 'lakeDock', n: 'cabinPath' },
+                items: [],
+                npcs: [],
+                exam: {
+                    path: "Footprints - high heels? Unusual out here.",
+                    pines: "Someone carved a heart with 'T + ?'."
+                }
+            },
+            lakeDock: {
+                desc: "LAKE DOCK - Wooden planks, a rowboat tied up. Water laps gently. A tackle box left behind.",
+                exits: { w: 'lakePath' },
+                items: ['fishing pole'],
+                npcs: [],
+                exam: {
+                    dock: "Loose board. You pry it - a waterproof box with a key.",
+                    water: "Shallows reveal something shiny. You reach in - a locket."
+                }
+            },
+            cabinPath: {
+                desc: "CABIN PATH - Leads to a rustic A-frame. Smoke from the chimney. Windows dark.",
+                exits: { s: 'lakePath', enter: 'cabin' },
+                items: [],
+                npcs: [],
+                exam: {
+                    path: "Fresh tire tracks - motorcycle.",
+                    woods: "A hermit watches from the trees. He retreats."
+                }
+            },
+            cabin: {
+                desc: "WHITMAN HUNTING CABIN - Small, dusty. A bed, wood stove, table. SARAH WHITMAN (Teresa's mother) sits rocking, staring at nothing.",
+                exits: { out: 'cabinPath', e: 'cabinBedroom' },
+                items: [],
+                npcs: ['sarah'],
+                exam: {
+                    stove: "Cold ashes. A partially burned photograph - a girl with 'Victor' written.",
+                    table: "Letters. 'My dearest Teresa, I'll leave my wife. -V'"
+                }
+            },
+            cabinBedroom: {
+                desc: "CABIN BEDROOM - Small bed, dresser. Closet door ajar.",
+                exits: { w: 'cabin' },
+                items: [],
+                npcs: [],
+                exam: {
+                    dresser: "Drawers full of old clothes. Underneath, a floorboard is loose.",
+                    floor: "You lift it. Inside: Teresa's diary, a photo of her with Victor Cross."
+                }
+            },
+            forestEdge: {
+                desc: "FOREST EDGE - Towering firs. A trail leads deeper (north). To the east, a logging road.",
+                exits: { e: 'millRoad', n: 'deepForest' },
+                items: [],
+                npcs: [],
+                exam: {
+                    trees: "Marked with orange paint. Follow the orange?",
+                    ground: "A patch of disturbed earth. You dig - a box of shell casings."
+                }
+            },
+            deepForest: {
+                desc: "DEEP FOREST - No birds. Eerily quiet. A clearing north.",
+                exits: { s: 'forestEdge', n: 'clearing' },
+                items: [],
+                npcs: [],
+                exam: {
+                    moss: "On a log, a ring sits. Black stone, owl carved.",
+                    wind: "Whispers: 'Find the giant.'"
+                }
+            },
+            clearing: {
+                desc: "FOREST CLEARING - A ring of stones. A giant man stands motionless. ELIAS.",
+                exits: { s: 'deepForest' },
+                items: [],
+                npcs: ['elias'],
+                exam: {
+                    stones: "Arranged in a circle. Each has a symbol.",
+                    giant: "He speaks without moving his lips."
+                }
+            },
+            forestClearing: {
+                desc: "SECOND CLEARING - Near the mill. You can hear machinery.",
+                exits: { e: 'millCloset' },
+                items: [],
+                npcs: [],
+                exam: {
+                    stump: "A axe embedded. Fresh blood on the blade."
+                }
+            },
+            hardwareStore: {
+                desc: "CROSS HARDWARE - Nails, tools, lumber. A clerk works the counter.",
+                exits: { w: 'mainStreet' },
+                items: ['hammer'],
+                npcs: ['clerk'],
+                exam: {
+                    counter: "Keys can be made here. A blank sits in the machine.",
+                    back: "Door marked 'PRIVATE - V. CROSS'."
+                }
+            }
+        };
+
+        // ==================== ITEMS DATABASE ====================
+        const items = {
+            'crowbar': { 
+                desc: "Heavy iron pry bar. Good for forcing things.", 
+                takeable: true, 
+                usable: true,
+                onUse: (target) => {
+                    if (target === 'drawer' && currentRoom === 'millOffice' && !flags.millOfficeDrawer) {
+                        print("You pry the drawer. Inside: incriminating ledgers and a photo of Victor with Teresa.");
+                        inventory.push('ledger');
+                        inventory.push('photo');
+                        flags.millOfficeDrawer = true;
+                    } else if (target === 'floor' && currentRoom === 'cabinBedroom' && !flags.cabinFloorLifted) {
+                        print("You pry the floorboard. Underneath: Teresa's diary and a ring.");
+                        inventory.push('diary');
+                        inventory.push('ring');
+                        flags.cabinFloorLifted = true;
+                    } else print("Nothing happens.");
+                }
+            },
+            'bolt cutters': { 
+                desc: "Heavy duty cutters.", 
+                takeable: true, 
+                usable: true,
+                onUse: (target) => {
+                    if (target === 'lock' && currentRoom === 'millYard' && !flags.millLockCut) {
+                        print("You cut the lock on the steel box. Inside: a bag of money and a note: 'For Sheriff Cole - keep quiet'.");
+                        inventory.push('money bag');
+                        inventory.push('note');
+                        flags.millLockCut = true;
+                    } else print("Can't cut that.");
+                }
+            },
+            'hammer': { desc: "Standard claw hammer.", takeable: true, usable: true },
+            'wrench': { desc: "Pipe wrench.", takeable: true, usable: true },
+            'kitchen knife': { desc: "Sharp blade.", takeable: true, usable: true },
+            'menu': { desc: "Pie and coffee specials.", takeable: true },
+            'empty bottle': { desc: "An old whiskey bottle.", takeable: true },
+            'oil can': { desc: "Motor oil.", takeable: true },
+            'coaster': { desc: "Bar coaster with a phone number.", takeable: true },
+            'case file': { desc: "Cold case file on Teresa Whitman.", takeable: true },
+            'work gloves': { desc: "Sawdust-covered gloves.", takeable: true },
+            'ear plugs': { desc: "For the noise.", takeable: true },
+            'fishing pole': { desc: "Old fishing rod.", takeable: true },
+            'ledger': { desc: "Mill accounting. Shows payoffs.", takeable: true },
+            'photo': { desc: "Victor and Teresa together at the lake.", takeable: true },
+            'diary': { desc: "Teresa's diary. 'Victor says he'll leave her.'", takeable: true },
+            'ring': { desc: "Gold ring inscribed 'Forever, V'.", takeable: true },
+            'note': { desc: "'Keep the Whitman case cold. -V'", takeable: true },
+            'money bag': { desc: "Stacks of cash.", takeable: true },
+            'basement key': { desc: "Key to the diner basement.", takeable: true },
+            'office key': { desc: "Key to the mill office.", takeable: true }
+        };
+
+        // ==================== NPC DIALOGUE ====================
+        const npcs = {
+            marge: {
+                talk: () => {
+                    npcStates.marge.talked++;
+                    if (npcStates.marge.talked === 1) {
+                        print("Marge: 'Coffee, hon? You look like you've seen a ghost. This town's full of 'em.'");
+                    } else if (npcStates.marge.talked === 2) {
+                        print("Marge lowers her voice: 'Teresa used to work here. Sweet girl. Then she got mixed up with the Cross family. Next thing, she's gone.'");
+                    } else if (npcStates.marge.talked === 3) {
+                        print("Marge: 'Victor Cross came after she disappeared. Asked if she left anything. I lied. Said no.'");
+                    } else if (npcStates.marge.talked === 4 && !npcStates.marge.gaveKey) {
+                        print("Marge: 'I kept her locker key. Here. Maybe it'll help.' She hands you a key.");
+                        inventory.push('basement key');
+                        npcStates.marge.gaveKey = true;
+                    }
+                },
+                give: (item) => {
+                    if (item === 'photo') {
+                        print("Marge gasps. 'I knew it. They were together. Take this to Deputy Earle.'");
+                    } else print("Marge: 'That's not important.'");
+                },
+                punch: () => {
+                    print("You punch Marge. She falls. Sheriff Cole bursts in and arrests you. Game over.");
+                    gameOver = true;
+                }
+            },
+            darlene: {
+                talk: () => {
+                    npcStates.darlene.talked++;
+                    if (npcStates.darlene.talked === 1) {
+                        print("Darlene: 'Hi there. Can I get you anything? The pie's fresh.'");
+                    } else if (npcStates.darlene.talked === 2) {
+                        print("Darlene whispers: 'Marge is hiding something about Teresa. I saw her go to the basement at night.'");
+                    } else if (npcStates.darlene.talked === 3 && !npcStates.darlene.gavePhoto) {
+                        print("Darlene: 'I found this photo under a booth. It's Teresa with a man. You keep it.'");
+                        inventory.push('photo');
+                        npcStates.darlene.gavePhoto = true;
+                    }
+                },
+                give: () => {},
+                punch: () => print("She screams. Wally tackles you. Game over.") || (gameOver=true)
+            },
+            cole: {
+                talk: () => {
+                    npcStates.sheriff_cole.talked++;
+                    if (npcStates.sheriff_cole.talked === 1) {
+                        print("Sheriff Cole: 'Welcome to Lumberton. Keep your nose clean.'");
+                    } else if (npcStates.sheriff_cole.talked === 2) {
+                        print("Cole: 'The Whitman case? Closed. Accident. Nothing to see.'");
+                    } else if (npcStates.sheriff_cole.talked === 3) {
+                        print("Cole's eyes narrow: 'You're asking too many questions.'");
+                    }
+                },
+                give: (item) => {
+                    if (item === 'ledger') print("Cole: 'Fake. Get out.'");
+                },
+                punch: () => {
+                    print("You punch the Sheriff. Deputy Earle cuffs you. Game over.");
+                    gameOver = true;
+                }
+            },
+            earle: {
+                talk: () => {
+                    npcStates.deputy_earle.talked++;
+                    if (npcStates.deputy_earle.talked === 1) {
+                        print("Deputy Earle: 'Can I help you? I'm swamped with paperwork.'");
+                    } else if (npcStates.deputy_earle.talked === 2) {
+                        print("Earle lowers his voice: 'The Whitman case... I always thought it was fishy. Cole closed it too fast.'");
+                    } else if (npcStates.deputy_earle.talked === 3 && !npcStates.deputy_earle.helped) {
+                        print("Earle: 'If you find evidence, bring it to me. Not Cole.'");
+                        npcStates.deputy_earle.helped = true;
+                    }
+                },
+                give: (item) => {
+                    if ((item === 'ledger' || item === 'note' || item === 'diary' || item === 'photo') && !flags.caseSolved) {
+                        print("Earle examines it. 'This is enough. I'll call the state police. Victor Cross and Cole will go down. Justice for Teresa.'");
+                        print("🌟🌟🌟 YOU EXPOSED THE CONSPIRACY. Victor and Cole arrested. Lumberton can heal. 🌟🌟🌟");
+                        gameWon = true;
+                        winCondition = 'expose';
+                    } else print("Earle: 'This helps, but we need more.'");
+                },
+                punch: () => print("Earle subdues you. Game over.") || (gameOver=true)
+            },
+            iris: {
+                talk: () => {
+                    npcStates.dispatch_iris.talked++;
+                    if (npcStates.dispatch_iris.talked === 1) {
+                        print("Iris: 'Dispatch. Can I help you?'");
+                    } else if (npcStates.dispatch_iris.talked === 2 && !npcStates.dispatch_iris.gaveCode) {
+                        print("Iris whispers: 'The evidence locker code is 7-21-81. Teresa's last day. Don't tell Cole I told you.'");
+                        npcStates.dispatch_iris.gaveCode = true;
+                    }
+                },
+                give: () => {},
+                punch: () => print("You're arrested.") || (gameOver=true)
+            },
+            garland: {
+                talk: () => {
+                    npcStates.foreman_garland.talked++;
+                    if (npcStates.foreman_garland.talked === 1) {
+                        print("Garland: 'You don't belong here. Move along.'");
+                    } else if (npcStates.foreman_garland.talked === 2) {
+                        print("He glances at the woods: 'Teresa used to come here. Late at night. Meeting someone.'");
+                    } else if (npcStates.foreman_garland.talked === 3) {
+                        print("Garland: 'Victor gave her special treatment. Then she stopped coming.'");
+                    } else if (npcStates.foreman_garland.talked === 4 && !npcStates.foreman_garland.gaveKeys) {
+                        print("Garland: 'Here. Keys to the office. Maybe you'll find answers.'");
+                        inventory.push('office key');
+                        npcStates.foreman_garland.gaveKeys = true;
+                    }
+                },
+                give: () => {},
+                punch: () => print("He's a logger. He breaks your arm. Game over.") || (gameOver=true)
+            },
+            vern: {
+                talk: () => {
+                    npcStates.millWorker_vern.talked++;
+                    if (npcStates.millWorker_vern.talked === 1) {
+                        print("Vern: 'Don't talk to me. They're watching.'");
+                    } else if (npcStates.millWorker_vern.talked === 2 && !npcStates.millWorker_vern.scared) {
+                        print("Vern: 'I saw something. Night Teresa disappeared. A car - Victor's - parked at the lake cabin.'");
+                        npcStates.millWorker_vern.scared = true;
+                    } else if (npcStates.millWorker_vern.talked === 3 && !npcStates.millWorker_vern.tippedOff) {
+                        print("Vern: 'There's a trapdoor in the mill roof. Victor's hiding something.'");
+                        npcStates.millWorker_vern.tippedOff = true;
+                    }
+                },
+                give: () => {},
+                punch: () => print("Vern runs off.") 
+            },
+            elias: {
+                talk: () => {
+                    if (!npcStates.giant_elias.appeared) {
+                        print("The Giant: 'It is happening again. Find the owl ring. Teresa's killer walks among you.'");
+                        npcStates.giant_elias.appeared = true;
+                    } else print("The Giant: 'The owls are watching. They know the truth.'");
+                },
+                give: () => {},
+                punch: () => print("Your hand passes through mist.")
+            },
+            sarah: {
+                talk: () => {
+                    npcStates.sarah_whitman.talked++;
+                    if (npcStates.sarah_whitman.talked === 1) {
+                        print("Sarah rocks silently. 'My Teresa... gone.'");
+                    } else if (npcStates.sarah_whitman.talked === 2 && !npcStates.sarah_whitman.gaveDiary) {
+                        print("Sarah: 'She wrote everything down. Hid it from her father. Here.' She hands you a diary.");
+                        inventory.push('diary');
+                        npcStates.sarah_whitman.gaveDiary = true;
+                    }
+                },
+                give: () => {},
+                punch: () => print("You monster.")
+            },
+            stranger: {
+                talk: () => {
+                    npcStates.stranger_black.talked++;
+                    if (npcStates.stranger_black.talked === 1) {
+                        print("Stranger: 'The giant sent me. Follow the owls. They know where she's buried.'");
+                    } else print("He's gone.") || (npcStates.stranger_black.vanished=true);
+                },
+                give: () => {},
+                punch: () => print("He vanishes.")
+            },
+            sully: {
+                talk: () => {
+                    npcStates.bartender_sully.talked++;
+                    print("Sully: 'What'll it be?'");
+                },
+                give: () => {},
+                punch: () => print("Sully ducks. Bouncers throw you out.") || (gameOver=true)
+            },
+            wally: {
+                talk: () => {
+                    npcStates.regular_wally.talked++;
+                    print("Wally: 'I saw Victor here the night Teresa died. He was shaking.'");
+                },
+                give: () => {},
+                punch: () => print("Wally falls off his stool.")
+            },
+            jenna: {
+                talk: () => {
+                    npcStates.singer_jenna.talked++;
+                    print("Jenna: 'Victor threatened me. Said don't sing about Teresa.'");
+                },
+                give: () => {},
+                punch: () => print("She screams.")
+            },
+            earl: {
+                talk: () => {
+                    npcStates.gas_attendant_earl.talked++;
+                    print("Earl: 'Fill 'er up?'");
+                },
+                give: () => {},
+                punch: () => print("Earl hits you with a wrench. Game over.") || (gameOver=true)
+            },
+            beatrice: {
+                talk: () => {
+                    npcStates.beatrice_cross.talked++;
+                    print("Beatrice: 'Get out of my office.'");
+                },
+                give: () => {},
+                punch: () => print("Security throws you out.") || (gameOver=true)
+            },
+            clerk: {
+                talk: () => {
+                    print("Clerk: 'Can I help you? We've got nails, hammers, keys made.'");
+                },
+                give: () => {},
+                punch: () => print("He calls the sheriff.")
+            }
+        };
+
+        // ==================== HELPER FUNCTIONS ====================
+        function print(text) {
+            let div = document.createElement('div');
+            // Check if this is the exit line (contains span) - render as HTML
+            if (text.includes('<span class="exit-line">')) {
+                div.innerHTML = text;
+            } else {
+                div.textContent = text;
+            }
+            output.appendChild(div);
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function describeRoom() {
+            const room = rooms[currentRoom];
+            if (!room) {
+                print("ERROR: Room not found!");
+                return;
+            }
+            print(room.desc);
+            if (room.items && room.items.length > 0) {
+                print("You see: " + room.items.join(', '));
+            }
+            if (room.npcs && room.npcs.length > 0) {
+                print("Here: " + room.npcs.join(', '));
+            }
+            let exits = Object.keys(room.exits).join(' ');
+            // This line now uses HTML span - will be rendered properly
+            print('<span class="exit-line">Exits: ' + exits + '</span>');
+        }
+
+        function handleExamine(obj) {
+            const room = rooms[currentRoom];
+            
+            if (currentRoom === 'diner' && obj === 'piecase' && !flags.dinerPiePlate) {
+                print("Under the pie plate: a key to the diner basement.");
+                inventory.push('basement key');
+                flags.dinerPiePlate = true;
+                return true;
+            }
+            if (currentRoom === 'lakeDock' && obj === 'water' && !flags.lakeShallowsBox) {
+                print("You reach into the shallows. A waterproof box with a locket inside.");
+                inventory.push('ring');
+                flags.lakeShallowsBox = true;
+                return true;
+            }
+            if (currentRoom === 'cabinBedroom' && obj === 'floor' && !flags.cabinFloorLifted) {
+                print("The floorboard is loose. You lift it - a diary and a photo.");
+                inventory.push('diary');
+                inventory.push('photo');
+                flags.cabinFloorLifted = true;
+                return true;
+            }
+            
+            if (room.exam && room.exam[obj]) {
+                print(room.exam[obj]);
+                return true;
+            }
+            return false;
+        }
+
+        function handleCommand(cmd) {
+            if (gameOver) {
+                print("Game over. Refresh to restart.");
+                return;
+            }
+            if (gameWon) {
+                if (winCondition === 'expose') print("You exposed the conspiracy. Lumberton's secrets are revealed. Refresh to play again.");
+                else print("Justice prevails. Refresh to replay.");
+                return;
+            }
+            
+            cmd = cmd.toLowerCase().trim();
+            if (cmd === '') return;
+            
+            const words = cmd.split(' ');
+
+            // Movement
+            if (['n','s','e','w','up','down','out','enter','back'].includes(cmd) || 
+                cmd === 'north' || cmd === 'south' || cmd === 'east' || cmd === 'west') {
+                let dir = cmd;
+                if (cmd === 'north') dir = 'n';
+                if (cmd === 'south') dir = 's';
+                if (cmd === 'east') dir = 'e';
+                if (cmd === 'west') dir = 'w';
+                
+                const room = rooms[currentRoom];
+                if (!room) {
+                    print("Error: Unknown room.");
+                    return;
+                }
+                
+                const next = room.exits[dir];
+                if (next) {
+                    if (rooms[next]) {
+                        currentRoom = next;
+                        describeRoom();
+                    } else {
+                        print("Error: Destination room '" + next + "' doesn't exist.");
+                    }
+                } else {
+                    print("Can't go that way.");
+                }
+                return;
+            }
+
+            if (cmd === 'look') {
+                describeRoom();
+                return;
+            }
+            
+            if (cmd === 'inventory' || cmd === 'inv') {
+                if (inventory.length > 0) {
+                    print("Inventory: " + inventory.join(', '));
+                } else {
+                    print("Nothing in inventory.");
+                }
+                return;
+            }
+
+            // Take
+            if (words[0] === 'take') {
+                if (words.length < 2) {
+                    print("Take what?");
+                    return;
+                }
+                let item = words.slice(1).join(' ');
+                let room = rooms[currentRoom];
+                
+                if (room.items && room.items.includes(item)) {
+                    if (items[item] && items[item].takeable !== false) {
+                        inventory.push(item);
+                        room.items = room.items.filter(i => i !== item);
+                        print("Taken: " + item);
+                    } else {
+                        print("Can't take that.");
+                    }
+                } else {
+                    print("You don't see that here.");
+                }
+                return;
+            }
+
+            // Use on
+            if (cmd.includes(' on ')) {
+                let parts = cmd.split(' on ');
+                let it = parts[0].replace('use ', '').trim();
+                let tg = parts[1].trim();
+                
+                if (inventory.includes(it) && items[it] && items[it].usable) {
+                    items[it].onUse(tg);
+                } else {
+                    print("You don't have that or can't use it that way.");
+                }
+                return;
+            }
+
+            // Use alone
+            if (words[0] === 'use') {
+                if (words.length < 2) {
+                    print("Use what?");
+                    return;
+                }
+                let it = words.slice(1).join(' ');
+                if (inventory.includes(it) && items[it] && items[it].usable) {
+                    items[it].onUse(null);
+                } else {
+                    print("You don't have that or can't use it.");
+                }
+                return;
+            }
+
+            // Give to
+            if (cmd.startsWith('give ')) {
+                let rest = cmd.substring(5);
+                if (!rest.includes(' to ')) {
+                    print("Give what to whom? Example: give photo to earle");
+                    return;
+                }
+                let [item, npc] = rest.split(' to ');
+                npc = npc.trim();
+                
+                let room = rooms[currentRoom];
+                let found = room.npcs ? room.npcs.find(n => n.toLowerCase() === npc.toLowerCase()) : null;
+                
+                if (!found) {
+                    print("No one named '" + npc + "' is here.");
+                    return;
+                }
+                
+                if (!inventory.includes(item)) {
+                    print("You don't have " + item);
+                    return;
+                }
+                
+                if (npcs[found] && npcs[found].give) {
+                    npcs[found].give(item);
+                    inventory = inventory.filter(i => i !== item);
+                } else {
+                    print(found + " doesn't respond.");
+                }
+                return;
+            }
+
+            // Talk to
+            if (cmd.startsWith('talk to ')) {
+                let npc = cmd.substring(8).trim();
+                let room = rooms[currentRoom];
+                let found = room.npcs ? room.npcs.find(n => n.toLowerCase() === npc.toLowerCase()) : null;
+                
+                if (!found) {
+                    print("No one named '" + npc + "' is here.");
+                    return;
+                }
+                
+                if (npcs[found] && npcs[found].talk) {
+                    npcs[found].talk();
+                } else {
+                    print(found + " stares at you silently.");
+                }
+                return;
+            }
+
+            // Talk (without to)
+            if (words[0] === 'talk') {
+                if (words.length < 2) {
+                    print("Talk to whom?");
+                    return;
+                }
+                let npc = words.slice(1).join(' ');
+                let room = rooms[currentRoom];
+                let found = room.npcs ? room.npcs.find(n => n.toLowerCase() === npc.toLowerCase()) : null;
+                
+                if (!found) {
+                    print("No one named '" + npc + "' is here.");
+                    return;
+                }
+                
+                if (npcs[found] && npcs[found].talk) {
+                    npcs[found].talk();
+                } else {
+                    print(found + " ignores you.");
+                }
+                return;
+            }
+
+            // Examine
+            if (words[0] === 'examine' || words[0] === 'x') {
+                if (words.length < 2) {
+                    print("Examine what?");
+                    return;
+                }
+                let obj = words.slice(1).join(' ');
+                
+                if (!handleExamine(obj)) {
+                    if (inventory.includes(obj) && items[obj]) {
+                        print(items[obj].desc);
+                    } else if (rooms[currentRoom].items && rooms[currentRoom].items.includes(obj) && items[obj]) {
+                        print(items[obj].desc);
+                    } else {
+                        print("You see nothing special about that.");
+                    }
+                }
+                return;
+            }
+
+            // Punch
+            if (words[0] === 'punch') {
+                if (words.length < 2) {
+                    print("Punch whom?");
+                    return;
+                }
+                let target = words.slice(1).join(' ');
+                let room = rooms[currentRoom];
+                let found = room.npcs ? room.npcs.find(n => n.toLowerCase() === target.toLowerCase()) : null;
+                
+                if (found) {
+                    if (npcs[found] && npcs[found].punch) {
+                        npcs[found].punch();
+                    } else {
+                        print("You can't punch that.");
+                    }
+                } else {
+                    print("Punch what?");
+                }
+                return;
+            }
+
+            print("Unknown command. Try: n/s/e/w, take, use [item] on [target], give to, talk to, examine, inventory, look, punch");
+        }
+
+        // Set up input handler
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                let cmd = input.value;
+                print('> ' + cmd);
+                handleCommand(cmd);
+                input.value = '';
+            }
+        });
+
+        // Start the game
+        print("Welcome to Lumberton (1982).");
+        print("A town of timber, silence, and secrets. 40+ locations, 20+ NPCs, multiple endings.");
+        print("Try: n, s, e, w to move. 'look' to see room. 'examine [object]' to investigate.");
+        describeRoom();
+    });
+</script>
+</body>
+</html>
