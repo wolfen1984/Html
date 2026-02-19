@@ -1,0 +1,1972 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Last Stop Motel (1984) – Extended Cut</title>
+    <!-- Atari ST 8x16 system font via Press Start 2P -->
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background: black;
+            color: white;
+            font-family: 'Press Start 2P', cursive, monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 1rem;
+        }
+        #game-wrapper {
+            max-width: 800px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        #output {
+            background: black;
+            border: 2px solid white;
+            padding: 1.5rem;
+            height: 60vh;
+            overflow-y: auto;
+            margin-bottom: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        #output div {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .input-area {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            border: 2px solid white;
+            padding: 0.75rem;
+            background: black;
+        }
+        #command {
+            flex: 1;
+            background: black;
+            border: 2px solid white;
+            color: white;
+            font-family: 'Press Start 2P', cursive, monospace;
+            font-size: 14px;
+            padding: 0.75rem;
+            outline: none;
+        }
+        #command::placeholder {
+            color: #555;
+            opacity: 1;
+        }
+        #enter-btn {
+            background: black;
+            border: 2px solid white;
+            color: white;
+            font-family: 'Press Start 2P', cursive, monospace;
+            font-size: 14px;
+            padding: 0.75rem 1.5rem;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        #enter-btn:hover {
+            background: white;
+            color: black;
+        }
+        #output::-webkit-scrollbar {
+            width: 8px;
+        }
+        #output::-webkit-scrollbar-track {
+            background: black;
+        }
+        #output::-webkit-scrollbar-thumb {
+            background: white;
+            border: 1px solid black;
+        }
+        .sanity-warning {
+            color: #ff4444;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+<div id="game-wrapper">
+    <div id="output"></div>
+    <div class="input-area">
+        <input type="text" id="command" placeholder="> ENTER COMMAND" autofocus>
+        <button id="enter-btn">ENTER</button>
+    </div>
+</div>
+<script>
+    (function() {
+        // ----- REDONE GAMEPLAY: PLAYER STARTS OUTSIDE MOTEL AT NIGHT -----
+        // New layout: 
+        // outside (north) → entrance (reception room) 
+        // entrance (east) → diner
+        // entrance (west) → gas station
+        // entrance (south) → back to outside
+        // Also motel rooms are now accessed from a "motel corridor" inside the motel (north from entrance)
+        
+        const rooms = {
+            // NEW: start here
+           outside: {
+    name: "OUTSIDE MOTEL",
+    description: "A deserted two-lane highway cuts through the black night. A flickering neon sign reads 'LAST STOP MOTEL'. A narrow path leads north to the motel entrance. To the east, a dark path leads around back to what looks like a boiler room. To the east, far off, you see the lights of a diner, but the way is blocked by a fence.",
+    exits: { north: "entrance", east: "boilerroom" }  // ← Added east exit
+},
+            // NEW: reception room / entrance lobby
+            entrance: {
+                name: "MOTEL ENTRANCE / RECEPTION",
+                description: "A cramped reception area with a scarred wooden counter. An ancient register lies open, pages yellow. The air smells of mold and stale coffee. A doorway north leads into the motel corridor. An east exit leads to a diner; west exit leads to a gas station. South goes back outside.",
+                exits: { north: "corridor", east: "diner", west: "gasstation", south: "outside" }
+            },
+            // NEW: diner
+            diner: {
+                name: "ROADSIDE DINER",
+                description: "A chrome-and-vinyl diner, frozen in time. A long counter with cracked red stools. Booths line the windows, but outside is only your own reflection. A jukebox glows in the corner, unplugged.",
+                exits: { west: "entrance" }   // back to entrance
+            },
+            // NEW: gas station
+            gasstation: {
+                name: "GAS STATION",
+                description: "Two pumps stand under harsh fluorescent lights, both with rusted nozzles. The small shop is cluttered with dusty cans and faded oil posters. A payphone receiver dangles, off the hook.",
+                exits: { east: "entrance" }
+            },
+            // OLD motel corridor (renamed from "hallway" to "corridor")
+            corridor: {
+                name: "MOTEL CORRIDOR",
+                description: "Long hallway with faded crimson carpet. A fluorescent light buzzes overhead, casting sickly green. Doors line the walls, numbered 1 through 6.",
+                exits: { south: "entrance" }  // now connects to entrance, not lobby
+            },
+            // rooms 1-6 remain same, accessible from corridor via ENTER command
+            room1: {
+                name: "ROOM 1",
+                description: "A small room with a bed and a painting of a dark forest. The window shows only impenetrable black.",
+                exits: {} 
+            },
+            room2: {
+                name: "ROOM 2",
+                description: "A room with a full-length mirror and an old wooden wardrobe.",
+                exits: {}
+            },
+            room3: {
+                name: "ROOM 3",
+                description: "The room smells of cheap whiskey and sweat. Empty bottles litter the floor.",
+                exits: {}
+            },
+            room4: {
+                name: "ROOM 4",
+                description: "A dimly lit room with rumpled sheets. A cheap cologne hangs in the air.",
+                exits: {}
+            },
+            room5: {
+                name: "ROOM 5",
+                description: "The room is hazy with cigarette smoke. A needle lies on the nightstand.",
+                exits: {}
+            },
+            room6: {
+                name: "ROOM 6",
+                description: "An almost empty room. Just a bed and a flickering TV that shows only static. A VHS player sits beneath the TV.",
+                exits: {}
+            },
+            // NEW: Boiler room - accessible from outside or through a vent
+            boilerroom: {
+                name: "BOILER ROOM",
+                description: "A hellish chamber of industrial pipes and rust. A massive furnace roars in the corner, its door slightly ajar, revealing pulsing orange light. The heat is oppressive. Shadows dance on the walls from no visible flame. A narrow passage leads back outside.",
+                exits: { west: "outside" }
+            }
+        };
+
+        // inventory & room contents
+        let currentRoom = "outside";   // start outside motel at night
+        let inventory = [];
+
+        // items per room (takeable) – updated with new rooms
+        let roomItems = {
+            outside: [],               // nothing, just darkness
+            entrance: ["register", "pen"],
+            diner: ["menu", "napkin"],
+            gasstation: ["key", "map"],   // key now appears here (not from clerk)
+            corridor: ["coin"],
+            room1: ["photograph"],
+            room2: ["doll"],
+            room3: ["bottle"],
+            room4: ["magazine"],
+            room5: ["syringe"],
+            room6: ["remote"],
+            boilerroom: ["crowbar", "old photograph", "ashes"]
+        };
+
+
+// NPC states
+let npcState = {
+    nightclerk: { 
+        state: "normal", // normal, angry, knocked, dead
+        dropItem: "register",
+        likesViolence: false,
+        hates: ["dereck"],
+        loves: ["sarah"]
+    },
+    waitress: { 
+        state: "normal",
+        dropItem: "napkin",
+        likesViolence: false,
+        hates: ["dereck"],
+        loves: ["jenny", "tommy"]
+    },
+    attendant: { 
+        state: "normal",
+        dropItem: "map",
+        likesViolence: false,
+        hates: ["dereck"],
+        loves: ["darla"]
+    },
+    frank: { 
+        state: "normal",
+        dropItem: "doll",
+        likesViolence: false,
+        hates: ["dereck"],
+        loves: ["sarah", "jenny"]
+    },
+    drifter: { 
+        state: "normal",
+        dropItem: "bottle",
+        likesViolence: false,
+        hates: ["dereck"],
+        loves: ["jenny"]
+    },
+    dereck: { 
+        state: "normal",
+        dropItem: "vhs tape",
+        likesViolence: true, // He enjoys it
+        hates: ["frank", "tommy", "jenny", "darla", "ed", "pete"], // Hates everyone
+        loves: []
+    },
+    hooker: { 
+        state: "normal",
+        dropItem: "syringe",
+        likesViolence: false,
+        hates: ["dereck", "frank"], // Hates Frank too!
+        loves: ["tommy"]
+    }
+};
+
+// Track player violence reputation
+let violenceRep = 0;
+let lastPunchedNPC = null;
+
+// Track favors/gratitude
+let npcGratitude = {
+    nightclerk: false,
+    waitress: false,
+    attendant: false,
+    frank: false,
+    drifter: false,
+    dereck: false,
+    hooker: false
+};
+
+// New items for drops/rewards
+const specialItems = {
+    "frank's wallet": "A worn leather wallet. Inside, a photo of Sarah and an old diner receipt dated 1982.",
+    "dereck's camera": "A small hidden camera. The red light is still blinking. It's been recording this whole time.",
+    "jenny's locket": "A tarnished silver locket. Inside, a photo of a young woman with a guitar player. Tommy, before the bottles.",
+    "darla's key": "A key to the diner's back room. She keeps Sarah's things in there.",
+    "pete's diary": "A stained notebook. Every page has the same entry: '3:13. The call. I was too late.'",
+    "tommy's guitar pick": "A worn pick with 'Nighthawk' printed on it. He's had it since his last gig.",
+    "ed's glasses": "His prescription bottle. The label reads 'Take one daily for 42 years.'",
+    "sarah's note": "A folded note in delicate handwriting: 'If you're reading this, I'm already gone. He's in the mirror. He's always been in the mirror. Save yourself.'",
+    "sarah's photograph": "A faded photograph of a beautiful woman. On the back: 'Frank - forever, Sarah. 1968'",
+    "bloody crowbar": "The crowbar, now wet with fresh blood. It feels warm in your hands. Bob would be proud."
+};
+
+
+        // characters per room (new NPCs for new locations)
+        let roomChars = {
+            outside: [],           
+            entrance: ["nightclerk"],    // replaces old clerk
+            diner: ["waitress"],
+            gasstation: ["attendant"],
+            corridor: [],
+            room1: [],
+            room2: ["frank"],
+            room3: ["drifter"],
+            room4: ["dereck"],
+            room5: ["hooker"],
+            room6: [],
+            boilerroom: []
+        };
+
+        // world flags
+        let wardrobeOpen = false;
+        let tapePlayed = false;      
+        let gaveKeyToAttendant = false; // for gas station puzzle
+        let dinerCoffee = false;        // small interaction
+        let talkedToClerk = false;      // track conversations
+        let askedAboutRooms = false;
+        let askedAboutVHS = false;
+
+        // detailed descriptions for new items
+        const itemDescriptions = {
+            // new items
+            register: "A registration log. Names and dates blur into illegible scrawl. The last entry: 'ROOM 6 – NO DEPARTURE'.",
+            pen: "A cheap ballpoint pen with 'LAST STOP' printed on it. The ink is dried.",
+            menu: "A plastic menu. Items: 'Nighthawk Special', 'Black Coffee', 'Pie (unknown filling)'. Most prices have been crossed out.",
+            napkin: "A paper napkin with a lipstick stain. Someone wrote: 'he never left'.",
+            key: "A small brass key, slightly warm to the touch. The tag reads 'Office'.",
+            map: "A folded map of the area. All roads seem to loop back to the motel. A red circle marks a spot in the desert.",
+            // old items kept
+            note: "A crumpled note. Handwritten scrawl: 'The owls are not what they seem.'",
+            coin: "A tarnished coin with an unfamiliar emblem. One side shows an eye, the other a spiral.",
+            photograph: "A faded photograph of a family. All faces have been scratched out, but you feel watched.",
+            doll: "A porcelain doll with cracked face. Its painted eyes seem to follow you.",
+            "brass box": "A small, intricately engraved brass box. It's locked, but something rattles inside.",
+            "vhs tape": "A worn VHS tape with a handwritten label: 'MOTEL - SEEK AND YOU SHALL FIND'.",
+            bottle: "An empty whiskey bottle. The label is torn.",
+            magazine: "A crumpled adult magazine. The pages are sticky.",
+            syringe: "A used syringe with a drop of dried blood.",
+            remote: "A TV remote with missing buttons. It smells of ozone.",
+            // Bob-related items
+            crowbar: "A heavy iron crowbar, one end caked with what might be rust. Or blood. It feels warm, as if recently used. Or waiting to be used.",
+            "old photograph": "A photo of you. From years ago. You're smiling. Behind you, the motel. But the photo is dated 1972. You weren't born yet.",
+            ashes: "A pile of ashes in the furnace. Among them, a wedding ring. Engraved: 'S & F - 1968'.",
+            "psychiatric report": "Dated 1984. Patient Name: [REDACTED]. Diagnosis: Paranoid Schizophrenia with Violent Tendencies. Notes: 'Patient claims 'Bob' tells him to hurt others. Meds ineffective.'",
+            "prescription bottle": "Empty. Label: Haloperidol 10mg. Take twice daily. Doctor: Sarah. Wait, Sarah?",
+            "mirror shard": "A piece of broken mirror. When you look into it, Bob looks back. Always. Even when you don't want to see.",
+            "admission form": "LAST STOP MOTEL - GUEST REGISTRATION. Name: [YOUR NAME]. Room: 0. Date: July 14, 1982. Notes: 'Checked in with brother Bob. Both in same room.' But you don't have a brother."
+        };
+
+        // new character descriptions for added NPCs
+        const characterDescriptions = {
+            nightclerk: "A gaunt man with hollow cheeks, wearing a stained white shirt. He stares at the register, never looking up. A name tag reads 'ED'.",
+            waitress: "A weary woman in a uniform from a bygone era. She wipes the same spot on the counter, over and over.",
+            attendant: "An old man in greasy overalls, sitting on an overturned crate. His eyes are milky, but he seems to see right through you.",
+            frank: "Frank is a middle‑aged man in a rumpled suit. He sits on the edge of the bed, staring at you with a faint, unsettling smile. He hasn't blinked.",
+            drifter: "A grizzled man in a stained coat slumps against the headboard. He reeks of bourbon and mutters to himself.",
+            dereck: "A thin man with greasy hair and a hungry look. He leers at you from the corner, picking at his nails.",
+            hooker: "A woman with hollow eyes and track marks on her arms. She sits on the bed, fiddling with a lighter, not quite looking at you.",
+            bob: "A figure stands in the shadows. He looks exactly like you. Same clothes, same face, same tired eyes. But his smile is wrong. Too wide. Too knowing. He nods at you like an old friend."
+        };
+
+        // dialogue for talk command (generic)
+        const characterTalk = {
+            nightclerk: "Ed mutters without looking up: 'Rooms are always full. Always. Even the empty ones.'",
+            waitress: "'Sugar, you want coffee? We ain't got none. Been out for years.' She laughs bitterly.",
+            attendant: "The attendant wheezes: 'That payphone's been ringin' since '82. Never anyone there. You ain't gonna leave, are ya?'",
+            frank: "Frank tilts his head and says slowly, 'Everyone leaves something behind. Maybe you'll find it.' He chuckles dryly.",
+            drifter: "'Gimme a drink...' he slurs, then starts humming a tuneless song.",
+            dereck: "He smirks. 'You lookin' for a good time? I got movies... real special ones.'",
+            hooker: "She glances at you briefly. 'You got any money? I need a fix. Bad.'",
+            bob: "Bob smiles from the shadows. 'You see me now. Good. We have work to do.'"
+        };
+
+        // BOB DIALOGUE SYSTEM
+        const bobDialogue = {
+            // Random whispers when player is alone but Bob not "present"
+            whispers: [
+                "You know they're all lying, right?",
+                "The camera in room 4 is watching you too.",
+                "Dereck's not the worst one here. Look in the mirror.",
+                "She's not really a person. She's just... meat.",
+                "They'd kill you if they could. Strike first.",
+                "The key doesn't open doors. It opens you.",
+                "3:13 is when the real you comes out.",
+                "That syringe? Not for her. For you. Freedom.",
+                "Ed knows what you did. He's always known.",
+                "Frank's doll? It's you. Don't you recognize yourself?",
+                "The boiler room has what you need. Go there. Now.",
+                "Why are you talking to them? They can't help you. I can.",
+                "Every kindness is a chain. Every mercy is a cage.",
+                "You're not crazy. You're finally seeing clearly."
+            ],
+            
+            // When player TALK to Bob
+            talkResponses: {
+                first: "Oh, you can see me now? Took you long enough. I'm Bob. We share this... space. This nightmare. But I'm the part that understands it.",
+                
+                generic: [
+                    "They're all actors. All of them. Playing parts in your movie.",
+                    "You could leave anytime. Just have to be willing to do what's necessary.",
+                    "The exit's not through a door. It's through them.",
+                    "Every person you don't kill is a chain holding you here.",
+                    "I'm not the dark part. I'm the clear part. The one who sees.",
+                    "You talk to me because you're lonely. Because they don't understand you. But I do.",
+                    "The motel chose you. Like it chose me. Like it chose all of us.",
+                    "We're the same, you and me. Just different sides of the same broken mirror."
+                ],
+                
+                // Specific advice based on situation
+                situational: {
+                    hooker: "Jenny? She's beyond saving. That needle's not for getting high - it's for putting down. Find the crowbar in the boiler room. End her misery. And ours. She's been suffering for 42 years. Be merciful.",
+                    dereck: "He thinks he's the predator. Show him what a real predator looks like. The camera in his room? It works both ways. He can see you, but you can also see him. The crowbar works on cameras too. And on him.",
+                    frank: "Poor Frank. So much grief. Put him out of his misery. The doll first, then him. They're the same thing anyway. He's been waiting for Sarah for 42 years. She's not coming. Give him peace.",
+                    darla: "She serves coffee that never comes. Food that never fills. She's a ghost serving ghosts. The crowbar would work on her too. She'd thank you, if she could. End the loop.",
+                    ed: "He's the gatekeeper. Kill him, and the front door opens. But what comes in? What's been waiting? Maybe that's the point. Maybe what's outside is worse.",
+                    pete: "The payphone rings for him. For you too, now. Answer it. Tell him what you're going to do. He'll understand. He's been waiting for someone to end this.",
+                    tommy: "The drunk? He's been here longest. Before Dereck. Before Sarah. He's the original. Kill him and the motel might forget how to trap people. Be a hero. Use the crowbar.",
+                    bob: "You want to talk about me? I'm you. The real you. The one who isn't afraid. The one who sees what needs to be done. You've been ignoring me for years. I'm patient."
+                }
+            },
+            
+            // After player commits violence on Bob's suggestion
+            approval: {
+                hooker: "Nice. You did well. That's one piece of trash that won't be missed. Feel that? That's power. That's control. That's you finally waking up. Jenny's free now. We're all a little freer.",
+                dereck: "Beautiful. The predator becomes the prey. Look at his tapes now - they're all just you, winning. Over and over. You're the star now. The only star.",
+                frank: "The doll first, then him. Perfect order. You understand symbolism. You're deeper than I thought. Frank's with Sarah now. Where he always wanted to be.",
+                darla: "The diner feels empty now, doesn't it? That's because it is. It always was. You just finally made it match reality. No more fake coffee. No more fake smiles.",
+                ed: "The gate's open. But you're not leaving, are you? No. You like it here now. This is your place. Your motel. Ed was just keeping the seat warm for you.",
+                pete: "The phone stopped ringing. For the first time in 42 years. You fixed it. You fixed everything. Pete can finally rest. We all can.",
+                tommy: "The original. The first. And now the last. You've rewritten history. The motel belongs to us now. To you and me."
+            },
+            
+            // When player resists or shows mercy
+            disappointment: [
+                "Weak. So weak. I thought we were better than this.",
+                "She would have killed you eventually. They all would.",
+                "Fine. Suffer then. See if I care.",
+                "You'll learn. They always do. The hard way.",
+                "I'll be waiting. In the mirror. In the static. In your head.",
+                "Mercy is just weakness with a pretty name.",
+                "Every time you don't act, you choose their side. Against us.",
+                "Fine. Be the victim. See where that gets you."
+            ]
+        };
+
+        // Bob's personality evolution
+        let bobPersonality = {
+            stage: 1, // 1-5: becomes more dominant
+            lastAppearance: null,
+            suggestions: []
+        };
+
+        // Track Bob suggestions and approvals
+        let bobApproval = 0;
+        let bobDisappointment = 0;
+        let bobSuggestions = {
+            hooker: false,
+            dereck: false,
+            frank: false,
+            darla: false,
+            ed: false,
+            pete: false,
+            tommy: false,
+            bob: false
+        };
+
+        // NEW: Bob's opinions of other NPCs
+        const bobOpinions = {
+            jenny: "She's weak. Like you were. Before me.",
+            hooker: "She's weak. Like you were. Before me.",
+            dereck: "He thinks he's special. He's just loud. You're quieter. Better.",
+            frank: "Poor Frank. Still waiting. Still hoping. Don't be Frank.",
+            darla: "She serves nothing to no one. Like you, before you met me.",
+            waitress: "She serves nothing to no one. Like you, before you met me.",
+            ed: "The gatekeeper. You'll have to deal with him eventually.",
+            nightclerk: "The gatekeeper. You'll have to deal with him eventually.",
+            pete: "He listens to phones that don't ring. Like you listened to them, before me.",
+            attendant: "He listens to phones that don't ring. Like you listened to them, before me.",
+            tommy: "Drowned himself in bottles. You're drowning in me. Better choice.",
+            drifter: "Drowned himself in bottles. You're drowning in me. Better choice.",
+            sarah: "She's the reason we're here. Her and that room. Room 6. The TV. The static. She's in there, you know. Forever.",
+            bob: "I'm you. The part you tried to forget. The part that remembers everything."
+        };
+
+        // Track player's sanity
+        let sanity = 100;
+        let bobInfluence = 0;
+
+        // NEW: Track relationship with Bob
+        let bobRelationship = {
+            trust: 50,      // How much player listens to Bob
+            fear: 50,       // How much player fears Bob  
+           认同: 50,        // How much player identifies with Bob
+            lastInteraction: null
+        };
+
+        // NEW: Bob's memory of player actions
+        let bobMemory = {
+            murders: [],           // Who, when, how
+            conversations: [],     // Topics discussed
+            itemsTaken: [],        // Items Bob has moved
+            playerFears: [],       // Things that scare the player
+            playerLikes: []        // Things the player is attached to
+        };
+
+        // Multiple conversation topics for ASK command
+        const characterTopics = {
+            nightclerk: {
+                // Self and basic topics
+                "ed": "I've been here so long I forgot when I started. The night shift never ends.",
+                "register": "That register... it's been open since '72. Nobody ever checks out. They just... stop coming to the desk.",
+                "rooms": "Room 6? Don't go in there after midnight. Or do. Makes no difference to me.",
+                "vacancy": "The sign outside lies. There's always vacancy. Always emptiness. That's the problem.",
+                "guests": "They're still here. All of them. You just can't see 'em most times.",
+                
+                // Other NPCs
+                "frank": "Frank's been in Room 2 since... well, since before I started. He's waiting for someone. A woman. She never came. Now he's part of the furniture.",
+                "dereck": "Room 4. Stay away from him. He makes... movies. The walls in that room have seen things. I've stopped changing the sheets.",
+                "jenny": "The woman in 5? She came here to meet a john years ago. Never left. Now she's just... waiting for the next fix.",
+                "hooker": "Jenny? She came here to meet a john years ago. Never left. Now she's just... waiting for the next fix.",
+                "tommy": "He's been in 3 so long he's pickled. Found him face-down in the parking lot once. He just got up and went back to his room.",
+                "drifter": "Tommy? He's been in 3 so long he's pickled. Found him face-down in the parking lot once.",
+                "darla": "At the diner? She used to be pretty. Before the accident. Before the jukebox started playing by itself.",
+                "waitress": "Darla? She used to be pretty. Before the accident. Before the jukebox started playing by itself.",
+                "pete": "Old Pete at the gas station? He's been there since the pumps ran dry. The payphone rings for him. Only him.",
+                "attendant": "Pete? He's been there since the pumps ran dry. The payphone rings for him. Only him.",
+                "sarah": "She was my wife. Took Room 6 in '82. Never came out. Frank's Sarah? Same woman. Different ghost.",
+                "bob": "Bob? You've been asking about him since you got here. Who's Bob? Wait... are you okay? You look pale.",
+                
+                // Items
+                "photograph": "Those photos from Room 1? The family checked out in '79. Left those behind. Sometimes I see them standing outside, looking in.",
+                "doll": "That doll in Room 2? Not a toy. Not really. Frank brought it. Said it looked like her. Like the woman he's waiting for.",
+                "brass box": "The box? It moves around. Was in Room 3 last week. Now it's somewhere else. It chooses who holds it.",
+                "vhs tape": "The one everyone wants? Dereck made it. But he didn't film it alone. Something else held the camera.",
+                "tape": "The VHS? Dereck's masterpiece. Everyone's on it eventually.",
+                "coin": "That's not currency. That's a token. For what, you don't wanna know. The jukebox takes 'em though.",
+                "key": "That key? Opens more than doors. Opens memories. Be careful what you unlock.",
+                "map": "Pete drew that. Shows all the ways out. None of them work.",
+                "menu": "Darla's menu. Read the specials. They change based on who's staying. Tonight's special? Room 4's special. Don't order it.",
+                "napkin": "She writes on those. Messages to herself. To God. To anyone. 'He never left.' She means all of us.",
+                "remote": "Controls Room 6's TV. Dereck has the master. That's just a toy. It does nothing.",
+                "syringe": "Jenny's medicine. Dereck's leash. Without it, she'd fly away. With it, she's his bird in a cage.",
+                "bottle": "Tommy's collection. 3,000 empty promises. Each one a day he didn't leave.",
+                "magazine": "Dereck's prop. For his movies. The pages are staged. The real show's in his head.",
+                "register": "Look at the names. All the same. J. Doe. Over and over. That's us. That's all of us now.",
+                "pen": "I write in the register with it. Same names. Same lies. Same forever.",
+                "crowbar": "Boiler room. Been there since '82. Someone used it once. I don't wanna know who. Or on who.",
+                
+                // Locations
+                "room 6": "Don't. Just don't. Even I don't go in there after midnight. The TV knows things.",
+                "room6": "The door's always locked now. From the inside. But no one's in there. No one living.",
+                "diner": "The jukebox plays songs that haven't been recorded yet. Darla hears them. She writes them down sometimes.",
+                "gas station": "The payphone rings. Always at 3:13. Pete answers sometimes. He listens. Then he cries.",
+                "corridor": "Count the doors at midnight. There's 7. Always 7. Then morning comes and it's 6 again.",
+                "payphone": "It rings for Pete. Only Pete. The rest of us just hear breathing.",
+                "jukebox": "It plays whatever it wants. Tommy's unwritten songs. Sarah's last words. Jenny's future. My past.",
+                "boiler room": "Don't go down there. The furnace... it eats things. And people. And memories.",
+                
+                // Time
+                "3:13": "The witching hour. When the phone rings. When the TV clears. When she walks the halls.",
+                "midnight": "The doors change. The guests change. The motel becomes... something else.",
+                
+                "default": "Ed just shakes his head slowly. 'I don't know nothin' about that.'"
+            },
+            
+            waitress: {
+                // Self and basic
+                "darla": "That's me. Was me. Not sure anymore. The mirror shows someone else now.",
+                "coffee": "Last pot I made was in '83. A man in Room 5 drank it all. Then he... changed.",
+                "jukebox": "That old thing? Used to play Patsy Cline. Now it just plays static, but sometimes... sometimes I hear singing.",
+                "customers": "They come and go. Mostly go. But some never leave their booths. I still serve 'em.",
+                "diner": "This place used to be open 24 hours. Now it's always open, but never open. You understand?",
+                "the night": "Nights are longest here. Sun never really comes up. Just gets less dark.",
+                
+                // Other NPCs
+                "ed": "Poor Ed. He's been at that desk since his wife left. Took room 6, she did. Never came out. Now he just... waits.",
+                "nightclerk": "Ed? He's been at that desk since Sarah left. Now he just waits.",
+                "frank": "Frank used to come here with her. Pretty blonde. They'd share a milkshake, two straws. Then she vanished. Now he just sits in room 2.",
+                "dereck": "That creature? Don't let him in here. He tried to film me once through the window. I threw hot coffee. He liked it.",
+                "jenny": "She was a singer. Had a voice like an angel. Then Dereck got her hooked on... well. Now she's in room 5.",
+                "hooker": "Jenny? She was a singer. Now she's just a ghost with a heartbeat.",
+                "tommy": "He was a musician. Played guitar on that jukebox stage. Then his wife left with Dereck. Now he drinks.",
+                "drifter": "Tommy? He was a musician. Now he's just bottles and regret.",
+                "pete": "He proposed to me once. 1978. I said no. He's been at that gas station ever since. Waiting for me to change my mind.",
+                "attendant": "Pete? He proposed in that booth. I said no. Now he waits at the gas station. We all wait.",
+                "sarah": "She was my best friend. Took Room 6. Now she's in the TV. I see her sometimes. She's always screaming.",
+                "bob": "Who? The man who talks to himself? I've seen you... doing that. In the corner. It's okay. We all have voices here.",
+                
+                // Items
+                "menu": "See that item? 'Nighthawk Special'? That was Frank's order every night. Now he doesn't eat. Just stares.",
+                "napkin": "The one with lipstick? That's mine. From the night I almost left. Dereck was waiting outside. I stayed.",
+                "coin": "Pete gave me one once. Said it was for good luck. I put it in the jukebox. It played a song I'd never heard. About dying here.",
+                "photograph": "I've seen that picture. The family? They're still here. All of them. Just in different rooms now.",
+                "vhs tape": "The one Dereck made? I'm on it. We all are. He films through the windows. Always watching.",
+                "tape": "Dereck's movies. They're not entertainment. They're evidence. Of everything.",
+                "doll": "Frank's doll. Looks like Sarah. It moves at night. I've seen it. Outside my window.",
+                "brass box": "It holds memories. Good ones. Frank put his in there. Now he can't remember Sarah's face. Only the doll's.",
+                "syringe": "Jenny's leash. Dereck pulls it. She dances. It's sick.",
+                "bottle": "Tommy's best friend. His worst enemy. Same as all of us.",
+                "remote": "Controls the TV in 6. Dereck uses it to torture Sarah. Forever.",
+                "key": "Opens Room 6. Ed has one. Pete has one. You have one. None of them work after dark.",
+                "crowbar": "I saw that in the boiler room. Long time ago. Someone used it on... I don't want to remember.",
+                
+                // Locations
+                "room 4": "That's his studio. His torture chamber. The walls bleed sometimes. I've seen it.",
+                "room4": "Don't go in there. The cameras are everywhere. Even in the mirrors.",
+                "room 6": "Sarah's room. Her tomb. Her TV studio. All at once.",
+                "room6": "The door sweats. Even in winter. Something in there is very hot. Or very cold.",
+                "gas station": "The payphone rings at 3:13. That's when she died. The woman in room 6. She called Pete for help. He was too late.",
+                "corridor": "At midnight, the carpet changes. New stains appear. Old ones fade. It's like the hallway remembers.",
+                "booth 3": "Frank and Sarah's booth. I keep it reserved. 42 years now. They'll be back. They have to.",
+                "boiler room": "That's where they took the bodies. Before Dereck started his movies. The furnace never stops.",
+                
+                // Time
+                "3:13": "The call. The scream. The silence. Every night, I hear it. Even here.",
+                
+                "default": "She wipes the counter absently. 'Can't help you with that, hon.'"
+            },
+            
+            // BOB'S OWN TOPICS (when asked about himself)
+            bob: {
+                "bob": "You're asking me about myself? That's cute. I'm you. The part you try to hide. The part that knows what this place really is.",
+                "yourself": "Look in the mirror. I'm always there. Behind you. Inside you. Waiting.",
+                "the voice": "You hear me because you're ready. Because the motel chose you. Because you're special.",
+                "purpose": "We're here to clean house. To end this. To free them all. One by one.",
+                "the crowbar": "Good, isn't it? Feels right in your hands. Like it was made for you. Because it was.",
+                "sanity": "Sanity is just agreeing with everyone else's delusion. I'm the sane one. You know that.",
+                "death": "Death is freedom here. You'd be doing them a favor. They'd thank you if they could."
+            }
+        };
+
+        // punch outcomes
+        const characterPunch = {
+            nightclerk: "You punch Ed. He stumbles, but his expression doesn't change. 'Checkout is never,' he whispers, wiping blood.",
+            waitress: "You punch the waitress. She doesn't even flinch. 'Honey, I've had worse from the fry cook.'",
+            attendant: "You punch the attendant. He topples off his crate, then starts laughing, a dry rasping sound from the floor.",
+            frank: "You punch Frank. He barely flinches, just wipes his mouth and gives you a deadpan look. 'That all you got?'",
+            drifter: "You punch the drifter. He crumples like a sack, then starts laughing hoarsely from the floor.",
+            dereck: "You punch Dereck. He shrieks and curls into a ball, whimpering. 'Don't hurt me!'",
+            hooker: "You punch the hooker. She recoils, then spits at you. 'Bastard!'",
+            bob: "You swing at Bob. Your fist passes through him like smoke. He laughs. 'Can't kill me. I'm already dead. I'm you.'"
+        };
+
+        // room features for EXAMINE (updated for new rooms)
+        const features = {
+            outside: {
+                "sign": "The neon sign buzzes: LAST STOP MOTEL – VACANCY (the 'V' flickers).",
+                "highway": "The asphalt stretches into absolute darkness. No headlights. No stars."
+            },
+            entrance: {
+                "counter": "The counter is covered in cigarette burns. A bell sits unused.",
+                "register": "The open register. Names: all 'J. Doe', all with the same looping handwriting."
+            },
+            diner: {
+                "jukebox": "An old Seeburg jukebox. The plug is cut, but you swear you hear faint static music.",
+                "counter": "Cracked red Formica. A permanent ring from a coffee cup.",
+                "mirror": "You look at your reflection. For a moment, it doesn't move. Then it smiles. Too wide. It mouths one word: 'Bob.'"
+            },
+            gasstation: {
+                "payphone": "The receiver dangles, swinging slightly. A dial tone hums, but when you listen closer it sounds like breathing.",
+                "pumps": "The pumps show zeroes. Ancient gas price signs: $0.99/gal."
+            },
+            corridor: {
+                "carpet": "The carpet is threadbare, with dark stains that might be blood.",
+                "light": "The fluorescent tube buzzes and flickers, casting stroboscopic shadows.",
+                "doors": "Six doors, each with a tarnished number: 1, 2, 3, 4, 5, 6."
+            },
+            room1: {
+                "painting": "A painting of a forest at dusk. The longer you look, the more the trees seem to move.",
+                "bed": "An unmade bed with grey sheets. There's a depression as if someone just got up."
+            },
+            room2: {
+                "mirror": () => examineMirror(),
+                "wardrobe": () => wardrobeOpen ? 
+                    "The wardrobe stands open, revealing a hidden compartment with a small brass box." :
+                    "A dark wooden wardrobe with a tarnished brass handle. It's closed."
+            },
+            room3: {
+                "bottles": "Empty whiskey bottles, some broken. A sad little collection.",
+                "bed": "The sheets are stained and smell of sweat."
+            },
+            room4: {
+                "magazine": "A dog‑eared magazine with explicit photos. The pages are stuck together.",
+                "bed": "The bed is unmade, with a suspicious stain.",
+                "camera": "A small lens glints from the smoke detector. Dereck's watching."
+            },
+            room5: {
+                "needle": "A used syringe on the nightstand. A drop of dried blood at the tip.",
+                "lighter": "A cheap plastic lighter. It still works."
+            },
+            room6: {
+                "tv": "An old CRT television. It's on, but only shows static. You feel like something is watching you from the snow.",
+                "vhs player": "A dusty VHS player connected to the TV. The red power light is on, waiting for a tape.",
+                "bed": "A neatly made bed, as if no one has ever slept here."
+            },
+            boilerroom: {
+                "furnace": "The furnace roars hungrily. The door is slightly ajar, revealing pulsing orange light. Something moves inside. Something that looks like... people.",
+                "pipes": "The pipes are covered in rust. They thrum with heat. And with something else. Whispers?",
+                "ashes": "A pile of ashes near the furnace. Among them, a wedding ring catches the light."
+            }
+        };
+
+        // NEW: Bob's reaction to player actions
+        function bobReaction(action, target) {
+            if (action === "followed_advice") {
+                bobRelationship.trust += 10;
+                bobRelationship.认同 += 5;
+                bobRelationship.fear -= 2;
+                addOutput("Bob nods approvingly. 'Good. You're learning.'");
+            } else if (action === "showed_mercy") {
+                bobRelationship.trust -= 5;
+                bobRelationship.fear += 10;
+                bobRelationship.认同 -= 3;
+                bobDisappointment++;
+                addOutput(bobDialogue.disappointment[Math.floor(Math.random() * bobDialogue.disappointment.length)]);
+            } else if (action === "ignored_bob") {
+                bobRelationship.trust -= 2;
+                bobRelationship.fear += 1;
+                if (Math.random() > 0.7) {
+                    addOutput("(You feel Bob's disappointment like a cold weight in your chest.)");
+                }
+            }
+            
+            // Cap values
+            bobRelationship.trust = Math.max(0, Math.min(100, bobRelationship.trust));
+            bobRelationship.fear = Math.max(0, Math.min(100, bobRelationship.fear));
+            bobRelationship.认同 = Math.max(0, Math.min(100, bobRelationship.认同));
+        }
+
+        // NEW: Bob reminisces about past murders
+        function bobReminisce() {
+            if (bobMemory.murders.length > 0 && Math.random() > 0.7 && roomChars[currentRoom]?.includes('bob')) {
+                let lastMurder = bobMemory.murders[bobMemory.murders.length - 1];
+                addOutput("Bob smiles wistfully. 'Remember " + lastMurder.victim + "? The sound they made? Beautiful. Like music. Like the jukebox used to play.'");
+            }
+        }
+
+        // NEW: Get dynamic Bob dialogue based on player state
+        function getDynamicBobDialogue() {
+            let dialogue = [];
+            
+            if (inventory.includes('bloody crowbar')) {
+                dialogue.push("That crowbar feels good, doesn't it? Like an extension of yourself. Of us.");
+            }
+            
+            if (inventory.includes('crowbar') && !inventory.includes('bloody crowbar')) {
+                dialogue.push("The crowbar is waiting. Like you're waiting. Don't wait too long.");
+            }
+            
+            if (sanity < 30) {
+                dialogue.push("The walls are breathing with us now. Can you hear their heartbeat? It matches ours.");
+            }
+            
+            if (sanity < 15) {
+                dialogue.push("Almost there. Almost free. Just a little more. Just a little blood.");
+            }
+            
+            if (violenceRep > 5) {
+                dialogue.push("You're getting good at this. Natural talent. I knew I chose well.");
+            }
+            
+            if (violenceRep > 10) {
+                dialogue.push("They fear you now. Like they feared me. Like they should fear us.");
+            }
+            
+            if (tapePlayed) {
+                dialogue.push("You saw the tape. Now you know. We've always been here. Both of us. Since the beginning.");
+            }
+            
+            if (currentRoom === 'room6') {
+                dialogue.push("She's in the static. Sarah. She's watching. She knows what you're becoming.");
+            }
+            
+            if (currentRoom === 'boilerroom') {
+                dialogue.push("The furnace remembers them. All of them. Soon it will remember you too. In a good way.");
+            }
+            
+            if (bobApproval >= 5) {
+                dialogue.push("We're partners now. You and me. The best team in this nightmare.");
+            }
+            
+            if (bobDisappointment >= 3) {
+                dialogue.push("You keep disappointing me. But I'm patient. I can wait forever.");
+            }
+            
+            // Opinion-based dialogue when near specific NPCs
+            if (roomChars[currentRoom]?.includes('hooker') || roomChars[currentRoom]?.includes('jenny')) {
+                dialogue.push(bobOpinions.jenny);
+            }
+            
+            if (roomChars[currentRoom]?.includes('dereck')) {
+                dialogue.push(bobOpinions.dereck);
+            }
+            
+            if (roomChars[currentRoom]?.includes('frank')) {
+                dialogue.push(bobOpinions.frank);
+            }
+            
+            if (roomChars[currentRoom]?.includes('waitress') || roomChars[currentRoom]?.includes('darla')) {
+                dialogue.push(bobOpinions.darla);
+            }
+            
+            if (roomChars[currentRoom]?.includes('nightclerk') || roomChars[currentRoom]?.includes('ed')) {
+                dialogue.push(bobOpinions.ed);
+            }
+            
+            if (roomChars[currentRoom]?.includes('attendant') || roomChars[currentRoom]?.includes('pete')) {
+                dialogue.push(bobOpinions.pete);
+            }
+            
+            if (roomChars[currentRoom]?.includes('drifter') || roomChars[currentRoom]?.includes('tommy')) {
+                dialogue.push(bobOpinions.tommy);
+            }
+            
+            return dialogue.length > 0 ? 
+                dialogue[Math.floor(Math.random() * dialogue.length)] : 
+                bobDialogue.talkResponses.generic[Math.floor(Math.random() * bobDialogue.talkResponses.generic.length)];
+        }
+
+        // NEW: Check for Bob endings based on relationship
+        function checkBobEnding() {
+            if (bobRelationship.trust >= 90) {
+                // Bob takes over completely, player becomes new Bob
+                addOutput("\nBob steps forward and embraces you. When he pulls back, you're him. The new Bob. Ready to find your own player.\n");
+                addOutput("Your reflection in the mirror is no longer you. It's someone else. Someone who will hear voices soon.\n");
+                addOutput("BOB'S HEIR ENDING - You are now the Bob for someone else's nightmare.");
+                // Disable input
+                document.getElementById('command').disabled = true;
+                document.getElementById('enter-btn').disabled = true;
+                return true;
+            } else if (bobRelationship.fear >= 90) {
+                // Player tries to run, Bob pursues forever
+                addOutput("\nYou run. Through corridors that loop. Past doors that repeat. Bob is always behind you. Always. Forever.\n");
+                addOutput("The motel stretches endlessly. Every door opens to the same hallway. Every window shows Bob's face.\n");
+                addOutput("ETERNAL PURSUIT ENDING - You will run forever. Bob will follow forever.");
+                document.getElementById('command').disabled = true;
+                document.getElementById('enter-btn').disabled = true;
+                return true;
+            } else if (bobRelationship.认同 >= 90) {
+                // Player accepts they are Bob
+                addOutput("\nYou look in the mirror. Bob looks back. You smile. He smiles. You realize: there was never a difference.\n");
+                addOutput("You've always been Bob. The motel, the voices, the violence - it was always you. Always will be.\n");
+                addOutput("ONE AND THE SAME ENDING - Bob is you. You are Bob. The mirror shows only truth.");
+                document.getElementById('command').disabled = true;
+                document.getElementById('enter-btn').disabled = true;
+                return true;
+            }
+            return false;
+        }
+
+        // helper: pretty room description (with dynamic exits)
+        function describeRoom() {
+            const room = rooms[currentRoom];
+            let desc = `> ${room.name}\n${room.description}`;
+            
+            // special dynamic character mentions
+            if (currentRoom === "room2" && roomChars.room2.includes("frank")) {
+                desc += "\nA man sits on the bed, watching you.";
+            }
+
+            // items present
+            const itemsHere = roomItems[currentRoom] || [];
+            if (itemsHere.length > 0) {
+                desc += `\n\nYou see: ${itemsHere.join(', ')}.`;
+            } 
+
+            // characters present
+            const charsHere = roomChars[currentRoom] || [];
+            if (charsHere.length > 0) {
+                desc += `\nAlso here: ${charsHere.join(', ')}.`;
+            }
+
+            // Exits: use room.exits list
+            const exitDirs = Object.keys(room.exits || {}).map(d => {
+                // map n/s/e/w to full words for clarity
+                if (d === 'n') return 'north';
+                if (d === 's') return 'south';
+                if (d === 'e') return 'east';
+                if (d === 'w') return 'west';
+                return d;
+            });
+            if (exitDirs.length > 0) {
+                desc += `\nExits: ${exitDirs.join(', ')}.`;
+            } else if (currentRoom.startsWith("room")) {
+                // rooms have no directional exits; user must use 'leave'
+                desc += `\nExits: leave room.`;
+            }
+
+            // Sanity warning
+            if (sanity < 30) {
+                desc += `\n\n[sanity: ${sanity}% - the walls are breathing]`;
+            } else if (sanity < 60) {
+                desc += `\n\n[sanity: ${sanity}%]`;
+            }
+
+            return desc;
+        }
+
+        // Mirror examination with Bob
+        function examineMirror() {
+            if (currentRoom === 'room2') {
+                if (roomChars[currentRoom]?.includes('bob')) {
+                    return "You look in the mirror. Bob stands behind you. No - Bob stands IN the mirror, and you're the reflection. He smiles. You try to smile. Your reflection doesn't move.";
+                } else {
+                    let result = "You look in the mirror. Your reflection is slightly delayed. It mouths words you don't say. 'Bob,' it whispers. 'My name is Bob.'";
+                    
+                    // Chance for Bob to appear
+                    if (Math.random() > 0.7 && !roomChars[currentRoom]?.includes('bob')) {
+                        if (!roomChars[currentRoom]) roomChars[currentRoom] = [];
+                        roomChars[currentRoom].push('bob');
+                        result += " When you look back, there's someone standing behind you in the reflection. But when you turn, no one's there.";
+                    }
+                    return result;
+                }
+            }
+            return "You look in the mirror. You look tired.";
+        }
+
+        // Check if Bob should appear
+        function checkBobAppearance() {
+            // Bob appears based on:
+            // - Player isolation (no other NPCs in room)
+            // - Player stress (violence rep, watching tapes, etc.)
+            // - Random chance that increases over time
+            // - Specific triggers (finding certain items, witnessing trauma)
+            
+            // Don't add Bob if he's already here or if sanity is too low (he's always there then)
+            if (roomChars[currentRoom]?.includes('bob') || sanity <= 10) return false;
+            
+            let bobChance = 0;
+            
+            // More likely when alone
+            const otherChars = (roomChars[currentRoom] || []).filter(c => c !== 'bob');
+            if (otherChars.length === 0) bobChance += 30;
+            
+            // More likely with high violence rep
+            bobChance += violenceRep * 3;
+            
+            // More likely after watching tapes
+            if (tapePlayed) bobChance += 20;
+            
+            // More likely after killing someone
+            if (inventory.includes('bloody crowbar')) bobChance += 40;
+            
+            // More likely after 3:13
+            const date = new Date();
+            if (date.getHours() === 3 && date.getMinutes() === 13) bobChance += 50;
+            
+            // More likely in certain rooms
+            if (currentRoom === "room6" || currentRoom === "corridor" || currentRoom === "room2") bobChance += 15;
+            
+            // Bob appears more as sanity drops
+            bobChance += (100 - sanity) / 2;
+            
+            if (Math.random() * 100 < bobChance) {
+                if (!roomChars[currentRoom]) roomChars[currentRoom] = [];
+                if (!roomChars[currentRoom].includes('bob')) {
+                    roomChars[currentRoom].push('bob');
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Update sanity
+        function updateSanity() {
+            // Being near Bob drains sanity
+            if (roomChars[currentRoom]?.includes('bob')) {
+                sanity -= 2;
+            }
+            
+            // Violence drains sanity but increases bobInfluence
+            if (violenceRep > bobInfluence * 5) {
+                bobInfluence++;
+                sanity -= 5;
+            }
+            
+            // Watching tapes drains sanity
+            if (tapePlayed) {
+                sanity -= 10;
+            }
+            
+            // Being in Room 6 at 3:13 drains sanity fast
+            const date = new Date();
+            if (currentRoom === 'room6' && date.getHours() === 3 && date.getMinutes() === 13) {
+                sanity -= 50;
+            }
+            
+            // Carrying the crowbar affects sanity
+            if (inventory.includes('crowbar') || inventory.includes('bloody crowbar')) {
+                sanity -= 1;
+            }
+            
+            // Sanity floors and ceilings
+            sanity = Math.max(0, Math.min(100, sanity));
+            
+            // Sanity effects
+            if (sanity < 30) {
+                // Hallucinations - see things that aren't there
+                if (Math.random() > 0.8) {
+                    addOutput("For a moment, the walls breathe.");
+                }
+                if (Math.random() > 0.8) {
+                    addOutput("You hear whispering. Your name. Over and over.");
+                }
+            }
+            
+            if (sanity < 15) {
+                // Bob is almost always present now
+                if (!roomChars[currentRoom]?.includes('bob') && Math.random() > 0.3) {
+                    if (!roomChars[currentRoom]) roomChars[currentRoom] = [];
+                    roomChars[currentRoom].push('bob');
+                    addOutput("Bob materializes from the shadows. 'Almost there,' he whispers.");
+                }
+            }
+            
+            if (sanity < 10) {
+                // Bob is always present now
+                if (!roomChars[currentRoom]?.includes('bob') && !roomChars[currentRoom]) {
+                    roomChars[currentRoom] = ['bob'];
+                } else if (!roomChars[currentRoom]?.includes('bob')) {
+                    roomChars[currentRoom].push('bob');
+                }
+                addOutput("Bob is always here now. You accept this.");
+            }
+            
+            if (sanity <= 0) {
+                // Game over - player lost to Bob
+                addOutput("You feel yourself fading. Bob steps forward, smiles, and takes your place.");
+                addOutput("Your reflection in the mirror is now Bob. You are Bob. Bob is you.");
+                addOutput("BOB ENDING - You are now Bob. Bob is now you. There is no difference.");
+                // Disable input
+                document.getElementById('command').disabled = true;
+                document.getElementById('enter-btn').disabled = true;
+            }
+            
+            // Evolve Bob based on approvals
+            evolveBob();
+            
+            // Check for Bob endings
+            checkBobEnding();
+        }
+
+        // Evolve Bob's personality
+        function evolveBob() {
+            if (bobApproval >= 3 && bobPersonality.stage === 1) {
+                bobPersonality.stage = 2;
+                addOutput("(Bob's smile widens. He's more real now. More solid.)");
+            }
+            
+            if (bobApproval >= 6 && bobPersonality.stage === 2) {
+                bobPersonality.stage = 3;
+                addOutput("(Bob starts appearing in photographs. In reflections. In your peripheral vision.)");
+            }
+            
+            if (bobApproval >= 9 && bobPersonality.stage === 3) {
+                bobPersonality.stage = 4;
+                addOutput("(Sometimes you black out. When you wake, you're somewhere else. Bob's been driving.)");
+            }
+            
+            if (bobApproval >= 12 && bobPersonality.stage === 4) {
+                bobPersonality.stage = 5;
+                addOutput("(You look in the mirror. Bob looks back. You try to smile. Your reflection doesn't move.)");
+                // Bob is now permanent
+                if (!roomChars[currentRoom]) roomChars[currentRoom] = [];
+                if (!roomChars[currentRoom].includes('bob')) {
+                    roomChars[currentRoom].push('bob');
+                }
+            }
+        }
+
+        // output handler
+        const outputDiv = document.getElementById('output');
+        function addOutput(text) {
+            const line = document.createElement('div');
+            line.textContent = text;
+            if (text.includes('Bob') || text.includes('sanity') || text.includes('ENDING')) {
+                line.style.color = '#ff6666';
+            }
+            outputDiv.appendChild(line);
+            outputDiv.scrollTop = outputDiv.scrollHeight;
+        }
+
+        // initial text
+        addOutput("LAST STOP MOTEL – EXTENDED CUT");
+        addOutput("A LYNCHIAN NIGHTMARE (1984)\n");
+        addOutput(describeRoom());
+
+        // command parser
+        function processCommand(cmd) {
+            cmd = cmd.trim().toLowerCase();
+            if (cmd === "") return;
+
+            let parts = cmd.split(' ');
+            let verb = parts[0];
+            let noun = parts.slice(1).join(' '); 
+
+            const directions = ['n', 's', 'e', 'w', 'north', 'south', 'east', 'west'];
+            if (directions.includes(verb)) {
+                let dir = verb[0]; 
+                move(dir);
+                updateSanity();
+                checkBobAppearance();
+                bobReminisce();
+                return;
+            }
+
+            switch (verb) {
+                case 'look':
+                    addOutput(describeRoom());
+                    checkBobAppearance();
+                    bobReminisce();
+                    break;
+                case 'inventory':
+                case 'i':
+                    if (inventory.length === 0) addOutput("You are empty-handed.");
+                    else addOutput("You carry: " + inventory.join(', '));
+                    break;
+                case 'take':
+                case 'get':
+                    if (!noun) addOutput("Take what?");
+                    else takeItem(noun);
+                    updateSanity();
+                    checkBobAppearance();
+                    bobReminisce();
+                    break;
+                case 'examine':
+                case 'x':
+                    if (!noun) addOutput("Examine what?");
+                    else examineThing(noun);
+                    checkBobAppearance();
+                    bobReminisce();
+                    break;
+                case 'use':
+                    if (!noun) addOutput("Use what?");
+                    else useItem(noun);
+                    updateSanity();
+                    checkBobAppearance();
+                    bobReminisce();
+                    break;
+                case 'give':
+                    if (!noun) addOutput("Give what?");
+                    else giveItem(noun);
+                    updateSanity();
+                    checkBobAppearance();
+                    bobReminisce();
+                    break;
+                case 'talk':
+                    talkTo();
+                    updateSanity();
+                    checkBobAppearance();
+                    bobReminisce();
+                    break;
+                case 'ask':
+                    if (!noun) addOutput("Ask what? (e.g., 'ask clerk about rooms')");
+                    else askAbout(noun);
+                    updateSanity();
+                    checkBobAppearance();
+                    bobReminisce();
+                    break;
+                case 'punch':
+                    punchSomeone();
+                    updateSanity();
+                    checkBobAppearance();
+                    bobReminisce();
+                    break;
+                case 'enter':
+                    if (!noun) addOutput("Enter what? (e.g., 'enter room 1')");
+                    else enterRoom(noun);
+                    updateSanity();
+                    checkBobAppearance();
+                    bobReminisce();
+                    break;
+                case 'leave':
+                    leaveRoom();
+                    updateSanity();
+                    checkBobAppearance();
+                    bobReminisce();
+                    break;
+                case 'kill':
+                case 'attack':
+                    if (!noun) addOutput("Kill what?");
+                    else killWithCrowbar(noun);
+                    updateSanity();
+                    checkBobAppearance();
+                    bobReminisce();
+                    break;
+                default:
+                    addOutput("Huh? Commands: n/s/e/w, use, take, give, talk, ask, look, examine, punch, kill, inventory (i), enter, leave.");
+            }
+        }
+
+        // ----- movement (directional) -----
+        function move(dir) {
+            const room = rooms[currentRoom];
+            const exits = room.exits || {};
+            // convert n/s/e/w to full key? exits stored as full words like "north", "south". but dir is 'n','s','e','w'.
+            let fullDir = '';
+            if (dir === 'n') fullDir = 'north';
+            else if (dir === 's') fullDir = 'south';
+            else if (dir === 'e') fullDir = 'east';
+            else if (dir === 'w') fullDir = 'west';
+            else fullDir = dir; // if they typed full word
+
+            if (exits[fullDir]) {
+                currentRoom = exits[fullDir];
+                addOutput(describeRoom());
+            } else {
+                addOutput("You can't go that way.");
+            }
+        }
+
+        // ----- enter command (from corridor to a room) -----
+        function enterRoom(roomName) {
+            if (currentRoom !== "corridor") {
+                addOutput("You can only enter rooms from the motel corridor.");
+                return;
+            }
+            let normalized = roomName.replace(/\s+/g, ''); 
+            const validRooms = ["room1", "room2", "room3", "room4", "room5", "room6"];
+            if (validRooms.includes(normalized)) {
+                currentRoom = normalized;
+                addOutput(describeRoom());
+            } else {
+                addOutput("That room doesn't exist. Try room 1 through 6.");
+            }
+        }
+
+        // ----- leave command (from any room back to corridor, but also from motel? leave only works for numbered rooms) -----
+        function leaveRoom() {
+            if (currentRoom.startsWith("room")) {
+                currentRoom = "corridor";
+                addOutput(describeRoom());
+            } else if (currentRoom === "corridor") {
+                addOutput("You're already in the corridor. Use exits.");
+            } else if (currentRoom === "entrance" || currentRoom === "diner" || currentRoom === "gasstation" || currentRoom === "outside" || currentRoom === "boilerroom") {
+                addOutput("Use directional commands (n/s/e/w) to move.");
+            } else {
+                addOutput("You can't leave from here.");
+            }
+        }
+
+        // ----- take -----
+        function takeItem(item) {
+            const itemsHere = roomItems[currentRoom] || [];
+            if (itemsHere.includes(item)) {
+                roomItems[currentRoom] = itemsHere.filter(i => i !== item);
+                inventory.push(item);
+                addOutput(`Taken: ${item}.`);
+                
+                // Record item in Bob's memory
+                if (!bobMemory.itemsTaken.includes(item)) {
+                    bobMemory.itemsTaken.push(item);
+                }
+                
+                // Special reactions to taking Bob-related items
+                if (item === 'crowbar') {
+                    addOutput("The crowbar feels right in your hand. Warm. Almost alive.");
+                    if (!roomChars[currentRoom]?.includes('bob') && Math.random() > 0.5) {
+                        if (!roomChars[currentRoom]) roomChars[currentRoom] = [];
+                        roomChars[currentRoom].push('bob');
+                        addOutput("Bob appears behind you. 'Good. You found it. Now let's find someone to use it on.'");
+                    }
+                }
+                if (item === 'old photograph') {
+                    addOutput("You stare at the photo. You were here in 1972. How?");
+                    if (!roomChars[currentRoom]?.includes('bob')) {
+                        if (!roomChars[currentRoom]) roomChars[currentRoom] = [];
+                        roomChars[currentRoom].push('bob');
+                        addOutput("Bob is in the photo with you. 'We've always been here,' he whispers.");
+                    }
+                }
+            } else {
+                addOutput(`No ${item} here.`);
+            }
+        }
+
+        // ----- examine -----
+        function examineThing(thing) {
+            const charsHere = roomChars[currentRoom] || [];
+            if (charsHere.includes(thing)) {
+                addOutput(characterDescriptions[thing] || `You see nothing special about ${thing}.`);
+                return;
+            }
+            if (inventory.includes(thing)) {
+                addOutput(itemDescriptions[thing] || `It's a ${thing}.`);
+                return;
+            }
+            const itemsHere = roomItems[currentRoom] || [];
+            if (itemsHere.includes(thing)) {
+                addOutput(itemDescriptions[thing] || `It's a ${thing} on the floor.`);
+                return;
+            }
+            const feat = features[currentRoom]?.[thing];
+            if (feat !== undefined) {
+                if (typeof feat === 'function') addOutput(feat());
+                else addOutput(feat);
+                return;
+            }
+            addOutput(`You don't see any ${thing} here.`);
+        }
+
+        // ----- use (key on wardrobe, tape on VHS player) plus new interaction: give key to attendant? but use standalone maybe) -----
+        function useItem(item) {
+            if (!inventory.includes(item)) {
+                addOutput(`You don't have ${item}.`);
+                return;
+            }
+
+            // Wardrobe key logic (key from gas station now)
+            if (item === 'key' && currentRoom === 'room2' && !wardrobeOpen) {
+                wardrobeOpen = true;
+                if (!roomItems.room2.includes('brass box')) {
+                    roomItems.room2.push('brass box');
+                }
+                addOutput("You insert the key into the wardrobe lock. It clicks. The door swings open, revealing a small brass box.");
+                return;
+            } else if (item === 'key' && currentRoom === 'room2' && wardrobeOpen) {
+                addOutput("The wardrobe is already open.");
+                return;
+            } else if (item === 'key') {
+                addOutput("You fiddle with the key, but nothing happens here.");
+                return;
+            }
+
+            // VHS tape on VHS player in room6
+            if (item === 'vhs tape' && currentRoom === 'room6') {
+                if (tapePlayed) {
+                    addOutput("You've already played the tape. It just shows static now.");
+                    return;
+                }
+                tapePlayed = true;
+                sanity -= 15;
+                addOutput("You slide the tape into the VHS player and press play. The static resolves into grainy footage...");
+                addOutput("You see the lobby, years ago. A woman screams silently. The image cuts to Room 4—Dereck is younger, doing unspeakable things to a bound figure. The tape glitches, showing the hallway from a strange angle, as if filmed by someone crawling. A child's voice whispers 'seek and you shall find' on the audio track. The screen goes to static. You feel sick, but you've learned something: Dereck has been here a long time.");
+                
+                // Bob appears after tape
+                if (!roomChars[currentRoom]?.includes('bob')) {
+                    if (!roomChars[currentRoom]) roomChars[currentRoom] = [];
+                    roomChars[currentRoom].push('bob');
+                    addOutput("Bob is standing behind you when the tape ends. 'Now you see,' he says. 'Now you understand.'");
+                }
+                return;
+            } else if (item === 'vhs tape') {
+                addOutput("There's no VHS player here to play the tape.");
+                return;
+            }
+
+            // Use crowbar on environment
+            if (item === 'crowbar' && currentRoom === 'boilerroom') {
+                addOutput("You wedge the crowbar into the furnace door. It creaks open wider. Inside, you see... yourself. Sleeping. Bob stands beside your sleeping form, watching. He turns and smiles at you. 'Not yet,' he says. The vision fades.");
+                if (!inventory.includes('psychiatric report')) {
+                    roomItems.boilerroom.push('psychiatric report');
+                    addOutput("A folder falls from the furnace. It's a psychiatric report.");
+                }
+                return;
+            }
+
+            addOutput(`Using the ${item} has no effect.`);
+        }
+
+        // ----- KILL command - use crowbar on NPCs -----
+        function killWithCrowbar(target) {
+            if (!inventory.includes('crowbar') && !inventory.includes('bloody crowbar')) {
+                addOutput("You have nothing to kill with.");
+                return;
+            }
+            
+            const charsHere = roomChars[currentRoom] || [];
+            if (!charsHere.includes(target)) {
+                addOutput(`${target} isn't here.`);
+                return;
+            }
+
+            // Can't kill Bob
+            if (target === 'bob') {
+                addOutput("You swing at Bob. The crowbar passes through him. He laughs. 'Can't kill me. I'm already dead. I'm you.'");
+                return;
+            }
+
+            const weapon = inventory.includes('crowbar') ? 'crowbar' : 'bloody crowbar';
+            
+            // Check if Bob suggested this
+            if (bobSuggestions[target]) {
+                // Bob's approval
+                let approvalMsg = bobDialogue.approval[target] || `You swing the ${weapon}. ${target} falls.`;
+                addOutput(approvalMsg);
+                bobApproval++;
+                
+                // Bob relationship update
+                bobReaction("followed_advice", target);
+                
+                // Record murder in Bob's memory
+                bobMemory.murders.push({
+                    victim: target,
+                    time: new Date().toLocaleTimeString(),
+                    location: currentRoom
+                });
+                
+                // Remove NPC permanently
+                roomChars[currentRoom] = roomChars[currentRoom].filter(c => c !== target);
+                
+                // Mark as dead in npcState
+                if (npcState[target]) {
+                    npcState[target].state = "dead";
+                }
+                
+                // Bob appears to congratulate if not already here
+                if (!roomChars[currentRoom]?.includes('bob')) {
+                    if (!roomChars[currentRoom]) roomChars[currentRoom] = [];
+                    roomChars[currentRoom].push('bob');
+                }
+                
+                // Add evidence item
+                if (weapon === 'crowbar') {
+                    inventory = inventory.filter(i => i !== 'crowbar');
+                    inventory.push('bloody crowbar');
+                    addOutput("The crowbar is now wet with blood.");
+                }
+                
+                // Add special drop based on victim
+                if (target === 'hooker' && !inventory.includes("jenny's locket") && !roomItems[currentRoom]?.includes("jenny's locket")) {
+                    if (!roomItems[currentRoom]) roomItems[currentRoom] = [];
+                    roomItems[currentRoom].push("jenny's locket");
+                    addOutput("Jenny's locket falls to the floor.");
+                }
+                if (target === 'dereck' && !inventory.includes("dereck's camera") && !roomItems[currentRoom]?.includes("dereck's camera")) {
+                    if (!roomItems[currentRoom]) roomItems[currentRoom] = [];
+                    roomItems[currentRoom].push("dereck's camera");
+                    addOutput("Dereck's camera drops, still recording.");
+                }
+                if (target === 'frank' && !inventory.includes("frank's wallet") && !roomItems[currentRoom]?.includes("frank's wallet")) {
+                    if (!roomItems[currentRoom]) roomItems[currentRoom] = [];
+                    roomItems[currentRoom].push("frank's wallet");
+                    addOutput("Frank's wallet falls from his pocket.");
+                }
+                
+                violenceRep += 3;
+            } else {
+                // Killing without Bob's suggestion
+                addOutput(`You swing the ${weapon} at ${target}. They look at you with... understanding? 'You didn't even hear the voice, did you? Just the violence.' They fall. You feel empty.`);
+                violenceRep += 5;
+                bobDisappointment++;
+                
+                // Bob relationship update
+                bobReaction("showed_mercy", target);
+                
+                // Record murder in Bob's memory (even if not suggested)
+                bobMemory.murders.push({
+                    victim: target,
+                    time: new Date().toLocaleTimeString(),
+                    location: currentRoom,
+                    suggested: false
+                });
+                
+                // Bob might appear to scold
+                if (Math.random() > 0.5 && !roomChars[currentRoom]?.includes('bob')) {
+                    if (!roomChars[currentRoom]) roomChars[currentRoom] = [];
+                    roomChars[currentRoom].push('bob');
+                    addOutput("Bob appears, shaking his head. 'Without me? That's just murder. That's not art.'");
+                }
+                
+                roomChars[currentRoom] = roomChars[currentRoom].filter(c => c !== target);
+                if (npcState[target]) {
+                    npcState[target].state = "dead";
+                }
+                
+                if (weapon === 'crowbar') {
+                    inventory = inventory.filter(i => i !== 'crowbar');
+                    inventory.push('bloody crowbar');
+                }
+            }
+            
+            // Check if all NPCs dead - special ending
+            const allNPCs = ['nightclerk', 'waitress', 'attendant', 'frank', 'drifter', 'dereck', 'hooker'];
+            let alive = [];
+            for (let room in roomChars) {
+                alive = alive.concat(roomChars[room]);
+            }
+            alive = alive.filter(c => c !== 'bob'); // Bob doesn't count
+            
+            if (alive.length === 0) {
+                addOutput("The motel is empty. Just you. And Bob.");
+                addOutput("Bob grins. 'Now we're alone. Now we can finally talk. Forever.'");
+                addOutput("THE BOB ENDING - You are the only resident now.");
+                // Game over - lock input?
+                document.getElementById('command').disabled = true;
+                document.getElementById('enter-btn').disabled = true;
+            }
+        }
+
+        // ----- give (extended interactions with new NPCs) -----
+        function giveItem(item) {
+    if (!inventory.includes(item)) {
+        addOutput(`You don't have ${item}.`);
+        return;
+    }
+    const charsHere = roomChars[currentRoom] || [];
+    if (charsHere.length === 0) {
+        addOutput("There's no one here to give anything to.");
+        return;
+    }
+    const target = charsHere[0];
+
+    // Check if this NPC is grateful to you
+    if (npcGratitude[target]) {
+        // Special gratitude give interactions
+        if (target === 'hooker' && item === 'syringe') {
+            inventory = inventory.filter(i => i !== 'syringe');
+            addOutput("Jenny takes the syringe, hands trembling. 'This... this is bad stuff. But thank you. Here, I found this in Dereck's room.' She hands you a small camera. 'He's been watching us all.'");
+            if (!inventory.includes("dereck's camera")) {
+                inventory.push("dereck's camera");
+            }
+            npcGratitude.hooker = false; // Used up
+            return;
+        }
+        
+        if (target === 'drifter' && item === 'bottle') {
+            inventory = inventory.filter(i => i !== 'bottle');
+            addOutput("Tommy takes the bottle, stares at it. 'I shouldn't. But I will. Here, take this. Found it in Room 6 once.' He hands you a folded note. Sarah's handwriting.");
+            if (!inventory.includes("sarah's note")) {
+                inventory.push("sarah's note");
+            }
+            npcGratitude.drifter = false;
+            return;
+        }
+    }
+
+    // Existing give logic continues...
+    // Night clerk – takes pen, gives note
+    if (target === 'nightclerk' && item === 'pen') {
+        inventory = inventory.filter(i => i !== 'pen');
+        addOutput("Ed glances at the pen, then pushes a crumpled note across the counter. 'Found this in Room 6.'");
+        if (!roomItems.entrance.includes('note')) {
+            roomItems.entrance.push('note');
+        }
+        return;
+    }
+    // Waitress – give napkin
+    if (target === 'waitress' && item === 'napkin') {
+        inventory = inventory.filter(i => i !== 'napkin');
+        dinerCoffee = true;
+        addOutput("She takes the napkin, stares at the lipstick stain. 'That's mine... from years ago.' She slides you a coffee cup. It's empty.");
+        return;
+    }
+    // Attendant – give key
+    if (target === 'attendant' && item === 'key') {
+        inventory = inventory.filter(i => i !== 'key');
+        gaveKeyToAttendant = true;
+        addOutput("The attendant takes the key, turns it over. 'Office key, eh? I got somethin' better.' He hands you a VHS tape from his pocket.");
+        if (!inventory.includes('vhs tape')) {
+            inventory.push('vhs tape');
+        }
+        return;
+    }
+    // Frank / brass box
+    if (target === 'frank' && item === 'brass box') {
+        inventory = inventory.filter(i => i !== 'brass box');
+        roomChars.room2 = roomChars.room2.filter(c => c !== 'frank');
+        if (!inventory.includes('vhs tape')) {
+            inventory.push('vhs tape');
+        }
+        addOutput("Frank takes the brass box, turns it over, and nods. He presses a worn VHS tape into your palm, then stands and walks out.");
+        return;
+    }
+
+    addOutput(`You offer the ${item} to ${target}, but they ignore it.`);
+}
+
+
+        // ----- ASK command - multiple conversation topics -----
+        function askAbout(phrase) {
+            const charsHere = roomChars[currentRoom] || [];
+            if (charsHere.length === 0) {
+                addOutput("There's no one here to ask.");
+                return;
+            }
+            
+            // Parse "ask [someone] about [topic]" or just "about [topic]" if someone is implied
+            let target = charsHere[0]; // default to first person in room
+            let topic = phrase;
+            
+            // Check if they specified a person (e.g., "ask clerk about rooms")
+            const askMatch = phrase.match(/^(\w+)\s+about\s+(.+)$/);
+            if (askMatch) {
+                const namedTarget = askMatch[1];
+                topic = askMatch[2];
+                
+                // Check if named person is in room
+                if (charsHere.includes(namedTarget)) {
+                    target = namedTarget;
+                } else {
+                    addOutput(`There's no ${namedTarget} here.`);
+                    return;
+                }
+            }
+            
+            // Special handling for asking Bob about someone
+            if (target === 'bob' && topic) {
+                // Check if Bob has an opinion on this topic/person
+                for (let key in bobOpinions) {
+                    if (topic.includes(key) || key.includes(topic)) {
+                        addOutput(`Bob: "${bobOpinions[key]}"`);
+                        
+                        // Record conversation in Bob's memory
+                        bobMemory.conversations.push({
+                            topic: key,
+                            response: bobOpinions[key],
+                            time: new Date().toLocaleTimeString()
+                        });
+                        return;
+                    }
+                }
+            }
+            
+            // Get topics for this character
+            let topics = characterTopics[target];
+            if (!topics) {
+                addOutput(`You ask ${target} something, but they just stare blankly.`);
+                return;
+            }
+            
+            // Check if topic matches any known topics (partial matching)
+            let response = null;
+            for (let key in topics) {
+                if (topic.includes(key) || key.includes(topic)) {
+                    response = topics[key];
+                    break;
+                }
+            }
+            
+            if (response) {
+                addOutput(`You ask ${target} about ${topic}. ${response}`);
+                
+                // Special flags for certain questions
+                if (target === 'nightclerk' && topic.includes('room')) askedAboutRooms = true;
+                if (target === 'dereck' && topic.includes('tape')) askedAboutVHS = true;
+                if (topic.includes('bob') && target !== 'bob') {
+                    // NPCs react to Bob questions
+                    if (Math.random() > 0.5 && !roomChars[currentRoom]?.includes('bob')) {
+                        if (!roomChars[currentRoom]) roomChars[currentRoom] = [];
+                        roomChars[currentRoom].push('bob');
+                        addOutput("Bob appears behind them. 'They don't understand me like you do,' he whispers.");
+                    }
+                }
+            } else {
+                // Default response
+                addOutput(topics["default"] || `${target} just stares at you.`);
+            }
+        }
+
+        // ----- talk -----
+        function talkTo() {
+            const charsHere = roomChars[currentRoom] || [];
+            if (charsHere.length === 0) {
+                addOutput("You talk to yourself. No response.");
+                // Actually, Bob might respond
+                if (Math.random() > 0.7) {
+                    addOutput("A voice in your head: " + bobDialogue.whispers[Math.floor(Math.random() * bobDialogue.whispers.length)]);
+                }
+                return;
+            }
+            
+            const target = charsHere[0];
+            
+            // Special Bob talk
+            if (target === 'bob') {
+                talkToBob();
+            } else {
+                addOutput(characterTalk[target] || `The ${target} stares blankly.`);
+                
+                // NPCs might notice you talking to Bob if he's here too
+                if (charsHere.includes('bob') && charsHere.length > 1) {
+                    addOutput(`${target} glances at you oddly. 'Who are you talking to? There's no one there.'`);
+                }
+            }
+        }
+
+        // Talk to Bob specifically
+        function talkToBob() {
+            if (!roomChars[currentRoom]?.includes('bob')) {
+                // Bob not visibly present, but can still hear him
+                const whisper = bobDialogue.whispers[Math.floor(Math.random() * bobDialogue.whispers.length)];
+                addOutput(`A voice in your head: "${whisper}"`);
+                return;
+            }
+            
+            // Bob is visibly present - use dynamic dialogue
+            if (bobPersonality.stage === 1 && !bobSuggestions.bob) {
+                addOutput("Bob: " + bobDialogue.talkResponses.first);
+                bobSuggestions.bob = true;
+            } else {
+                // Give situational advice based on current room
+                let advice = "";
+                
+                if (currentRoom === 'room5' && roomChars.room5?.includes('hooker')) {
+                    advice = bobDialogue.talkResponses.situational.hooker;
+                    bobSuggestions.hooker = true;
+                } else if (currentRoom === 'room4' && roomChars.room4?.includes('dereck')) {
+                    advice = bobDialogue.talkResponses.situational.dereck;
+                    bobSuggestions.dereck = true;
+                } else if (currentRoom === 'room2' && roomChars.room2?.includes('frank')) {
+                    advice = bobDialogue.talkResponses.situational.frank;
+                    bobSuggestions.frank = true;
+                } else if (currentRoom === 'diner' && roomChars.diner?.includes('waitress')) {
+                    advice = bobDialogue.talkResponses.situational.darla;
+                    bobSuggestions.darla = true;
+                } else if (currentRoom === 'entrance' && roomChars.entrance?.includes('nightclerk')) {
+                    advice = bobDialogue.talkResponses.situational.ed;
+                    bobSuggestions.ed = true;
+                } else if (currentRoom === 'gasstation' && roomChars.gasstation?.includes('attendant')) {
+                    advice = bobDialogue.talkResponses.situational.pete;
+                    bobSuggestions.pete = true;
+                } else if (currentRoom === 'room3' && roomChars.room3?.includes('drifter')) {
+                    advice = bobDialogue.talkResponses.situational.tommy;
+                    bobSuggestions.tommy = true;
+                } else {
+                    // Use dynamic dialogue based on player state
+                    advice = getDynamicBobDialogue();
+                }
+                
+                addOutput("Bob: " + advice);
+                
+                // Record conversation
+                bobMemory.conversations.push({
+                    topic: "general",
+                    response: advice,
+                    location: currentRoom
+                });
+            }
+            
+            // Bob relationship update for talking
+            bobRelationship.认同 += 2;
+            bobRelationship.trust += 1;
+            
+            // Bob might disappear after talking (unless stage is high)
+            if (bobPersonality.stage < 4 && Math.random() > 0.6) {
+                roomChars[currentRoom] = roomChars[currentRoom].filter(c => c !== 'bob');
+                addOutput("Bob fades back into the shadows. 'I'll be watching,' his voice echoes.");
+            }
+        }
+
+        // ----- punch -----
+        function punchSomeone() {
+    const charsHere = roomChars[currentRoom] || [];
+    if (charsHere.length === 0) {
+        addOutput("You punch the air. Good form.");
+        return;
+    }
+    
+    const target = charsHere[0];
+    lastPunchedNPC = target;
+    
+    // Check if NPC is already knocked out
+    if (npcState[target] && npcState[target].state === "knocked") {
+        addOutput(`${target} is already unconscious. Kicking them while they're down seems excessive.`);
+        return;
+    }
+    
+    // Check if NPC is dead
+    if (npcState[target] && npcState[target].state === "dead") {
+        addOutput(`${target} is already dead. The punching stops being fun after a while.`);
+        return;
+    }
+    
+    // Base punch message
+    let punchMsg = characterPunch[target] || `You punch ${target}. They stagger backwards.`;
+    
+    // Special reactions based on who you punch
+    switch(target) {
+        case 'dereck':
+            if (npcState.dereck.likesViolence) {
+                punchMsg = "You punch Dereck. He grins, blood trickling from his lip. 'Again,' he whispers. 'I like it.' He doesn't fight back. He just... enjoys it. It's disturbing.";
+                // Dereck doesn't get knocked out - he likes it too much
+                violenceRep += 2;
+            } else {
+                punchMsg = "You punch Dereck. He shrieks and curls into a ball, whimpering. 'Don't hurt me!' But his eyes... they're laughing.";
+                npcState.dereck.state = "angry";
+                // Dereck will now be hostile, maybe set traps
+            }
+            break;
+            
+        case 'frank':
+            punchMsg = "You punch Frank. He barely flinches, just wipes his mouth and gives you a deadpan look. 'That all you got?' But you notice his hand trembling.";
+            // Chance to knock him out
+            if (Math.random() > 0.7) {
+                punchMsg += " He crumples suddenly, unconscious.";
+                npcState.frank.state = "knocked";
+                // Drop item
+                if (!roomItems[currentRoom].includes("frank's wallet")) {
+                    roomItems[currentRoom].push("frank's wallet");
+                    punchMsg += " His wallet falls from his pocket.";
+                }
+            }
+            break;
+            
+        case 'hooker':
+            punchMsg = "You punch Jenny. She recoils, then spits at you. 'Bastard!' She cowers in the corner, arms wrapped around herself.";
+            npcState.hooker.state = "angry";
+            // She'll remember this
+            violenceRep += 3;
+            break;
+            
+        case 'drifter':
+            punchMsg = "You punch Tommy. He crumples like a sack, then starts laughing hoarsely from the floor. 'Thanks. Felt something for a second there.'";
+            // Drifter sometimes passes out easily
+            if (Math.random() > 0.4) {
+                punchMsg += " He's out cold. The bottle rolls from his hand.";
+                npcState.drifter.state = "knocked";
+                if (!roomItems[currentRoom].includes("tommy's guitar pick")) {
+                    roomItems[currentRoom].push("tommy's guitar pick");
+                }
+            }
+            break;
+            
+        case 'nightclerk':
+            punchMsg = "You punch Ed. He stumbles, but his expression doesn't change. 'Checkout is never,' he whispers, wiping blood. His glasses fall and crack.";
+            if (!roomItems[currentRoom].includes("ed's glasses")) {
+                roomItems[currentRoom].push("ed's glasses");
+            }
+            break;
+            
+        case 'waitress':
+            punchMsg = "You punch Darla. She doesn't even flinch. 'Honey, I've had worse from the fry cook.' But she drops her rag. It's soaked with something dark.";
+            break;
+            
+        case 'attendant':
+            punchMsg = "You punch Pete. He topples off his crate, then starts laughing, a dry rasping sound from the floor. 'The payphone's gonna ring for you now.'";
+            npcState.attendant.state = "knocked";
+            if (!roomItems[currentRoom].includes("pete's diary")) {
+                roomItems[currentRoom].push("pete's diary");
+            }
+            break;
+            
+        case 'bob':
+            punchMsg = "You swing at Bob. Your fist passes through him like smoke. He laughs. 'Can't kill me. I'm already dead. I'm you.'";
+            bobDisappointment++;
+            bobReaction("showed_mercy", "bob");
+            break;
+    }
+    
+    addOutput(punchMsg);
+    violenceRep++;
+    
+    // Bob reaction to violence
+    if (target !== 'bob') {
+        bobReaction("followed_advice", target);
+    }
+    
+    // Check for gratitude from other NPCs (they heard the punch)
+    checkGratitude(target);
+    
+    // If you punched someone, NPCs in other rooms might react
+    triggerReactions(target);
+}
+
+function checkGratitude(punchedNPC) {
+    // Go through all NPCs in other rooms
+    for (let room in roomChars) {
+        roomChars[room].forEach(npc => {
+            // If this NPC hates the person you punched
+            if (npcState[npc] && npcState[npc].hates && npcState[npc].hates.includes(punchedNPC)) {
+                // They're grateful!
+                npcGratitude[npc] = true;
+                
+                // If you're in their room, they might thank you immediately
+                if (currentRoom === room) {
+                    let thanksMsg = "";
+                    switch(npc) {
+                        case 'hooker':
+                            if (punchedNPC === 'dereck') {
+                                thanksMsg = "Jenny looks at you with something like hope. 'You hit him? You actually hit him? Here...' She presses something into your hand. It's her locket. 'Keep it safe. It's all I have left of who I was.'";
+                                if (!inventory.includes("jenny's locket")) {
+                                    inventory.push("jenny's locket");
+                                }
+                            } else if (punchedNPC === 'frank') {
+                                thanksMsg = "Jenny laughs bitterly. 'Frank? You hit Frank? He's pathetic, not evil. But thanks, I guess.' She doesn't give you anything, but she seems less afraid.";
+                            }
+                            break;
+                            
+                        case 'frank':
+                            if (punchedNPC === 'dereck') {
+                                thanksMsg = "Frank's eyes light up. 'You hit Dereck? I've wanted to for 42 years. Here, take this.' He hands you a worn photograph. It's Sarah. 'She'd want you to have it.'";
+                                if (!inventory.includes("sarah's photograph")) {
+                                    inventory.push("sarah's photograph");
+                                }
+                            }
+                            break;
+                            
+                        case 'drifter':
+                            if (punchedNPC === 'dereck') {
+                                thanksMsg = "Tommy grins, the first real smile you've seen. 'You got a swing, kid. Dereck's had that coming since '82. Here, I been saving this.' He hands you his guitar pick.";
+                                if (!inventory.includes("tommy's guitar pick")) {
+                                    inventory.push("tommy's guitar pick");
+                                }
+                            }
+                            break;
+                            
+                        case 'waitress':
+                            if (punchedNPC === 'dereck') {
+                                thanksMsg = "Darla wipes her hands on her apron. 'I saw that through the window. Here, I got something in the back.' She returns with a key. 'Sarah's things. In the back room. You earned the right to see them.'";
+                                if (!inventory.includes("darla's key")) {
+                                    inventory.push("darla's key");
+                                }
+                            }
+                            break;
+                    }
+                    if (thanksMsg) addOutput(thanksMsg);
+                }
+            }
+        });
+    }
+}
+
+function triggerReactions(punchedNPC) {
+    // Dereck sets traps if you punch him
+    if (punchedNPC === 'dereck' && npcState.dereck.state === 'angry') {
+        addOutput("(From somewhere, you hear the whir of cameras. Dereck's watching. Always watching now.)");
+        // Could add trap mechanics later
+    }
+    
+    // If you punch Jenny, Tommy gets angry
+    if (punchedNPC === 'hooker') {
+        if (roomChars.room3?.includes('drifter')) {
+            addOutput("(From Room 3, you hear bottles smashing against the wall. Tommy's heard what you did.)");
+            // Tommy might confront you later
+        }
+    }
+    
+    // If you punch Frank, Dereck is amused
+    if (punchedNPC === 'frank') {
+        if (roomChars.room4?.includes('dereck')) {
+            addOutput("(Dereck's laughter echoes through the vents. 'Hit him again! This is going on my tape!')");
+        }
+    }
+}
+
+        // ----- FIX: Add event listeners here -----
+        const inputField = document.getElementById('command');
+        const enterBtn = document.getElementById('enter-btn');
+
+        function handleInput() {
+            const raw = inputField.value;
+            if (raw.trim() !== "") {
+                addOutput(`> ${raw}`);
+                processCommand(raw);
+            }
+            inputField.value = '';
+            inputField.focus();
+        }
+
+        enterBtn.addEventListener('click', handleInput);
+        inputField.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleInput();
+            }
+        });
+
+        // Sanity timer - update sanity every 30 seconds
+        setInterval(() => {
+            updateSanity();
+            checkBobAppearance();
+            bobReminisce();
+        }, 30000);
+
+        inputField.focus();
+    })();
+</script>
+</body>
+</html>
