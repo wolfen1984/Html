@@ -1498,104 +1498,341 @@
             evolveBob();
         }
 
-        function punchSomeone() {
-            const charsHere = roomChars[currentRoom] || [];
-            if (charsHere.length === 0) {
-                addOutput("You punch the air. Good form.");
-                return;
+        
+                    
+                    function punchSomeone() {
+    const charsHere = roomChars[currentRoom] || [];
+    if (charsHere.length === 0) {
+        addOutput("You punch the air. Good form.");
+        return;
+    }
+    
+    const target = charsHere[0];
+    lastPunchedNPC = target;
+    
+    // Track punch count for this NPC
+    if (!window.punchCount) window.punchCount = {};
+    window.punchCount[target] = (window.punchCount[target] || 0) + 1;
+    const punchNum = window.punchCount[target];
+    
+    // Progressive responses based on how many times you've punched them
+    if (npcState[target] && npcState[target].state === "knocked") {
+        addOutput(`${target} is already unconscious. The janitor's going to be pissed about the mess.`);
+        return;
+    }
+    
+    if (npcState[target] && npcState[target].state === "dead") {
+        addOutput(`You punch ${target}'s corpse. Bob applauds from the shadows. 'Again!'`);
+        return;
+    }
+    
+    let punchMsg = "";
+    let bloodAmount = 0;
+    
+    // SPECIAL CASE: Punching Bob
+    if (target === 'bob') {
+        specialBobPunch();
+        return;
+    }
+    
+    // Progressive punch responses
+    switch(punchNum) {
+        case 1:
+            punchMsg = getFirstPunchResponse(target);
+            break;
+        case 2:
+            punchMsg = getSecondPunchResponse(target);
+            break;
+        case 3:
+            punchMsg = getThirdPunchResponse(target);
+            break;
+        default:
+            punchMsg = getExcessivePunchResponse(target, punchNum);
+    }
+    
+    // Environmental reactions
+    let environmentEffect = getEnvironmentalReaction(target, punchNum);
+    if (environmentEffect) addOutput(environmentEffect);
+    
+    // NPC reactions
+    let npcReaction = getNPCReaction(target, punchNum);
+    if (npcReaction) addOutput(npcReaction);
+    
+    // Blood effects (for atmosphere)
+    bloodAmount = calculateBloodAmount(target, punchNum);
+    if (bloodAmount > 0) {
+        addBloodEffects(target, bloodAmount);
+    }
+    
+    // Item drops based on punch intensity
+    let droppedItem = checkForItemDrop(target, punchNum);
+    if (droppedItem) {
+        if (!roomItems[currentRoom]) roomItems[currentRoom] = [];
+        roomItems[currentRoom].push(droppedItem);
+        addOutput(`${target} drops: ${droppedItem}`);
+    }
+    
+    // Update NPC state
+    updateNPCState(target, punchNum);
+    
+    // Group retaliation chance
+    if (Math.random() < 0.3 * punchNum) {
+        triggerGroupRetaliation(target);
+    }
+    
+    // Bob's reaction (he loves violence)
+    bobApproval += punchNum;
+    if (bobApproval > 5 && !roomChars[currentRoom]?.includes('bob')) {
+        if (!roomChars[currentRoom]) roomChars[currentRoom] = [];
+        roomChars[currentRoom].push('bob');
+        addOutput("Bob appears, grinning. 'Now THAT'S entertainment!'", 'bob-voice');
+    }
+    
+    addOutput(punchMsg);
+    violenceRep += punchNum;
+    
+    // Check if NPC becomes hostile or fearful
+    updateNPCRelationship(target, punchNum);
+    
+    // Special case: If you punch someone enough times, they might fight back
+    if (punchNum >= 3 && Math.random() < 0.4) {
+        npcFightsBack(target);
+    }
+}
+
+function getFirstPunchResponse(target) {
+    const responses = {
+        nightclerk: "You punch Ed. He stumbles, more surprised than hurt. 'That's... that's the first time anyone's done that in 42 years.' He touches his bleeding lip, then smiles strangely.",
+        waitress: "You punch Darla. She doesn't flinch, just sighs. 'Honey, I've been punched by better men than you. My ex-husband was a boxer.' She goes back to wiping the counter.",
+        attendant: "You punch Pete. He falls off his crate, then starts laughing. 'The payphone's gonna ring for you now. It always rings for the violent ones.'",
+        frank: "You punch Frank. He barely moves, just tilts his head. 'That's what she used to do. Before she left. Before the mirror took her.' He holds the doll tighter.",
+        drifter: "You punch Tommy. He crumples, then from the floor: 'Thanks. Felt something for a second. Do it again?'",
+        dereck: "You punch Dereck. He shrieks, but there's a disturbing smile. 'Oh, you're going to be GOOD on camera. Say cheese!' A red light blinks from his pocket.",
+        hooker: "You punch Jenny. She recoils, then laughs bitterly. 'Honey, that's nothing. You should see what Dereck does for fun.' She shows you a bruise. 'See? Amateur.'"
+    };
+    return responses[target] || `You punch ${target}. They stagger.`;
+}
+
+function getSecondPunchResponse(target) {
+    const responses = {
+        nightclerk: "You hit Ed again. His glasses fly off. 'The register... it's changing. The names... they're all becoming yours.' He points at the book shakily.",
+        waitress: "Darla takes the hit, steadying herself on the counter. 'The jukebox... it's playing your song now. Can you hear it? It's called 'The Batterer's Waltz.'''",
+        attendant: "Pete spits blood. '3:13. That's when it happens. That's when you become one of us. One of the violent ones. The phone knows.'",
+        frank: "Frank's nose bleeds. He doesn't wipe it. 'The doll... she's crying. Can you see? She's crying your tears now.'",
+        drifter: "Tommy laughs through bloody teeth. 'Third time's the charm, kid. Third time you might actually kill me. Please?'",
+        dereck: "Dereck whimpers but pulls out a small camera. 'Say it again! For the fans! They love the rough stuff!'",
+        hooker: "Jenny spits blood. 'That's two. Three more and I might actually feel something. Might feel alive again.'"
+    };
+    return responses[target] || `You hit ${target} again. They're getting weaker.`;
+}
+
+function getThirdPunchResponse(target) {
+    const responses = {
+        nightclerk: "Ed collapses behind the counter. From the floor: 'Checkout time... it's 3:13. Forever.' He passes out, still smiling.",
+        waitress: "Darla sinks to her knees. 'The coffee's finally hot. Your violence... it warms this place. Congratulations. You're part of the diner now.'",
+        attendant: "Pete lies still. The payphone rings. Once. Twice. Three times. Then silence. 'It was for you,' he whispers. 'But you missed it.'",
+        frank: "Frank falls, clutching the doll. 'Take care of her. She's all I had. All any of us had.' His eyes close.",
+        drifter: "Tommy stops moving. Then, impossibly, he laughs. 'You did it. You actually... thank you.' He's gone. Or sleeping. Hard to tell.",
+        dereck: "Dereck curls into a fetal position. 'Cut! That's a wrap! Best scene ever! We'll release it posthumously!' He's laughing and crying.",
+        hooker: "Jenny falls, then slowly gets up. 'Three. The magic number. Now I owe you one. Or I kill you. Haven't decided.'"
+    };
+    return responses[target] || `${target} collapses. The motel seems pleased.`;
+}
+
+function getExcessivePunchResponse(target, count) {
+    return `You've punched ${target} ${count} times. They're barely recognizable. Bob applauds. 'A true artist! A masterpiece of violence!' The motel's lights flicker with approval.`;
+}
+
+function getEnvironmentalReaction(target, punchNum) {
+    const reactions = [
+        "The lights flicker.",
+        "A door slams somewhere in the motel.",
+        "The static on the TV in Room 6 intensifies.",
+        "The payphone rings once, then stops.",
+        "The jukebox plays a single discordant note.",
+        "You hear footsteps in the corridor. No one's there.",
+        "The temperature drops noticeably.",
+        "Your reflection in the nearest mirror smiles at you.",
+        "Blood seeps from under the door."
+    ];
+    
+    if (punchNum >= 2 && Math.random() < 0.5) {
+        return reactions[Math.floor(Math.random() * reactions.length)];
+    }
+    return null;
+}
+
+function getNPCReaction(target, punchNum) {
+    // Other NPCs in adjacent rooms might react
+    const adjacentNPCs = [];
+    
+    // Check nearby rooms for NPCs
+    if (currentRoom === 'corridor') {
+        for (let i = 1; i <= 6; i++) {
+            if (roomChars[`room${i}`]?.length > 0) {
+                adjacentNPCs.push(...roomChars[`room${i}`]);
             }
-            
-            const target = charsHere[0];
-            lastPunchedNPC = target;
-            
-            if (npcState[target] && npcState[target].state === "knocked") {
-                addOutput(`${target} is already unconscious. Kicking them while they're down seems excessive.`);
-                return;
-            }
-            
-            if (npcState[target] && npcState[target].state === "dead") {
-                addOutput(`${target} is already dead. The punching stops being fun after a while.`);
-                return;
-            }
-            
-            let punchMsg = characterPunch[target] || `You punch ${target}. They stagger backwards.`;
-            
-            switch(target) {
-                case 'dereck':
-                    if (npcState.dereck.likesViolence) {
-                        punchMsg = "You punch Dereck. He grins, blood trickling from his lip. 'Again,' he whispers. 'I like it.' He doesn't fight back. He just... enjoys it. It's disturbing.";
-                        violenceRep += 2;
-                    } else {
-                        punchMsg = "You punch Dereck. He shrieks and curls into a ball, whimpering. 'Don't hurt me!' But his eyes... they're laughing.";
-                        npcState.dereck.state = "angry";
-                    }
-                    break;
-                    
-                case 'frank':
-                    punchMsg = "You punch Frank. He barely flinches, just wipes his mouth and gives you a deadpan look. 'That all you got?' But you notice his hand trembling.";
-                    if (Math.random() > 0.7) {
-                        punchMsg += " He crumples suddenly, unconscious.";
-                        npcState.frank.state = "knocked";
-                        if (!roomItems[currentRoom].includes("frank's wallet")) {
-                            roomItems[currentRoom].push("frank's wallet");
-                            punchMsg += " His wallet falls from his pocket.";
-                        }
-                    }
-                    break;
-                    
-                case 'hooker':
-                    punchMsg = "You punch Jenny. She recoils, then spits at you. 'Bastard!' She cowers in the corner, arms wrapped around herself.";
-                    npcState.hooker.state = "angry";
-                    violenceRep += 3;
-                    break;
-                    
-                case 'drifter':
-                    punchMsg = "You punch Tommy. He crumples like a sack, then starts laughing hoarsely from the floor. 'Thanks. Felt something for a second there.'";
-                    if (Math.random() > 0.4) {
-                        punchMsg += " He's out cold. The bottle rolls from his hand.";
-                        npcState.drifter.state = "knocked";
-                        if (!roomItems[currentRoom].includes("tommy's guitar pick")) {
-                            roomItems[currentRoom].push("tommy's guitar pick");
-                        }
-                    }
-                    break;
-                    
-                case 'nightclerk':
-                    punchMsg = "You punch Ed. He stumbles, but his expression doesn't change. 'Checkout is never,' he whispers, wiping blood. His glasses fall and crack.";
-                    if (!roomItems[currentRoom].includes("ed's glasses")) {
-                        roomItems[currentRoom].push("ed's glasses");
-                    }
-                    break;
-                    
-                case 'waitress':
-                    punchMsg = "You punch Darla. She doesn't even flinch. 'Honey, I've had worse from the fry cook.' But she drops her rag. It's soaked with something dark.";
-                    break;
-                    
-                case 'attendant':
-                    punchMsg = "You punch Pete. He topples off his crate, then starts laughing, a dry rasping sound from the floor. 'The payphone's gonna ring for you now.'";
-                    npcState.attendant.state = "knocked";
-                    if (!roomItems[currentRoom].includes("pete's diary")) {
-                        roomItems[currentRoom].push("pete's diary");
-                    }
-                    break;
-                    
-                case 'bob':
-                    punchMsg = "You swing at Bob. Your fist passes through him like smoke. He laughs. 'Can't kill me. I'm already dead. I'm you.'";
-                    bobDisappointment++;
-                    bobReaction("showed_mercy", "bob");
-                    break;
-            }
-            
-            addOutput(punchMsg);
-            violenceRep++;
-            
-            if (target !== 'bob') {
-                bobReaction("followed_advice", target);
-            }
-            
-            checkGratitude(target);
-            triggerReactions(target);
         }
+    }
+    
+    if (adjacentNPCs.length > 0 && punchNum >= 2) {
+        let reactor = adjacentNPCs[Math.floor(Math.random() * adjacentNPCs.length)];
+        const reactions = {
+            frank: "From Room 2, you hear Frank whisper: 'Violence. That's the language here. You're learning.'",
+            dereck: "Dereck's voice through the wall: 'Beautiful! The sounds! Keep going!'",
+            hooker: "Jenny pounds on the wall. 'Shut up! Some of us are trying to die in peace!'",
+            drifter: "Tommy yells: 'Save some for me!'"
+        };
+        return reactions[reactor] || null;
+    }
+    return null;
+}
+
+function calculateBloodAmount(target, punchNum) {
+    let baseBlood = 0;
+    switch(target) {
+        case 'dereck': baseBlood = 3; break;
+        case 'hooker': baseBlood = 1; break;
+        case 'frank': baseBlood = 2; break;
+        default: baseBlood = 1;
+    }
+    return Math.min(10, baseBlood * punchNum);
+}
+
+function addBloodEffects(target, amount) {
+    if (amount >= 5) {
+        if (!roomItems[currentRoom]) roomItems[currentRoom] = [];
+        if (!roomItems[currentRoom].includes('blood pool')) {
+            roomItems[currentRoom].push('blood pool');
+            addOutput("A pool of blood spreads across the floor.");
+        }
+    }
+    
+    if (amount >= 8) {
+        addOutput("The blood seeps into the carpet. The motel drinks it eagerly.");
+    }
+}
+
+function checkForItemDrop(target, punchNum) {
+    const dropChance = punchNum * 0.2;
+    if (Math.random() < dropChance) {
+        const drops = {
+            nightclerk: ["ed's glasses", "register key"],
+            waitress: ["darla's hairpin", "bloody apron"],
+            attendant: ["pete's diary", "payphone token"],
+            frank: ["frank's wallet", "sarah's photograph"],
+            drifter: ["tommy's guitar pick", "empty bottle"],
+            dereck: ["dereck's camera", "vhs tape (unlabeled)"],
+            hooker: ["jenny's locket", "used syringe"]
+        };
+        
+        let possibleDrops = drops[target] || [];
+        if (possibleDrops.length > 0) {
+            return possibleDrops[Math.floor(Math.random() * possibleDrops.length)];
+        }
+    }
+    return null;
+}
+
+function updateNPCState(target, punchNum) {
+    if (!npcState[target]) return;
+    
+    if (punchNum >= 3) {
+        npcState[target].state = "knocked";
+    } else if (punchNum >= 1) {
+        npcState[target].state = "angered";
+    }
+}
+
+function updateNPCRelationship(target, punchNum) {
+    // Other NPCs become more fearful of you
+    for (let npc in npcRelationships) {
+        if (npc !== target) {
+            npcRelationships[npc].fear += punchNum * 5;
+            npcRelationships[npc].trust -= punchNum * 10;
+        }
+    }
+    
+    // Some NPCs might become more interested in you
+    if (target === 'dereck') {
+        npcRelationships.dereck.fear += punchNum * 20; // He's into it
+    }
+}
+
+function triggerGroupRetaliation(target) {
+    // Find allies of the target who might seek revenge
+    let allies = [];
+    
+    // Simple alliance mapping
+    if (target === 'dereck') {
+        allies = []; // Dereck has no friends
+    } else if (['frank', 'drifter', 'hooker'].includes(target)) {
+        allies = ['frank', 'drifter', 'hooker'].filter(a => a !== target);
+    } else if (['nightclerk', 'waitress', 'attendant'].includes(target)) {
+        allies = ['nightclerk', 'waitress', 'attendant'].filter(a => a !== target);
+    }
+    
+    if (allies.length > 0) {
+        let avenger = allies[Math.floor(Math.random() * allies.length)];
+        // Move avenger to current room if they're somewhere else
+        for (let room in roomChars) {
+            if (roomChars[room].includes(avenger)) {
+                roomChars[room] = roomChars[room].filter(n => n !== avenger);
+                if (!roomChars[currentRoom]) roomChars[currentRoom] = [];
+                roomChars[currentRoom].push(avenger);
+                addOutput(`${avenger} bursts into the room! 'I heard what you did to ${target}!'`, 'quest-update');
+                break;
+            }
+        }
+    }
+}
+
+function npcFightsBack(target) {
+    const fightResponses = {
+        nightclerk: "Ed suddenly grabs you with surprising strength. 'The register demands payment.' He headbutts you. You stagger, seeing stars.",
+        waitress: "Darla swings a coffee pot at your head. 'That's for every man who ever hit me!'",
+        attendant: "Pete swings a tire iron. 'The payphone told me you'd do this! It warned me!'",
+        frank: "Frank attacks with the doll, swinging it like a weapon. 'Sarah protect me!'",
+        drifter: "Tommy swings a bottle. 'If I'm going down, you're coming with me!'",
+        dereck: "Dereck tries to film you while fighting. 'This is GOLD! The audience will LOVE this!'",
+        hooker: "Jenny produces a knife from nowhere. 'Three punches was my limit. Now it's your turn.'"
+    };
+    
+    addOutput(fightResponses[target] || `${target} fights back!`);
+    
+    // Player takes damage (represented by losing an item or dropping something)
+    if (inventory.length > 0) {
+        let lostItem = inventory[Math.floor(Math.random() * inventory.length)];
+        inventory = inventory.filter(i => i !== lostItem);
+        if (!roomItems[currentRoom]) roomItems[currentRoom] = [];
+        roomItems[currentRoom].push(lostItem);
+        addOutput(`You drop: ${lostItem} in the struggle.`);
+    }
+}
+
+function specialBobPunch() {
+    if (!window.bobPunchCount) window.bobPunchCount = 0;
+    window.bobPunchCount++;
+    
+    const bobPunches = [
+        "You swing at Bob. Your fist passes through him like smoke. 'Can't kill me. I'm already dead. I'm you.'",
+        "You punch Bob again. He flickers but doesn't fade. 'You're getting closer. Almost feel that one. Almost.'",
+        "This time, your fist connects. Bob stumbles backward, genuinely surprised. 'How... how did you...?' He touches his face. Blood. Your blood? His blood?",
+        "Bob is bleeding now. He looks almost proud. 'Finally. Someone who can hurt me. That means you can join me. Really join me. In death.'",
+        "Bob dissolves into shadow, but his voice remains: 'We're not done. We'll never be done. You're mine now. Forever.'"
+    ];
+    
+    let index = Math.min(window.bobPunchCount - 1, bobPunches.length - 1);
+    addOutput(bobPunches[index], 'bob-voice');
+    
+    if (window.bobPunchCount >= 5) {
+        addOutput("Bob is gone. For now. The motel is quieter. Emptier. You won. Or did you?");
+        // Remove Bob from all rooms
+        for (let room in roomChars) {
+            roomChars[room] = roomChars[room].filter(c => c !== 'bob');
+        }
+    }
+}
 
         function checkGratitude(punchedNPC) {
             for (let room in roomChars) {
