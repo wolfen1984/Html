@@ -1,0 +1,1468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Castle of the Undead 1984 - EXPANDED</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
+    <style>
+        /* ---------- RETRO TERMINAL UI ---------- */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background-color: #000;
+            color: #fff;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 16px;
+            line-height: 1.6;
+            padding: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+            overflow-x: hidden;
+        }
+        .game-container {
+            border: 2px solid #fff;
+            padding: 20px;
+            margin-top: 20px;
+            height: 75vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .game-header {
+            text-align: center;
+            margin-bottom: 20px;
+            border-bottom: 1px dashed #fff;
+            padding-bottom: 10px;
+        }
+        .game-title {
+            font-size: 24px;
+            margin-bottom: 10px;
+            text-shadow: 0 0 5px #fff;
+        }
+        .game-subtitle {
+            font-size: 12px;
+            color: #ccc;
+            margin-bottom: 5px;
+        }
+        .game-output {
+            flex-grow: 1;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            padding-right: 10px;
+            border: 1px solid #333;
+            padding: 15px;
+            background-color: #111;
+        }
+        .game-output p { margin-bottom: 10px; animation: fadeIn 0.5s; }
+        .game-output .location { color: #ffff00; margin-top: 15px; margin-bottom: 15px; }
+        .game-output .hint { color: #888; font-style: italic; font-size: 12px; }
+        .game-output .item { color: #55ff55; }
+        .game-output .victory { color: #ffff55; font-weight: bold; }
+        .game-output .gold { color: #ffd700; }
+        .game-output .health { color: #ff6666; }
+        .game-output .npc { color: #55ffff; }
+        .game-output .combat { color: #ff4444; font-weight: bold; }
+        .game-output .damage { color: #ff9966; }
+        .game-output .magic { color: #ff66ff; }
+        .game-input-container {
+            display: flex;
+            align-items: center;
+            border-top: 1px dashed #fff;
+            padding-top: 15px;
+        }
+        .game-prompt { margin-right: 10px; color: #00ff00; }
+        #game-input {
+            background-color: #000;
+            color: #fff;
+            border: 1px solid #fff;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 14px;
+            padding: 10px;
+            flex-grow: 1;
+            outline: none;
+        }
+        #game-input:focus { box-shadow: 0 0 5px #fff; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .game-output::-webkit-scrollbar { width: 10px; }
+        .game-output::-webkit-scrollbar-track { background: #111; }
+        .game-output::-webkit-scrollbar-thumb { background: #333; border-radius: 5px; }
+        .game-output::-webkit-scrollbar-thumb:hover { background: #444; }
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: #222;
+            border: 1px solid #444;
+            font-size: 12px;
+            flex-wrap: wrap;
+        }
+        .status-item { display: flex; align-items: center; margin-right: 10px; }
+        .health-bar {
+            width: 100px;
+            height: 12px;
+            background-color: #333;
+            margin-left: 5px;
+            border: 1px solid #555;
+        }
+        .health-fill { height: 100%; background-color: #ff5555; transition: width 0.3s; }
+        @media (max-width: 600px) {
+            body { font-size: 14px; padding: 10px; }
+            .game-title { font-size: 18px; }
+            .game-container { padding: 10px; }
+            #game-input { font-size: 12px; padding: 8px; }
+            .status-bar { font-size: 10px; flex-direction: column; gap: 5px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-header">
+        <h1 class="game-title">CASTLE OF THE UNDEAD 1984</h1>
+        <p class="game-subtitle">© 1984 Undead Castle Software</p>
+        <p class="game-subtitle">EXPANDED EDITION — 17 ROOMS · NEW AREAS · MORE ENEMIES & NPCs</p>
+    </div>
+    
+    <!-- STATUS BAR: HP, GOLD, WEAPON, ARMOR, WEIGHT -->
+    <div class="status-bar" id="status-bar">
+        <div class="status-item">
+            HP: <span id="player-hp-text">100/100</span>
+            <div class="health-bar"><div class="health-fill" id="player-health-fill" style="width:100%;"></div></div>
+        </div>
+        <div class="status-item">Gold: <span id="player-gold">0</span></div>
+        <div class="status-item">Weapon: <span id="player-weapon">Fists (1-2)</span></div>
+        <div class="status-item">Armor: <span id="player-armor">None</span></div>
+        <div class="status-item">Weight: <span id="player-weight">0/30</span></div>
+    </div>
+    
+    <div class="game-container">
+        <div class="game-output" id="game-output"></div>
+        <div class="game-input-container">
+            <span class="game-prompt">&gt;</span>
+            <input type="text" id="game-input" placeholder="Type your command..." autocomplete="off">
+        </div>
+    </div>
+
+    <script>
+        // ==================== CASTLE OF THE UNDEAD - EXPANDED EDITION ====================
+        // SAVE KEY
+        const SAVE_KEY = 'castleUndead1984ExpandedSave';
+
+        // ==================== DEFAULT ROOM ITEMS (INITIAL STATE) ====================
+        const DEFAULT_ROOM_ITEMS = {
+            // Original 13 rooms
+            outsideGates: ["rope"],
+            courtyard: [],
+            entranceHall: [],
+            guardhouse: ["torch", "shield", "guard's log"],
+            armory: ["steel sword", "chainmail", "lockpicks"],
+            kitchen: ["cooking oil", "cleaver", "dried herbs"],
+            wineCellar: ["antique wine", "cork", "empty bottle"],
+            chapel: ["holy water", "silver cross", "prayer beads"],
+            bellTower: ["heavy rope", "earplugs", "viewing lens"],
+            library: ["spell scroll: fireball", "encyclopedia of undead", "blank book"],
+            observatory: ["star chart", "telescope lens", "astrolabe"],
+            throneRoom: ["royal crown", "soul gem", "necromancer's staff"],
+            treasury: ["dragon's tooth dagger", "cloak of shadows", "amulet of life", "orb of scrying", "bag of holding"],
+            
+            // NEW AREAS (4 rooms)
+            undergroundCaverns: ["rare crystal", "old lantern", "mushroom"],
+            rooftops: ["gargoyle fragment", "iron key", "bird nest"],
+            garden: ["strange seed", "watering can", "flower"],
+            laboratory: ["empty flask", "research notes", "strange powder"]
+        };
+
+        // ==================== PLAYER STATS ====================
+        const player = {
+            maxHP: 100,
+            currentHP: 100,
+            gold: 0,
+            inventory: [],
+            weapon: { name: "Fists", minDamage: 1, maxDamage: 2, type: "blunt" },
+            armor: null,
+            maxWeight: 30,
+            currentWeight: function() {
+                let w = 0;
+                this.inventory.forEach(i => w += itemWeights[i] || 1);
+                w += this.gold * 0.01;
+                return Math.round(w * 10) / 10;
+            },
+            blessings: [],
+            poisonTurns: 0
+        };
+
+        // ==================== ITEM WEIGHTS (original + new) ====================
+        const itemWeights = {
+            // Original
+            "rope":1, "heavy rope":2, "rusty key":0.2, "dagger":1, "health potion":0.5,
+            "torch":1.5, "shield":4, "guard's log":1, "steel sword":3, "chainmail":8,
+            "lockpicks":0.2, "cooking oil":1, "cleaver":1.5, "dried herbs":0.2,
+            "antique wine":2, "cork":0.1, "empty bottle":0.3, "holy water":0.5,
+            "silver cross":1, "prayer beads":0.3, "heavy rope":2, "earplugs":0.1,
+            "viewing lens":0.5, "spell scroll: fireball":0.2, "encyclopedia of undead":2,
+            "blank book":1, "star chart":0.3, "telescope lens":0.5, "astrolabe":1.5,
+            "royal crown":2, "soul gem":0.5, "necromancer's staff":4, "dragon's tooth dagger":1.5,
+            "cloak of shadows":2, "amulet of life":0.5, "orb of scrying":2, "bag of holding":1,
+            "rat tail":0.1, "spider silk":0.2, "cursed blade":3, "ghostly essence":0.2,
+            "family signet ring":0.1, "masterwork dagger":1, "silver key":0.2, "tower key":0.3, "antivenom":0.5,
+            // New items
+            "rare crystal":1, "old lantern":2, "mushroom":0.2,
+            "gargoyle fragment":1.5, "iron key":0.2, "bird nest":0.5,
+            "strange seed":0.1, "watering can":1, "flower":0.1,
+            "empty flask":0.3, "research notes":0.2, "strange powder":0.3,
+            "bat wing":0.2, "troll tooth":1
+        };
+
+        // ==================== WEAPON STATS (original + new) ====================
+        const weapons = {
+            "fists": { name: "Fists", minDamage:1, maxDamage:2, type:"blunt" },
+            "dagger": { name: "Dagger", minDamage:3, maxDamage:6, type:"pierce" },
+            "steel sword": { name: "Steel Sword", minDamage:5, maxDamage:9, type:"slash" },
+            "cleaver": { name: "Cleaver", minDamage:4, maxDamage:7, type:"slash" },
+            "cursed blade": { name: "Cursed Blade", minDamage:8, maxDamage:14, type:"dark",
+                onHit: function() { player.currentHP-=2; addToOutput("The cursed blade drains your life!","damage"); } },
+            "masterwork dagger": { name: "Masterwork Dagger", minDamage:4, maxDamage:8, type:"pierce", crit:0.15 },
+            "dragon's tooth dagger": { name: "Dragon's Tooth Dagger", minDamage:8, maxDamage:12, type:"fire", crit:0.1 },
+            "necromancer's staff": { name: "Necromancer's Staff", minDamage:6, maxDamage:10, type:"magic",
+                onHit: function(e) { e.poisonTurns = (e.poisonTurns||0)+2; addToOutput("Shadow magic seeps in!","magic"); } }
+        };
+
+        // ==================== ARMOR STATS ====================
+        const armors = {
+            "shield": { name: "Shield", damageReduction:2, weight:4 },
+            "chainmail": { name: "Chainmail", damageReduction:3, maxHPBonus:10, weight:8 }
+        };
+
+        // ==================== ENEMY DEFINITIONS (original + new) ====================
+        const enemies = {
+            // Original
+            ratSwarm: { name:"Rat Swarm", maxHP:20, currentHP:20, minDamage:2, maxDamage:5,
+                description:"Dozens of rats, moving as one hungry mass.",
+                defeatMessage:"The rats scatter!", loot:"rat tail", vulnerabilities:["fire"], type:"beast" },
+            giantSpider: { name:"Giant Spider", maxHP:40, currentHP:40, minDamage:5, maxDamage:9,
+                description:"A hairy arachnid the size of a horse. Its fangs drip venom.",
+                defeatMessage:"The spider curls up and dies.", loot:"spider silk",
+                vulnerabilities:["fire"], poisonAttack:true, poisonDamage:3, type:"beast" },
+            animatedArmor: { name:"Animated Armor", maxHP:35, currentHP:35, minDamage:4, maxDamage:8,
+                description:"An empty suit of armor that moves with jerky, unnatural motions.",
+                defeatMessage:"The armor clatters to the floor, inert.", loot:"steel sword",
+                vulnerabilities:["blunt"], resistances:["slash","pierce"], type:"construct" },
+            ghostCook: { name:"Ghost Cook", maxHP:25, currentHP:25, minDamage:3, maxDamage:6,
+                description:"The spectral form of the castle's chef. He still holds a cleaver.",
+                defeatMessage:"The ghost fades away.", loot:"ghostly essence",
+                vulnerabilities:["holy","fire"], ethereal:true, type:"undead" },
+            deathKnight: { name:"Death Knight", maxHP:60, currentHP:60, minDamage:7, maxDamage:12,
+                description:"A fallen paladin, corrupted by the necromancer's curse.",
+                defeatMessage:"The knight crumbles to dust.", loot:"cursed blade",
+                vulnerabilities:["holy"], type:"undead" },
+            harpy: { name:"Harpy", maxHP:30, currentHP:30, minDamage:4, maxDamage:7,
+                description:"A foul bird-woman with razor-sharp talons.",
+                defeatMessage:"The harpy plummets.", loot:"feather", vulnerabilities:["ranged"], flying:true, type:"beast" },
+            livingBooks: { name:"Living Books", maxHP:15, currentHP:15, minDamage:2, maxDamage:4,
+                description:"Animated tomes that flap and bite.",
+                defeatMessage:"The books lie still.", loot:"blank book", vulnerabilities:["fire"], type:"construct" },
+            starSpawn: { name:"Star Spawn", maxHP:45, currentHP:45, minDamage:6, maxDamage:10,
+                description:"An eldritch horror from beyond the stars. Its form hurts to look at.",
+                defeatMessage:"The creature unravels.", loot:"star chart",
+                vulnerabilities:["holy","light"], confusion:true, type:"eldritch" },
+            necromancer: { name:"Necromancer", maxHP:80, currentHP:80, minDamage:8, maxDamage:15,
+                description:"The source of the curse. Robes crackling with dark energy.",
+                defeatMessage:"The necromancer falls, his staff shattering.",
+                loot:"necromancer's staff", vulnerabilities:["holy"], boss:true, type:"humanoid" },
+            // NEW ENEMIES
+            caveTroll: { name:"Cave Troll", maxHP:65, currentHP:65, minDamage:7, maxDamage:13,
+                description:"A hulking, smelly troll with a stone club. It regenerates slowly.",
+                defeatMessage:"The troll roars and collapses.", loot:"troll tooth",
+                vulnerabilities:["fire"], resistances:["cold"], regeneration:3, type:"giant" },
+            gargoyle: { name:"Gargoyle", maxHP:45, currentHP:45, minDamage:5, maxDamage:10,
+                description:"A stone gargoyle that peels away from the wall, eyes glowing red.",
+                defeatMessage:"The gargoyle shatters into rubble.", loot:"gargoyle fragment",
+                vulnerabilities:["lightning"], resistances:["fire","cold"], type:"construct" },
+            venusFlytrap: { name:"Venus Flytrap", maxHP:30, currentHP:30, minDamage:4, maxDamage:8,
+                description:"A massive carnivorous plant with snapping jaws.",
+                defeatMessage:"The plant withers.", loot:"strange seed",
+                vulnerabilities:["fire"], type:"plant" },
+            alchemicalGolem: { name:"Alchemical Golem", maxHP:50, currentHP:50, minDamage:6, maxDamage:11,
+                description:"A crude construct of clay and metal, animated by alchemy.",
+                defeatMessage:"The golem crumbles.", loot:"strange powder",
+                vulnerabilities:["lightning"], resistances:["fire","cold"], type:"construct" }
+        };
+
+        // ==================== CRAFTING RECIPES (original only) ====================
+        const recipes = {
+            "health potion": { ingredients:["dried herbs","empty bottle"], result:"health potion", description:"Restores 20 HP" },
+            "antivenom": { ingredients:["spider silk","dried herbs"], result:"antivenom", description:"Cures poison" },
+            "holy water": { ingredients:["empty bottle","holy water font"], result:"holy water", description:"30 damage to undead" }
+        };
+
+        // ==================== DIALOGUE DATABASE (original + new) ====================
+        const dialogues = {
+            gatekeeper: {
+                firstGreeting: ["Gatekeeper: 'Hark, traveler. I am bound to these gates...'",
+                    "Gatekeeper: 'I lost my family dagger long ago, somewhere inside the castle.'",
+                    "Gatekeeper: 'If you find it, I would be eternally grateful.'",
+                    "He glances at the well in the courtyard. 'Perhaps you need something to reach it...'"],
+                afterQuest: ["Gatekeeper: 'My heirloom... at last! Thank you, brave soul.'",
+                    "He presses a cool vial into your hand. 'Take this health potion.'",
+                    "Gatekeeper: 'I can finally rest now. Farewell.'",
+                    "The gatekeeper smiles and slowly fades away."],
+                idle: ["Gatekeeper: 'Have you found my dagger?'",
+                    "Gatekeeper: 'The well in the courtyard... perhaps you need something to reach it.'",
+                    "Gatekeeper: 'I miss my family...'"]
+            },
+            woundedGuard: {
+                firstGreeting: ["Guard: 'Ugh... my leg. The rats got me.'",
+                    "Guard: 'I served here for twenty years. Never thought it would end like this.'",
+                    "Guard: 'If you can stop the bleeding, I might survive. Do you have bandages? Or herbs?'"],
+                healed: ["Guard: 'Ah, that's better. Thank you, friend.'",
+                    "Guard: 'Take this signet ring. It's been in my family for generations.'",
+                    "Guard: 'Maybe it'll bring you better luck than it brought me.'"],
+                idle: ["Guard: 'The pain is unbearable...'", "Guard: 'Please, help me...'"]
+            },
+            ratKing: {
+                firstEncounter: ["A massive rat wearing a tiny crown squeaks threateningly!",
+                    "Rat King: 'Squeak! This is MY kitchen! What you offer?'"],
+                bribed: ["Rat King: 'Squeak! Acceptable tribute. You may pass.'",
+                    "The rat king scurries aside, allowing you through."]
+            },
+            trappedMerchant: {
+                freed: ["Merchant: 'Bless you! I've been stuck in that barrel for hours!'",
+                    "Merchant: 'I'm a traveling trader. Name's Alric.'",
+                    "Merchant: 'I set up shop in the cellar sometimes. Stop by if you need supplies.'"]
+            },
+            archivist: {
+                firstMeeting: ["A bronze mechanical man whirs to life.",
+                    "Archivist: 'Greetings. I am the keeper of knowledge.'",
+                    "Archivist: 'I can identify unknown items for 10 gold pieces.'"],
+                idle: ["Archivist: 'Knowledge is power, traveler.'", "Archivist: 'Bring me rare books and I shall reward you.'"]
+            },
+            fatherThomas: {
+                firstGreeting: ["Father Thomas: 'This chapel was once a place of hope... now it's desecrated.'",
+                    "Father Thomas: 'If you can reconsecrate the altar with holy water, I may be able to bless you.'"],
+                afterQuest: ["Father Thomas: 'You've restored my faith. Thank you.'",
+                    "He raises his hand in blessing. You feel stronger!",
+                    "Father Thomas: 'May the light guide your path.'"]
+            },
+            queenGhost: {
+                firstGreeting: ["Queen's Ghost: 'You've come far, mortal.'",
+                    "Queen's Ghost: 'That necromancer stole my soul and bound it to this gem.'",
+                    "Queen's Ghost: 'Shatter the Soul Gem on the altar to destroy him permanently.'",
+                    "Queen's Ghost: 'Or... take his staff and claim his power. The choice is yours.'"],
+                endingGood: ["Queen's Ghost: 'Thank you. At last, I am free.'", "She ascends in a column of golden light, smiling peacefully."],
+                endingEvil: ["Queen's Ghost: 'No... what have you done? You're just like him!'", "She fades away, weeping."]
+            },
+            castleJester: {
+                greetings: ["Skeleton Jester: 'Rattle rattle! Why did the skeleton go to the party alone?'",
+                    "Skeleton Jester: '... He had no BODY to go with him! Ahaha!'",
+                    "He clatters his bones together in amusement."]
+            },
+            // NEW NPCs
+            lostExplorer: {
+                firstGreeting: ["A disheveled man with a lantern calls out: 'Help! I've been trapped down here for days!'",
+                    "Explorer: 'I was exploring these caverns when a troll blocked the way back.'",
+                    "Explorer: 'If you can clear the path, I'll reward you with my findings.'"],
+                afterRescue: ["Explorer: 'You did it! The troll is gone!'",
+                    "He hands you a pouch of gold and a rare crystal.",
+                    "Explorer: 'I'm heading back to town. Farewell, brave adventurer!'"]
+            },
+            ghostGardener: {
+                firstGreeting: ["A spectral gardener tends to phantom flowers.",
+                    "Ghost Gardener: 'Ah, a living soul. This garden was my pride.'",
+                    "Ghost Gardener: 'The fountain's water can bless items, but the vines are deadly.'",
+                    "Ghost Gardener: 'If you bring me a flower from the garden, I shall share a secret.'"],
+                afterQuest: ["Ghost Gardener: 'A flower! Thank you.'",
+                    "He fades slightly, pointing to a hidden alcove.",
+                    "Ghost Gardener: 'There lies a strange seed. Plant it in the garden for a blessing.'"]
+            }
+        };
+
+        // ==================== GAME STATE (original + new) ====================
+        const gameState = {
+            currentLocation: 'outsideGates',
+            visitedLocations: [],
+            gameEnded: false,
+            ending: null,
+            
+            // Original rooms
+            outsideGates: { gateLocked: true, gatekeeperTalked: false, gatekeeperGivenDagger: false },
+            courtyard: { bucketRetrieved: false, keyTaken: false },
+            entranceHall: { chestOpened: false },
+            guardhouse: { guardSaved: false, guardTalked: false, logRead: false },
+            armory: { doorUnlocked: false, oilUsed: false, lockpicksUsed: false },
+            kitchen: { ratKingBribed: false, cauldronMoved: false },
+            wineCellar: { merchantFreed: false, combinationRevealed: false },
+            chapel: { altarReconsecrated: false, fatherThomasTalked: false },
+            bellTower: { bellRungOnce: false, bellRungThrice: false, secretFound: false },
+            library: { archivistTalked: false, bookPuzzleSolved: false },
+            observatory: { telescopeAssembled: false, alignmentSolved: false },
+            throneRoom: { necromancerDefeated: false, soulGemShattered: false, staffTaken: false },
+            treasury: { visited: false },
+            
+            // NEW areas
+            undergroundCaverns: { trollDefeated: false, explorerRescued: false, cavernEntered: false },
+            rooftops: { gargoyleDefeated: false, nestLooted: false },
+            garden: { fountainBlessed: false, vineCleared: false, ghostGardenerTalked: false },
+            laboratory: { golemDefeated: false, notesRead: false }
+        };
+
+        // ==================== ROOM DEFINITIONS (original + new) ====================
+        const locations = {
+            // --- ORIGINAL ROOMS (13) ---
+            outsideGates: {
+                name: "OUTSIDE CASTLE GATES",
+                description: function() {
+                    let desc = "You stand before the ancient Castle of the Undead. Massive iron GATES, rusted and imposing, block the entrance to the north. ";
+                    if (!gameState.outsideGates.gatekeeperGivenDagger) desc += "A ghostly GATEKEEPER drifts near the gate. ";
+                    else desc += "The gatekeeper has faded away. ";
+                    desc += "To the east, a breach in the wall leads to the castle courtyard. ";
+                    if (this.items.includes('rope')) desc += "A frayed ROPE lies on the ground.";
+                    if (!gameState.outsideGates.gateLocked) desc += " The gates now stand open to the north.";
+                    return desc;
+                },
+                items: [], exits: { north: "entranceHall", east: "courtyard" }
+            },
+            courtyard: {
+                name: "COURTYARD",
+                description: function() {
+                    let desc = "You are in a small, overgrown courtyard. An old stone WELL stands in the center. ";
+                    if (!gameState.courtyard.bucketRetrieved) desc += "A bucket hangs at the bottom of the well, just out of reach. ";
+                    else desc += "The bucket now rests at the top of the well. ";
+                    if (this.items.includes('rusty key')) desc += "A RUSTY KEY lies at the bottom of the bucket.";
+                    desc += " To the west, the breach leads back to the castle gates.";
+                    return desc;
+                },
+                items: [], exits: { west: "outsideGates" }
+            },
+            entranceHall: {
+                name: "ENTRANCE HALL",
+                description: function() {
+                    let desc = "You enter the castle's entrance hall. Dust and cobwebs cover every surface. ";
+                    desc += "In the corner, you see a small wooden CHEST. ";
+                    if (!gameState.entranceHall.chestOpened) desc += "The chest is closed.";
+                    else desc += "The chest is open and empty.";
+                    desc += " The gate to the south leads back outside. A heavy wooden door to the north leads deeper into the castle.";
+                    return desc;
+                },
+                items: [], exits: { south: "outsideGates", north: "guardhouse" }
+            },
+            guardhouse: {
+                name: "GUARDHOUSE",
+                description: function() {
+                    let desc = "A small stone guardhouse where castle guards once kept watch. Arrow slits provide narrow views of the courtyard. ";
+                    if (!gameState.guardhouse.guardSaved) desc += "A WOUNDED GUARD lies on the floor, clutching his bleeding leg. ";
+                    else desc += "The guard rests peacefully against the wall. ";
+                    if (this.items.includes('torch')) desc += "A TORCH burns in a wall sconce. ";
+                    if (this.items.includes('shield')) desc += "A wooden SHIELD leans against the wall. ";
+                    if (this.items.includes("guard's log")) desc += "A leather-bound LOG sits on the desk. ";
+                    desc += "A spiral staircase leads UP, and a door leads NORTH to the armory.";
+                    return desc;
+                },
+                items: [], exits: { up: "bellTower", north: "armory", south: "entranceHall" }
+            },
+            armory: {
+                name: "ARMORY",
+                description: function() {
+                    let desc = "Racks of empty weapon stands. Broken swords litter the floor. ";
+                    if (!gameState.armory.doorUnlocked) desc += "A heavy steel door to the east is jammed shut. ";
+                    else desc += "The steel door to the east now stands open. ";
+                    if (this.items.includes('steel sword')) desc += "A STEEL SWORD lies on the floor. ";
+                    if (this.items.includes('chainmail')) desc += "A suit of CHAINMAIL hangs on a mannequin. ";
+                    if (this.items.includes('lockpicks')) desc += "LOCKPICKS glint from behind a loose stone. ";
+                    return desc;
+                },
+                items: [], exits: { south: "guardhouse", east: "kitchen" }
+            },
+            kitchen: {
+                name: "KITCHEN",
+                description: function() {
+                    let desc = "A massive hearth dominates the room. Long wooden tables are covered in dust. Pots hang from hooks on the ceiling. ";
+                    if (!gameState.kitchen.ratKingBribed) desc += "A gigantic rat wearing a tiny crown squeaks at you from atop the table! ";
+                    else desc += "The rat king has retreated. ";
+                    if (this.items.includes('cooking oil')) desc += "COOKING OIL sits on the counter. ";
+                    if (this.items.includes('cleaver')) desc += "A CLEAVER is stuck in a cutting board. ";
+                    if (this.items.includes('dried herbs')) desc += "DRIED HERBS hang from the ceiling. ";
+                    desc += "A door leads west back to the armory. Stairs lead DOWN to the wine cellar.";
+                    return desc;
+                },
+                items: [], exits: { west: "armory", down: "wineCellar" }
+            },
+            wineCellar: {
+                name: "WINE CELLAR",
+                description: function() {
+                    let desc = "A cool, dark chamber filled with aging barrels. Cobwebs drape every surface. Water drips somewhere. ";
+                    if (!gameState.wineCellar.merchantFreed) desc += "You hear muffled cries coming from inside one of the barrels! ";
+                    else desc += "The barrel that once trapped the merchant stands open and empty. ";
+                    if (this.items.includes('antique wine')) desc += "A bottle of ANTIQUE WINE rests on a rack. ";
+                    if (this.items.includes('cork')) desc += "A strange CORK lies on the floor. ";
+                    if (this.items.includes('empty bottle')) desc += "An EMPTY BOTTLE sits on a shelf. ";
+                    desc += "Stairs lead UP back to the kitchen. A dark passage leads DOWN to the underground caverns.";
+                    return desc;
+                },
+                items: [], exits: { up: "kitchen", down: "undergroundCaverns" }
+            },
+            chapel: {
+                name: "CHAPEL",
+                description: function() {
+                    let desc = "Stained glass windows depict saints and angels, though most are cracked. Pews are overturned. ";
+                    if (!gameState.chapel.altarReconsecrated) desc += "The altar has been desecrated with dark symbols. ";
+                    else desc += "The altar now glows with a faint, holy light. ";
+                    if (!gameState.chapel.fatherThomasTalked && !gameState.chapel.altarReconsecrated) desc += "The ghostly form of FATHER THOMAS kneels before the altar, weeping. ";
+                    else if (gameState.chapel.altarReconsecrated) desc += "Father Thomas's spirit has ascended. ";
+                    if (this.items.includes('holy water')) desc += "A vial of HOLY WATER rests in a font. ";
+                    if (this.items.includes('silver cross')) desc += "A SILVER CROSS lies on the floor. ";
+                    if (this.items.includes('prayer beads')) desc += "PRAYER BEADS hang from a pew. ";
+                    desc += "A door to the east leads to the bell tower staircase. A hidden door behind the altar leads to the GARDEN.";
+                    return desc;
+                },
+                items: [], exits: { east: "bellTower", garden: "garden" }
+            },
+            bellTower: {
+                name: "BELL TOWER",
+                description: function() {
+                    let desc = "A narrow spiral staircase ascends to the massive bronze BELL above. Wind howls through open arches. ";
+                    if (this.items.includes('heavy rope')) desc += "A coil of HEAVY ROPE lies near the bell. ";
+                    if (this.items.includes('earplugs')) desc += "EARPLUGS rest on the windowsill. ";
+                    if (this.items.includes('viewing lens')) desc += "A VIEWING LENS sits on a ledge. ";
+                    desc += "The chapel is below. A ladder leads UP to the bell mechanism. A precarious ledge leads to the ROOFTOPS.";
+                    return desc;
+                },
+                items: [], exits: { down: "chapel", up: "bellMechanism", rooftops: "rooftops" }
+            },
+            bellMechanism: {
+                name: "BELL MECHANISM",
+                description: function() {
+                    return "You stand beside the massive bronze bell. A rope hangs from the clapper. An inscription is carved into the bell's surface. You can RING the bell here.";
+                },
+                items: [], exits: { down: "bellTower" }
+            },
+            library: {
+                name: "LIBRARY",
+                description: function() {
+                    let desc = "A two-story chamber of knowledge. Ladders on rails run along towering bookshelves. ";
+                    if (!gameState.library.archivistTalked) desc += "A bronze mechanical man, the ARCHIVIST, stands motionless in the center of the room. ";
+                    else desc += "The Archivist whirs softly as you enter. ";
+                    if (this.items.includes('spell scroll: fireball')) desc += "A SPELL SCROLL glows on a lectern. ";
+                    if (this.items.includes('encyclopedia of undead')) desc += "An ENCYCLOPEDIA OF UNDEAD rests on a shelf. ";
+                    if (this.items.includes('blank book')) desc += "A BLANK BOOK lies open on a table. ";
+                    desc += "A hidden staircase leads to the OBSERVATORY. A bookcase slides aside to reveal a passage to the LABORATORY.";
+                    return desc;
+                },
+                items: [], exits: { down: "kitchen", up: "observatory", laboratory: "laboratory" }
+            },
+            observatory: {
+                name: "OBSERVATORY",
+                description: function() {
+                    let desc = "A brass TELESCOPE dominates the circular room. Star charts cover the walls. An intricate ORRERY stands in the corner. ";
+                    if (gameState.observatory.telescopeAssembled) desc += "The telescope is complete and functional. ";
+                    else desc += "The telescope is missing its lens. ";
+                    if (this.items.includes('star chart')) desc += "A STAR CHART is spread on a table. ";
+                    if (this.items.includes('telescope lens')) desc += "A TELESCOPE LENS rests on a velvet cushion. ";
+                    if (this.items.includes('astrolabe')) desc += "An ASTROLABE sits beside the orrery. ";
+                    desc += "A teleportation circle on the floor glows faintly.";
+                    return desc;
+                },
+                items: [], exits: { down: "library" }
+            },
+            throneRoom: {
+                name: "THRONE ROOM",
+                description: function() {
+                    let desc = "A grand chamber with an obsidian throne. Dark energy crackles through the air. ";
+                    if (!gameState.throneRoom.necromancerDefeated) desc += "The NECROMANCER stands before the throne, staff raised! ";
+                    else desc += "The necromancer's body lies broken on the floor. ";
+                    if (this.items.includes('royal crown')) desc += "The ROYAL CROWN rests on the throne. ";
+                    if (this.items.includes('soul gem')) desc += "A SOUL GEM pulses with trapped light on the altar. ";
+                    if (this.items.includes('necromancer\'s staff')) desc += "The NECROMANCER'S STAFF lies where it fell. ";
+                    desc += "A hidden door behind the throne leads to the treasury.";
+                    return desc;
+                },
+                items: [], exits: { down: "observatory", treasury: "treasury" }
+            },
+            treasury: {
+                name: "ROYAL TREASURY",
+                description: function() {
+                    let desc = "Mountains of gold, artifacts, and relics fill this vault. The wealth of a kingdom lies before you. ";
+                    if (this.items.includes('dragon\'s tooth dagger')) desc += "A DRAGON'S TOOTH DAGGER gleams in a display case. ";
+                    if (this.items.includes('cloak of shadows')) desc += "A CLOAK OF SHADOWS hangs on a mannequin. ";
+                    if (this.items.includes('amulet of life')) desc += "An AMULET OF LIFE pulses with warm energy. ";
+                    if (this.items.includes('orb of scrying')) desc += "An ORB OF SCRYING shows distant places. ";
+                    if (this.items.includes('bag of holding')) desc += "A BAG OF HOLDING sits open, its interior impossibly deep. ";
+                    desc += "A skeleton in jester's clothes rattles nearby.";
+                    return desc;
+                },
+                items: [], exits: { up: "throneRoom" }
+            },
+
+            // --- NEW AREAS (4) ---
+            undergroundCaverns: {
+                name: "UNDERGROUND CAVERNS",
+                description: function() {
+                    let desc = "Natural limestone caverns stretch into darkness. Stalactites hang like teeth. The air is damp and cold. ";
+                    if (!gameState.undergroundCaverns.trollDefeated) desc += "A massive CAVE TROLL blocks the path deeper in! ";
+                    else desc += "The troll's corpse lies in a heap, the way now clear. ";
+                    if (!gameState.undergroundCaverns.explorerRescued && gameState.undergroundCaverns.trollDefeated) desc += "A LOST EXPLORER is huddled behind a rock formation. ";
+                    if (this.items.includes('rare crystal')) desc += "A RARE CRYSTAL glitters on the ground. ";
+                    if (this.items.includes('old lantern')) desc += "An OLD LANTERN lies discarded. ";
+                    if (this.items.includes('mushroom')) desc += "Glowing MUSHROOMS grow on the walls. ";
+                    desc += "A passage leads UP to the wine cellar.";
+                    return desc;
+                },
+                items: [], exits: { up: "wineCellar" }
+            },
+            rooftops: {
+                name: "CASTLE ROOFTOPS",
+                description: function() {
+                    let desc = "You stand on the slate rooftops, wind whipping around you. Gargoyles leer from every corner. ";
+                    if (!gameState.rooftops.gargoyleDefeated) desc += "A GARGOYLE peels away from the stone and attacks! ";
+                    else desc += "The broken gargoyle lies in pieces. ";
+                    if (!gameState.rooftops.nestLooted && gameState.rooftops.gargoyleDefeated) desc += "A large NEST sits on a chimney, something gleaming inside. ";
+                    if (this.items.includes('gargoyle fragment')) desc += "A GARGOYLE FRAGMENT lies on the tiles. ";
+                    if (this.items.includes('iron key')) desc += "An IRON KEY glints in the sunlight. ";
+                    if (this.items.includes('bird nest')) desc += "A BIRD NEST is wedged in the gutter. ";
+                    desc += "A precarious path leads back DOWN to the bell tower.";
+                    return desc;
+                },
+                items: [], exits: { down: "bellTower" }
+            },
+            garden: {
+                name: "THE GARDEN",
+                description: function() {
+                    let desc = "A walled garden, once beautiful, now overgrown with thorny vines. A marble FOUNTAIN stands in the center. ";
+                    if (!gameState.garden.vineCleared) desc += "Thorn Vines block the path to the fountain. ";
+                    else desc += "The vines have been cleared, revealing the fountain. ";
+                    if (!gameState.garden.ghostGardenerTalked) desc += "A GHOST GARDENER tends to phantom flowers nearby. ";
+                    if (this.items.includes('strange seed')) desc += "A STRANGE SEED lies on the ground. ";
+                    if (this.items.includes('watering can')) desc += "A WATERING CAN rests by the fountain. ";
+                    if (this.items.includes('flower')) desc += "A beautiful FLOWER blooms. ";
+                    desc += "A hidden door leads back to the chapel.";
+                    return desc;
+                },
+                items: [], exits: { chapel: "chapel" }
+            },
+            laboratory: {
+                name: "ALCHEMICAL LABORATORY",
+                description: function() {
+                    let desc = "A secret chamber filled with bubbling alembics and dusty tomes. A workbench holds alchemical tools. ";
+                    if (!gameState.laboratory.golemDefeated) desc += "An ALCHEMICAL GOLEM lurches to life, blocking the exit! ";
+                    else desc += "The golem's remains are scattered across the floor. ";
+                    if (this.items.includes('empty flask')) desc += "An EMPTY FLASK sits on the bench. ";
+                    if (this.items.includes('research notes')) desc += "RESEARCH NOTES detail the necromancer's experiments. ";
+                    if (this.items.includes('strange powder')) desc += "A pile of STRANGE POWDER glitters. ";
+                    desc += "A bookcase slides back to reveal the library.";
+                    return desc;
+                },
+                items: [], exits: { library: "library" }
+            }
+        };
+
+        // ==================== OBJECT DESCRIPTIONS (original + new) ====================
+        const objectDescriptions = {
+            // Original (abridged but present)
+            "rope":"A sturdy, frayed rope. It looks strong enough to hold a man's weight.",
+            "rusty key":"An old iron key, covered in rust. It might fit a gate or a chest.",
+            "gate":"Massive iron gates, sealed tight. They need a key to open.",
+            "well":"A deep stone well. A bucket hangs at the bottom, just beyond your reach.",
+            "chest":"A small wooden chest reinforced with iron bands. It's locked.",
+            "bucket":"An old metal bucket. It's at the bottom of the well.",
+            "breach":"A gap in the wall, just wide enough to slip through. It leads east to the courtyard.",
+            "dagger":"A sharp, well‑balanced dagger. A fine weapon. Damage: 3-6.",
+            "health potion":"A crimson liquid in a small vial. Restores 20 HP when used.",
+            "gatekeeper":"A translucent, sorrowful spirit. He was once the castle's gatekeeper.",
+            // New items
+            "rare crystal":"A beautiful, glowing crystal. It might be worth a lot.",
+            "old lantern":"A rusty lantern with no oil. Could be refilled.",
+            "mushroom":"A glowing mushroom. Edible?",
+            "gargoyle fragment":"A piece of a shattered gargoyle. Might be useful for crafting.",
+            "iron key":"A sturdy iron key. It looks important.",
+            "bird nest":"A nest made of twigs and feathers. Something might be hidden inside.",
+            "strange seed":"A pulsating seed. It feels warm to the touch.",
+            "watering can":"A rusty watering can. It could hold water.",
+            "flower":"A beautiful, fragrant flower.",
+            "empty flask":"A glass flask, empty and clean.",
+            "research notes":"Handwritten notes about alchemical experiments.",
+            "strange powder":"A fine, glittering powder. It smells of ozone."
+        };
+
+        // ==================== UI FUNCTIONS ====================
+        const gameOutput = document.getElementById('game-output');
+        const gameInput = document.getElementById('game-input');
+
+        function addToOutput(text, className = '') {
+            const p = document.createElement('p');
+            p.textContent = text;
+            if (className) p.className = className;
+            gameOutput.appendChild(p);
+            gameOutput.scrollTop = gameOutput.scrollHeight;
+        }
+
+        function updateStatus() {
+            document.getElementById('player-hp-text').textContent = `${player.currentHP}/${player.maxHP}`;
+            document.getElementById('player-health-fill').style.width = `${(player.currentHP/player.maxHP)*100}%`;
+            document.getElementById('player-gold').textContent = player.gold;
+            document.getElementById('player-weapon').textContent = `${player.weapon.name} (${player.weapon.minDamage}-${player.weapon.maxDamage})`;
+            document.getElementById('player-armor').textContent = player.armor ? player.armor.name : "None";
+            document.getElementById('player-weight').textContent = `${player.currentWeight()}/${player.maxWeight}`;
+            saveGame();
+        }
+
+        // ==================== SAVE / LOAD ====================
+        function saveGame() {
+            const roomItems = {};
+            for (let r in locations) roomItems[r] = [...(locations[r].items || [])];
+            const saveData = {
+                player: { maxHP:player.maxHP, currentHP:player.currentHP, gold:player.gold,
+                    inventory:[...player.inventory], weapon:{...player.weapon},
+                    armor:player.armor?{...player.armor}:null, maxWeight:player.maxWeight,
+                    blessings:[...player.blessings], poisonTurns:player.poisonTurns },
+                gameState: JSON.parse(JSON.stringify(gameState)),
+                roomItems: roomItems
+            };
+            localStorage.setItem(SAVE_KEY, JSON.stringify(saveData));
+        }
+
+        function loadGame() {
+            const saved = localStorage.getItem(SAVE_KEY);
+            if (!saved) return false;
+            try {
+                const d = JSON.parse(saved);
+                Object.assign(player, d.player);
+                Object.assign(gameState, d.gameState);
+                for (let r in d.roomItems) if (locations[r]) locations[r].items = d.roomItems[r];
+                return true;
+            } catch(e) { return false; }
+        }
+
+        function clearSave() { localStorage.removeItem(SAVE_KEY); }
+
+        function resetToDefaults() {
+            for (let r in DEFAULT_ROOM_ITEMS) if (locations[r]) locations[r].items = [...DEFAULT_ROOM_ITEMS[r]];
+            player.maxHP=100; player.currentHP=100; player.gold=0; player.inventory=[];
+            player.weapon={name:"Fists",minDamage:1,maxDamage:2,type:"blunt"};
+            player.armor=null; player.maxWeight=30; player.blessings=[]; player.poisonTurns=0;
+            gameState.currentLocation='outsideGates'; gameState.visitedLocations=['outsideGates'];
+            gameState.gameEnded=false; gameState.ending=null;
+            // Reset all states (original + new)
+            gameState.outsideGates={gateLocked:true,gatekeeperTalked:false,gatekeeperGivenDagger:false};
+            gameState.courtyard={bucketRetrieved:false,keyTaken:false};
+            gameState.entranceHall={chestOpened:false};
+            gameState.guardhouse={guardSaved:false,guardTalked:false,logRead:false};
+            gameState.armory={doorUnlocked:false,oilUsed:false,lockpicksUsed:false};
+            gameState.kitchen={ratKingBribed:false,cauldronMoved:false};
+            gameState.wineCellar={merchantFreed:false,combinationRevealed:false};
+            gameState.chapel={altarReconsecrated:false,fatherThomasTalked:false};
+            gameState.bellTower={bellRungOnce:false,bellRungThrice:false,secretFound:false};
+            gameState.library={archivistTalked:false,bookPuzzleSolved:false};
+            gameState.observatory={telescopeAssembled:false,alignmentSolved:false};
+            gameState.throneRoom={necromancerDefeated:false,soulGemShattered:false,staffTaken:false};
+            gameState.treasury={visited:false};
+            gameState.undergroundCaverns={trollDefeated:false,explorerRescued:false,cavernEntered:false};
+            gameState.rooftops={gargoyleDefeated:false,nestLooted:false};
+            gameState.garden={fountainBlessed:false,vineCleared:false,ghostGardenerTalked:false};
+            gameState.laboratory={golemDefeated:false,notesRead:false};
+        }
+
+        // ==================== SHOW LOCATION ====================
+        function showLocation() {
+            const loc = locations[gameState.currentLocation];
+            addToOutput(loc.name, "location");
+            addToOutput(loc.description());
+            const exits = Object.keys(loc.exits).filter(e => loc.exits[e]!==null);
+            if (exits.length) addToOutput("Exits: " + exits.map(e=>e.toUpperCase()).join(", "));
+        }
+
+        // ==================== COMMAND PARSING ====================
+        const commands = {
+            'north':'north','n':'north','south':'south','s':'south',
+            'east':'east','e':'east','west':'west','w':'west',
+            'up':'up','u':'up','down':'down','d':'down',
+            'look':'look','l':'look','inventory':'inventory','i':'inventory',
+            'take':'take','get':'take','grab':'take','drop':'drop',
+            'examine':'examine','x':'examine','use':'use','open':'open',
+            'talk':'talk','speak':'talk','give':'give','equip':'equip',
+            'unequip':'unequip','craft':'craft','read':'read','ring':'ring',
+            'attack':'attack','fight':'attack','kill':'attack','save':'save',
+            'load':'load','restart':'restart','help':'help','h':'help',
+            'quit':'quit','q':'quit'
+        };
+
+        // ==================== MOVEMENT ====================
+        function movePlayer(direction) {
+            // Special non‑cardinal exits (garden, laboratory, rooftops, treasury)
+            if (direction==='garden'||direction==='laboratory'||direction==='rooftops'||direction==='treasury') {
+                const loc = locations[gameState.currentLocation];
+                const target = loc.exits[direction];
+                if (!target) { addToOutput(`You can't go ${direction}.`); return; }
+                gameState.currentLocation = target;
+                if (!gameState.visitedLocations.includes(target)) gameState.visitedLocations.push(target);
+                addToOutput(`You go ${direction}.`);
+                showLocation();
+                checkForEnemy();
+                return;
+            }
+            
+            const loc = locations[gameState.currentLocation];
+            const target = loc.exits[direction];
+            if (!target) { addToOutput(`You can't go ${direction}.`); return; }
+            
+            // Blocked paths
+            if (gameState.currentLocation==='outsideGates' && direction==='north' && gameState.outsideGates.gateLocked) {
+                addToOutput("The massive iron gates are firmly locked."); return;
+            }
+            if (gameState.currentLocation==='armory' && direction==='east' && !gameState.armory.doorUnlocked) {
+                addToOutput("The steel door is jammed shut. You'll need to oil it or pick the lock."); return;
+            }
+            if (gameState.currentLocation==='library' && direction==='up' && !gameState.library.bookPuzzleSolved) {
+                addToOutput("The staircase to the observatory is magically concealed. You need to solve the book puzzle."); return;
+            }
+            if (gameState.currentLocation==='observatory' && direction==='down' && !gameState.observatory.alignmentSolved) {
+                addToOutput("The teleportation circle is inactive. You need to align the orrery first."); return;
+            }
+            if (gameState.currentLocation==='chapel' && direction==='garden' && !gameState.chapel.altarReconsecrated) {
+                addToOutput("The hidden door behind the altar is magically sealed until the altar is reconsecrated."); return;
+            }
+            if (gameState.currentLocation==='library' && direction==='laboratory' && !gameState.library.bookPuzzleSolved) {
+                addToOutput("The bookcase doesn't move. Perhaps you need to arrange the books correctly."); return;
+            }
+            if (gameState.currentLocation==='bellTower' && direction==='rooftops' && !gameState.bellTower.bellRungThrice) {
+                addToOutput("The ledge is too treacherous. Ringing the bell three times might reveal a safer path."); return;
+            }
+            
+            gameState.currentLocation = target;
+            if (!gameState.visitedLocations.includes(target)) gameState.visitedLocations.push(target);
+            addToOutput(`You go ${direction}.`);
+            showLocation();
+            checkForEnemy();
+        }
+
+        // ==================== COMBAT SYSTEM ====================
+        let combatActive = false;
+        let currentEnemy = null;
+        let combatTurn = 0;
+
+        function checkForEnemy() {
+            const roomEnemies = {
+                guardhouse:"ratSwarm", armory:"animatedArmor", kitchen:"ghostCook",
+                wineCellar:"giantSpider", chapel:"deathKnight", bellTower:"harpy",
+                library:"livingBooks", observatory:"starSpawn",
+                throneRoom: gameState.throneRoom.necromancerDefeated ? null : "necromancer",
+                undergroundCaverns: gameState.undergroundCaverns.trollDefeated ? null : "caveTroll",
+                rooftops: gameState.rooftops.gargoyleDefeated ? null : "gargoyle",
+                garden: gameState.garden.vineCleared ? null : "venusFlytrap",
+                laboratory: gameState.laboratory.golemDefeated ? null : "alchemicalGolem"
+            };
+            const enemyKey = roomEnemies[gameState.currentLocation];
+            if (enemyKey && !combatActive) startCombat(enemyKey);
+        }
+
+        function startCombat(enemyType) {
+            currentEnemy = JSON.parse(JSON.stringify(enemies[enemyType]));
+            combatActive = true; combatTurn = 0;
+            addToOutput(`\nA ${currentEnemy.name} appears!`, "combat");
+            addToOutput(currentEnemy.description, "combat");
+            addToOutput("COMBAT STARTED! Use ATTACK or cast spells!", "combat");
+            addToOutput(`Your HP: ${player.currentHP}/${player.maxHP} | ${currentEnemy.name} HP: ${currentEnemy.currentHP}/${currentEnemy.maxHP}`, "combat");
+        }
+
+        function playerAttack() {
+            if (!combatActive || !currentEnemy) { addToOutput("Nothing to attack."); return; }
+            combatTurn++;
+            let dmg = Math.floor(Math.random()*(player.weapon.maxDamage-player.weapon.minDamage+1))+player.weapon.minDamage;
+            let crit = 0.1 + (player.weapon.crit||0);
+            if (Math.random()<crit) { dmg*=2; addToOutput("CRITICAL HIT!","combat"); }
+            if (currentEnemy.vulnerabilities?.includes(player.weapon.type)) { dmg=Math.floor(dmg*1.5); addToOutput("Vulnerable!","combat"); }
+            if (currentEnemy.resistances?.includes(player.weapon.type)) { dmg=Math.floor(dmg/2); addToOutput("Resisted.","combat"); }
+            if (currentEnemy.ethereal && Math.random()<0.5) { dmg=0; addToOutput("Passes through!","combat"); }
+            if (currentEnemy.flying && Math.random()<0.3) { dmg=0; addToOutput("Dodges!","combat"); }
+            currentEnemy.currentHP = Math.max(0, currentEnemy.currentHP - dmg);
+            addToOutput(`You deal ${dmg} damage!`, "player");
+            addToOutput(`${currentEnemy.name} HP: ${currentEnemy.currentHP}/${currentEnemy.maxHP}`, "damage");
+            if (player.weapon.onHit && dmg>0) player.weapon.onHit(currentEnemy);
+            if (currentEnemy.currentHP <= 0) { endCombat(true); return; }
+            enemyAttack();
+            updateStatus();
+        }
+
+        function enemyAttack() {
+            let dmg = Math.floor(Math.random()*(currentEnemy.maxDamage-currentEnemy.minDamage+1))+currentEnemy.minDamage;
+            if (player.armor?.damageReduction) dmg = Math.max(1, dmg - player.armor.damageReduction);
+            if (player.blessings.includes('light') && Math.random()<0.1) dmg = 0;
+            if (player.inventory.includes('cloak of shadows') && Math.random()<0.25) dmg = 0;
+            player.currentHP = Math.max(0, player.currentHP - dmg);
+            addToOutput(`${currentEnemy.name} attacks for ${dmg} damage!`, "enemy");
+            addToOutput(`Your HP: ${player.currentHP}/${player.maxHP}`, "health");
+            if (currentEnemy.poisonAttack && Math.random()<0.3) { player.poisonTurns += 3; addToOutput("Poisoned!","damage"); }
+            if (currentEnemy.regeneration && currentEnemy.currentHP<currentEnemy.maxHP) {
+                currentEnemy.currentHP = Math.min(currentEnemy.maxHP, currentEnemy.currentHP + currentEnemy.regeneration);
+                addToOutput(`The ${currentEnemy.name} regenerates!`, "combat");
+            }
+            if (player.currentHP <= 0) endCombat(false);
+            if (player.inventory.includes('amulet of life') && player.currentHP<player.maxHP) {
+                player.currentHP = Math.min(player.maxHP, player.currentHP+1);
+                addToOutput("Amulet of Life restores 1 HP.","health");
+            }
+        }
+
+        function endCombat(playerWon) {
+            if (playerWon) {
+                addToOutput(currentEnemy.defeatMessage, "victory");
+                if (currentEnemy.loot) { player.inventory.push(currentEnemy.loot); addToOutput(`Found a ${currentEnemy.loot}!`,"item"); }
+                player.gold += Math.floor(Math.random()*20)+15;
+                addToOutput(`Found ${player.gold} gold.`,"gold");
+                // Set defeat flags
+                if (currentEnemy.name==="Cave Troll") gameState.undergroundCaverns.trollDefeated = true;
+                if (currentEnemy.name==="Gargoyle") gameState.rooftops.gargoyleDefeated = true;
+                if (currentEnemy.name==="Venus Flytrap") gameState.garden.vineCleared = true;
+                if (currentEnemy.name==="Alchemical Golem") gameState.laboratory.golemDefeated = true;
+                if (currentEnemy.name==="Necromancer") gameState.throneRoom.necromancerDefeated = true;
+            } else {
+                addToOutput("You have been defeated! GAME OVER - Type RESTART.","defeat");
+                gameState.gameEnded = true;
+            }
+            combatActive = false; currentEnemy = null;
+            updateStatus();
+        }
+
+        // ==================== TAKE / DROP ====================
+        function takeItem(itemName) {
+            if (!itemName) { addToOutput("Take what?"); return; }
+            const loc = locations[gameState.currentLocation];
+            const found = loc.items.find(i => i.toLowerCase().includes(itemName.toLowerCase()));
+            if (!found) { addToOutput(`I don't see a ${itemName} here.`); return; }
+            let w = itemWeights[found]||1;
+            if (player.currentWeight()+w > player.maxWeight) { addToOutput("Too heavy. Drop something first.","hint"); return; }
+            loc.items.splice(loc.items.indexOf(found),1);
+            player.inventory.push(found);
+            addToOutput(`You take the ${found}.`);
+            if (found==="bag of holding") { player.maxWeight += 50; addToOutput("Bag of Holding expands capacity!","victory"); }
+            updateStatus();
+        }
+
+        function dropItem(itemName) {
+            if (!itemName) { addToOutput("Drop what?"); return; }
+            const found = player.inventory.find(i => i.toLowerCase().includes(itemName.toLowerCase()));
+            if (!found) { addToOutput(`You're not carrying a ${itemName}.`); return; }
+            player.inventory.splice(player.inventory.indexOf(found),1);
+            locations[gameState.currentLocation].items.push(found);
+            addToOutput(`You drop the ${found}.`);
+            if (found==="bag of holding") { player.maxWeight -= 50; addToOutput("Bag of Holding removed.","hint"); }
+            updateStatus();
+        }
+
+        // ==================== EXAMINE ====================
+        function examineObject(objName) {
+            if (!objName) { addToOutput("Examine what?"); return; }
+            const o = objName.toLowerCase();
+            const inv = player.inventory.find(i => i.toLowerCase().includes(o));
+            if (inv) { addToOutput(objectDescriptions[inv]||`You see nothing special about the ${inv}.`); return; }
+            const roomItem = locations[gameState.currentLocation].items.find(i => i.toLowerCase().includes(o));
+            if (roomItem) { addToOutput(objectDescriptions[roomItem]||`You see a ${roomItem}.`); return; }
+            // Room-specific
+            if (gameState.currentLocation==='outsideGates') {
+                if (o.includes('gatekeeper')||o.includes('spirit')) { addToOutput(objectDescriptions['gatekeeper']); return; }
+                if (o.includes('gate')) { addToOutput(objectDescriptions['gate']); return; }
+                if (o.includes('breach')) { addToOutput(objectDescriptions['breach']); return; }
+            }
+            if (gameState.currentLocation==='courtyard') {
+                if (o.includes('well')) { addToOutput(objectDescriptions['well']); return; }
+                if (o.includes('bucket')) { addToOutput(gameState.courtyard.bucketRetrieved?"The bucket is at the top.":"The bucket hangs at the bottom."); return; }
+            }
+            if (gameState.currentLocation==='entranceHall' && o.includes('chest')) { addToOutput(objectDescriptions['chest']); return; }
+            // Add more room‑specific as needed; for brevity, fallback:
+            addToOutput(`You don't see a ${objName} here.`);
+        }
+
+        // ==================== USE ====================
+        function useItemOnTarget(item, target) {
+            const i = item.toLowerCase(), t = target.toLowerCase();
+            // Original uses (keep all)
+            if (i.includes('rope') && t.includes('well') && gameState.currentLocation==='courtyard' && player.inventory.includes('rope') && !gameState.courtyard.bucketRetrieved) {
+                player.inventory.splice(player.inventory.indexOf('rope'),1);
+                gameState.courtyard.bucketRetrieved = true;
+                locations.courtyard.items.push('rusty key');
+                addToOutput("You retrieve the bucket and find a RUSTY KEY!","victory");
+                updateStatus(); return;
+            }
+            if (i.includes('rusty key') && t.includes('gate') && gameState.currentLocation==='outsideGates' && player.inventory.includes('rusty key') && gameState.outsideGates.gateLocked) {
+                gameState.outsideGates.gateLocked = false;
+                addToOutput("The gates swing open!","victory");
+                updateStatus(); return;
+            }
+            if (i.includes('rusty key') && t.includes('chest') && gameState.currentLocation==='entranceHall' && player.inventory.includes('rusty key') && !gameState.entranceHall.chestOpened) {
+                gameState.entranceHall.chestOpened = true;
+                player.inventory.push("dagger"); player.gold += 50;
+                addToOutput("Chest opened! You find a DAGGER and 50 gold!","victory");
+                updateStatus(); return;
+            }
+            if (i.includes('oil') && t.includes('door') && gameState.currentLocation==='armory' && player.inventory.includes('cooking oil') && !gameState.armory.doorUnlocked) {
+                player.inventory.splice(player.inventory.indexOf('cooking oil'),1);
+                gameState.armory.doorUnlocked = true;
+                addToOutput("You oil the hinges; the door swings open!","victory");
+                updateStatus(); return;
+            }
+            if (i.includes('lockpicks') && t.includes('door') && gameState.currentLocation==='armory' && player.inventory.includes('lockpicks') && !gameState.armory.doorUnlocked) {
+                gameState.armory.doorUnlocked = true;
+                addToOutput("You pick the lock; the door swings open!","victory");
+                updateStatus(); return;
+            }
+            if (i.includes('heavy rope') && t.includes('well') && gameState.currentLocation==='courtyard' && player.inventory.includes('heavy rope') && !gameState.courtyard.bucketRetrieved) {
+                player.inventory.splice(player.inventory.indexOf('heavy rope'),1);
+                gameState.courtyard.bucketRetrieved = true;
+                locations.courtyard.items.push('rusty key');
+                addToOutput("You climb down and find the RUSTY KEY!","victory");
+                updateStatus(); return;
+            }
+            if (i.includes('silver key') && t.includes('chest') && gameState.currentLocation==='entranceHall' && player.inventory.includes('silver key') && !gameState.entranceHall.chestOpened) {
+                gameState.entranceHall.chestOpened = true;
+                player.inventory.push("masterwork dagger"); player.gold += 75;
+                addToOutput("Chest opened! You find a MASTERWORK DAGGER and 75 gold!","victory");
+                updateStatus(); return;
+            }
+            if (i.includes('holy water') && t.includes('altar') && gameState.currentLocation==='chapel' && player.inventory.includes('holy water') && !gameState.chapel.altarReconsecrated) {
+                player.inventory.splice(player.inventory.indexOf('holy water'),1);
+                gameState.chapel.altarReconsecrated = true;
+                addToOutput("The altar is reconsecrated! Father Thomas blesses you. Max HP +20.","victory");
+                player.maxHP += 20; player.currentHP += 20; player.blessings.push('light');
+                updateStatus(); return;
+            }
+            if (i.includes('lens') && t.includes('telescope') && gameState.currentLocation==='observatory' && (player.inventory.includes('viewing lens')||player.inventory.includes('telescope lens')) && !gameState.observatory.telescopeAssembled) {
+                let lens = player.inventory.includes('telescope lens')?'telescope lens':'viewing lens';
+                player.inventory.splice(player.inventory.indexOf(lens),1);
+                gameState.observatory.telescopeAssembled = true;
+                addToOutput("You attach the lens to the telescope.","victory");
+                updateStatus(); return;
+            }
+            if (i.includes('soul gem') && t.includes('altar') && gameState.currentLocation==='throneRoom' && player.inventory.includes('soul gem') && gameState.throneRoom.necromancerDefeated) {
+                player.inventory.splice(player.inventory.indexOf('soul gem'),1);
+                gameState.throneRoom.soulGemShattered = true;
+                addToOutput("You shatter the Soul Gem! The souls are freed. GOOD ENDING.","victory");
+                gameState.ending='good'; gameState.gameEnded=true; return;
+            }
+            if (i.includes('staff') && t.includes('throne') && gameState.currentLocation==='throneRoom' && player.inventory.includes('necromancer\'s staff') && gameState.throneRoom.necromancerDefeated) {
+                gameState.throneRoom.staffTaken = true;
+                addToOutput("You take the throne and become the new dark lord. EVIL ENDING.","defeat");
+                gameState.ending='evil'; gameState.gameEnded=true; return;
+            }
+            if (i.includes('health potion')) {
+                let idx = player.inventory.findIndex(x=>x.toLowerCase().includes('health potion'));
+                if (idx===-1) return;
+                player.inventory.splice(idx,1);
+                player.currentHP = Math.min(player.maxHP, player.currentHP+20);
+                addToOutput("You drink the health potion. +20 HP.","health");
+                updateStatus(); return;
+            }
+            if (i.includes('antivenom')) {
+                if (player.poisonTurns<=0) { addToOutput("You're not poisoned."); return; }
+                let idx = player.inventory.findIndex(x=>x.toLowerCase().includes('antivenom'));
+                if (idx===-1) return;
+                player.inventory.splice(idx,1);
+                player.poisonTurns = 0;
+                addToOutput("You drink the antivenom. Poison cured.","health");
+                updateStatus(); return;
+            }
+            // New area uses (simple)
+            if (i.includes('old lantern') && t.includes('fountain') && gameState.currentLocation==='garden' && player.inventory.includes('old lantern')) {
+                // Fill lantern with water (just for fun)
+                addToOutput("You fill the lantern with fountain water. It glows softly.","item");
+                // Could create a new item, but for simplicity, just flavor
+                return;
+            }
+            if (i.includes('watering can') && t.includes('strange seed') && gameState.currentLocation==='garden' && player.inventory.includes('watering can') && player.inventory.includes('strange seed')) {
+                // Plant seed
+                player.inventory.splice(player.inventory.indexOf('strange seed'),1);
+                addToOutput("You plant the seed and water it. A beautiful flower blooms! You pick it.","item");
+                player.inventory.push('flower');
+                updateStatus(); return;
+            }
+            if (i.includes('iron key') && t.includes('chest') && gameState.currentLocation==='treasury' && player.inventory.includes('iron key')) {
+                // Maybe open something in treasury? For now, flavor
+                addToOutput("The key doesn't fit any chest here.");
+                return;
+            }
+            // Fallback
+            addToOutput(`You can't use the ${item} on the ${target} here.`);
+        }
+
+        function useItem(itemName) {
+            if (!itemName) { addToOutput("Use what?"); return; }
+            const found = player.inventory.find(i => i.toLowerCase().includes(itemName.toLowerCase()));
+            if (!found) { addToOutput(`You don't have a ${itemName}.`); return; }
+            useItemOnTarget(found, "");
+        }
+
+        // ==================== CRAFT ====================
+        function craftItem(recipeName) {
+            if (!recipeName) { addToOutput("Craft what?"); return; }
+            const recipeKey = Object.keys(recipes).find(r => r.toLowerCase().includes(recipeName.toLowerCase()));
+            if (!recipeKey) { addToOutput("You don't know how to craft that."); return; }
+            const recipe = recipes[recipeKey];
+            if (!recipe.ingredients.every(ing => player.inventory.includes(ing) || (ing==="holy water font" && gameState.currentLocation==="chapel" && gameState.chapel.altarReconsecrated))) {
+                addToOutput("Missing ingredients."); return;
+            }
+            recipe.ingredients.forEach(ing => { if (ing!=="holy water font") { let idx = player.inventory.indexOf(ing); if (idx>-1) player.inventory.splice(idx,1); } });
+            player.inventory.push(recipe.result);
+            addToOutput(`You craft a ${recipe.result}! ${recipe.description}`,"item");
+            updateStatus();
+        }
+
+        // ==================== READ ====================
+        function readObject(objName) {
+            if (!objName) { addToOutput("Read what?"); return; }
+            const o = objName.toLowerCase();
+            if (o.includes('spell scroll') && player.inventory.includes('spell scroll: fireball')) {
+                player.inventory.splice(player.inventory.indexOf('spell scroll: fireball'),1);
+                addToOutput("You read the scroll and learn Fireball! (Not implemented)","magic");
+                return;
+            }
+            if (o.includes('encyclopedia') && player.inventory.includes('encyclopedia of undead')) {
+                addToOutput("The encyclopedia reveals: Death Knights are vulnerable to holy; Ghosts resist physical; Spiders fear fire.","hint");
+                return;
+            }
+            if (o.includes('research notes') && player.inventory.includes('research notes')) {
+                addToOutput("The notes describe experiments with the Soul Gem. Shatter it on the altar to defeat the necromancer forever.");
+                return;
+            }
+            addToOutput("Nothing to read.");
+        }
+
+        // ==================== RING ====================
+        function ringBell() {
+            if (gameState.currentLocation !== 'bellMechanism') { addToOutput("No bell here."); return; }
+            if (!gameState.bellTower.bellRungOnce) {
+                gameState.bellTower.bellRungOnce = true;
+                addToOutput("The bell tolls once. Echoes fade.");
+            } else if (!gameState.bellTower.bellRungThrice) {
+                gameState.bellTower.bellRungThrice = true;
+                addToOutput("You ring the bell three times. The vibrations reveal a path to the rooftops!");
+            } else {
+                addToOutput("The bell rings, but nothing happens.");
+            }
+        }
+
+        // ==================== TALK ====================
+        function talkTo(npcName) {
+            if (!npcName) { addToOutput("Talk to who?"); return; }
+            const n = npcName.toLowerCase();
+            if (gameState.currentLocation==='outsideGates' && (n.includes('gatekeeper')||n.includes('spirit')) && !gameState.outsideGates.gatekeeperGivenDagger) {
+                if (!gameState.outsideGates.gatekeeperTalked) {
+                    gameState.outsideGates.gatekeeperTalked = true;
+                    dialogues.gatekeeper.firstGreeting.forEach(l=>addToOutput(l,"npc"));
+                } else {
+                    addToOutput(dialogues.gatekeeper.idle[Math.floor(Math.random()*dialogues.gatekeeper.idle.length)],"npc");
+                }
+                return;
+            }
+            if (gameState.currentLocation==='guardhouse' && (n.includes('guard')||n.includes('wounded')) && !gameState.guardhouse.guardSaved) {
+                if (!gameState.guardhouse.guardTalked) {
+                    gameState.guardhouse.guardTalked = true;
+                    dialogues.woundedGuard.firstGreeting.forEach(l=>addToOutput(l,"npc"));
+                } else {
+                    addToOutput(dialogues.woundedGuard.idle[Math.floor(Math.random()*dialogues.woundedGuard.idle.length)],"npc");
+                }
+                return;
+            }
+            if (gameState.currentLocation==='kitchen' && (n.includes('rat king')||n.includes('rat')) && !gameState.kitchen.ratKingBribed) {
+                dialogues.ratKing.firstEncounter.forEach(l=>addToOutput(l,"npc"));
+                return;
+            }
+            if (gameState.currentLocation==='wineCellar' && n.includes('merchant') && !gameState.wineCellar.merchantFreed) {
+                addToOutput("The merchant is trapped inside the barrel. You need to free him first.","hint");
+                return;
+            }
+            if (gameState.currentLocation==='chapel' && (n.includes('father')||n.includes('thomas')) && !gameState.chapel.altarReconsecrated) {
+                if (!gameState.chapel.fatherThomasTalked) {
+                    gameState.chapel.fatherThomasTalked = true;
+                    dialogues.fatherThomas.firstGreeting.forEach(l=>addToOutput(l,"npc"));
+                } else {
+                    addToOutput("Father Thomas: 'Please, cleanse the altar.'","npc");
+                }
+                return;
+            }
+            if (gameState.currentLocation==='library' && (n.includes('archivist')||n.includes('bronze'))) {
+                if (!gameState.library.archivistTalked) {
+                    gameState.library.archivistTalked = true;
+                    dialogues.archivist.firstMeeting.forEach(l=>addToOutput(l,"npc"));
+                } else {
+                    addToOutput(dialogues.archivist.idle[Math.floor(Math.random()*dialogues.archivist.idle.length)],"npc");
+                }
+                return;
+            }
+            if (gameState.currentLocation==='throneRoom' && (n.includes('queen')||n.includes('ghost')) && gameState.throneRoom.necromancerDefeated && !gameState.throneRoom.soulGemShattered && !gameState.throneRoom.staffTaken) {
+                dialogues.queenGhost.firstGreeting.forEach(l=>addToOutput(l,"npc"));
+                return;
+            }
+            if (gameState.currentLocation==='treasury' && (n.includes('jester')||n.includes('skeleton'))) {
+                dialogues.castleJester.greetings.forEach(l=>addToOutput(l,"npc"));
+                return;
+            }
+            // New NPCs
+            if (gameState.currentLocation==='undergroundCaverns' && n.includes('explorer') && gameState.undergroundCaverns.trollDefeated && !gameState.undergroundCaverns.explorerRescued) {
+                dialogues.lostExplorer.firstGreeting.forEach(l=>addToOutput(l,"npc"));
+                return;
+            }
+            if (gameState.currentLocation==='garden' && n.includes('gardener') && !gameState.garden.ghostGardenerTalked) {
+                gameState.garden.ghostGardenerTalked = true;
+                dialogues.ghostGardener.firstGreeting.forEach(l=>addToOutput(l,"npc"));
+                return;
+            }
+            addToOutput("There's no one here to talk to.");
+        }
+
+        // ==================== GIVE ====================
+        function giveItemToNpc(itemName, npcName) {
+            if (!itemName || !npcName) { addToOutput("Give what to whom?"); return; }
+            const item = player.inventory.find(i => i.toLowerCase().includes(itemName.toLowerCase()));
+            if (!item) { addToOutput(`You're not carrying a ${itemName}.`); return; }
+            const npc = npcName.toLowerCase();
+            // Gatekeeper
+            if (gameState.currentLocation==='outsideGates' && (npc.includes('gatekeeper')||npc.includes('spirit')) && !gameState.outsideGates.gatekeeperGivenDagger) {
+                if (item==="dagger" || item==="family signet ring" || item==="masterwork dagger") {
+                    player.inventory.splice(player.inventory.indexOf(item),1);
+                    gameState.outsideGates.gatekeeperGivenDagger = true;
+                    dialogues.gatekeeper.afterQuest.forEach(l=>addToOutput(l,"npc"));
+                    player.inventory.push("health potion");
+                    addToOutput("You receive a HEALTH POTION!","item");
+                    updateStatus();
+                } else { addToOutput("Gatekeeper shakes his head. 'That is not what I lost.'","npc"); }
+                return;
+            }
+            // Wounded Guard
+            if (gameState.currentLocation==='guardhouse' && (npc.includes('guard')||npc.includes('wounded')) && !gameState.guardhouse.guardSaved) {
+                if (item==="dried herbs" || item==="health potion") {
+                    player.inventory.splice(player.inventory.indexOf(item),1);
+                    gameState.guardhouse.guardSaved = true;
+                    dialogues.woundedGuard.healed.forEach(l=>addToOutput(l,"npc"));
+                    player.inventory.push("family signet ring");
+                    addToOutput("You receive the FAMILY SIGNET RING!","item");
+                    updateStatus();
+                } else { addToOutput("Guard: 'That won't help my wound. I need medicine.'","npc"); }
+                return;
+            }
+            // Rat King
+            if (gameState.currentLocation==='kitchen' && (npc.includes('rat king')||npc.includes('rat')) && !gameState.kitchen.ratKingBribed) {
+                if (item==="dried herbs" || item==="antique wine" || item==="mushroom") {
+                    player.inventory.splice(player.inventory.indexOf(item),1);
+                    gameState.kitchen.ratKingBribed = true;
+                    dialogues.ratKing.bribed.forEach(l=>addToOutput(l,"npc"));
+                    updateStatus();
+                } else { addToOutput("Rat King: 'Squeak! Not food! Bring food!'","npc"); }
+                return;
+            }
+            // Trapped Merchant
+            if (gameState.currentLocation==='wineCellar' && npc.includes('merchant') && !gameState.wineCellar.merchantFreed) {
+                if (item==="cleaver" || item==="steel sword" || item==="old pickaxe") {
+                    player.inventory.splice(player.inventory.indexOf(item),1);
+                    gameState.wineCellar.merchantFreed = true;
+                    dialogues.trappedMerchant.freed.forEach(l=>addToOutput(l,"npc"));
+                    player.gold += 30;
+                    addToOutput("The merchant gives you 30 gold as thanks!","gold");
+                    updateStatus();
+                } else { addToOutput("You need something to pry the barrel open.","hint"); }
+                return;
+            }
+            // Archivist
+            if (gameState.currentLocation==='library' && (npc.includes('archivist')||npc.includes('bronze'))) {
+                if (item==="encyclopedia of undead" || item==="blank book" || item==="guard's log" || item==="research notes") {
+                    player.inventory.splice(player.inventory.indexOf(item),1);
+                    addToOutput("Archivist: 'A valuable addition. Thank you.'","npc");
+                    player.gold += 25;
+                    addToOutput("He rewards you with 25 gold.","gold");
+                    updateStatus();
+                } else { addToOutput("Archivist: 'I only collect rare books.'","npc"); }
+                return;
+            }
+            // Explorer
+            if (gameState.currentLocation==='undergroundCaverns' && npc.includes('explorer') && gameState.undergroundCaverns.trollDefeated && !gameState.undergroundCaverns.explorerRescued) {
+                // No item needed; just talk then give? Actually he expects you to clear troll, then talk to him.
+                addToOutput("Explorer: 'You cleared the troll! Thank you! Here's your reward.'","npc");
+                player.gold += 50;
+                player.inventory.push('rare crystal');
+                gameState.undergroundCaverns.explorerRescued = true;
+                addToOutput("You receive 50 gold and a RARE CRYSTAL!","item");
+                updateStatus();
+                return;
+            }
+            // Ghost Gardener
+            if (gameState.currentLocation==='garden' && npc.includes('gardener') && gameState.garden.ghostGardenerTalked) {
+                if (item==="flower") {
+                    player.inventory.splice(player.inventory.indexOf(item),1);
+                    dialogues.ghostGardener.afterQuest.forEach(l=>addToOutput(l,"npc"));
+                    locations.garden.items.push('strange seed');
+                    addToOutput("He reveals a hidden alcove with a STRANGE SEED.","item");
+                    updateStatus();
+                } else { addToOutput("Ghost Gardener: 'Bring me a flower from the garden.'","npc"); }
+                return;
+            }
+            addToOutput("There's no one here to give that to.");
+        }
+
+        // ==================== EQUIP / UNEQUIP ====================
+        function equipItem(itemName) {
+            if (!itemName) { addToOutput("Equip what?"); return; }
+            const found = player.inventory.find(i => i.toLowerCase().includes(itemName.toLowerCase()));
+            if (!found) { addToOutput(`You don't have a ${itemName}.`); return; }
+            if (weapons[found]) {
+                player.weapon = {...weapons[found]};
+                addToOutput(`You equip the ${found}. (${player.weapon.minDamage}-${player.weapon.maxDamage} damage)`,"item");
+                updateStatus(); return;
+            }
+            if (armors[found]) {
+                if (player.armor) player.inventory.push(player.armor.name.toLowerCase());
+                player.armor = {...armors[found]};
+                if (player.armor.maxHPBonus) { player.maxHP += player.armor.maxHPBonus; player.currentHP += player.armor.maxHPBonus; }
+                player.inventory.splice(player.inventory.indexOf(found),1);
+                addToOutput(`You equip the ${found}.`,"item");
+                updateStatus(); return;
+            }
+            addToOutput(`You can't equip the ${found}.`);
+        }
+
+        function unequipItem(itemName) {
+            if (!itemName) { addToOutput("Unequip what?"); return; }
+            const n = itemName.toLowerCase();
+            if (player.weapon.name.toLowerCase().includes(n)) {
+                player.weapon = {name:"Fists",minDamage:1,maxDamage:2,type:"blunt"};
+                addToOutput("You return to using your fists.","player");
+                updateStatus(); return;
+            }
+            if (player.armor && player.armor.name.toLowerCase().includes(n)) {
+                player.inventory.push(player.armor.name.toLowerCase());
+                if (player.armor.maxHPBonus) { player.maxHP -= player.armor.maxHPBonus; player.currentHP = Math.min(player.currentHP, player.maxHP); }
+                player.armor = null;
+                addToOutput("You remove your armor.","player");
+                updateStatus(); return;
+            }
+            addToOutput(`You don't have ${itemName} equipped.`);
+        }
+
+        // ==================== ATTACK ====================
+        function attackEnemy(obj) {
+            if (!obj) { if (combatActive) playerAttack(); else addToOutput("Attack what?"); return; }
+            if (combatActive) { playerAttack(); return; }
+            checkForEnemy();
+            if (!combatActive) addToOutput("Nothing to attack.");
+        }
+
+        // ==================== OPEN ====================
+        function openObject(objName) {
+            if (!objName) { addToOutput("Open what?"); return; }
+            const o = objName.toLowerCase();
+            if (o.includes('chest') && gameState.currentLocation==='entranceHall') {
+                if (gameState.entranceHall.chestOpened) addToOutput("The chest is already open.");
+                else addToOutput("The chest is locked.");
+                return;
+            }
+            if (o.includes('nest') && gameState.currentLocation==='rooftops' && gameState.rooftops.gargoyleDefeated && !gameState.rooftops.nestLooted) {
+                gameState.rooftops.nestLooted = true;
+                player.gold += 25;
+                player.inventory.push('iron key');
+                addToOutput("You find 25 gold and an IRON KEY in the nest!","item");
+                updateStatus(); return;
+            }
+            addToOutput(`You can't open the ${objName}.`);
+        }
+
+        // ==================== HELP ====================
+        function showHelp() {
+            addToOutput("CASTLE OF THE UNDEAD - EXPANDED EDITION","location");
+            addToOutput("MOVEMENT: N,S,E,W,UP,DOWN or GARDEN,LABORATORY,ROOFTOPS,TREASURY");
+            addToOutput("LOOK, EXAMINE [object], INVENTORY");
+            addToOutput("TAKE [item], DROP [item]");
+            addToOutput("USE [item] ON [target]");
+            addToOutput("ATTACK, EQUIP [weapon], UNEQUIP");
+            addToOutput("CRAFT [potion], READ, RING, OPEN");
+            addToOutput("TALK [npc], GIVE [item] TO [npc]");
+            addToOutput("SAVE, LOAD, RESTART, QUIT");
+            addToOutput("GOAL: Defeat the necromancer and choose the Soul Gem's fate.","hint");
+        }
+
+        // ==================== QUIT ====================
+        function quitGame() {
+            addToOutput("Are you sure you want to quit? (Y/N)");
+            const orig = gameInput.onkeypress;
+            gameInput.onkeypress = function(e) {
+                if (e.key==='Enter') {
+                    if (this.value.trim().toLowerCase()==='y') addToOutput("Thanks for playing!");
+                    gameInput.onkeypress = orig;
+                    this.value = '';
+                }
+            };
+        }
+
+        // ==================== PROCESS COMMAND ====================
+        function processCommand(input) {
+            if (gameState.gameEnded && !input.toLowerCase().includes('restart')) {
+                addToOutput("Game ended. Type RESTART.","hint"); return;
+            }
+            let cmd = input.trim().toLowerCase();
+            if (!cmd) return;
+            if (cmd==='restart') { clearSave(); resetToDefaults(); addToOutput("Restarted.","subtitle"); updateStatus(); showLocation(); return; }
+            let parts = cmd.split(' ');
+            let verb = parts[0];
+            let obj = parts.slice(1).join(' ');
+            if (!commands[verb]) { addToOutput(`Unknown command: ${verb}`); return; }
+            let action = commands[verb];
+            switch(action) {
+                case 'north': case 'south': case 'east': case 'west': case 'up': case 'down': movePlayer(action); break;
+                case 'look': showLocation(); break;
+                case 'inventory': showInventory(); break;
+                case 'take': takeItem(obj); break;
+                case 'drop': dropItem(obj); break;
+                case 'examine': examineObject(obj); break;
+                case 'use':
+                    let match = cmd.match(/^use\s+(.+?)\s+(?:on|with)\s+(.+)$/);
+                    if (match) useItemOnTarget(match[1].trim(), match[2].trim());
+                    else useItem(obj);
+                    break;
+                case 'open': openObject(obj); break;
+                case 'read': readObject(obj); break;
+                case 'ring': ringBell(); break;
+                case 'talk': talkTo(obj); break;
+                case 'give':
+                    let g = cmd.match(/^give\s+(.+?)\s+to\s+(.+)$/);
+                    if (g) giveItemToNpc(g[1].trim(), g[2].trim());
+                    else addToOutput("Use: GIVE [item] TO [npc]");
+                    break;
+                case 'attack': attackEnemy(obj); break;
+                case 'equip': equipItem(obj); break;
+                case 'unequip': unequipItem(obj); break;
+                case 'craft': craftItem(obj); break;
+                case 'save': saveGame(); addToOutput("Game saved.","victory"); break;
+                case 'load':
+                    if (loadGame()) { addToOutput("Game loaded.","victory"); updateStatus(); showLocation(); checkForEnemy(); }
+                    else addToOutput("No save found.","hint");
+                    break;
+                case 'help': showHelp(); break;
+                case 'quit': quitGame(); break;
+                default: addToOutput("Command not implemented.");
+            }
+            saveGame();
+        }
+
+        function showInventory() {
+            if (player.inventory.length===0) addToOutput("You are carrying nothing.");
+            else {
+                addToOutput("You are carrying:","item");
+                player.inventory.forEach(i => addToOutput(`  - ${i} (${itemWeights[i]||1} kg)`,"item"));
+            }
+            addToOutput(`Weight: ${player.currentWeight()}/${player.maxWeight} kg`,"hint");
+            addToOutput(`HP: ${player.currentHP}/${player.maxHP} | Gold: ${player.gold}`,"health");
+            addToOutput(`Weapon: ${player.weapon.name} (${player.weapon.minDamage}-${player.weapon.maxDamage}) | Armor: ${player.armor?player.armor.name:"None"}`,"player");
+            if (player.poisonTurns>0) addToOutput(`Poisoned: ${player.poisonTurns} turns`,"damage");
+        }
+
+        // ==================== INIT ====================
+        function initGame() {
+            gameOutput.innerHTML = '';
+            if (!loadGame()) resetToDefaults();
+            addToOutput("CASTLE OF THE UNDEAD 1984 - EXPANDED EDITION","title");
+            addToOutput("17 rooms · New areas · More enemies & NPCs","subtitle");
+            updateStatus();
+            showLocation();
+            checkForEnemy();
+            gameInput.addEventListener('keypress', function(e) {
+                if (e.key==='Enter') { processCommand(this.value); this.value = ''; }
+            });
+            gameInput.focus();
+        }
+
+        window.onload = initGame;
+    </script>
+</body>
+</html>
