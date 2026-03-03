@@ -995,36 +995,56 @@
         let gameState = null;
 
         function cloneMasterForPlay() {
-            // Initialize variables
-            let vars = {};
-            variables.forEach(v => {
-                vars[v.name] = v.initial;
+    // Initialize variables
+    let vars = {};
+    variables.forEach(v => {
+        vars[v.name] = v.initial;
+    });
+
+    // Deep copy all entities
+    let clonedRooms = JSON.parse(JSON.stringify(rooms));
+    let clonedItems = JSON.parse(JSON.stringify(items)).map(it => ({
+        ...it,
+        taken: false,
+        containerId: null,   // will be set for items inside containers
+    }));
+    let clonedNpcs = JSON.parse(JSON.stringify(npcs)).map(n => ({
+        ...n,
+        dialogueOptions: JSON.parse(n.dialogueOptions || '[]'),
+        shopInventory: JSON.parse(n.shopInventory || '[]'),
+    }));
+    let clonedEnemies = JSON.parse(JSON.stringify(enemies)).map(e => ({...e, alive: true}));
+
+    // Process container relationships
+    clonedItems.forEach(container => {
+        if (container.type === 'container' && container.contains && container.contains.length) {
+            container.contains.forEach(childId => {
+                let child = clonedItems.find(it => it.id === childId);
+                if (child) {
+                    child.containerId = container.id;
+                    child.location = null;      // item is inside container, not in a room
+                    // If the child was previously takable, it still is, but now it's inside
+                }
             });
-            
-            // Deep copy with additional fields
-            return {
-                rooms: JSON.parse(JSON.stringify(rooms)),
-                items: JSON.parse(JSON.stringify(items)).map(it => ({
-                    ...it,
-                    taken: false,
-                    containerId: null, // for items inside containers
-                })),
-                npcs: JSON.parse(JSON.stringify(npcs)).map(n => ({
-                    ...n,
-                    // Parse JSON strings back to objects
-                    dialogueOptions: JSON.parse(n.dialogueOptions || '[]'),
-                    shopInventory: JSON.parse(n.shopInventory || '[]'),
-                })),
-                enemies: JSON.parse(JSON.stringify(enemies)).map(e => ({...e, alive: true})),
-                player: {
-                    location: rooms.length > 0 ? rooms[0].id : null,
-                    health: 10,
-                    inventory: [] // array of {itemId, quantity}
-                },
-                variables: vars,
-                turn: 0
-            };
         }
+    });
+
+    return {
+        rooms: clonedRooms,
+        items: clonedItems,
+        npcs: clonedNpcs,
+        enemies: clonedEnemies,
+        player: {
+            location: rooms.length > 0 ? rooms[0].id : null,
+            health: 10,
+            inventory: []
+        },
+        variables: vars,
+        turn: 0
+    };
+}
+                
+    
 
         function startPlayMode() {
             if (rooms.length === 0) {
