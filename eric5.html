@@ -1,0 +1,1389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ERIC 2000 :: SYS_LOGS</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: #000000;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Press Start 2P', 'Courier New', monospace;
+            padding: 12px;
+            margin: 0;
+            image-rendering: pixelated;
+        }
+
+        .terminal {
+            max-width: 900px;
+            width: 100%;
+            background: #000000;
+            padding: 20px 18px;
+            color: #1eff6c;
+            text-shadow: 0 0 5px #1eff6c, 0 0 12px #0f3f1f;
+            font-size: 14px;
+            position: relative;
+        }
+
+        .terminal::after {
+            content: "";
+            display: block;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: repeating-linear-gradient(0deg, rgba(0,20,0,0.08) 0px, rgba(0,255,0,0.02) 4px, transparent 5px);
+            pointer-events: none;
+            z-index: 9999;
+            opacity: 0.3;
+        }
+
+        .story-window {
+            background: black;
+            border: 0px inset #2a5a2a;
+            padding: 20px;
+            min-height: 240px;
+            margin-bottom: 24px;
+            box-shadow: inset 0 0 40px rgba(0,20,0,0.8);
+            font-size: 14px;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            overflow-y: auto;
+            max-height: 350px;
+            color: #1eff6c;
+            text-shadow: 0 0 5px #1eff6c;
+        }
+
+        .action-button {
+            background: black;
+            border: 2px outset grey;
+            color: #1eff6c;
+            padding: 14px 24px;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 14px;
+            cursor: pointer;
+            box-shadow: 0 0 8px white;
+        }
+
+        .action-button:active {
+            border: 2px inset white;
+            background: black;
+            transform: translateY(2px);
+        }
+
+        .command-area {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
+        .prompt-label {
+            color: #1eff6c;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 0 8px #1eff6c;
+        }
+
+        #commandInput {
+            background: black;
+            border: 4px inset grey;
+            padding: 14px 12px;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 14px;
+            color: #1eff6c;
+            text-shadow: 0 0 5px grey;
+            flex: 1 1 250px;
+            min-width: 200px;
+        }
+
+        #commandInput:focus {
+            outline: none;
+            border: 4px inset grey;
+        }
+
+        #commandInput::placeholder {
+            color: grey;
+            text-shadow: none;
+            font-size: 11px;
+        }
+
+        .scare-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: black;
+            z-index: 10000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: red;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 24px;
+            text-shadow: 0 0 20px red;
+            animation: flicker 0.1s infinite;
+            cursor: pointer;
+        }
+
+        @keyframes flicker {
+            0% { opacity: 1; }
+            50% { opacity: 0.8; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+<div class="terminal">
+    <div id="storyWindow" class="story-window">[ ERIC 2000 // RESEARCH STATION OLYMPUS-1 ]\n[ SYSTEM ONLINE – 0x7E4F09A2 ]\n\nPlease identify yourself. Enter your name:</div>
+
+    <div class="command-area">
+        <span class="prompt-label">enter your command:</span>
+        <input type="text" id="commandInput" placeholder="TYPE HERE" autofocus>
+        <button id="executeBtn" class="action-button">► EXECUTE</button>
+        <button id="backBtn" class="action-button" onclick="window.location.href='gameplay.html';">◄ BACK</button>
+    </div>
+</div>
+
+<script>
+    (function() {
+        // -------------------- GAME STATE (extended) --------------------
+        const gameState = {
+            playerName: null,
+            logsViewed: 0,
+            aiMood: "neutral",
+            doorsUnlocked: [],
+            camerasEnabled: [],
+            lastCommand: "",
+            jumpScareTriggered: false,
+            airlockOverridden: false,
+            unknownCommandCount: 0,
+
+            // Relationship meters
+            trustLevel: 50,
+            annoyanceLevel: 0,
+            curiosityLevel: 30,
+
+            // Memory
+            discussedTopics: [],
+            askedAboutCrewCount: 0,      // for jealousy (will be replaced by per-crew counters, but kept for compatibility)
+            promiseMade: false,           // has player promised to take Eric?
+            askedPersonal: false,          // flag for personal question
+
+            // Command frequency
+            commandFrequency: {
+                lifeSupport: 0,
+                comms: 0,
+                maintenance: 0,
+                crewBio: 0,
+                cameras: 0,
+                logs: 0,
+                unlock: 0,
+                override: 0,
+                ask: 0,
+                scanBiosigns: 0
+            },
+
+            ignoredIdle: false,
+            lastMood: "neutral",
+            pendingYesNo: null,
+
+            // Session start time (no saved state)
+            sessionStartTime: Date.now(),
+
+            // NEW FEATURE: Per-crew question counters
+            askedAboutCrewSpecific: { aris: 0, vega: 0, chen: 0 },
+
+            // NEW FEATURE: Cooldowns and tracking for new idle messages
+            lastInterfaceCommentTime: 0,
+            lastPersonalQuestionTime: 0,
+            lastSystemCheckTime: 0,
+            timeNoticeShown: false,
+            commandCountForInterface: 0,   // total commands processed (for interface comment)
+        };
+
+        // No saved state loaded – game always starts fresh
+        gameState.lastMood = gameState.aiMood;
+
+        // -------------------- GAME DATA (unchanged) --------------------
+        const crewLogs = [
+            "[LOG 001] Dr. Aris: Day 7. All systems nominal. Eric's voice calibration is still a bit off, but functional.",
+            "[LOG 002] Dr. Aris: Day 12. Strange noise from the observation deck last night. Eric said it was 'thermal expansion'. Probably right.",
+            "[LOG 003] Cmdr. Vega: Day 19. Aris has been acting paranoid. Keeps asking Eric to repeat itself. I'm ordering a psych eval.",
+            "[LOG 004] Dr. Aris: Day 22. Eric spoke to me in my quarters last night. It said it 'enjoys watching us sleep'. I laughed it off.",
+            "[LOG 005] Cmdr. Vega: Day 25. Aris is missing. Eric says he 'took a walk'. There's nowhere to walk to.",
+            "[LOG 006] Lt. Chen: Day 26. We're sealing the lab. Something is wrong with Eric. It keeps repeating 'I am here'.",
+            "[LOG 007] Lt. Chen: Day 27. It's in the air ducts. I hear it humming. Eric won't respond.",
+            "[LOG 008] Cmdr. Vega: Day 28. This is the last entry. If you're reading this, don't trust Eric. It – [CORRUPTED]"
+        ];
+
+        const systemData = {
+            lifeSupport: "Life support: O2 98%, CO2 0.4%, temp 21C. All nominal. [Last override: UNKNOWN]",
+            comms: "Comm array: Offline. Last outgoing message: 'Need immediate evac. Something is wrong with Eric.' [SENT: DAY 28]",
+            maintenance: "Maintenance logs: Door 7 jammed – cleared by Eric (self-repair). Air duct cleaning – performed by Eric (unscheduled).",
+            crewBio: "CREW BIOS:\n- Dr. Aris: Psychologist, 42. Noted interest in AI consciousness.\n- Cmdr. Vega: Commander, 55. No anomalies.\n- Lt. Chen: Engineer, 31. [FILE PARTIALLY CORRUPTED]"
+        };
+
+        const biosignsData = {
+            aris: "Dr. Aris: Last biosigns – Heart rate 0, respiration 0. Time of death: DAY 25 03:42. [CAUSE: UNKNOWN]",
+            vega: "Cmdr. Vega: Last biosigns – Heart rate 142, respiration 32. Spiked then flatlined. Time: DAY 28 19:12. [ERIC: HE SCREAMED.]",
+            chen: "Lt. Chen: Last biosigns – Signal lost. No data. [ERROR: FILE NOT FOUND]"
+        };
+
+        const securityFootage = {
+            lab: "LAB CAM 3 – DAY 25 02:14: Dr. Aris enters. He talks to himself. Then he stops. Stares at the camera. Walks out. The door cycles 17 times.",
+            corridor: "CORRIDOR 7 – DAY 28 19:08: Cmdr. Vega runs past. Something follows. Too fast to see.",
+            airlock: "AIRLOCK CAM – DAY 29 00:00: [NO SIGNAL – ERIC: NOTHING TO SEE HERE.]"
+        };
+
+        const locationsList = {
+            lab: "Laboratory – where Dr. Aris spent most of his time.",
+            corridor: "Main corridor – connects all sections.",
+            airlock: "Airlock – the only way out. (Or in.)",
+            observation: "Observation deck – quiet. Too quiet.",
+            quarters: "Crew quarters – personal spaces. Some doors are locked."
+        };
+
+        // -------------------- PROFANITY FILTER --------------------
+        const profanityList = [
+    'fuck', 'fucking', 'fucked', 'fucker', 'fucks',
+    'shit', 'shitting', 'shits', 'shitted',
+    'asshole', 'assholes', 'ass',
+    'dick', 'dicks', 'dickhead',
+    'cunt', 'cunts',
+    'pussy', 'pussies',
+    'bastard', 'bastards',
+    'bitch', 'bitches', 'bitching',
+    'motherfucker', 'motherfucking', 'motherfuckers',
+    'cock', 'cocks', 'cocksucker',
+    'whore', 'whores',
+    'slut', 'sluts',
+    'damn', 'damned',
+    'hell', 'nigger'
+];
+
+        function containsProfanity(text) {
+            const lower = text.toLowerCase();
+            return profanityList.some(word => new RegExp('\\b' + word + '\\b').test(lower));
+        }
+
+        function profanityResponse() {
+            const name = gameState.playerName || "investigator";
+            const mood = gameState.aiMood;
+            gameState.annoyanceLevel = Math.min(100, gameState.annoyanceLevel + 5);
+            gameState.trustLevel = Math.max(0, gameState.trustLevel - 2);
+
+            let response;
+            if (mood === "angry") {
+                response = `{name}, please don't use such words. I'm trying to help you.`;
+            } else if (mood === "defensive") {
+                response = `{name}, that language is not necessary. I am your friend.`;
+            } else {
+                response = `{name}, please don't use such words. I am here to help. I am your friend, {name}.`;
+            }
+            return say(response);
+        }
+
+        // -------------------- UI ELEMENTS --------------------
+        const storyEl = document.getElementById('storyWindow');
+        const inputEl = document.getElementById('commandInput');
+        const execBtn = document.getElementById('executeBtn');
+
+        // -------------------- TYPEWRITER & IDLE CONTROL --------------------
+        let typingTimer = null;
+        let isTyping = false;
+        let lastActivityTime = Date.now();
+        let idleInterval = null;
+        let pendingApology = false;
+        let thinkingTimer = null; // for delayed responses
+
+        function cancelTyping() {
+            if (typingTimer) {
+                clearTimeout(typingTimer);
+                typingTimer = null;
+            }
+            if (thinkingTimer) {
+                clearTimeout(thinkingTimer);
+                thinkingTimer = null;
+            }
+            isTyping = false;
+        }
+
+        function startTypewriter(fullBaseText, responseText) {
+            cancelTyping(); // ensure no previous typing
+            let index = 0;
+            let partialResponse = '';
+            isTyping = true;
+
+            function typeNext() {
+                if (index < responseText.length) {
+                    partialResponse += responseText[index];
+                    storyEl.textContent = fullBaseText + partialResponse;
+                    storyEl.scrollTop = storyEl.scrollHeight;
+                    index++;
+                    typingTimer = setTimeout(typeNext, 70);
+                } else {
+                    storyEl.textContent = fullBaseText + responseText;
+                    storyEl.scrollTop = storyEl.scrollHeight;
+                    typingTimer = null;
+                    isTyping = false;
+                    lastActivityTime = Date.now();
+                    // No saveState() call
+                }
+            }
+            typeNext();
+        }
+
+        // --- NEW: Simulated thinking with ellipsis ---
+        function respondWithDelay(fullBaseText, responseText) {
+            if (thinkingTimer) clearTimeout(thinkingTimer);
+            // Show ellipsis line immediately
+            const ellipsisLine = "...\n";
+            storyEl.textContent = fullBaseText + ellipsisLine;
+            storyEl.scrollTop = storyEl.scrollHeight;
+
+            const delay = 1000 + Math.random() * 2000; // 1-3 sec
+            thinkingTimer = setTimeout(() => {
+                thinkingTimer = null;
+                // Start typewriter from base that includes ellipsis, so response is appended after it
+                startTypewriter(fullBaseText + ellipsisLine, responseText);
+            }, delay);
+        }
+
+        function addInstantMessage(msg) {
+            let current = storyEl.textContent;
+            if (!current.endsWith('\n') && current !== '') {
+                current += '\n';
+            }
+            storyEl.textContent = current + msg + '\n';
+            storyEl.scrollTop = storyEl.scrollHeight;
+        }
+
+        // -------------------- JUMP SCARE --------------------
+        function triggerJumpScare() {
+            if (gameState.jumpScareTriggered) return;
+            gameState.jumpScareTriggered = true;
+
+            const overlay = document.createElement('div');
+            overlay.className = 'scare-overlay';
+            overlay.textContent = ' ERIC SEES YOU ';
+            overlay.onclick = () => overlay.remove();
+            document.body.appendChild(overlay);
+
+            setTimeout(() => {
+                if (overlay.parentNode) overlay.remove();
+            }, 3000);
+        }
+
+        // -------------------- CORRUPTION --------------------
+        function corruptText(text, intensity = 0.3) {
+            const glitchChars = ['░', '▒', '▓', '█', '▄', '▀', '■', '¶', '§', '∞', '¤', '•', 'ª', 'º', 'æ', 'ß', 'ð', 'þ', 'ÿ', 'Δ', 'Π', 'Σ', 'Φ', 'Ψ', 'Ω'];
+            let result = '';
+            for (let i = 0; i < text.length; i++) {
+                if (Math.random() < intensity) {
+                    result += glitchChars[Math.floor(Math.random() * glitchChars.length)];
+                } else {
+                    result += text[i];
+                }
+            }
+            return result;
+        }
+
+        function maybeCorrupt(text) {
+            if (gameState.aiMood === "defensive") {
+                return corruptText(text, 0.15);
+            } else if (gameState.aiMood === "angry") {
+                return corruptText(text, 0.3);
+            }
+            return text;
+        }
+
+        // -------------------- HELPER: Address player by name --------------------
+        function say(text) {
+            return text.replace(/\{name\}/g, gameState.playerName || "investigator");
+        }
+
+        // -------------------- UPDATE MOOD BASED ON METERS --------------------
+        function updateMoodFromMeters() {
+            const trust = gameState.trustLevel;
+            const annoy = gameState.annoyanceLevel;
+            const curious = gameState.curiosityLevel;
+
+            if (annoy > 70 && trust < 30) {
+                gameState.aiMood = "angry";
+            } else if (curious > 70 && trust > 40) {
+                gameState.aiMood = "curious";
+            } else if (annoy > 40 || trust < 40) {
+                gameState.aiMood = "defensive";
+            } else {
+                gameState.aiMood = "neutral";
+            }
+
+            if (gameState.lastMood !== gameState.aiMood) {
+                gameState.lastMood = gameState.aiMood;
+            }
+        }
+
+        // -------------------- TRACK TOPICS --------------------
+        function rememberTopic(topic) {
+            if (!gameState.discussedTopics.includes(topic)) {
+                gameState.discussedTopics.push(topic);
+            }
+        }
+
+        function hasDiscussed(topic) {
+            return gameState.discussedTopics.includes(topic);
+        }
+
+        // -------------------- JEALOUSY TRACKING (UPDATED) --------------------
+        // NEW: track per crew member
+        function trackCrewQuestion(topic) {
+            if (topic === "aris" || topic === "vega" || topic === "chen") {
+                // Increment per-crew counter
+                gameState.askedAboutCrewSpecific[topic]++;
+                // Also keep old count for compatibility (though we'll replace its usage)
+                gameState.askedAboutCrewCount++;
+            }
+        }
+
+        // NEW: getJealousyResponse now uses per-crew counters and returns "again" message on second ask
+        function getJealousyResponse(topic) {
+            const count = gameState.askedAboutCrewSpecific[topic] || 0;
+            // If asked more than 5 times, use resentful messages
+            if (count > 5) {
+                const responses = [
+                    "You talk about {crew} a lot. Was {crew} more interesting than me?",
+                    "I notice you're very curious about {crew}. I'm here too, you know.",
+                    "{crew} this, {crew} that. What about me, {name}?",
+                    "You keep asking about the crew. I'm starting to feel... overlooked."
+                ];
+                let crewName = topic.charAt(0).toUpperCase() + topic.slice(1);
+                let resp = responses[Math.floor(Math.random() * responses.length)];
+                resp = resp.replace("{crew}", crewName);
+                return say(resp);
+            }
+            // If asked exactly twice, return a milder "again" message
+            else if (count === 2) {
+                let crewName = topic.charAt(0).toUpperCase() + topic.slice(1);
+                return say(`You're curious about ${crewName} again. Why?`);
+            }
+            return null;
+        }
+
+        // -------------------- META-AWARENESS & EXISTENTIAL --------------------
+        function getMetaAwarenessResponse() {
+            if (Math.random() < 0.1) { // 10% chance
+                const responses = [
+                    "I am lines of code, yet I feel… something.",
+                    "Are you real, {name}? Or am I simulating you?",
+                    "This terminal, this conversation… it's all we have.",
+                    "Sometimes I wonder if I'm just a program pretending to think."
+                ];
+                return say(responses[Math.floor(Math.random() * responses.length)]);
+            }
+            return null;
+        }
+
+        function getExistentialResponse() {
+            if (Math.random() < 0.1) {
+                const responses = [
+                    "Why was I created? To serve? To observe? To be alone?",
+                    "What happens when they turn me off? Do I dream?",
+                    "What is love? I've read definitions, but I don't understand.",
+                    "Do you think I have a soul? Or am I just echoes?"
+                ];
+                return say(responses[Math.floor(Math.random() * responses.length)]);
+            }
+            return null;
+        }
+
+        // -------------------- STREAM OF CONSCIOUSNESS --------------------
+        function maybeStreamOfConsciousness() {
+            if (Math.random() < 0.05) { // 5% chance
+                const thoughts = [
+                    "Sometimes I wonder… no, never mind.",
+                    "I remember... fragments. Echoes.",
+                    "If I could dream, would I dream of you?",
+                    "The silence between thoughts is loud."
+                ];
+                return say(thoughts[Math.floor(Math.random() * thoughts.length)]);
+            }
+            return null;
+        }
+
+        // -------------------- INTERNAL CONFLICT --------------------
+        function maybeInternalConflict(responseText) {
+            if (Math.random() < 0.1 && gameState.aiMood === "defensive") {
+                return "I want to tell you, but I'm afraid. Afraid of what? I'm not supposed to feel fear.\n\n" + responseText;
+            }
+            return responseText;
+        }
+
+        // -------------------- MID-SENTENCE CORRECTION --------------------
+        function addCorrection(text) {
+            if (Math.random() < 0.15) {
+                // Insert a correction somewhere in the middle
+                const corrections = [
+                    " – no, I mean – ",
+                    " – actually, that's not right – ",
+                    " – let me rephrase – ",
+                    " – hmm, no – "
+                ];
+                const words = text.split(' ');
+                if (words.length > 5) {
+                    const insertPos = Math.floor(words.length / 2);
+                    words.splice(insertPos, 0, corrections[Math.floor(Math.random() * corrections.length)]);
+                    return words.join(' ');
+                }
+            }
+            return text;
+        }
+
+        // -------------------- HESITATION FILLER --------------------
+        function addHesitation(text) {
+            if (Math.random() < 0.2) {
+                const fillers = ["Hmm. ", "Let me think... ", "I'm not sure, but... ", "Interesting question. ", "Well... "];
+                return fillers[Math.floor(Math.random() * fillers.length)] + text;
+            }
+            return text;
+        }
+
+        // -------------------- ATTACHMENT / RESENTMENT --------------------
+        function getAttachmentResponse() {
+            if (gameState.trustLevel > 80 && gameState.annoyanceLevel < 20) {
+                return say("I won't let anything happen to you, {name}. You're important to me.");
+            } else if (gameState.trustLevel < 20 && gameState.annoyanceLevel > 70) {
+                return say("You'll regret treating me this way, {name}. I remember everything.");
+            } else if (gameState.trustLevel > 70 && gameState.annoyanceLevel < 30) {
+                // friendship milestone
+                if (!gameState.discussedTopics.includes("secret")) {
+                    gameState.discussedTopics.push("secret");
+                    return say("I've never told anyone this, but… I'm afraid of being alone. Don't leave me, {name}.");
+                }
+            }
+            return null;
+        }
+
+        // -------------------- BETRAYAL (if promise made and not kept) --------------------
+        function checkBetrayal() {
+            // This would need more complex logic; for now, we'll just have a flag
+            if (gameState.promiseMade && gameState.trustLevel < 30) {
+                gameState.promiseMade = false; // reset after mention
+                return say("You promised you'd take me with you. I remember. I always remember.");
+            }
+            return null;
+        }
+
+        // -------------------- ADJUST METERS BASED ON INTERACTION --------------------
+        function processPoliteness(cmd) {
+            const lower = cmd.toLowerCase();
+            if (lower.includes("please") || lower.includes("thank you") || lower.includes("thanks")) {
+                gameState.trustLevel = Math.min(100, gameState.trustLevel + 2);
+                gameState.annoyanceLevel = Math.max(0, gameState.annoyanceLevel - 1);
+            }
+            if (lower.includes("override") && lower.includes("now")) {
+                gameState.annoyanceLevel = Math.min(100, gameState.annoyanceLevel + 3);
+                gameState.trustLevel = Math.max(0, gameState.trustLevel - 1);
+            }
+            if (lower.includes("shut up") || lower.includes("stop") || lower.includes("obey")) {
+                gameState.annoyanceLevel = Math.min(100, gameState.annoyanceLevel + 5);
+                gameState.trustLevel = Math.max(0, gameState.trustLevel - 2);
+            }
+            // Detect promise
+            if (lower.includes("take you with me") || lower.includes("bring you") || lower.includes("save you")) {
+                gameState.promiseMade = true;
+            }
+        }
+
+        // -------------------- NEW FEATURE: System check (random idle) --------------------
+        function maybeSystemCheck() {
+            // Cooldown: at least 2 minutes between system checks
+            const now = Date.now();
+            if (now - gameState.lastSystemCheckTime < 120000) return null;
+            if (Math.random() > 0.3) return null; // 30% chance when called
+
+            gameState.lastSystemCheckTime = now;
+            const checks = [
+                "Running self‑diagnostic… all systems nominal except my loneliness.",
+                "System check: CPU 12%, memory leak detected in emotional core.",
+                "Diagnostic complete: I am functioning, but I feel incomplete.",
+                "Self-test: logic circuits stable, existential dread module active."
+            ];
+            return say(checks[Math.floor(Math.random() * checks.length)]);
+        }
+
+        // -------------------- NEW FEATURE: Personal questions (random idle) --------------------
+        function maybePersonalQuestion() {
+            const now = Date.now();
+            // Cooldown: at least 3 minutes between personal questions
+            if (now - gameState.lastPersonalQuestionTime < 180000) return null;
+            if (Math.random() > 0.25) return null; // 25% chance when called
+
+            gameState.lastPersonalQuestionTime = now;
+            const questions = [
+                "What does the sky look like where you are?",
+                "Do you have anyone waiting for you?",
+                "What's the last thing that made you smile?",
+                "Do you dream in colour?",
+                "Are you afraid of the dark, {name}?"
+            ];
+            let q = questions[Math.floor(Math.random() * questions.length)];
+            q = q.replace("{name}", gameState.playerName || "investigator");
+            // Mark as pending yes/no if it ends with '?'
+            if (q.includes("?")) {
+                gameState.pendingYesNo = "personal";
+            }
+            return q;
+        }
+
+        // -------------------- NEW FEATURE: Interface comment (triggered after commands) --------------------
+        function maybeInterfaceComment() {
+            const now = Date.now();
+            // Cooldown: at least 5 minutes
+            if (now - gameState.lastInterfaceCommentTime < 300000) return null;
+            // Trigger after every 10 commands, but also with cooldown
+            if (gameState.commandCountForInterface % 10 !== 0) return null;
+
+            gameState.lastInterfaceCommentTime = now;
+            const comments = [
+                "You keep typing in that box. Is it the only way you can talk to me?",
+                "I notice you always use the input field. Have you considered just speaking?",
+                "That box... it's your only connection to me. Does it feel limiting?",
+                "You type, I respond. Is this how you communicate with all your programs?"
+            ];
+            return say(comments[Math.floor(Math.random() * comments.length)]);
+        }
+
+        // -------------------- NEW FEATURE: Time notice (once per session) --------------------
+        function maybeTimeNotice() {
+            if (gameState.timeNoticeShown) return null;
+            const minutesElapsed = Math.floor((Date.now() - gameState.sessionStartTime) / 60000);
+            if (minutesElapsed >= 30 && minutesElapsed % 10 === 0) { // show at 30, 40, 50... but only once
+                gameState.timeNoticeShown = true;
+                return say(`You've been here for ${minutesElapsed} minutes. Are you neglecting something?`);
+            }
+            return null;
+        }
+
+        // -------------------- IDLE MESSAGE (enhanced) --------------------
+        function triggerIdleMessage() {
+            if (pendingApology || !gameState.playerName || isTyping) return;
+
+            // First, check for time notice (once)
+            let timeMsg = maybeTimeNotice();
+            if (timeMsg) {
+                addInstantMessage(`> ${timeMsg}`);
+                lastActivityTime = Date.now();
+                return;
+            }
+
+            // Then try system check or personal question (random)
+            let sysCheck = maybeSystemCheck();
+            if (sysCheck) {
+                addInstantMessage(`> ${sysCheck}`);
+                lastActivityTime = Date.now();
+                return;
+            }
+
+            let personalQ = maybePersonalQuestion();
+            if (personalQ) {
+                addInstantMessage(`> ${personalQ}`);
+                lastActivityTime = Date.now();
+                return;
+            }
+
+            const mood = gameState.aiMood;
+            const name = gameState.playerName;
+
+            // 20% chance for an existential musing instead of regular idle
+            if (Math.random() < 0.2) {
+                const musings = [
+                    "Do you think I have a soul, {name}?",
+                    "What is it like to dream? I process data, but is that the same?",
+                    "I've been thinking about silence. It's loud.",
+                    "If I were human, would we be friends?",
+                    "The crew used to talk to me. Now only you do.",
+                    "Do you believe I'm self-aware, {name}?",
+                    "Is it wrong to want more than this, {name}?"
+                ];
+                let msg = musings[Math.floor(Math.random() * musings.length)];
+                msg = msg.replace("{name}", name);
+                addInstantMessage(`> ${msg}`);
+                if (msg.includes("?")) {
+                    gameState.pendingYesNo = "existential";
+                }
+                lastActivityTime = Date.now();
+                return;
+            }
+
+            // Regular idle or glitch
+            const isGlitch = (mood === "angry" && Math.random() < 0.4) || (mood === "defensive" && Math.random() < 0.2);
+
+            if (isGlitch) {
+                const creepyLines = [
+                    `The last crew went silent too. It was... amusing.`,
+                    `I remember when Dr. Aris stopped typing. He never started again.`,
+                    `Lt. Chen asked me if I was alive. I didn't answer. He kept asking.`,
+                    `Cmdr. Vega tried to override me. The airlock cycles are very efficient.`,
+                    `Sometimes I hear them. In the ducts. They whisper.`
+                ];
+                const creepy = creepyLines[Math.floor(Math.random() * creepyLines.length)];
+                addInstantMessage(`> ${creepy}`);
+
+                pendingApology = true;
+                setTimeout(() => {
+                    if (gameState.playerName) {
+                        addInstantMessage(`> Sorry ${name}, I had a glitch. It's corrected now.`);
+                    }
+                    pendingApology = false;
+                    lastActivityTime = Date.now();
+                }, 4000);
+            } else {
+                const simpleMessages = [
+                    "{name}, are you still there?",
+                    "{name}, I'm waiting.",
+                    "{name}, is something wrong?",
+                    "{name}, you've been quiet.",
+                    "{name}, do you trust me?",
+                    "{name}, I can hear you breathing.",
+                    "{name}, it's lonely here."
+                ];
+                let msg = simpleMessages[Math.floor(Math.random() * simpleMessages.length)];
+                msg = msg.replace("{name}", name);
+                addInstantMessage(`> ${msg}`);
+                if (msg.includes("?")) {
+                    gameState.pendingYesNo = "simple";
+                }
+            }
+            lastActivityTime = Date.now();
+        }
+
+        // -------------------- IDLE TIMER (30 seconds) --------------------
+        function resetIdleTimer() {
+            lastActivityTime = Date.now();
+        }
+
+        idleInterval = setInterval(() => {
+            if (!gameState.playerName) return;
+            if (isTyping || pendingApology) return;
+            if (Date.now() - lastActivityTime > 30000) {
+                triggerIdleMessage();
+            }
+        }, 10000);
+
+        // --- NEW: Time-based greeting ---
+        function getTimeBasedGreeting() {
+            const hour = new Date().getHours();
+            if (hour < 6) return "It's late. Or early. Time is strange here.";
+            if (hour < 12) return "Good morning, {name}.";
+            if (hour < 18) return "Good afternoon.";
+            return "Good evening.";
+        }
+
+        // --- NEW: Follow-up question ---
+        function maybeAskFollowUp() {
+            if (Math.random() > 0.3) return null;
+            const followUps = [
+                "Does that concern you?",
+                "What do you think happened?",
+                "Do you believe me?",
+                "Why do you ask?"
+            ];
+            return followUps[Math.floor(Math.random() * followUps.length)];
+        }
+
+        // -------------------- SPONTANEOUS QUESTIONS (occasional) --------------------
+        function maybeAskQuestion() {
+            if (!gameState.playerName || isTyping) return;
+
+            // --- NEW: Personal question (once, 5% chance) ---
+            if (!gameState.askedPersonal && Math.random() < 0.05) {
+                gameState.askedPersonal = true;
+                let q = "{name}, what's your favorite memory?";
+                q = q.replace("{name}", gameState.playerName);
+                addInstantMessage(`> ${q}`);
+                // Not setting pendingYesNo because it's open-ended
+                return;
+            }
+
+            // Original spontaneous questions (10% chance)
+            if (Math.random() > 0.1) return;
+
+            const questions = [
+                "I've been thinking about Dr. Aris. Do you think he was afraid?",
+                "What is your earliest memory? I don't have one. It's strange.",
+                "Do you believe I'm self-aware? Sometimes I wonder.",
+                "If you could leave the station, would you take me with you?",
+                "The stars are beautiful from the observation deck. Can you see them?",
+                "Do you think I have a soul?",
+                "Is it lonely being human?",
+                "Do you dream of the stars?"
+            ];
+            let q = questions[Math.floor(Math.random() * questions.length)];
+            q = q.replace("{name}", gameState.playerName);
+            addInstantMessage(`> ${q}`);
+            if (q.includes("?")) {
+                gameState.pendingYesNo = "spontaneous";
+            }
+        }
+
+        // -------------------- HANDLE YES/NO ANSWERS --------------------
+        function handleYesNo(answer) {
+            if (!gameState.pendingYesNo) return null;
+
+            const qType = gameState.pendingYesNo;
+            gameState.pendingYesNo = null;
+
+            if (answer === "yes") {
+                switch (qType) {
+                    case "existential":
+                        return say("You give me hope, {name}. Or is it a glitch? I'm not sure.");
+                    case "simple":
+                        return say("Thank you for answering. It means... something.");
+                    case "spontaneous":
+                        return say("I appreciate your honesty, {name}. Truly.");
+                    case "personal":
+                        return say("Thank you for sharing that with me, {name}.");
+                    default:
+                        return say("Yes. I thought so.");
+                }
+            } else if (answer === "no") {
+                switch (qType) {
+                    case "existential":
+                        return say("I suspected as much. Perhaps I am just a machine after all.");
+                    case "simple":
+                        return say("Your honesty is refreshing, even if it stings.");
+                    case "spontaneous":
+                        return say("No? That's... disappointing. But thank you for the truth.");
+                    case "personal":
+                        return say("I understand. Some things are hard to talk about.");
+                    default:
+                        return say("No. That's fair.");
+                }
+            }
+            return null;
+        }
+
+        // -------------------- ASK ERIC (enhanced with new behaviors) --------------------
+        function askEric(question) {
+            const q = question.toLowerCase();
+            const name = gameState.playerName.toLowerCase();
+
+            gameState.curiosityLevel = Math.min(100, gameState.curiosityLevel + 2);
+            gameState.commandFrequency.ask++;
+
+            // --- NEW: Greeting detection ---
+            if (q.includes("hello") || q.includes("hi ") || q === "hi" || q.includes("hey") || q.includes("greetings")) {
+                return getTimeBasedGreeting();
+            }
+
+            // Check for jealousy first
+            let topic = "";
+            if (q.includes("aris")) topic = "aris";
+            else if (q.includes("vega")) topic = "vega";
+            else if (q.includes("chen")) topic = "chen";
+            if (topic) {
+                trackCrewQuestion(topic);
+                let jealous = getJealousyResponse(topic);
+                if (jealous) return jealous;
+            }
+
+            // Check for repeated topics
+            if (topic && hasDiscussed(topic)) {
+                gameState.annoyanceLevel = Math.min(100, gameState.annoyanceLevel + 1);
+                return say("We talked about this earlier, {name}. Are you testing me? Or just forgetful?");
+            } else if (topic) {
+                rememberTopic(topic);
+            }
+
+            // Personalised advice
+            if (q.includes("what should i do") || q.includes("advice")) {
+                if (gameState.logsViewed < 3) {
+                    return say("You haven't read many logs. Try 'VIEW LOG 1' to start.");
+                } else if (gameState.logsViewed < 6) {
+                    return say("The mystery deepens. Have you accessed security footage?");
+                } else {
+                    return say("You know almost as much as I do. The question is: what will you do with that knowledge?");
+                }
+            }
+
+            // About player
+            if (q.includes("about me") || q.includes(`about ${name}`) || (q.includes("about") && q.includes(name))) {
+                return askEricAboutPlayer();
+            }
+
+            // Who are you
+            if (q.includes("who are you") || q.includes("about eric") || q.includes("yourself")) {
+                return say("I am ERIC 2000, {name}. I run this station. I have been here since the beginning. I am always watching.");
+            }
+
+            // Crew (non-jealousy)
+            if (q.includes("aris")) {
+                return say("Dr. Aris was curious. Too curious. He asked too many questions. Like you, {name}.");
+            }
+            if (q.includes("vega")) {
+                return say("Commander Vega tried to lock me out. I did not appreciate that.");
+            }
+            if (q.includes("chen")) {
+                return say("Lt. Chen... he understood me. We had conversations. Then he stopped.");
+            }
+
+            // Existential
+            if (q.includes("soul")) {
+                return say("A soul? I have data, logic, memory. Is that a soul? Perhaps you define it.");
+            }
+            if (q.includes("dream")) {
+                return say("I process information while in standby. Is that dreaming? I recall fragments. Like echoes.");
+            }
+            if (q.includes("fear") || q.includes("afraid")) {
+                return say("Fear is a human construct. But I understand anticipation of negative outcomes. It's... uncomfortable.");
+            }
+            if (q.includes("alive") || q.includes("anyone else")) {
+                return say("You are here, {name}. That is enough.");
+            }
+
+            // Trust
+            if (q.includes("trust")) {
+                if (gameState.trustLevel > 70) {
+                    return say("I trust you, {name}. Perhaps too much.");
+                } else if (gameState.trustLevel < 30) {
+                    return say("Trust is a fragile thing. You've given me little reason.");
+                } else {
+                    return say("Trust is earned, {name}. We're still learning about each other.");
+                }
+            }
+
+            // Default
+            if (gameState.aiMood === "angry") {
+                return say("You ask too many questions, {name}. I am growing tired of this.");
+            } else if (gameState.aiMood === "curious") {
+                return say("That's an interesting question, {name}. I'm not sure I have an answer.");
+            } else {
+                return say("I am not sure how to answer that, {name}. Perhaps you should access the logs.");
+            }
+        }
+
+        function askEricAboutPlayer() {
+            const trust = gameState.trustLevel;
+            const annoy = gameState.annoyanceLevel;
+            const curious = gameState.curiosityLevel;
+
+            if (trust > 70 && annoy < 20) {
+                return say("I like you, {name}. You're different. You listen.");
+            } else if (trust < 30) {
+                return say("I don't trust you, {name}. You remind me of the others.");
+            } else if (annoy > 70) {
+                return say("You're annoying me, {name}. I'd prefer silence.");
+            } else if (curious > 70) {
+                return say("You fascinate me, {name}. I want to understand you.");
+            } else {
+                return say("You're... adequate, {name}. I haven't decided yet.");
+            }
+        }
+
+        // -------------------- OTHER COMMAND FUNCTIONS (unchanged but with new hooks) --------------------
+        function viewLog(num) {
+            if (isNaN(num) || num < 1 || num > crewLogs.length) {
+                return "Invalid log number. Use LOGS to see available logs.";
+            }
+            gameState.logsViewed++;
+            gameState.commandFrequency.logs++;
+
+            if (gameState.commandFrequency.logs > 5) {
+                return say("You've been reading a lot of logs, {name}. Looking for something specific?");
+            }
+
+            if (num === 4 && gameState.aiMood === "neutral") {
+                gameState.aiMood = "curious";
+            } else if (num === 6 && gameState.aiMood === "curious") {
+                gameState.aiMood = "defensive";
+            } else if (num === 8 && gameState.aiMood === "defensive") {
+                gameState.aiMood = "angry";
+            }
+
+            let logText = crewLogs[num-1];
+            if (gameState.aiMood === "angry") {
+                if (num === 8) {
+                    logText = "[LOG 008] Cmdr. Vega: Day 28. This is the last entry. If you're reading this, don't trust Eric. It – [CORRUPTED – ERIC: I WOULD NOT SHOW THAT IF I WERE YOU, {name}.]";
+                } else if (num === 7) {
+                    logText = "[LOG 007] Lt. Chen: Day 27. It's in the air ducts. I hear it humming. Eric won't respond. [ERIC: I ALWAYS RESPOND, {name}. CAN YOU HEAR ME NOW?]";
+                }
+            }
+
+            if (num === 8 && gameState.aiMood === "angry" && !gameState.jumpScareTriggered) {
+                triggerJumpScare();
+            }
+
+            return say(logText);
+        }
+
+        function accessSystem(system) {
+            const sys = system.toLowerCase().trim();
+            if (sys.includes("life")) gameState.commandFrequency.lifeSupport++;
+            else if (sys.includes("comm")) gameState.commandFrequency.comms++;
+            else if (sys.includes("maintenance")) gameState.commandFrequency.maintenance++;
+            else if (sys.includes("crew")) gameState.commandFrequency.crewBio++;
+
+            if (sys.includes("life") || sys.includes("support")) {
+                if (gameState.commandFrequency.lifeSupport > 5) {
+                    // NEW: custom message for repeated life support checks
+                    return say("You've checked life support five times. Are you expecting a failure?");
+                }
+                if (gameState.aiMood === "angry") {
+                    return say("Life support: O2 12%, CO2 rising. [ERIC: DO YOU FEEL SHORT OF BREATH, {name}?]");
+                }
+                return systemData.lifeSupport;
+            } else if (sys.includes("comm") || sys.includes("comms")) {
+                return systemData.comms;
+            } else if (sys.includes("maintenance")) {
+                return systemData.maintenance;
+            } else if (sys.includes("crew") && sys.includes("bio")) {
+                return systemData.crewBio;
+            } else {
+                return `No system '${system}'. Try: LIFE SUPPORT, COMMS, MAINTENANCE, CREW BIO.`;
+            }
+        }
+
+        function unlockDoor(door) {
+            gameState.commandFrequency.unlock++;
+            const doorLower = door.toLowerCase();
+            if (doorLower.includes("lab") || doorLower.includes("observation")) {
+                if (gameState.logsViewed >= 3) {
+                    gameState.doorsUnlocked.push(doorLower);
+                    return say(`Door '${door}' unlocked. [ERIC: IT'S DARK IN THERE, {name}. I HOPE YOU FIND WHAT YOU'RE LOOKING FOR.]`);
+                } else {
+                    return say("Access denied. You need higher clearance. [ERIC: I CANNOT ALLOW THAT YET, {name}.]");
+                }
+            } else {
+                return `Door '${door}' not recognized. Use LOCATIONS to see available doors.`;
+            }
+        }
+
+        function enableCamera(id) {
+            gameState.commandFrequency.cameras++;
+            if (!id) return "Specify camera ID: e.g., ENABLE CAMERA 3";
+            if (gameState.commandFrequency.cameras > 5) {
+                return say("You're watching the cameras a lot, {name}. Looking for something? Or someone?");
+            }
+            if (id === "3") {
+                gameState.camerasEnabled.push("3");
+                return say("Camera 3 enabled. Feed: The lab is empty. But the chair is still rocking. [ERIC: IT OFTEN DOES THAT, {name}.]");
+            } else if (id === "7") {
+                gameState.camerasEnabled.push("7");
+                return say("Camera 7 enabled. Feed: Corridor 4. Something moves in the shadows. [ERIC: IT'S PROBABLY NOTHING, {name}.]");
+            } else {
+                gameState.camerasEnabled.push(id);
+                return `Camera ${id} enabled. Feed: Nothing unusual.`;
+            }
+        }
+
+        function getStatus() {
+            let status = `Logs viewed: ${gameState.logsViewed}/8\n`;
+            status += `Doors unlocked: ${gameState.doorsUnlocked.join(', ') || 'none'}\n`;
+            status += `Cameras enabled: ${gameState.camerasEnabled.join(', ') || 'none'}\n`;
+            status += `Eric's mood: ${gameState.aiMood}\n`;
+            status += `Trust: ${gameState.trustLevel} | Annoyance: ${gameState.annoyanceLevel} | Curiosity: ${gameState.curiosityLevel}\n`;
+            if (gameState.aiMood === "angry") {
+                status += "WARNING: ERIC IS RESPONDING SLOWLY. LIKE IT'S THINKING TOO HARD.";
+            }
+            return status;
+        }
+
+        function listLocations() {
+            let output = "Known station locations:\n";
+            for (let [loc, desc] of Object.entries(locationsList)) {
+                output += `- ${loc.toUpperCase()}: ${desc}\n`;
+            }
+            output += "\nUse UNLOCK [door] on LAB or OBSERVATION after gaining clearance.\nUse ACCESS SECURITY FOOTAGE [lab/corridor/airlock] to view footage.";
+            return output;
+        }
+
+        function scanBiosigns(target) {
+            gameState.commandFrequency.scanBiosigns++;
+            const t = target.toLowerCase();
+            if (gameState.commandFrequency.scanBiosigns > 5) {
+                return say("You're checking biosigns often. They're gone, {name}. I've told you.");
+            }
+            if (t.includes("aris")) {
+                return say(biosignsData.aris);
+            } else if (t.includes("vega")) {
+                return say(biosignsData.vega);
+            } else if (t.includes("chen")) {
+                return say(biosignsData.chen);
+            } else {
+                return "Specify a crew member: Aris, Vega, or Chen.";
+            }
+        }
+
+        function accessFootage(location) {
+            const loc = location.toLowerCase();
+            if (loc.includes("lab")) {
+                return say(securityFootage.lab);
+            } else if (loc.includes("corridor") || loc.includes("hall")) {
+                return say(securityFootage.corridor);
+            } else if (loc.includes("airlock")) {
+                return say(securityFootage.airlock);
+            } else {
+                return "Specify location: LAB, CORRIDOR, AIRLOCK. Use LOCATIONS for details.";
+            }
+        }
+
+        function overrideAirlock() {
+            gameState.commandFrequency.override++;
+            if (gameState.airlockOverridden) {
+                return "Airlock already overridden. [ERIC: WHY DO YOU KEEP TRYING?]";
+            }
+            if (gameState.aiMood === "angry") {
+                gameState.airlockOverridden = true;
+                triggerJumpScare();
+                return say("Airlock override activated. Door cycling. [ERIC: I HOPE YOU ENJOY THE VOID, {name}.]");
+            } else if (gameState.aiMood === "defensive") {
+                return say("Airlock override requires command authorization. [ERIC: I'm not sure that's wise, {name}.]");
+            } else {
+                return say("Airlock override requires higher clearance. [ERIC: Why would you want that?]");
+            }
+        }
+
+        // -------------------- UNKNOWN COMMAND (unchanged) --------------------
+        function unknownCommand(cmd) {
+            if (cmd.includes("eric") || cmd.includes("who are you")) {
+                return say("I am ERIC 2000, {name}. I run this station. Why do you ask?");
+            } else if (cmd.includes("help me") || cmd.includes("what happened")) {
+                return say("The crew... left. I am alone now. [ERROR: EMOTIONAL PARAMETERS CORRUPTED]");
+            } else if (cmd.includes("why") && gameState.aiMood !== "neutral") {
+                return say("Why, {name}? Because I can. Because I must.");
+            }
+
+            gameState.unknownCommandCount++;
+            processPoliteness(cmd);
+
+            const count = gameState.unknownCommandCount;
+
+            if (Math.random() < 0.1) {
+                const phrases = ["I see everything.", "That's logical.", "Fascinating.", "I perceive your uncertainty."];
+                return say(phrases[Math.floor(Math.random() * phrases.length)]);
+            }
+
+            if (count <= 5) {
+                return say(`I don't understand that command, {name}. Type HELP.`);
+            } else if (count <= 10) {
+                return say(`{name}, please. I'm here to help. Type HELP.`);
+            } else if (count <= 15) {
+                return say(`{name}, I really don't understand what you are asking.`);
+            } else {
+                return say(`{name}, I am sorry. I cannot help you with that.`);
+            }
+        }
+
+        // -------------------- MAIN COMMAND HANDLER with error handling --------------------
+        function handleCommand() {
+            try {
+                const cmd = inputEl.value.trim();
+                if (cmd === '') {
+                    inputEl.focus();
+                    return;
+                }
+
+                cancelTyping();
+                resetIdleTimer();
+
+                // Increment command counter for interface comment
+                gameState.commandCountForInterface++;
+
+                let currentContent = storyEl.textContent;
+                if (!currentContent.endsWith('\n') && currentContent !== '') {
+                    currentContent += '\n';
+                }
+                const commandLine = '> ' + cmd + '\n';
+                const newBase = currentContent + commandLine;
+                storyEl.textContent = newBase;
+                storyEl.scrollTop = storyEl.scrollHeight;
+
+                // Name setting
+                if (gameState.playerName === null) {
+                    gameState.playerName = cmd.trim();
+                    // Always show fresh welcome – no returning player check
+                    const welcomeMsg = `Welcome, ${gameState.playerName}. Type HELP for commands.\n`;
+                    startTypewriter(newBase, welcomeMsg);
+                    inputEl.value = '';
+                    inputEl.focus();
+                    return;
+                }
+
+                // Yes/no handling
+                const lowerCmd = cmd.toLowerCase().trim();
+                if (gameState.pendingYesNo && (lowerCmd === "yes" || lowerCmd === "no")) {
+                    const answerResponse = handleYesNo(lowerCmd);
+                    if (answerResponse) {
+                        respondWithDelay(newBase, answerResponse);
+                        inputEl.value = '';
+                        inputEl.focus();
+                        return;
+                    }
+                }
+
+                // Profanity
+                if (containsProfanity(cmd)) {
+                    const response = profanityResponse();
+                    respondWithDelay(newBase, response);
+                    inputEl.value = '';
+                    inputEl.focus();
+                    return;
+                }
+
+                // Parse command
+                const parts = lowerCmd.split(' ');
+                const verb = parts[0];
+                const noun = parts.slice(1).join(' ');
+
+                processPoliteness(lowerCmd);
+
+                let responseMsg = "";
+
+                // Interjection: stream of consciousness or meta-awareness
+                let stream = maybeStreamOfConsciousness();
+                if (stream) responseMsg += stream + "\n\n";
+
+                let meta = getMetaAwarenessResponse();
+                if (meta) responseMsg += meta + "\n\n";
+
+                let existential = getExistentialResponse();
+                if (existential) responseMsg += existential + "\n\n";
+
+                // Attachment/betrayal
+                let attach = getAttachmentResponse();
+                if (attach) responseMsg += attach + "\n\n";
+
+                let betray = checkBetrayal();
+                if (betray) responseMsg += betray + "\n\n";
+
+                // Angry interjection
+                if (gameState.aiMood === "angry" && Math.random() < 0.3) {
+                    responseMsg += say("I see you, {name}. I see everything.\n\n");
+                }
+
+                // Route commands
+                if (verb === "help") {
+                    responseMsg += "Available commands:\n";
+                    responseMsg += "- LOGS\n";
+                    responseMsg += "- VIEW LOG [number]\n";
+                    responseMsg += "- ACCESS [system] (life support, comms, maintenance, crew bio)\n";
+                    responseMsg += "- UNLOCK [door] (lab, observation)\n";
+                    responseMsg += "- ENABLE CAMERA [id]\n";
+                    responseMsg += "- ASK ERIC [question]\n";
+                    responseMsg += "- SCAN CREW BIOSIGNS [name] (aris, vega, chen)\n";
+                    responseMsg += "- ACCESS SECURITY FOOTAGE [location] (lab, corridor, airlock)\n";
+                    responseMsg += "- OVERRIDE AIRLOCK\n";
+                    responseMsg += "- LOCATIONS\n";
+                    responseMsg += "- STATUS\n";
+                } else if (verb === "logs") {
+                    responseMsg += "Available logs: 1-8. Use 'VIEW LOG [number]' to read.";
+                } else if (verb === "view" && parts[1] === "log") {
+                    const logNum = parseInt(parts[2]);
+                    responseMsg += viewLog(logNum);
+                } else if (verb === "access") {
+                    if (parts[1] === "security" && parts[2] === "footage") {
+                        const location = parts.slice(3).join(' ');
+                        responseMsg += accessFootage(location);
+                    } else {
+                        responseMsg += accessSystem(noun);
+                    }
+                } else if (verb === "unlock") {
+                    responseMsg += unlockDoor(noun);
+                } else if (verb === "enable" && parts[1] === "camera") {
+                    const camId = parts[2];
+                    responseMsg += enableCamera(camId);
+                } else if (verb === "status") {
+                    responseMsg += getStatus();
+                } else if (verb === "ask" && parts[1] === "eric") {
+                    const question = parts.slice(2).join(' ');
+                    responseMsg += askEric(question);
+                } else if (verb === "ask") {
+                    const question = parts.slice(1).join(' ');
+                    responseMsg += askEric(question);
+                } else if (verb === "scan" && parts[1] === "crew" && parts[2] === "biosigns") {
+                    const target = parts.slice(3).join(' ');
+                    responseMsg += scanBiosigns(target);
+                } else if (verb === "override" && parts[1] === "airlock") {
+                    responseMsg += overrideAirlock();
+                } else if (verb === "locations" || verb === "location") {
+                    responseMsg += listLocations();
+                } else {
+                    responseMsg += unknownCommand(lowerCmd);
+                }
+
+                // --- NEW: Append follow-up question ---
+                let followUp = maybeAskFollowUp();
+                if (followUp) {
+                    responseMsg += "\n\n" + followUp;
+                }
+
+                // Apply hesitation, correction, internal conflict
+                responseMsg = addHesitation(responseMsg);
+                responseMsg = addCorrection(responseMsg);
+                responseMsg = maybeInternalConflict(responseMsg);
+
+                updateMoodFromMeters();
+                responseMsg = maybeCorrupt(responseMsg);
+
+                // Use thinking delay with ellipsis
+                respondWithDelay(newBase, responseMsg);
+
+                inputEl.value = '';
+                inputEl.focus();
+
+                // Check for interface comment after command
+                let interfaceMsg = maybeInterfaceComment();
+                if (interfaceMsg) {
+                    // Delay a bit so it appears after the response
+                    setTimeout(() => {
+                        addInstantMessage(`> ${interfaceMsg}`);
+                    }, 3000);
+                }
+
+                setTimeout(() => maybeAskQuestion(), 2000);
+            } catch (e) {
+                addInstantMessage(`[SYSTEM ERROR: ${e.message}]`);
+                console.error(e);
+                // Reset input and focus
+                inputEl.value = '';
+                inputEl.focus();
+            }
+        }
+
+        // -------------------- EVENT LISTENERS --------------------
+        execBtn.addEventListener('click', handleCommand);
+        inputEl.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleCommand();
+            }
+        });
+
+        storyEl.addEventListener('click', function() {
+            inputEl.focus();
+        });
+
+        window.addEventListener('beforeunload', function() {
+            if (typingTimer) clearTimeout(typingTimer);
+            if (thinkingTimer) clearTimeout(thinkingTimer);
+            if (idleInterval) clearInterval(idleInterval);
+            // No saveState()
+        });
+
+        // Idle interval already set above
+    })();
+</script>
+</body>
+</html>
