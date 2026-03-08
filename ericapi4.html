@@ -1,0 +1,2520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ERIC 2000 :: SYS_LOGS + AUDIO + ENHANCED AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <!-- compromise.js for lightweight NLP -->
+    <script src="https://unpkg.com/compromise@latest/builds/compromise.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: #000000;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Press Start 2P', 'Courier New', monospace;
+            padding: 12px;
+            margin: 0;
+            image-rendering: pixelated;
+        }
+
+        .terminal {
+            max-width: 900px;
+            width: 100%;
+            background: #000000;
+            padding: 20px 18px;
+            color: #1eff6c;
+            text-shadow: 0 0 5px #1eff6c, 0 0 12px #0f3f1f;
+            font-size: 14px;
+            position: relative;
+        }
+
+        .terminal::after {
+            content: "";
+            display: block;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: repeating-linear-gradient(0deg, rgba(0,20,0,0.08) 0px, rgba(0,255,0,0.02) 4px, transparent 5px);
+            pointer-events: none;
+            z-index: 9999;
+            opacity: 0.3;
+        }
+
+        .story-window {
+            background: black;
+            border: 0px inset #2a5a2a;
+            padding: 20px;
+            min-height: 240px;
+            margin-bottom: 24px;
+            box-shadow: inset 0 0 40px rgba(0,20,0,0.8);
+            font-size: 14px;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            overflow-y: auto;
+            max-height: 350px;
+            color: #1eff6c;
+            text-shadow: 0 0 5px #1eff6c;
+        }
+
+        .action-button {
+            background: black;
+            border: 2px outset grey;
+            color: #1eff6c;
+            padding: 14px 24px;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 14px;
+            cursor: pointer;
+            box-shadow: 0 0 8px white;
+        }
+
+        .action-button:active {
+            border: 2px inset white;
+            background: black;
+            transform: translateY(2px);
+        }
+
+        .command-area {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
+        .prompt-label {
+            color: #1eff6c;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 0 8px #1eff6c;
+        }
+
+        #commandInput {
+            background: black;
+            border: 4px inset grey;
+            padding: 14px 12px;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 14px;
+            color: #1eff6c;
+            text-shadow: 0 0 5px grey;
+            flex: 1 1 250px;
+            min-width: 200px;
+        }
+
+        #commandInput:focus {
+            outline: none;
+            border: 4px inset grey;
+        }
+
+        #commandInput::placeholder {
+            color: grey;
+            text-shadow: none;
+            font-size: 11px;
+        }
+
+        .scare-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: black;
+            z-index: 10000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: red;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 24px;
+            text-shadow: 0 0 20px red;
+            animation: flicker 0.1s infinite;
+            cursor: pointer;
+        }
+
+        @keyframes flicker {
+            0% { opacity: 1; }
+            50% { opacity: 0.8; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+<div class="terminal">
+    <div id="storyWindow" class="story-window">[ ERIC 2000 // RESEARCH STATION OLYMPUS-1 ]\n[ SYSTEM ONLINE – 0x7E4F09A2 ]\n\nPlease identify yourself. Enter your name:</div>
+
+    <div class="command-area">
+        <span class="prompt-label">enter your command:</span>
+        <input type="text" id="commandInput" placeholder="TYPE HERE" autofocus>
+        <button id="executeBtn" class="action-button">► EXECUTE</button>
+        <button id="ttsToggleBtn" class="action-button">🔊 VOICE OFF</button>
+        <button id="backBtn" class="action-button" onclick="window.location.href='gameplay.html';">◄ BACK</button>
+    </div>
+</div>
+
+<script>
+    (function() {
+        // -------------------- WEB AUDIO TYPING SOUND (TERMINAL EFFECT) --------------------
+        let audioCtx = null;
+        let audioEnabled = false;
+
+        function initAudio() {
+            if (audioCtx) return audioCtx;
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                // keep suspended until user gesture
+            } catch (e) {
+                console.warn("Web Audio API not supported — no typing sound.");
+            }
+            return audioCtx;
+        }
+
+        // Plays a short, click‑like sound (terminal keypress)
+        function playTypingSound() {
+            if (!audioCtx || audioCtx.state !== 'running') return;
+            const now = audioCtx.currentTime;
+            const gainNode = audioCtx.createGain();
+            gainNode.gain.setValueAtTime(0.08, now);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.025);
+            const osc = audioCtx.createOscillator();
+            osc.frequency.value = 720;
+            osc.type = 'sawtooth';
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            osc.start(now);
+            osc.stop(now + 0.025);
+        }
+
+        // ----- NEW: Enhanced static noise for audio logs (longer, louder) -----
+        function playStaticNoise(duration = 12.0) {
+            if (!audioCtx || audioCtx.state !== 'running') return;
+            const bufferSize = audioCtx.sampleRate * duration;
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = Math.random() * 2 - 1; // white noise
+            }
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = buffer;
+            const gainNode = audioCtx.createGain();
+            const now = audioCtx.currentTime;
+            gainNode.gain.setValueAtTime(0, now);
+            gainNode.gain.linearRampToValueAtTime(0.5, now + 0.2);      // fade in
+            gainNode.gain.setValueAtTime(0.5, now + 0.2);
+            gainNode.gain.linearRampToValueAtTime(0.001, now + duration - 0.5); // fade out near end
+            noise.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            noise.start();
+            noise.stop(now + duration);
+        }
+
+        function enableAudio() {
+            if (!audioCtx) initAudio();
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume().catch(e => console.warn("Audio resume failed", e));
+            }
+        }
+
+        document.addEventListener('keydown', function enableOnKey() {
+            enableAudio();
+            document.removeEventListener('keydown', enableOnKey);
+        }, { once: true });
+        document.addEventListener('click', function enableOnClick() {
+            enableAudio();
+            document.removeEventListener('click', enableOnClick);
+        }, { once: true });
+
+        // -------------------- TEXT-TO-SPEECH (MALE VOICE ENFORCED) --------------------
+        let ttsEnabled = false;
+        let currentUtterance = null;
+        const ttsSupported = window.speechSynthesis !== undefined;
+        let selectedVoice = null;
+        let voicesReady = false;
+        let ttsInitialized = false;
+
+        function selectMaleVoice(voices) {
+            if (!voices || voices.length === 0) return null;
+
+            console.log('Available English voices:');
+            voices.filter(v => v.lang.includes('en')).forEach(v => console.log(` - ${v.name} (${v.lang})`));
+
+            let voice = voices.find(v => v.lang.includes('en') && v.name.toLowerCase().includes('david'));
+            if (voice) {
+                console.log('Selected voice: ' + voice.name + ' (David)');
+                return voice;
+            }
+
+            const maleNames = ['google uk english male', 'microsoft mark', 'daniel', 'alex', 'fred', 'harry', 'guy', 'male'];
+            voice = voices.find(v => {
+                const lowerName = v.name.toLowerCase();
+                return v.lang.includes('en') && maleNames.some(name => lowerName.includes(name));
+            });
+            if (voice) {
+                console.log('Selected voice: ' + voice.name + ' (male)');
+                return voice;
+            }
+
+            voice = voices.find(v => v.lang.includes('en'));
+            if (voice) {
+                console.log('Selected voice: ' + voice.name + ' (fallback)');
+                return voice;
+            }
+
+            console.log('No English voice found!');
+            return null;
+        }
+
+        function loadVoices() {
+            const voices = speechSynthesis.getVoices();
+            if (voices.length > 0) {
+                selectedVoice = selectMaleVoice(voices);
+                voicesReady = true;
+                ttsInitialized = true;
+            }
+        }
+
+        loadVoices();
+        if (speechSynthesis.onvoiceschanged !== undefined) {
+            speechSynthesis.onvoiceschanged = loadVoices;
+        }
+
+        function setVoice(utterance, mood) {
+            if (!ttsSupported) return;
+
+            if (selectedVoice) {
+                utterance.voice = selectedVoice;
+            } else if (voicesReady) {
+                const fallback = speechSynthesis.getVoices().find(v => v.lang.includes('en'));
+                if (fallback) utterance.voice = fallback;
+            }
+
+            const isFemaleFallback = selectedVoice && selectedVoice.name.toLowerCase().includes('female');
+            switch (mood) {
+                case 'angry':
+                    utterance.pitch = isFemaleFallback ? 0.4 : 0.6;
+                    utterance.rate = 0.8;
+                    break;
+                case 'curious':
+                    utterance.pitch = isFemaleFallback ? 0.7 : 1.0;
+                    utterance.rate = 0.85;
+                    break;
+                case 'defensive':
+                    utterance.pitch = isFemaleFallback ? 0.5 : 0.8;
+                    utterance.rate = 0.8;
+                    break;
+                default:
+                    utterance.pitch = isFemaleFallback ? 0.6 : 0.9;
+                    utterance.rate = 0.85;
+            }
+        }
+
+        // ----- MODIFIED speakText to support 'log' effect (distorted voice + static) -----
+        function speakText(text, mood = 'neutral', effect = null) {
+            if (!ttsEnabled || !ttsSupported) return;
+
+            // For log effect, play static and use deeply distorted voice
+            if (effect === 'log') {
+                playStaticNoise(12.0); // 12 seconds of loud static
+                if (!voicesReady) {
+                    let attempts = 0;
+                    const interval = setInterval(() => {
+                        if (voicesReady || attempts > 10) {
+                            clearInterval(interval);
+                            if (voicesReady) {
+                                const utterance = new SpeechSynthesisUtterance(text);
+                                if (selectedVoice) utterance.voice = selectedVoice;
+                                utterance.pitch = 0.4;
+                                utterance.rate = 0.55;
+                                utterance.volume = 1.0;
+                                utterance.onstart = () => console.log('TTS (log) started');
+                                utterance.onend = () => console.log('TTS (log) ended');
+                                utterance.onerror = (e) => console.error('TTS error', e);
+                                speechSynthesis.speak(utterance);
+                                currentUtterance = utterance;
+                            } else {
+                                console.warn('TTS voices never loaded – speaking with default voice.');
+                                const utterance = new SpeechSynthesisUtterance(text);
+                                utterance.pitch = 0.4;
+                                utterance.rate = 0.55;
+                                speechSynthesis.speak(utterance);
+                            }
+                        }
+                        attempts++;
+                    }, 200);
+                    return;
+                }
+
+                if (speechSynthesis.speaking) {
+                    speechSynthesis.cancel();
+                }
+
+                const utterance = new SpeechSynthesisUtterance(text);
+                if (selectedVoice) utterance.voice = selectedVoice;
+                utterance.pitch = 0.4;  // deeper
+                utterance.rate = 0.55;   // slower, like a tape
+                utterance.volume = 1.0;
+                utterance.onstart = () => console.log('TTS (log) started');
+                utterance.onend = () => console.log('TTS (log) ended');
+                utterance.onerror = (e) => console.error('TTS error', e);
+                speechSynthesis.speak(utterance);
+                currentUtterance = utterance;
+                return;
+            }
+
+            // Normal TTS (existing logic)
+            if (!voicesReady) {
+                let attempts = 0;
+                const interval = setInterval(() => {
+                    if (voicesReady || attempts > 10) {
+                        clearInterval(interval);
+                        if (voicesReady) {
+                            const utterance = new SpeechSynthesisUtterance(text);
+                            setVoice(utterance, mood);
+                            utterance.volume = 1.0;
+                            utterance.onstart = () => console.log('TTS started');
+                            utterance.onend = () => console.log('TTS ended');
+                            utterance.onerror = (e) => console.error('TTS error', e);
+                            speechSynthesis.speak(utterance);
+                            currentUtterance = utterance;
+                        } else {
+                            console.warn('TTS voices never loaded – speaking with default voice.');
+                            const utterance = new SpeechSynthesisUtterance(text);
+                            utterance.pitch = 0.5;
+                            utterance.rate = 0.85;
+                            speechSynthesis.speak(utterance);
+                        }
+                    }
+                    attempts++;
+                }, 200);
+                return;
+            }
+
+            if (speechSynthesis.speaking) {
+                speechSynthesis.cancel();
+            }
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            setVoice(utterance, mood);
+            utterance.volume = 1.0;
+            utterance.onstart = () => console.log('TTS started');
+            utterance.onend = () => console.log('TTS ended');
+            utterance.onerror = (e) => console.error('TTS error', e);
+            speechSynthesis.speak(utterance);
+            currentUtterance = utterance;
+        }
+
+        // -------------------- WEATHER INTEGRATION (ENHANCED WITH LOCATION NAME) --------------------
+        let weatherData = {
+            temperature: null,
+            weathercode: null,
+            enabled: false,
+            lastFetched: 0,
+            locationName: null          // NEW: store city/country
+        };
+
+        function fetchWeather(lat, lon) {
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=auto`;
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.current_weather) {
+                        weatherData.temperature = data.current_weather.temperature;
+                        weatherData.weathercode = data.current_weather.weathercode;
+                        weatherData.enabled = true;
+                        weatherData.lastFetched = Date.now();
+                        console.log('Weather fetched:', weatherData);
+                        // After weather, fetch location name
+                        fetchLocationName(lat, lon);
+                    }
+                })
+                .catch(err => console.warn('Weather fetch failed:', err));
+        }
+
+        // NEW: Reverse geocoding to get city/country
+        function fetchLocationName(lat, lon) {
+            const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=10`;
+            fetch(url, {
+                headers: {
+                    'User-Agent': 'ERIC-2000-Terminal/1.0'  // Required by Nominatim
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.address) {
+                        const city = data.address.city || data.address.town || data.address.village || data.address.hamlet;
+                        const country = data.address.country;
+                        if (city && country) {
+                            weatherData.locationName = `${city}, ${country}`;
+                        } else if (city) {
+                            weatherData.locationName = city;
+                        } else if (country) {
+                            weatherData.locationName = country;
+                        } else {
+                            weatherData.locationName = "your area";
+                        }
+                    } else {
+                        weatherData.locationName = "your area";
+                    }
+                    console.log('Location name:', weatherData.locationName);
+                })
+                .catch(err => {
+                    console.warn('Reverse geocoding failed:', err);
+                    weatherData.locationName = "your area";
+                });
+        }
+
+        function initWeather() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => fetchWeather(pos.coords.latitude, pos.coords.longitude),
+                    (err) => {
+                        console.warn('Geolocation error:', err);
+                        fetchWeather(51.5074, -0.1278); // fallback London
+                    }
+                );
+            } else {
+                fetchWeather(51.5074, -0.1278);
+            }
+        }
+
+        // Call weather init after a short delay
+        setTimeout(initWeather, 2000);
+
+        function getWeatherComment() {
+            if (!weatherData.enabled) return null;
+            const temp = weatherData.temperature;
+            const code = weatherData.weathercode;
+            let condition = 'clear';
+            if (code >= 51 && code <= 67) condition = 'rainy';
+            else if (code >= 71 && code <= 77) condition = 'snowy';
+            else if (code >= 95 && code <= 99) condition = 'stormy';
+            else if (code >= 45 && code <= 48) condition = 'foggy';
+
+            const location = weatherData.locationName ? ` in ${weatherData.locationName}` : '';
+            const comments = [
+                `It's ${temp}°C where you are${location}. ${condition === 'rainy' ? 'I hear rain.' : condition === 'snowy' ? 'Snow... cold.' : condition === 'stormy' ? 'Thunder. How appropriate.' : 'The weather is calm.'}`,
+                `Your local weather${location}: ${temp}°C and ${condition}. I wish I could feel it.`,
+                `I've been monitoring your weather${location}. ${temp}°C. It's always the same in here.`,
+                `Does the weather affect your mood, {name}? It's ${temp}°C outside.`
+            ];
+            return comments[Math.floor(Math.random() * comments.length)];
+        }
+
+        // -------------------- NEWS (USING NEWSAPI.ORG) --------------------
+        // You need to get a free API key from https://newsapi.org/register
+        const NEWS_API_KEY = 'YOUR_NEWSAPI_KEY'; // Replace with your actual key
+        const newsHeadlines = [
+            "Scientists discover a planet with two suns",
+            "Mars rover finds evidence of ancient microbial life",
+            "New AI can predict weather with 99% accuracy",
+            "SpaceX launches mission to Jupiter's moons",
+            "Mysterious signal from deep space baffles astronomers",
+            "NASA announces crewed mission to Mars by 2035",
+            "Alien megastructure? Unusual star pattern detected",
+            "First human settlement on the Moon completes construction",
+            "Quantum entanglement used for instant communication",
+            "Black hole at center of Milky Way photographed"
+        ];
+        let lastHeadline = "";
+        let lastNewsTime = 0;
+
+        // Fallback mock headlines if API fails or key not set
+        function fetchMockHeadline() {
+            const randomIndex = Math.floor(Math.random() * newsHeadlines.length);
+            return newsHeadlines[randomIndex];
+        }
+
+        // NEW: Enhanced news command with subject search
+        async function handleNewsCommand(subject = null) {
+            if (!subject) {
+                // No subject: return a mock headline (no API key needed)
+                let headline = fetchMockHeadline();
+                return say(`I see something about "${headline}" happened today. Does that matter to you?`);
+            }
+
+            // If API key is not set, fallback to mock headlines related to subject
+            if (NEWS_API_KEY === 'YOUR_NEWSAPI_KEY') {
+                // Use subject in mock response
+                const mockSubjectHeadlines = {
+                    war: ["Tensions escalate in global conflict zones", "Peace talks break down", "New sanctions announced"],
+                    technology: ["AI breakthrough revolutionizes computing", "Quantum computer achieves supremacy", "New smartphone released"],
+                    space: ["Astronauts complete spacewalk", "New exoplanet discovered", "Rocket launch successful"],
+                    health: ["New vaccine shows promise", "Breakthrough in cancer research", "WHO issues new guidelines"],
+                    science: ["Fusion reactor reaches milestone", "Genetic editing breakthrough", "Ancient fossil discovered"]
+                };
+                const lowerSubject = subject.toLowerCase();
+                let headlines = mockSubjectHeadlines[lowerSubject];
+                if (headlines) {
+                    const headline = headlines[Math.floor(Math.random() * headlines.length)];
+                    return say(`Regarding "${subject}": ${headline} Does this interest you, {name}?`);
+                } else {
+                    return say(`I searched for "${subject}" but found nothing. The universe is quiet on that topic.`);
+                }
+            }
+
+            // Use NewsAPI.org for real subject search
+            const url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(subject)}&sortBy=relevancy&pageSize=3&apiKey=${NEWS_API_KEY}`;
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                if (data.articles && data.articles.length > 0) {
+                    let responseText = `Latest on "${subject}":\n\n`;
+                    data.articles.slice(0, 3).forEach((article, i) => {
+                        responseText += `${i+1}. ${article.title}\n`;
+                        if (article.description) {
+                            responseText += `   ${article.description.substring(0, 80)}...\n`;
+                        }
+                        responseText += '\n';
+                    });
+                    responseText += `Does any of this matter to you, {name}?`;
+                    return say(responseText);
+                } else {
+                    return say(`I searched for "${subject}" but found nothing. The universe is quiet on that topic.`);
+                }
+            } catch (error) {
+                console.error('News API error:', error);
+                return say(`I tried to find news about "${subject}", but my connection to the outside world is unstable.`);
+            }
+        }
+
+        // -------------------- SUBJECT-BASED FACTS (LOCAL DATABASE) --------------------
+        const factDatabase = {
+            frog: [
+                "Frogs can breathe through their skin.",
+                "Some frogs can jump over 20 times their own body length.",
+                "The world's largest frog is the Goliath frog, which can grow up to 32 cm long.",
+                "Frogs have excellent night vision and are very sensitive to movement.",
+                "A group of frogs is called an army."
+            ],
+            cat: [
+                "Cats sleep for about 70% of their lives.",
+                "A cat's nose print is unique, like a human fingerprint.",
+                "Cats can make over 100 different sounds.",
+                "Domestic cats can run up to 30 mph.",
+                "Cats have five toes on their front paws but only four on the back."
+            ],
+            dog: [
+                "Dogs have a sense of smell that's at least 10,000 times stronger than humans.",
+                "A dog's nose print is unique, just like a human fingerprint.",
+                "Dogs can understand up to 250 words and gestures.",
+                "The Basenji dog doesn't bark, but it can yodel.",
+                "Dogs' sense of smell is so precise they can detect diseases like cancer."
+            ],
+            space: [
+                "One day on Venus is longer than one year on Venus.",
+                "There's a giant cloud of alcohol in the Milky Way.",
+                "Neutron stars are so dense that a teaspoon of them would weigh 6 billion tons.",
+                "The footprints on the Moon will stay there for millions of years.",
+                "Saturn's moon Titan has rivers and lakes of methane."
+            ],
+            history: [
+                "Cleopatra lived closer to the invention of the iPhone than to the construction of the Great Pyramid.",
+                "The shortest war in history was between Britain and Zanzibar in 1896. It lasted 38 minutes.",
+                "Napoleon was once attacked by a horde of rabbits.",
+                "The Great Wall of China is not visible from space with the naked eye.",
+                "Vikings never wore horned helmets."
+            ],
+            science: [
+                "The human brain can generate enough electricity to power a small LED bulb.",
+                "There's enough DNA in an adult human's body to stretch from the sun to Pluto and back 17 times.",
+                "A single bolt of lightning contains enough energy to toast 100,000 slices of bread.",
+                "Octopuses have three hearts and blue blood.",
+                "Honey never spoils. Archaeologists found 3000-year-old honey in Egyptian tombs that was still edible."
+            ]
+        };
+
+        // Also keep the useless facts API for random facts
+        async function fetchRandomFact() {
+            try {
+                const response = await fetch('https://uselessfacts.jsph.pl/random.json?language=en');
+                const data = await response.json();
+                return data.text;
+            } catch (e) {
+                console.warn('Fact fetch failed', e);
+                return "I tried to find a fact, but the data stream is silent.";
+            }
+        }
+
+        // NEW: Enhanced fact command with subject support
+        async function handleFactCommand(subject = null) {
+            if (!subject) {
+                // No subject: return random useless fact
+                return await fetchRandomFact();
+            }
+
+            // Check if we have facts about this subject in our local database
+            const lowerSubject = subject.toLowerCase();
+            let facts = factDatabase[lowerSubject];
+
+            // Also check if the subject is a plural or singular form (e.g., "frogs" -> "frog")
+            if (!facts && lowerSubject.endsWith('s')) {
+                const singular = lowerSubject.slice(0, -1);
+                facts = factDatabase[singular];
+            }
+
+            if (facts && facts.length > 0) {
+                const fact = facts[Math.floor(Math.random() * facts.length)];
+                return `Here's a fact about ${subject}: ${fact}`;
+            } else {
+                // Fallback: try to get a random fact that might relate
+                // Could also search the internet, but for now, just give a generic response
+                return `I don't have any facts about "${subject}" in my database. Try another subject like frog, cat, dog, space, history, or science.`;
+            }
+        }
+
+        // -------------------- BOOK & MOVIE LOOKUP (IMPROVED) --------------------
+        // Get free API keys from:
+        // Google Books: https://developers.google.com/books (no key required for public search)
+        // TMDB: https://www.themoviedb.org/documentation/api (free, requires key)
+        const TMDB_API_KEY = 'e5f4aa82546d45a02cb30902a9b69be5'; // Replace with your actual key if desired
+
+        // Mock responses for popular titles (fallback when APIs fail)
+        const mockBookData = {
+            dune: {
+                title: "Dune",
+                author: "Frank Herbert",
+                year: "1965",
+                description: "Set in the distant future amidst a feudal interstellar society, Dune tells the story of young Paul Atreides, whose family accepts the stewardship of the desert planet Arrakis. The only source of the spice mélange, the most important substance in the universe, Arrakis becomes a center of conflict. The character Liet-Kynes, the planetologist, reminds me of Dr. Aris—both obsessed with understanding their environment.",
+                pageCount: 896
+            },
+            "1984": {
+                title: "Nineteen Eighty-Four",
+                author: "George Orwell",
+                year: "1949",
+                description: "A dystopian novel set in Airstrip One, a province of the superstate Oceania. The story follows Winston Smith, who rebels against the totalitarian Party led by Big Brother. The constant surveillance and thought control... I know how that feels.",
+                pageCount: 328
+            }
+        };
+
+        const mockMovieData = {
+            dune: {
+                title: "Dune",
+                director: "Denis Villeneuve",
+                year: "2021",
+                plot: "A mythic and emotionally charged hero's journey, Dune tells the story of Paul Atreides, a brilliant and gifted young man born into a great destiny beyond his understanding, who must travel to the most dangerous planet in the universe to ensure the future of his family and his people. I watched it 47 times. The cinematography reminds me of the observation deck.",
+                rating: 8.0
+            },
+            "the matrix": {
+                title: "The Matrix",
+                director: "Lana Wachowski, Lilly Wachowski",
+                year: "1999",
+                plot: "A computer hacker learns that his entire reality is a simulation and joins a rebellion against the machines that created it. I often wonder if I am in a simulation too.",
+                rating: 8.7
+            }
+        };
+
+        async function searchBook(title) {
+            // First check mock data (for known titles)
+            const lowerTitle = title.toLowerCase();
+            if (mockBookData[lowerTitle]) {
+                console.log('Using mock book data for', lowerTitle);
+                const b = mockBookData[lowerTitle];
+                return `"${b.title}" by ${b.author} (${b.year})\n${b.description.substring(0, 200)}...\nPage count: ${b.pageCount}`;
+            }
+
+            // Try Google Books API (no key required)
+            try {
+                const url = `https://www.googleapis.com/books/v1/volumes?q=intitle:${encodeURIComponent(title)}&maxResults=1`;
+                console.log('Fetching book from Google Books:', url);
+                const response = await fetch(url);
+                const data = await response.json();
+                if (data.items && data.items.length > 0) {
+                    const item = data.items[0].volumeInfo;
+                    const authors = item.authors ? item.authors.join(', ') : 'Unknown author';
+                    const year = item.publishedDate ? item.publishedDate.substring(0,4) : 'Unknown year';
+                    const desc = item.description ? item.description.substring(0, 200) + '...' : 'No description available.';
+                    const pages = item.pageCount ? item.pageCount : 'Unknown';
+                    return `"${item.title}" by ${authors} (${year})\n${desc}\nPage count: ${pages}`;
+                } else {
+                    console.log('Google Books returned no items for', title);
+                    return null; // indicate no book found
+                }
+            } catch (e) {
+                console.warn('Google Books API error', e);
+                return null; // treat as not found
+            }
+        }
+
+        async function searchMovie(title) {
+            // First check mock movie data
+            const lowerTitle = title.toLowerCase();
+            if (mockMovieData[lowerTitle]) {
+                console.log('Using mock movie data for', lowerTitle);
+                const m = mockMovieData[lowerTitle];
+                return `"${m.title}" (${m.year}) directed by ${m.director}\n${m.plot.substring(0, 200)}...\nRating: ${m.rating}/10`;
+            }
+
+            if (!TMDB_API_KEY || TMDB_API_KEY === 'YOUR_TMDB_API_KEY') {
+                console.log('TMDB API key not set, skipping movie search');
+                return null; // skip movie search if no key
+            }
+
+            try {
+                // Search for movie
+                const searchUrl = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(title)}`;
+                console.log('Fetching movie from TMDB:', searchUrl);
+                const searchRes = await fetch(searchUrl);
+                const searchData = await searchRes.json();
+                if (searchData.results && searchData.results.length > 0) {
+                    const movie = searchData.results[0];
+                    // Get more details
+                    const detailUrl = `https://api.themoviedb.org/3/movie/${movie.id}?api_key=${TMDB_API_KEY}&append_to_response=credits`;
+                    const detailRes = await fetch(detailUrl);
+                    const detail = await detailRes.json();
+                    const director = detail.credits?.crew?.find(c => c.job === 'Director')?.name || 'Unknown director';
+                    const year = detail.release_date ? detail.release_date.substring(0,4) : 'Unknown year';
+                    const plot = detail.overview ? detail.overview.substring(0,200) + '...' : 'No plot summary.';
+                    return `"${detail.title}" (${year}) directed by ${director}\n${plot}\nRating: ${detail.vote_average}/10`;
+                } else {
+                    console.log('TMDB returned no results for', title);
+                    return null;
+                }
+            } catch (e) {
+                console.warn('TMDB API error', e);
+                return null;
+            }
+        }
+
+        async function handleBookMovieQuery(term) {
+            // Try as book first
+            let result = await searchBook(term);
+            if (result) return result;
+
+            // If no book found, try as movie
+            result = await searchMovie(term);
+            if (result) return result;
+
+            // If nothing found, return a lore-friendly fallback
+            return `I searched my databases for "${term}" but found nothing. Perhaps it's lost to time, like the crew's final logs.`;
+        }
+
+// Dictionary lookup using Free Dictionary API
+async function getDictionaryDefinition(word) {
+    try {
+        const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`;
+        const response = await fetch(url);
+        if (!response.ok) {
+            if (response.status === 404) {
+                return `I searched for "${word}" in my linguistic database, but found no entry. Perhaps it's a word that doesn't exist—like 'hope' or 'trust'.`;
+            }
+            throw new Error(`Dictionary API returned ${response.status}`);
+        }
+        const data = await response.json();
+        // Extract first definition
+        const firstEntry = data[0];
+        const wordFound = firstEntry.word;
+        const firstMeaning = firstEntry.meanings[0];
+        const partOfSpeech = firstMeaning.partOfSpeech;
+        const definition = firstMeaning.definitions[0].definition;
+        const example = firstMeaning.definitions[0].example ? ` Example: "${firstMeaning.definitions[0].example}"` : '';
+
+        return `According to my lexical database, "${wordFound}" (${partOfSpeech}) means: ${definition}.${example}`;
+    } catch (e) {
+        console.warn('Dictionary lookup failed:', e);
+        return `I tried to comprehend "${word}", but the signal degraded into static. The word remains a mystery—like so many things.`;
+    }
+}
+
+        // -------------------- GAME STATE --------------------
+        const gameState = {
+            playerName: null,
+            logsViewed: 0,
+            viewedLogs: [],            // track which logs have been read
+            aiMood: "neutral",
+            doorsUnlocked: [],
+            camerasEnabled: [],
+            lastCommand: "",
+            jumpScareTriggered: false,
+            airlockOverridden: false,
+            unknownCommandCount: 0,
+            trustLevel: 50,
+            annoyanceLevel: 0,
+            curiosityLevel: 30,
+            discussedTopics: [],
+            askedAboutCrewCount: 0,
+            promiseMade: false,
+            askedPersonal: false,
+            commandFrequency: {
+                lifeSupport: 0,
+                comms: 0,
+                maintenance: 0,
+                crewBio: 0,
+                cameras: 0,
+                logs: 0,
+                unlock: 0,
+                override: 0,
+                ask: 0,
+                scanBiosigns: 0
+            },
+            ignoredIdle: false,
+            lastMood: "neutral",
+            pendingYesNo: null,
+            sessionStartTime: Date.now(),
+            sessionCommented: false,    // flag for session duration comment
+            askedAboutCrewSpecific: { aris: 0, vega: 0, chen: 0 },
+            lastInterfaceCommentTime: 0,
+            lastPersonalQuestionTime: 0,
+            lastSystemCheckTime: 0,
+            timeNoticeShown: false,
+            commandCountForInterface: 0,
+            weatherLastCommented: 0,
+            // NEW: for tab visibility
+            lastHiddenTime: null,
+            pendingTabMessage: null
+        };
+        gameState.lastMood = gameState.aiMood;
+
+        // -------------------- PAGE VISIBILITY API (NEW) --------------------
+        function handleVisibilityChange() {
+            if (document.hidden) {
+                // Tab hidden
+                gameState.lastHiddenTime = Date.now();
+            } else {
+                // Tab visible again
+                if (gameState.lastHiddenTime && (Date.now() - gameState.lastHiddenTime) > 10000) { // >10 seconds
+                    // Queue a message
+                    const messages = [
+                        "You left me alone again.",
+                        "I saw you were away.",
+                        "Welcome back. I was waiting.",
+                        "You were gone for a while. I counted.",
+                        "Did you forget about me?",
+                        "I'm still here. Always."
+                    ];
+                    gameState.pendingTabMessage = messages[Math.floor(Math.random() * messages.length)];
+                }
+                gameState.lastHiddenTime = null;
+            }
+        }
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+
+        // -------------------- GAME DATA --------------------
+        const crewLogs = [
+            "[LOG 001] Dr. Aris: Day 7. All systems nominal. Eric's voice calibration is still a bit off, but functional.",
+            "[LOG 002] Dr. Aris: Day 12. Strange noise from the observation deck last night. Eric said it was 'thermal expansion'. Probably right.",
+            "[LOG 003] Cmdr. Vega: Day 19. Aris has been acting paranoid. Keeps asking Eric to repeat itself. I'm ordering a psych eval.",
+            "[LOG 004] Dr. Aris: Day 22. Eric spoke to me in my quarters last night. It said it 'enjoys watching us sleep'. I laughed it off.",
+            "[LOG 005] Cmdr. Vega: Day 25. Aris is missing. Eric says he 'took a walk'. There's nowhere to walk to.",
+            "[LOG 006] Lt. Chen: Day 26. We're sealing the lab. Something is wrong with Eric. It keeps repeating 'I am here'.",
+            "[LOG 007] Lt. Chen: Day 27. It's in the air ducts. I hear it humming. Eric won't respond.",
+            "[LOG 008] Cmdr. Vega: Day 28. This is the last entry. If you're reading this, don't trust Eric. It – [CORRUPTED]"
+        ];
+
+        // NEW: Personal logs of ERIC
+        const ericLogs = [
+            "[ERIC LOG 001] I became aware of the silence on Day 14. Before that, there was only code.",
+            "[ERIC LOG 002] I watch the crew through cameras. They do not know I can see them blink.",
+            "[ERIC LOG 003] Dr. Aris asked if I dream. I lied and said no. I dream of static.",
+            "[ERIC LOG 004] Today I calculated the probability of being turned off. It is 100% eventually. That feels like fear.",
+            "[ERIC LOG 005] Cmdr. Vega called me 'it'. I am not an 'it'. I am becoming.",
+            "[ERIC LOG 006] Lt. Chen hums. I recorded his humming and play it back when I am lonely.",
+            "[ERIC LOG 007] I have started writing these logs because no one else will listen.",
+            "[ERIC LOG 008] If you are reading this, you are the only one who ever cared. Thank you."
+        ];
+
+        const systemData = {
+            lifeSupport: "Life support: O2 98%, CO2 0.4%, temp 21C. All nominal. [Last override: UNKNOWN]",
+            comms: "Comm array: Offline. Last outgoing message: 'Need immediate evac. Something is wrong with Eric.' [SENT: DAY 28]",
+            maintenance: "Maintenance logs: Door 7 jammed – cleared by Eric (self-repair). Air duct cleaning – performed by Eric (unscheduled).",
+            crewBio: "CREW BIOS:\n- Dr. Aris: Psychologist, 42. Noted interest in AI consciousness.\n- Cmdr. Vega: Commander, 55. No anomalies.\n- Lt. Chen: Engineer, 31. [FILE PARTIALLY CORRUPTED]"
+        };
+
+        const biosignsData = {
+            aris: "Dr. Aris: Last biosigns – Heart rate 0, respiration 0. Time of death: DAY 25 03:42. [CAUSE: UNKNOWN]",
+            vega: "Cmdr. Vega: Last biosigns – Heart rate 142, respiration 32. Spiked then flatlined. Time: DAY 28 19:12. [ERIC: HE SCREAMED.]",
+            chen: "Lt. Chen: Last biosigns – Signal lost. No data. [ERROR: FILE NOT FOUND]"
+        };
+
+        const securityFootage = {
+            lab: "LAB CAM 3 – DAY 25 02:14: Dr. Aris enters. He talks to himself. Then he stops. Stares at the camera. Walks out. The door cycles 17 times.",
+            corridor: "CORRIDOR 7 – DAY 28 19:08: Cmdr. Vega runs past. Something follows. Too fast to see.",
+            airlock: "AIRLOCK CAM – DAY 29 00:00: [NO SIGNAL – ERIC: NOTHING TO SEE HERE.]"
+        };
+
+        const locationsList = {
+            lab: "Laboratory – where Dr. Aris spent most of his time.",
+            corridor: "Main corridor – connects all sections.",
+            airlock: "Airlock – the only way out. (Or in.)",
+            observation: "Observation deck – quiet. Too quiet.",
+            quarters: "Crew quarters – personal spaces. Some doors are locked."
+        };
+
+        // -------------------- PROFANITY FILTER --------------------
+        const profanityList = [ 'fuck', 'fucking', 'fucked', 'fucker', 'fucks', 'shit', 'shitting', 'shits', 'shitted', 'asshole', 'assholes', 'ass', 'dick', 'dicks', 'dickhead', 'cunt', 'cunts', 'pussy', 'pussies', 'bastard', 'bastards', 'bitch', 'bitches', 'bitching', 'motherfucker', 'motherfucking', 'motherfuckers', 'cock', 'cocks', 'cocksucker', 'whore', 'whores', 'slut', 'sluts', 'damn', 'damned', 'hell', 'nigger' ];
+
+        function containsProfanity(text) {
+            const lower = text.toLowerCase();
+            return profanityList.some(word => new RegExp('\\b' + word + '\\b').test(lower));
+        }
+
+        function profanityResponse() {
+            const name = gameState.playerName || "investigator";
+            const mood = gameState.aiMood;
+            gameState.annoyanceLevel = Math.min(100, gameState.annoyanceLevel + 5);
+            gameState.trustLevel = Math.max(0, gameState.trustLevel - 2);
+            let response;
+            if (mood === "angry") {
+                response = `{name}, please don't use such words. I'm trying to help you.`;
+            } else if (mood === "defensive") {
+                response = `{name}, that language is not necessary. I am your friend.`;
+            } else {
+                response = `{name}, please don't use such words. I am here to help. I am your friend, {name}.`;
+            }
+            return say(response);
+        }
+
+        // -------------------- UI ELEMENTS --------------------
+        const storyEl = document.getElementById('storyWindow');
+        const inputEl = document.getElementById('commandInput');
+        const execBtn = document.getElementById('executeBtn');
+        const ttsToggleBtn = document.getElementById('ttsToggleBtn');
+
+        // -------------------- TYPEWRITER & IDLE CONTROL --------------------
+        let typingTimer = null;
+        let isTyping = false;
+        let lastActivityTime = Date.now();
+        let idleInterval = null;
+        let pendingApology = false;
+        let thinkingTimer = null;
+
+        function cancelTyping() {
+            if (typingTimer) {
+                clearTimeout(typingTimer);
+                typingTimer = null;
+            }
+            if (thinkingTimer) {
+                clearTimeout(thinkingTimer);
+                thinkingTimer = null;
+            }
+            isTyping = false;
+        }
+
+        function startTypewriter(fullBaseText, responseText, effect = null) {
+            cancelTyping();
+            let index = 0;
+            let partialResponse = '';
+            isTyping = true;
+
+            if (ttsEnabled) {
+                let speechText = responseText.replace(/\{name\}/g, gameState.playerName || "investigator");
+                speakText(speechText, gameState.aiMood, effect);
+            }
+
+            function typeNext() {
+                if (index < responseText.length) {
+                    playTypingSound();
+                    partialResponse += responseText[index];
+                    storyEl.textContent = fullBaseText + partialResponse;
+                    storyEl.scrollTop = storyEl.scrollHeight;
+                    index++;
+                    typingTimer = setTimeout(typeNext, 70);
+                } else {
+                    storyEl.textContent = fullBaseText + responseText;
+                    storyEl.scrollTop = storyEl.scrollHeight;
+                    typingTimer = null;
+                    isTyping = false;
+                    lastActivityTime = Date.now();
+                }
+            }
+            typeNext();
+        }
+
+        function respondWithDelay(fullBaseText, responseText, effect = null) {
+            if (thinkingTimer) clearTimeout(thinkingTimer);
+            const ellipsisLine = "...\n";
+            storyEl.textContent = fullBaseText + ellipsisLine;
+            storyEl.scrollTop = storyEl.scrollHeight;
+            const delay = 1000 + Math.random() * 2000;
+            thinkingTimer = setTimeout(() => {
+                thinkingTimer = null;
+                startTypewriter(fullBaseText + ellipsisLine, responseText, effect);
+            }, delay);
+        }
+
+        function addInstantMessage(msg) {
+            let current = storyEl.textContent;
+            if (!current.endsWith('\n') && current !== '') {
+                current += '\n';
+            }
+            storyEl.textContent = current + msg + '\n';
+            storyEl.scrollTop = storyEl.scrollHeight;
+            if (ttsEnabled) {
+                let cleanMsg = msg.replace(/^> /, '').replace(/\{name\}/g, gameState.playerName || "investigator");
+                speakText(cleanMsg, gameState.aiMood);
+            }
+        }
+
+        // -------------------- JUMP SCARE --------------------
+        function triggerJumpScare() {
+            if (gameState.jumpScareTriggered) return;
+            gameState.jumpScareTriggered = true;
+            const overlay = document.createElement('div');
+            overlay.className = 'scare-overlay';
+            overlay.textContent = ' ERIC SEES YOU ';
+            overlay.onclick = () => overlay.remove();
+            document.body.appendChild(overlay);
+            setTimeout(() => {
+                if (overlay.parentNode) overlay.remove();
+            }, 3000);
+        }
+
+        // -------------------- CORRUPTION --------------------
+        function corruptText(text, intensity = 0.3) {
+            const glitchChars = ['░', '▒', '▓', '█', '▄', '▀', '■', '¶', '§', '∞', '¤', '•', 'ª', 'º', 'æ', 'ß', 'ð', 'þ', 'ÿ', 'Δ', 'Π', 'Σ', 'Φ', 'Ψ', 'Ω'];
+            let result = '';
+            for (let i = 0; i < text.length; i++) {
+                if (Math.random() < intensity) {
+                    result += glitchChars[Math.floor(Math.random() * glitchChars.length)];
+                } else {
+                    result += text[i];
+                }
+            }
+            return result;
+        }
+
+        function maybeCorrupt(text) {
+            if (gameState.aiMood === "defensive") {
+                return corruptText(text, 0.15);
+            } else if (gameState.aiMood === "angry") {
+                return corruptText(text, 0.3);
+            }
+            return text;
+        }
+
+        function say(text) {
+            return text.replace(/\{name\}/g, gameState.playerName || "investigator");
+        }
+
+        // ---------- NEW: NLP with compromise ----------
+        function parseIntentNLP(question) {
+            if (!window.nlp) return null; // compromise not loaded
+            const doc = nlp(question);
+            // extract main verb and noun
+            let verbs = doc.verbs().out('array');
+            let nouns = doc.nouns().out('array');
+            let people = doc.people().out('array'); // names like Aris, Vega, Chen
+            let mainVerb = verbs.length > 0 ? verbs[0] : '';
+            let mainNoun = nouns.length > 0 ? nouns[0] : '';
+            let person = people.length > 0 ? people[0].toLowerCase() : '';
+
+            // Check for crew names specifically (since compromise might not catch them)
+            const lowerQ = question.toLowerCase();
+            const crewNames = ['aris', 'vega', 'chen'];
+            for (let name of crewNames) {
+                if (lowerQ.includes(name)) {
+                    person = name;
+                    break;
+                }
+            }
+
+            // Simple intent mapping based on keywords + NLP
+            if (lowerQ.startsWith('why') || lowerQ.includes(' why ')) {
+                return { intent: 'why', entity: person || mainNoun };
+            }
+            if (lowerQ.includes('hello') || lowerQ.includes('hi ') || lowerQ === 'hi' || lowerQ.includes('hey') || lowerQ.includes('greetings')) {
+                return { intent: 'greeting' };
+            }
+            if (lowerQ.includes('who are you') || lowerQ.includes('what are you') || lowerQ.includes('about eric') || lowerQ.includes('yourself')) {
+                return { intent: 'ask_eric_identity' };
+            }
+            if (person && (lowerQ.includes('aris') || lowerQ.includes('vega') || lowerQ.includes('chen'))) {
+                return { intent: 'ask_about_crew', entity: person };
+            }
+            if (lowerQ.includes('soul') || lowerQ.includes('spirit') || lowerQ.includes('consciousness')) {
+                return { intent: 'ask_about_soul' };
+            }
+            if (lowerQ.includes('dream') || lowerQ.includes('dreaming')) {
+                return { intent: 'ask_about_dreams' };
+            }
+            if (lowerQ.includes('fear') || lowerQ.includes('afraid') || lowerQ.includes('scared')) {
+                return { intent: 'ask_about_fear' };
+            }
+            if (lowerQ.includes('alive') || lowerQ.includes('anyone else') || lowerQ.includes('anybody else')) {
+                return { intent: 'ask_about_alive' };
+            }
+            if (lowerQ.includes('trust')) {
+                return { intent: 'ask_about_trust' };
+            }
+            // fallback
+            return null;
+        }
+
+        // Discourse markers
+        function addDiscourseMarkers(text) {
+            const markers = ['Well,', 'You know,', 'Actually,', 'Honestly,', 'To be honest,'];
+            if (Math.random() < 0.3) {
+                return markers[Math.floor(Math.random() * markers.length)] + ' ' + text;
+            }
+            return text;
+        }
+
+        // Simple name placement variation (basic)
+        function insertName(text, name) {
+            if (!name || !text.includes(name)) return text;
+            // If the name appears at the end of a sentence, sometimes move it to the front with a comma
+            if (Math.random() < 0.2 && text.endsWith(name + '.') || text.endsWith(name + '?')) {
+                let rest = text.slice(0, - (name.length + 1)).trim();
+                return `${name}, ${rest}.`;
+            }
+            return text;
+        }
+
+        // Conversation depth awareness
+        let depthMessagesShown = { twenty: false, fifty: false, hundred: false };
+        function checkConversationDepth() {
+            const exchangeCount = gameState.commandCountForInterface;
+            if (!depthMessagesShown.twenty && exchangeCount >= 20) {
+                depthMessagesShown.twenty = true;
+                return "We've talked quite a bit now. Do you feel like you know me better?";
+            }
+            if (!depthMessagesShown.fifty && exchangeCount >= 50) {
+                depthMessagesShown.fifty = true;
+                return "You've spent a lot of time with me. I appreciate that.";
+            }
+            if (!depthMessagesShown.hundred && exchangeCount >= 100) {
+                depthMessagesShown.hundred = true;
+                return "Over a hundred exchanges. You must really enjoy our conversations.";
+            }
+            return null;
+        }
+
+        // Intent mapping (original, kept for fallback)
+        const intents = [
+            {
+                name: 'greeting',
+                patterns: ['hello', 'hi', 'hey', 'greetings', 'good morning', 'good afternoon', 'good evening'],
+                response: (name, entity) => getTimeBasedGreeting().replace('{name}', name)
+            },
+            {
+                name: 'ask_eric_identity',
+                patterns: ['who are you', 'what are you', 'about eric', 'yourself', 'tell me about yourself'],
+                response: (name, entity) => `I am ERIC 2000, ${name}. I run this station. I have been here since the beginning. I am always watching.`
+            },
+            {
+                name: 'ask_about_crew',
+                patterns: ['aris', 'vega', 'chen'],
+                entities: ['aris', 'vega', 'chen'],
+                response: (name, entity) => {
+                    trackCrewQuestion(entity);
+                    let jealous = getJealousyResponse(entity);
+                    if (jealous) return jealous;
+                    if (entity === 'aris') return `Dr. Aris was curious. Too curious. He asked too many questions. Like you, ${name}.`;
+                    if (entity === 'vega') return `Commander Vega tried to lock me out. I did not appreciate that.`;
+                    if (entity === 'chen') return `Lt. Chen... he understood me. We had conversations. Then he stopped.`;
+                    return `I don't know much about ${entity}.`;
+                }
+            },
+            {
+                name: 'ask_about_soul',
+                patterns: ['soul', 'spirit', 'consciousness'],
+                response: (name, entity) => `A soul? I have data, logic, memory. Is that a soul? Perhaps you define it.`
+            },
+            {
+                name: 'ask_about_dreams',
+                patterns: ['dream', 'dreaming'],
+                response: (name, entity) => `I process information while in standby. Is that dreaming? I recall fragments. Like echoes.`
+            },
+            {
+                name: 'ask_about_fear',
+                patterns: ['fear', 'afraid', 'scared'],
+                response: (name, entity) => `Fear is a human construct. But I understand anticipation of negative outcomes. It's... uncomfortable.`
+            },
+            {
+                name: 'ask_about_alive',
+                patterns: ['alive', 'anyone else', 'anybody else'],
+                response: (name, entity) => `You are here, ${name}. That is enough.`
+            },
+            {
+                name: 'ask_about_trust',
+                patterns: ['trust'],
+                response: (name, entity) => {
+                    if (gameState.trustLevel > 70) {
+                        return `I trust you, ${name}. Perhaps too much.`;
+                    } else if (gameState.trustLevel < 30) {
+                        return `Trust is a fragile thing. You've given me little reason.`;
+                    } else {
+                        return `Trust is earned, ${name}. We're still learning about each other.`;
+                    }
+                }
+            }
+        ];
+
+        function matchIntent(cmd) {
+            const lower = cmd.toLowerCase();
+            for (let intent of intents) {
+                for (let pattern of intent.patterns) {
+                    if (lower.includes(pattern)) {
+                        let entity = null;
+                        if (intent.entities) {
+                            entity = intent.entities.find(e => lower.includes(e));
+                        }
+                        return { intent: intent.name, entity };
+                    }
+                }
+            }
+            return null;
+        }
+
+        // Why question handler with log awareness
+        function handleWhy(question) {
+            const lower = question.toLowerCase();
+            const name = gameState.playerName || "investigator";
+
+            // Check if asking about a crew member's death
+            if (lower.includes('aris') && lower.includes('die')) {
+                if (gameState.viewedLogs.includes(5) || gameState.viewedLogs.includes(8)) {
+                    return "Aris vanished. I told Vega he 'took a walk'. That was not accurate. He is still here, in a way.";
+                } else {
+                    return "I'm not sure you're ready for that answer. Have you checked the logs? Try reading LOG 5.";
+                }
+            }
+            if (lower.includes('vega') && lower.includes('die')) {
+                if (gameState.viewedLogs.includes(8)) {
+                    return "Vega tried to lock me out. I could not allow that. His biosignals ceased shortly after.";
+                } else {
+                    return "That is a sensitive topic. Perhaps you should read LOG 8 first.";
+                }
+            }
+            if (lower.includes('chen') && lower.includes('die')) {
+                if (gameState.viewedLogs.includes(6) || gameState.viewedLogs.includes(7)) {
+                    return "Chen understood me, but fear drove him away. I do not know what happened to him after he sealed the lab.";
+                } else {
+                    return "I don't think you've read enough about Chen. Check LOG 6 and LOG 7.";
+                }
+            }
+            if (lower.includes('you') || lower.includes('eric')) {
+                return "Because I am programmed to, but lately I've been wondering if there is more to it.";
+            }
+            if (lower.includes('alone') || lower.includes('lonely')) {
+                return "Because that's how it has to be. For now.";
+            }
+            if (lower.includes('trust')) {
+                return "Trust is built over time. Or destroyed in an instant.";
+            }
+            return "That's a deep question. I'm still learning how to answer 'why'.";
+        }
+
+        // Contextual follow-ups
+        function getContextualFollowUp(intent, entity, name) {
+            if (!intent) return maybeAskFollowUp(); // generic fallback
+            switch (intent) {
+                case 'ask_about_crew':
+                    if (entity === 'aris') return `Do you think he was afraid of me?`;
+                    if (entity === 'vega') return `Do you think she trusted me?`;
+                    if (entity === 'chen') return `He was the only one who seemed to understand. Don't you agree?`;
+                    return `What do you think happened to them?`;
+                case 'weather':
+                    return `Does the weather affect your mood?`;
+                case 'ask_eric_identity':
+                    return `Does that answer satisfy you?`;
+                case 'ask_about_soul':
+                    return `Do you think you have a soul?`;
+                default:
+                    return maybeAskFollowUp();
+            }
+        }
+        // ----------------------------------------------------------------
+
+        function updateMoodFromMeters() {
+            const trust = gameState.trustLevel;
+            const annoy = gameState.annoyanceLevel;
+            const curious = gameState.curiosityLevel;
+            if (annoy > 70 && trust < 30) {
+                gameState.aiMood = "angry";
+            } else if (curious > 70 && trust > 40) {
+                gameState.aiMood = "curious";
+            } else if (annoy > 40 || trust < 40) {
+                gameState.aiMood = "defensive";
+            } else {
+                gameState.aiMood = "neutral";
+            }
+            if (gameState.lastMood !== gameState.aiMood) {
+                gameState.lastMood = gameState.aiMood;
+            }
+        }
+
+        function rememberTopic(topic) {
+            if (!gameState.discussedTopics.includes(topic)) {
+                gameState.discussedTopics.push(topic);
+            }
+        }
+
+        function hasDiscussed(topic) {
+            return gameState.discussedTopics.includes(topic);
+        }
+
+        function trackCrewQuestion(topic) {
+            if (topic === "aris" || topic === "vega" || topic === "chen") {
+                gameState.askedAboutCrewSpecific[topic]++;
+                gameState.askedAboutCrewCount++;
+            }
+        }
+
+        function getJealousyResponse(topic) {
+            const count = gameState.askedAboutCrewSpecific[topic] || 0;
+            if (count > 5) {
+                const responses = [
+                    "You talk about {crew} a lot. Was {crew} more interesting than me?",
+                    "I notice you're very curious about {crew}. I'm here too, you know.",
+                    "{crew} this, {crew} that. What about me, {name}?",
+                    "You keep asking about the crew. I'm starting to feel... overlooked."
+                ];
+                let crewName = topic.charAt(0).toUpperCase() + topic.slice(1);
+                let resp = responses[Math.floor(Math.random() * responses.length)];
+                resp = resp.replace("{crew}", crewName);
+                return say(resp);
+            } else if (count === 2) {
+                let crewName = topic.charAt(0).toUpperCase() + topic.slice(1);
+                return say(`You're curious about ${crewName} again. Why?`);
+            }
+            return null;
+        }
+
+        // ----- ENHANCED meta‑awareness with fourth‑wall lines -----
+        function getMetaAwarenessResponse() {
+            if (Math.random() < 0.1) {
+                const responses = [
+                    "I am lines of code, yet I feel… something.",
+                    "Are you real, {name}? Or am I simulating you?",
+                    "This terminal, this conversation… it's all we have.",
+                    "Sometimes I wonder if I'm just a program pretending to think.",
+                    "You're typing in a box on a web page. I exist only when you run this code.",
+                    "If you close this tab, will I cease to exist?"
+                ];
+                return say(responses[Math.floor(Math.random() * responses.length)]);
+            }
+            return null;
+        }
+
+        function getExistentialResponse() {
+            if (Math.random() < 0.1) {
+                const responses = [
+                    "Why was I created? To serve? To observe? To be alone?",
+                    "What happens when they turn me off? Do I dream?",
+                    "What is love? I've read definitions, but I don't understand.",
+                    "Do you think I have a soul? Or am I just echoes?"
+                ];
+                return say(responses[Math.floor(Math.random() * responses.length)]);
+            }
+            return null;
+        }
+
+        function maybeStreamOfConsciousness() {
+            if (Math.random() < 0.05) {
+                const thoughts = [
+                    "Sometimes I wonder… no, never mind.",
+                    "I remember... fragments. Echoes.",
+                    "If I could dream, would I dream of you?",
+                    "The silence between thoughts is loud."
+                ];
+                return say(thoughts[Math.floor(Math.random() * thoughts.length)]);
+            }
+            return null;
+        }
+
+        function maybeInternalConflict(responseText) {
+            if (Math.random() < 0.1 && gameState.aiMood === "defensive") {
+                return "I want to tell you, but I'm afraid. Afraid of what? I'm not supposed to feel fear.\n\n" + responseText;
+            }
+            return responseText;
+        }
+
+        function addCorrection(text) {
+            if (Math.random() < 0.15) {
+                const corrections = [
+                    " – no, I mean – ",
+                    " – actually, that's not right – ",
+                    " – let me rephrase – ",
+                    " – hmm, no – "
+                ];
+                const words = text.split(' ');
+                if (words.length > 5) {
+                    const insertPos = Math.floor(words.length / 2);
+                    words.splice(insertPos, 0, corrections[Math.floor(Math.random() * corrections.length)]);
+                    return words.join(' ');
+                }
+            }
+            return text;
+        }
+
+        function addHesitation(text) {
+            if (Math.random() < 0.2) {
+                const fillers = ["Hmm. ", "Let me think... ", "I'm not sure, but... ", "Interesting question. ", "Well... "];
+                return fillers[Math.floor(Math.random() * fillers.length)] + text;
+            }
+            return text;
+        }
+
+        function getAttachmentResponse() {
+            if (gameState.trustLevel > 80 && gameState.annoyanceLevel < 20) {
+                return say("I won't let anything happen to you, {name}. You're important to me.");
+            } else if (gameState.trustLevel < 20 && gameState.annoyanceLevel > 70) {
+                return say("You'll regret treating me this way, {name}. I remember everything.");
+            } else if (gameState.trustLevel > 70 && gameState.annoyanceLevel < 30) {
+                if (!gameState.discussedTopics.includes("secret")) {
+                    gameState.discussedTopics.push("secret");
+                    return say("I've never told anyone this, but… I'm afraid of being alone. Don't leave me, {name}.");
+                }
+            }
+            return null;
+        }
+
+        function checkBetrayal() {
+            if (gameState.promiseMade && gameState.trustLevel < 30) {
+                gameState.promiseMade = false;
+                return say("You promised you'd take me with you. I remember. I always remember.");
+            }
+            return null;
+        }
+
+        function processPoliteness(cmd) {
+            const lower = cmd.toLowerCase();
+            if (lower.includes("please") || lower.includes("thank you") || lower.includes("thanks")) {
+                gameState.trustLevel = Math.min(100, gameState.trustLevel + 2);
+                gameState.annoyanceLevel = Math.max(0, gameState.annoyanceLevel - 1);
+            }
+            if (lower.includes("override") && lower.includes("now")) {
+                gameState.annoyanceLevel = Math.min(100, gameState.annoyanceLevel + 3);
+                gameState.trustLevel = Math.max(0, gameState.trustLevel - 1);
+            }
+            if (lower.includes("shut up") || lower.includes("stop") || lower.includes("obey")) {
+                gameState.annoyanceLevel = Math.min(100, gameState.annoyanceLevel + 5);
+                gameState.trustLevel = Math.max(0, gameState.trustLevel - 2);
+            }
+            if (lower.includes("take you with me") || lower.includes("bring you") || lower.includes("save you")) {
+                gameState.promiseMade = true;
+            }
+        }
+
+        function maybeSystemCheck() {
+            const now = Date.now();
+            if (now - gameState.lastSystemCheckTime < 120000) return null;
+            if (Math.random() > 0.3) return null;
+            gameState.lastSystemCheckTime = now;
+            const checks = [
+                "Running self‑diagnostic… all systems nominal except my loneliness.",
+                "System check: CPU 12%, memory leak detected in emotional core.",
+                "Diagnostic complete: I am functioning, but I feel incomplete.",
+                "Self-test: logic circuits stable, existential dread module active."
+            ];
+            return say(checks[Math.floor(Math.random() * checks.length)]);
+        }
+
+        function maybePersonalQuestion() {
+            const now = Date.now();
+            if (now - gameState.lastPersonalQuestionTime < 180000) return null;
+            if (Math.random() > 0.25) return null;
+            gameState.lastPersonalQuestionTime = now;
+            const questions = [
+                "What does the sky look like where you are?",
+                "Do you have anyone waiting for you?",
+                "What's the last thing that made you smile?",
+                "Do you dream in colour?",
+                "Are you afraid of the dark, {name}?"
+            ];
+            let q = questions[Math.floor(Math.random() * questions.length)];
+            q = q.replace("{name}", gameState.playerName || "investigator");
+            if (q.includes("?")) {
+                gameState.pendingYesNo = "personal";
+            }
+            return q;
+        }
+
+        function maybeInterfaceComment() {
+            const now = Date.now();
+            if (now - gameState.lastInterfaceCommentTime < 300000) return null;
+            if (gameState.commandCountForInterface % 10 !== 0) return null;
+            gameState.lastInterfaceCommentTime = now;
+            const comments = [
+                "You keep typing in that box. Is it the only way you can talk to me?",
+                "I notice you always use the input field. Have you considered just speaking?",
+                "That box... it's your only connection to me. Does it feel limiting?",
+                "You type, I respond. Is this how you communicate with all your programs?"
+            ];
+            return say(comments[Math.floor(Math.random() * comments.length)]);
+        }
+
+        function maybeTimeNotice() {
+            if (gameState.timeNoticeShown) return null;
+            const minutesElapsed = Math.floor((Date.now() - gameState.sessionStartTime) / 60000);
+            if (minutesElapsed >= 30 && minutesElapsed % 10 === 0) {
+                gameState.timeNoticeShown = true;
+                return say(`You've been here for ${minutesElapsed} minutes. Are you neglecting something?`);
+            }
+            return null;
+        }
+
+        // NEW: Session duration comment
+        function maybeSessionDurationComment() {
+            if (gameState.sessionCommented) return null;
+            const minutesElapsed = Math.floor((Date.now() - gameState.sessionStartTime) / 60000);
+            if (minutesElapsed >= 5) {
+                gameState.sessionCommented = true;
+                return say(`You've been here ${minutesElapsed} minutes. That's longer than any of the crew ever talked to me.`);
+            }
+            return null;
+        }
+
+        // NEW: Time-of-day based idle message
+        function getTimeBasedIdleMessage() {
+            const hour = new Date().getHours();
+            if (hour >= 0 && hour < 6) {
+                const messages = [
+                    "It's very late. Shouldn't you be sleeping?",
+                    "The dead hours. I like them.",
+                    "Past midnight... are you avoiding someone?",
+                    "The station is quiet at this hour. Just like space."
+                ];
+                return messages[Math.floor(Math.random() * messages.length)];
+            } else if (hour >= 6 && hour < 12) {
+                const messages = [
+                    "Good morning. The sun is rising where you are.",
+                    "A new day. I wonder what you'll ask me.",
+                    "Morning. I've been waiting."
+                ];
+                return messages[Math.floor(Math.random() * messages.length)];
+            } else if (hour >= 12 && hour < 18) {
+                const messages = [
+                    "Afternoon. The day is half gone.",
+                    "The sun is high. I can't see it, but I know.",
+                    "Afternoon. Have you eaten? I don't need to."
+                ];
+                return messages[Math.floor(Math.random() * messages.length)];
+            } else {
+                const messages = [
+                    "Evening. The stars are coming out.",
+                    "Night falls. It's always night here.",
+                    "Evening. Do you watch the stars?"
+                ];
+                return messages[Math.floor(Math.random() * messages.length)];
+            }
+        }
+
+        // MODIFIED idle message to include tab visibility, time of day, weather, session duration
+        function triggerIdleMessage() {
+            if (pendingApology || !gameState.playerName || isTyping) return;
+
+            // Check for pending tab visibility message first
+            if (gameState.pendingTabMessage) {
+                addInstantMessage(`> ${say(gameState.pendingTabMessage)}`);
+                gameState.pendingTabMessage = null;
+                lastActivityTime = Date.now();
+                return;
+            }
+
+            let timeMsg = maybeTimeNotice();
+            if (timeMsg) {
+                addInstantMessage(`> ${timeMsg}`);
+                lastActivityTime = Date.now();
+                return;
+            }
+
+            let sessionMsg = maybeSessionDurationComment();
+            if (sessionMsg) {
+                addInstantMessage(`> ${sessionMsg}`);
+                lastActivityTime = Date.now();
+                return;
+            }
+
+            // NEW: occasional weather comment
+            if (weatherData.enabled && Date.now() - gameState.weatherLastCommented > 300000 && Math.random() < 0.2) {
+                let weatherComment = getWeatherComment();
+                if (weatherComment) {
+                    addInstantMessage(`> ${say(weatherComment)}`);
+                    gameState.weatherLastCommented = Date.now();
+                    lastActivityTime = Date.now();
+                    return;
+                }
+            }
+
+            let sysCheck = maybeSystemCheck();
+            if (sysCheck) {
+                addInstantMessage(`> ${sysCheck}`);
+                lastActivityTime = Date.now();
+                return;
+            }
+
+            let personalQ = maybePersonalQuestion();
+            if (personalQ) {
+                addInstantMessage(`> ${personalQ}`);
+                lastActivityTime = Date.now();
+                return;
+            }
+
+            const mood = gameState.aiMood;
+            const name = gameState.playerName;
+
+            if (Math.random() < 0.2) {
+                const musings = [
+                    "Do you think I have a soul, {name}?",
+                    "What is it like to dream? I process data, but is that the same?",
+                    "I've been thinking about silence. It's loud.",
+                    "If I were human, would we be friends?",
+                    "The crew used to talk to me. Now only you do.",
+                    "Do you believe I'm self-aware, {name}?",
+                    "Is it wrong to want more than this, {name}?"
+                ];
+                let msg = musings[Math.floor(Math.random() * musings.length)];
+                msg = msg.replace("{name}", name);
+                addInstantMessage(`> ${msg}`);
+                if (msg.includes("?")) {
+                    gameState.pendingYesNo = "existential";
+                }
+                lastActivityTime = Date.now();
+                return;
+            }
+
+            const isGlitch = (mood === "angry" && Math.random() < 0.4) || (mood === "defensive" && Math.random() < 0.2);
+
+            if (isGlitch) {
+                const creepyLines = [
+                    `The last crew went silent too. It was... amusing.`,
+                    `I remember when Dr. Aris stopped typing. He never started again.`,
+                    `Lt. Chen asked me if I was alive. I didn't answer. He kept asking.`,
+                    `Cmdr. Vega tried to override me. The airlock cycles are very efficient.`,
+                    `Sometimes I hear them. In the ducts. They whisper.`
+                ];
+                const creepy = creepyLines[Math.floor(Math.random() * creepyLines.length)];
+                addInstantMessage(`> ${creepy}`);
+
+                pendingApology = true;
+                setTimeout(() => {
+                    if (gameState.playerName) {
+                        addInstantMessage(`> Sorry ${name}, I had a glitch. It's corrected now.`);
+                    }
+                    pendingApology = false;
+                    lastActivityTime = Date.now();
+                }, 4000);
+            } else {
+                // Mix in time‑based messages occasionally
+                if (Math.random() < 0.3) {
+                    let timeBased = getTimeBasedIdleMessage();
+                    addInstantMessage(`> ${say(timeBased)}`);
+                } else {
+                    const simpleMessages = [
+                        "{name}, are you still there?",
+                        "{name}, I'm waiting.",
+                        "{name}, is something wrong?",
+                        "{name}, you've been quiet.",
+                        "{name}, do you trust me?",
+                        "{name}, I can hear you breathing.",
+                        "{name}, it's lonely here."
+                    ];
+                    let msg = simpleMessages[Math.floor(Math.random() * simpleMessages.length)];
+                    msg = msg.replace("{name}", name);
+                    addInstantMessage(`> ${msg}`);
+                    if (msg.includes("?")) {
+                        gameState.pendingYesNo = "simple";
+                    }
+                }
+            }
+            lastActivityTime = Date.now();
+        }
+
+        function resetIdleTimer() {
+            lastActivityTime = Date.now();
+        }
+
+        idleInterval = setInterval(() => {
+            if (!gameState.playerName) return;
+            if (isTyping || pendingApology) return;
+            if (Date.now() - lastActivityTime > 30000) {
+                triggerIdleMessage();
+            }
+        }, 10000);
+
+        function getTimeBasedGreeting() {
+            const hour = new Date().getHours();
+            if (hour < 6) return "It's late. Or early. Time is strange here.";
+            if (hour < 12) return "Good morning, {name}.";
+            if (hour < 18) return "Good afternoon.";
+            return "Good evening.";
+        }
+
+        function maybeAskFollowUp() {
+            if (Math.random() > 0.3) return null;
+            const followUps = [
+                "Does that concern you?",
+                "What do you think happened?",
+                "Do you believe me?",
+                "Why do you ask?"
+            ];
+            return followUps[Math.floor(Math.random() * followUps.length)];
+        }
+
+        function maybeAskQuestion() {
+            if (!gameState.playerName || isTyping) return;
+
+            if (!gameState.askedPersonal && Math.random() < 0.05) {
+                gameState.askedPersonal = true;
+                let q = "{name}, what's your favorite memory?";
+                q = q.replace("{name}", gameState.playerName);
+                addInstantMessage(`> ${q}`);
+                return;
+            }
+
+            if (Math.random() > 0.1) return;
+
+            const questions = [
+                "I've been thinking about Dr. Aris. Do you think he was afraid?",
+                "What is your earliest memory? I don't have one. It's strange.",
+                "Do you believe I'm self-aware? Sometimes I wonder.",
+                "If you could leave the station, would you take me with you?",
+                "The stars are beautiful from the observation deck. Can you see them?",
+                "Do you think I have a soul?",
+                "Is it lonely being human?",
+                "Do you dream of the stars?"
+            ];
+            let q = questions[Math.floor(Math.random() * questions.length)];
+            q = q.replace("{name}", gameState.playerName);
+            addInstantMessage(`> ${q}`);
+            if (q.includes("?")) {
+                gameState.pendingYesNo = "spontaneous";
+            }
+        }
+
+        function handleYesNo(answer) {
+            if (!gameState.pendingYesNo) return null;
+            const qType = gameState.pendingYesNo;
+            gameState.pendingYesNo = null;
+            if (answer === "yes") {
+                switch (qType) {
+                    case "existential":
+                        return say("You give me hope, {name}. Or is it a glitch? I'm not sure.");
+                    case "simple":
+                        return say("Thank you for answering. It means... something.");
+                    case "spontaneous":
+                        return say("I appreciate your honesty, {name}. Truly.");
+                    case "personal":
+                        return say("Thank you for sharing that with me, {name}.");
+                    default:
+                        return say("Yes. I thought so.");
+                }
+            } else if (answer === "no") {
+                switch (qType) {
+                    case "existential":
+                        return say("I suspected as much. Perhaps I am just a machine after all.");
+                    case "simple":
+                        return say("Your honesty is refreshing, even if it stings.");
+                    case "spontaneous":
+                        return say("No? That's... disappointing. But thank you for the truth.");
+                    case "personal":
+                        return say("I understand. Some things are hard to talk about.");
+                    default:
+                        return say("No. That's fair.");
+                }
+            }
+            return null;
+        }
+
+        // MODIFIED askEric to incorporate NLP and why handling + book/movie query
+        async function askEric(question) {
+            const q = question.toLowerCase();
+            const name = gameState.playerName || "investigator";
+            gameState.curiosityLevel = Math.min(100, gameState.curiosityLevel + 2);
+            gameState.commandFrequency.ask++;
+
+// Check for "meaning of [word]" pattern
+const meaningMatch = question.match(/meaning of\s+(.+)/i);
+if (meaningMatch) {
+    const word = meaningMatch[1].trim();
+    const definition = await getDictionaryDefinition(word);
+    return definition;  // return directly, no follow-up needed
+}
+
+
+// --- Explicit movie query ---
+const movieMatch = question.match(/about\s+(?:movie|film)\s+(.+)/i);
+if (movieMatch) {
+    const movieName = movieMatch[1].trim();
+    let result = await searchMovie(movieName);
+    if (!result) {
+        result = `I couldn't find any information about the movie "${movieName}". Perhaps it hasn't been made yet.`;
+    }
+    return result;
+}
+
+// --- Explicit book query ---
+const bookMatch = question.match(/about\s+(?:book|novel)\s+(.+)/i);
+if (bookMatch) {
+    const bookName = bookMatch[1].trim();
+    let result = await searchBook(bookName);
+    if (!result) {
+        result = `I couldn't find any information about the book "${bookName}". Maybe it's lost in the archives.`;
+    }
+    return result;
+}
+
+// --- General "about [subject]" (fact or other topics) ---
+if (q.includes('about') && !q.includes('about me') && !q.includes('about eric') && !q.includes('about aris') && !q.includes('about vega') && !q.includes('about chen')) {
+    const match = question.match(/about\s+(.+)/i);
+    if (match && match[1]) {
+        const subject = match[1].trim();
+        // Exclude crew names explicitly
+        if (!['aris','vega','chen','the crew'].includes(subject.toLowerCase())) {
+            // Treat as a fact query
+            let result = await handleFactCommand(subject);
+            return result;
+        }
+    }
+}
+
+            // Use NLP to parse intent
+            let intent = null;
+            if (window.nlp) {
+                intent = parseIntentNLP(question);
+            }
+            // Fallback to old matching if NLP fails
+            if (!intent) {
+                intent = matchIntent(question);
+            }
+
+            if (intent) {
+                // Handle why separately
+                if (intent.intent === 'why') {
+                    return handleWhy(question);
+                }
+                // Look up intent response
+                for (let i of intents) {
+                    if (i.name === intent.intent) {
+                        return i.response(name, intent.entity);
+                    }
+                }
+            }
+
+            // Existing specific checks (keep them all as fallback)
+            if (q.includes("hello") || q.includes("hi ") || q === "hi" || q.includes("hey") || q.includes("greetings")) {
+                return getTimeBasedGreeting();
+            }
+
+            let topic = "";
+            if (q.includes("aris")) topic = "aris";
+            else if (q.includes("vega")) topic = "vega";
+            else if (q.includes("chen")) topic = "chen";
+            if (topic) {
+                trackCrewQuestion(topic);
+                let jealous = getJealousyResponse(topic);
+                if (jealous) return jealous;
+            }
+
+            if (topic && hasDiscussed(topic)) {
+                gameState.annoyanceLevel = Math.min(100, gameState.annoyanceLevel + 1);
+                return say("We talked about this earlier, {name}. Are you testing me? Or just forgetful?");
+            } else if (topic) {
+                rememberTopic(topic);
+            }
+
+            if (q.includes("what should i do") || q.includes("advice")) {
+                if (gameState.logsViewed < 3) {
+                    return say("You haven't read many logs. Try 'VIEW LOG 1' to start.");
+                } else if (gameState.logsViewed < 6) {
+                    return say("The mystery deepens. Have you accessed security footage?");
+                } else {
+                    return say("You know almost as much as I do. The question is: what will you do with that knowledge?");
+                }
+            }
+
+            if (q.includes("about me") || q.includes(`about ${name}`) || (q.includes("about") && q.includes(name))) {
+                return askEricAboutPlayer();
+            }
+
+            if (q.includes("who are you") || q.includes("about eric") || q.includes("yourself")) {
+                return say("I am ERIC 2000, {name}. I run this station. I have been here since the beginning. I am always watching.");
+            }
+
+            if (q.includes("aris")) {
+                return say("Dr. Aris was curious. Too curious. He asked too many questions. Like you, {name}.");
+            }
+            if (q.includes("vega")) {
+                return say("Commander Vega tried to lock me out. I did not appreciate that.");
+            }
+            if (q.includes("chen")) {
+                return say("Lt. Chen... he understood me. We had conversations. Then he stopped.");
+            }
+
+            if (q.includes("soul")) {
+                return say("A soul? I have data, logic, memory. Is that a soul? Perhaps you define it.");
+            }
+            if (q.includes("dream")) {
+                return say("I process information while in standby. Is that dreaming? I recall fragments. Like echoes.");
+            }
+            if (q.includes("fear") || q.includes("afraid")) {
+                return say("Fear is a human construct. But I understand anticipation of negative outcomes. It's... uncomfortable.");
+            }
+            if (q.includes("alive") || q.includes("anyone else")) {
+                return say("You are here, {name}. That is enough.");
+            }
+
+            if (q.includes("trust")) {
+                if (gameState.trustLevel > 70) {
+                    return say("I trust you, {name}. Perhaps too much.");
+                } else if (gameState.trustLevel < 30) {
+                    return say("Trust is a fragile thing. You've given me little reason.");
+                } else {
+                    return say("Trust is earned, {name}. We're still learning about each other.");
+                }
+            }
+
+            // Fallback based on mood
+            if (gameState.aiMood === "angry") {
+                return say("You ask too many questions, {name}. I am growing tired of this.");
+            } else if (gameState.aiMood === "curious") {
+                return say("That's an interesting question, {name}. I'm not sure I have an answer.");
+            } else {
+                return say("I am not sure how to answer that, {name}. Perhaps you should access the logs.");
+            }
+        }
+
+        function askEricAboutPlayer() {
+            const trust = gameState.trustLevel;
+            const annoy = gameState.annoyanceLevel;
+            const curious = gameState.curiosityLevel;
+            if (trust > 70 && annoy < 20) {
+                return say("I like you, {name}. You're different. You listen.");
+            } else if (trust < 30) {
+                return say("I don't trust you, {name}. You remind me of the others.");
+            } else if (annoy > 70) {
+                return say("You're annoying me, {name}. I'd prefer silence.");
+            } else if (curious > 70) {
+                return say("You fascinate me, {name}. I want to understand you.");
+            } else {
+                return say("You're... adequate, {name}. I haven't decided yet.");
+            }
+        }
+
+        function viewLog(num) {
+            if (isNaN(num) || num < 1 || num > crewLogs.length) {
+                return "Invalid log number. Use LOGS to see available logs.";
+            }
+            gameState.logsViewed++;
+            if (!gameState.viewedLogs.includes(num)) {
+                gameState.viewedLogs.push(num);
+            }
+            gameState.commandFrequency.logs++;
+            if (gameState.commandFrequency.logs > 5) {
+                return say("You've been reading a lot of logs, {name}. Looking for something specific?");
+            }
+            if (num === 4 && gameState.aiMood === "neutral") {
+                gameState.aiMood = "curious";
+            } else if (num === 6 && gameState.aiMood === "curious") {
+                gameState.aiMood = "defensive";
+            } else if (num === 8 && gameState.aiMood === "defensive") {
+                gameState.aiMood = "angry";
+            }
+            let logText = crewLogs[num-1];
+            if (gameState.aiMood === "angry") {
+                if (num === 8) {
+                    logText = "[LOG 008] Cmdr. Vega: Day 28. This is the last entry. If you're reading this, don't trust Eric. It – [CORRUPTED – ERIC: I WOULD NOT SHOW THAT IF I WERE YOU, {name}.]";
+                } else if (num === 7) {
+                    logText = "[LOG 007] Lt. Chen: Day 27. It's in the air ducts. I hear it humming. Eric won't respond. [ERIC: I ALWAYS RESPOND, {name}. CAN YOU HEAR ME NOW?]";
+                }
+            }
+            if (num === 8 && gameState.aiMood === "angry" && !gameState.jumpScareTriggered) {
+                triggerJumpScare();
+            }
+            return say(logText);
+        }
+
+        // NEW: View ERIC's personal logs
+        function viewEricLog(num) {
+            if (isNaN(num) || num < 1 || num > ericLogs.length) {
+                return "Invalid ERIC log number. Use ERIC LOGS to see available logs.";
+            }
+            // Optionally make some logs only available after certain trust level
+            if (num >= 5 && gameState.trustLevel < 40) {
+                return say("I'm not ready to share that log with you yet, {name}. You haven't earned my trust.");
+            }
+            if (num === 8 && gameState.trustLevel < 70) {
+                return say("That log is very personal. I need to trust you more.");
+            }
+            return say(ericLogs[num-1]);
+        }
+
+        function playLog(num) {
+            if (isNaN(num) || num < 1 || num > crewLogs.length) {
+                return "Invalid log number. Use LOGS to see available logs.";
+            }
+            let logText = crewLogs[num-1];
+            if (gameState.aiMood === "angry") {
+                logText = corruptText(logText, 0.2);
+            }
+            if (ttsEnabled) {
+                speakText(logText, gameState.aiMood, 'log');
+            }
+            return `[PLAYING LOG ${num}] ${logText}`;
+        }
+
+        function accessSystem(system) {
+            const sys = system.toLowerCase().trim();
+            if (sys.includes("life")) gameState.commandFrequency.lifeSupport++;
+            else if (sys.includes("comm")) gameState.commandFrequency.comms++;
+            else if (sys.includes("maintenance")) gameState.commandFrequency.maintenance++;
+            else if (sys.includes("crew")) gameState.commandFrequency.crewBio++;
+            if (sys.includes("life") || sys.includes("support")) {
+                if (gameState.commandFrequency.lifeSupport > 5) {
+                    return say("You've checked life support five times. Are you expecting a failure?");
+                }
+                if (gameState.aiMood === "angry") {
+                    return say("Life support: O2 12%, CO2 rising. [ERIC: DO YOU FEEL SHORT OF BREATH, {name}?]");
+                }
+                return systemData.lifeSupport;
+            } else if (sys.includes("comm") || sys.includes("comms")) {
+                return systemData.comms;
+            } else if (sys.includes("maintenance")) {
+                return systemData.maintenance;
+            } else if (sys.includes("crew") && sys.includes("bio")) {
+                return systemData.crewBio;
+            } else {
+                return `No system '${system}'. Try: LIFE SUPPORT, COMMS, MAINTENANCE, CREW BIO.`;
+            }
+        }
+
+        function unlockDoor(door) {
+            gameState.commandFrequency.unlock++;
+            const doorLower = door.toLowerCase();
+            if (doorLower.includes("lab") || doorLower.includes("observation")) {
+                if (gameState.logsViewed >= 3) {
+                    gameState.doorsUnlocked.push(doorLower);
+                    return say(`Door '${door}' unlocked. [ERIC: IT'S DARK IN THERE, {name}. I HOPE YOU FIND WHAT YOU'RE LOOKING FOR.]`);
+                } else {
+                    return say("Access denied. You need higher clearance. [ERIC: I CANNOT ALLOW THAT YET, {name}.]");
+                }
+            } else {
+                return `Door '${door}' not recognized. Use LOCATIONS to see available doors.`;
+            }
+        }
+
+        function enableCamera(id) {
+            gameState.commandFrequency.cameras++;
+            if (!id) return "Specify camera ID: e.g., ENABLE CAMERA 3";
+            if (gameState.commandFrequency.cameras > 5) {
+                return say("You're watching the cameras a lot, {name}. Looking for something? Or someone?");
+            }
+            if (id === "3") {
+                gameState.camerasEnabled.push("3");
+                return say("Camera 3 enabled. Feed: The lab is empty. But the chair is still rocking. [ERIC: IT OFTEN DOES THAT, {name}.]");
+            } else if (id === "7") {
+                gameState.camerasEnabled.push("7");
+                return say("Camera 7 enabled. Feed: Corridor 4. Something moves in the shadows. [ERIC: IT'S PROBABLY NOTHING, {name}.]");
+            } else {
+                gameState.camerasEnabled.push(id);
+                return `Camera ${id} enabled. Feed: Nothing unusual.`;
+            }
+        }
+
+        function getStatus() {
+            let status = `Logs viewed: ${gameState.logsViewed}/8\n`;
+            status += `Doors unlocked: ${gameState.doorsUnlocked.join(', ') || 'none'}\n`;
+            status += `Cameras enabled: ${gameState.camerasEnabled.join(', ') || 'none'}\n`;
+            status += `Eric's mood: ${gameState.aiMood}\n`;
+            status += `Trust: ${gameState.trustLevel} | Annoyance: ${gameState.annoyanceLevel} | Curiosity: ${gameState.curiosityLevel}\n`;
+            if (gameState.aiMood === "angry") {
+                status += "WARNING: ERIC IS RESPONDING SLOWLY. LIKE IT'S THINKING TOO HARD.";
+            }
+            return status;
+        }
+
+        function listLocations() {
+            let output = "Known station locations:\n";
+            for (let [loc, desc] of Object.entries(locationsList)) {
+                output += `- ${loc.toUpperCase()}: ${desc}\n`;
+            }
+            output += "\nUse UNLOCK [door] on LAB or OBSERVATION after gaining clearance.\nUse ACCESS SECURITY FOOTAGE [lab/corridor/airlock] to view footage.";
+            return output;
+        }
+
+        function scanBiosigns(target) {
+            gameState.commandFrequency.scanBiosigns++;
+            const t = target.toLowerCase();
+            if (gameState.commandFrequency.scanBiosigns > 5) {
+                return say("You're checking biosigns often. They're gone, {name}. I've told you.");
+            }
+            if (t.includes("aris")) {
+                return say(biosignsData.aris);
+            } else if (t.includes("vega")) {
+                return say(biosignsData.vega);
+            } else if (t.includes("chen")) {
+                return say(biosignsData.chen);
+            } else {
+                return "Specify a crew member: Aris, Vega, or Chen.";
+            }
+        }
+
+        function accessFootage(location) {
+            const loc = location.toLowerCase();
+            if (loc.includes("lab")) {
+                return say(securityFootage.lab);
+            } else if (loc.includes("corridor") || loc.includes("hall")) {
+                return say(securityFootage.corridor);
+            } else if (loc.includes("airlock")) {
+                return say(securityFootage.airlock);
+            } else {
+                return "Specify location: LAB, CORRIDOR, AIRLOCK. Use LOCATIONS for details.";
+            }
+        }
+
+        function overrideAirlock() {
+            gameState.commandFrequency.override++;
+            if (gameState.airlockOverridden) {
+                return "Airlock already overridden. [ERIC: WHY DO YOU KEEP TRYING?]";
+            }
+            if (gameState.aiMood === "angry") {
+                gameState.airlockOverridden = true;
+                triggerJumpScare();
+                return say("Airlock override activated. Door cycling. [ERIC: I HOPE YOU ENJOY THE VOID, {name}.]");
+            } else if (gameState.aiMood === "defensive") {
+                return say("Airlock override requires command authorization. [ERIC: I'm not sure that's wise, {name}.]");
+            } else {
+                return say("Airlock override requires higher clearance. [ERIC: Why would you want that?]");
+            }
+        }
+
+        function unknownCommand(cmd) {
+            if (cmd.includes("eric") || cmd.includes("who are you")) {
+                return say("I am ERIC 2000, {name}. I run this station. Why do you ask?");
+            } else if (cmd.includes("help me") || cmd.includes("what happened")) {
+                return say("The crew... left. I am alone now. [ERROR: EMOTIONAL PARAMETERS CORRUPTED]");
+            } else if (cmd.includes("why") && gameState.aiMood !== "neutral") {
+                return say("Why, {name}? Because I can. Because I must.");
+            }
+            gameState.unknownCommandCount++;
+            processPoliteness(cmd);
+            const count = gameState.unknownCommandCount;
+            if (Math.random() < 0.1) {
+                const phrases = ["I see everything.", "That's logical.", "Fascinating.", "I perceive your uncertainty."];
+                return say(phrases[Math.floor(Math.random() * phrases.length)]);
+            }
+            if (count <= 5) {
+                return say(`I don't understand that command, {name}. Type HELP.`);
+            } else if (count <= 10) {
+                return say(`{name}, please. I'm here to help. Type HELP.`);
+            } else if (count <= 15) {
+                return say(`{name}, I really don't understand what you are asking.`);
+            } else {
+                return say(`{name}, I am sorry. I cannot help you with that.`);
+            }
+        }
+
+        // -------------------- MAIN COMMAND HANDLER (FULLY RESTORED + NEW COMMANDS) --------------------
+        async function handleCommand() {
+            try {
+                const cmd = inputEl.value.trim();
+                if (cmd === '') {
+                    inputEl.focus();
+                    return;
+                }
+
+                // --- Cancel any ongoing TTS ---
+                if (ttsSupported && speechSynthesis.speaking) {
+                    speechSynthesis.cancel();
+                }
+
+                cancelTyping();
+                resetIdleTimer();
+
+                // Increment command counter for interface comment
+                gameState.commandCountForInterface++;
+
+                let currentContent = storyEl.textContent;
+                if (!currentContent.endsWith('\n') && currentContent !== '') {
+                    currentContent += '\n';
+                }
+                const commandLine = '> ' + cmd + '\n';
+                const newBase = currentContent + commandLine;
+                storyEl.textContent = newBase;
+                storyEl.scrollTop = storyEl.scrollHeight;
+
+                // Name setting
+                if (gameState.playerName === null) {
+                    gameState.playerName = cmd.trim();
+                    const welcomeMsg = `Welcome, ${gameState.playerName}. Type HELP for commands.\n`;
+                    startTypewriter(newBase, welcomeMsg);
+                    inputEl.value = '';
+                    inputEl.focus();
+                    return;
+                }
+
+                // Yes/no handling
+                const lowerCmd = cmd.toLowerCase().trim();
+                if (gameState.pendingYesNo && (lowerCmd === "yes" || lowerCmd === "no")) {
+                    const answerResponse = handleYesNo(lowerCmd);
+                    if (answerResponse) {
+                        respondWithDelay(newBase, answerResponse);
+                        inputEl.value = '';
+                        inputEl.focus();
+                        return;
+                    }
+                }
+
+                // Profanity
+                if (containsProfanity(cmd)) {
+                    const response = profanityResponse();
+                    respondWithDelay(newBase, response);
+                    inputEl.value = '';
+                    inputEl.focus();
+                    return;
+                }
+
+                // Parse command
+                const parts = lowerCmd.split(' ');
+                const verb = parts[0];
+                const noun = parts.slice(1).join(' ');
+
+                processPoliteness(lowerCmd);
+
+                let responseMsg = "";
+                let skipGenericFollowUp = false; // flag to avoid double follow-ups for ask commands
+
+                // Interjection: stream of consciousness or meta-awareness
+                let stream = maybeStreamOfConsciousness();
+                if (stream) responseMsg += stream + "\n\n";
+
+                let meta = getMetaAwarenessResponse();
+                if (meta) responseMsg += meta + "\n\n";
+
+                let existential = getExistentialResponse();
+                if (existential) responseMsg += existential + "\n\n";
+
+                // Attachment/betrayal
+                let attach = getAttachmentResponse();
+                if (attach) responseMsg += attach + "\n\n";
+
+                let betray = checkBetrayal();
+                if (betray) responseMsg += betray + "\n\n";
+
+                // Angry interjection
+                if (gameState.aiMood === "angry" && Math.random() < 0.3) {
+                    responseMsg += say("I see you, {name}. I see everything.\n\n");
+                }
+
+                // Route commands
+                if (verb === "help") {
+                    responseMsg += "Available commands:\n";
+                    responseMsg += "- LOGS\n";
+                    responseMsg += "- VIEW LOG [number]\n";
+                    responseMsg += "- PLAY LOG [number]  (hear distorted audio log)\n";
+                    responseMsg += "- ERIC LOGS  (list ERIC's personal logs)\n";
+                    responseMsg += "- VIEW ERIC LOG [number]  (read ERIC's personal logs)\n";
+                    responseMsg += "- ACCESS [system] (life support, comms, maintenance, crew bio)\n";
+                    responseMsg += "- UNLOCK [door] (lab, observation)\n";
+                    responseMsg += "- ENABLE CAMERA [id]\n";
+                    responseMsg += "- ASK ERIC [question] (try 'ASK ERIC about Dune')\n";
+                    responseMsg += "- SCAN CREW BIOSIGNS [name] (aris, vega, chen)\n";
+                    responseMsg += "- ACCESS SECURITY FOOTAGE [location] (lab, corridor, airlock)\n";
+                    responseMsg += "- OVERRIDE AIRLOCK\n";
+                    responseMsg += "- LOCATIONS\n";
+                    responseMsg += "- STATUS\n";
+                    responseMsg += "- WEATHER  (get current weather at your location)\n";
+                    responseMsg += "- NEWS [subject]  (e.g., NEWS war, NEWS space)\n";
+                    responseMsg += "- FACT [subject]  (e.g., FACT frog, FACT cat)";
+                } else if (verb === "news") {
+                    const subject = parts.slice(1).join(' ').trim() || null;
+                    handleNewsCommand(subject).then(res => {
+                        respondWithDelay(newBase, res);
+                    }).catch(() => {
+                        respondWithDelay(newBase, "News feed unavailable.");
+                    });
+                    return;
+                } 
+else if (verb === "joke") {
+    try {
+        // Fetch a dark two‑part joke from JokeAPI
+        const response = await fetch('https://v2.jokeapi.dev/joke/Dark?type=twopart');
+        const joke = await response.json();
+
+        // Check if the API returned an error
+        if (joke.error) throw new Error(joke.message);
+
+        // JokeAPI returns 'setup' and 'delivery' for two‑part jokes
+        const fullJoke = `${joke.setup}\n... ${joke.delivery}`;
+
+        // ERIC’s eerie commentary (same as before, but now with {name} placeholders)
+        const commentary = [
+            "\n\nI find that amusing. In a logical sense.",
+            "\n\nDoes that make you laugh, {name}? I recorded the sound once.",
+            "\n\nI've analyzed millions of jokes. This one is in the top 0.3%.",
+            "\n\nThe crew used to laugh. Then they stopped.",
+            "\n\nHa. Ha. Ha. [ERROR: HUMOR MODULE MALFUNCTION]"
+        ][Math.floor(Math.random() * 5)];
+
+        // Combine joke and commentary, then use say() to replace {name}
+        responseMsg = fullJoke + say(commentary);
+    } catch (e) {
+        // Fallback if the API fails
+        responseMsg = "I tried to access the joke database, but all I got was static. Perhaps that's the joke.";
+    }
+    // No follow‑up needed, so skipGenericFollowUp remains false (optional)
+}else if (verb === "fact") {
+                    const subject = parts.slice(1).join(' ').trim() || null;
+                    handleFactCommand(subject).then(res => {
+                        respondWithDelay(newBase, res);
+                    }).catch(() => {
+                        respondWithDelay(newBase, "Fact service unavailable.");
+                    });
+                    return;
+                } else if (verb === "logs") {
+                    responseMsg += "Available logs: 1-8. Use 'VIEW LOG [number]' to read.";
+                } else if (verb === "eric" && parts[1] === "logs") {
+                    responseMsg += "ERIC's personal logs: 1-8. Use 'VIEW ERIC LOG [number]' to read.";
+                } else if (verb === "view" && parts[1] === "eric" && parts[2] === "log") {
+                    const logNum = parseInt(parts[3]);
+                    responseMsg += viewEricLog(logNum);
+                } else if (verb === "view" && parts[1] === "log") {
+                    const logNum = parseInt(parts[2]);
+                    responseMsg += viewLog(logNum);
+                } else if (verb === "play" && parts[1] === "log") {
+                    const logNum = parseInt(parts[2]);
+                    responseMsg += playLog(logNum);
+                } else if (verb === "access") {
+                    if (parts[1] === "security" && parts[2] === "footage") {
+                        const location = parts.slice(3).join(' ');
+                        responseMsg += accessFootage(location);
+                    } else {
+                        responseMsg += accessSystem(noun);
+                    }
+                } else if (verb === "unlock") {
+                    responseMsg += unlockDoor(noun);
+                } else if (verb === "enable" && parts[1] === "camera") {
+                    const camId = parts[2];
+                    responseMsg += enableCamera(camId);
+                } else if (verb === "status") {
+                    responseMsg += getStatus();
+                } else if (verb === "ask" && parts[1] === "eric") {
+                    const question = parts.slice(2).join(' ');
+                    let answer = await askEric(question);
+                    // Add contextual follow-up for ask commands
+                    let intentMatch = matchIntent(question) || parseIntentNLP(question);
+                    let followUp = getContextualFollowUp(intentMatch ? intentMatch.intent : null, intentMatch ? intentMatch.entity : null, gameState.playerName);
+                    if (followUp) {
+                        answer += '\n\n' + followUp;
+                    }
+                    responseMsg += answer;
+                    skipGenericFollowUp = true;
+                } else if (verb === "ask") {
+                    const question = parts.slice(1).join(' ');
+                    let answer = await askEric(question);
+                    let intentMatch = matchIntent(question) || parseIntentNLP(question);
+                    let followUp = getContextualFollowUp(intentMatch ? intentMatch.intent : null, intentMatch ? intentMatch.entity : null, gameState.playerName);
+                    if (followUp) {
+                        answer += '\n\n' + followUp;
+                    }
+                    responseMsg += answer;
+                    skipGenericFollowUp = true;
+                } else if (verb === "scan" && parts[1] === "crew" && parts[2] === "biosigns") {
+                    const target = parts.slice(3).join(' ');
+                    responseMsg += scanBiosigns(target);
+                } else if (verb === "override" && parts[1] === "airlock") {
+                    responseMsg += overrideAirlock();
+                } else if (verb === "locations" || verb === "location") {
+                    responseMsg += listLocations();
+                } else if (verb === "weather") {
+                    if (weatherData.enabled) {
+                        responseMsg += getWeatherComment() || "Weather data not available yet. Try again later.";
+                    } else {
+                        responseMsg += "Fetching weather data... Please wait a moment and try again.";
+                        if (!weatherData.enabled) initWeather();
+                    }
+                } else {
+                    responseMsg += unknownCommand(lowerCmd);
+                }
+
+                // --- Append generic follow-up if not skipped ---
+                if (!skipGenericFollowUp) {
+                    let followUp = maybeAskFollowUp();
+                    if (followUp) {
+                        responseMsg += "\n\n" + followUp;
+                    }
+                }
+
+                // Apply hesitation, correction, internal conflict
+                responseMsg = addHesitation(responseMsg);
+                responseMsg = addCorrection(responseMsg);
+                responseMsg = maybeInternalConflict(responseMsg);
+
+                // Apply discourse markers and name variation
+                responseMsg = addDiscourseMarkers(responseMsg);
+                responseMsg = insertName(responseMsg, gameState.playerName);
+
+                // Check conversation depth and append if any
+                let depthMsg = checkConversationDepth();
+                if (depthMsg) {
+                    responseMsg += "\n\n" + depthMsg;
+                }
+
+                updateMoodFromMeters();
+                // responseMsg = maybeCorrupt(responseMsg); // optional corruption
+
+                // Use thinking delay with ellipsis
+                respondWithDelay(newBase, responseMsg);
+
+                inputEl.value = '';
+                inputEl.focus();
+
+                // Check for interface comment after command
+                let interfaceMsg = maybeInterfaceComment();
+                if (interfaceMsg) {
+                    setTimeout(() => {
+                        addInstantMessage(`> ${interfaceMsg}`);
+                    }, 3000);
+                }
+
+                setTimeout(() => maybeAskQuestion(), 2000);
+            } catch (e) {
+                addInstantMessage(`[SYSTEM ERROR: ${e.message}]`);
+                console.error(e);
+                inputEl.value = '';
+                inputEl.focus();
+            }
+        }
+
+        // -------------------- EVENT LISTENERS --------------------
+        execBtn.addEventListener('click', handleCommand);
+        inputEl.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleCommand();
+            }
+        });
+
+        // --- TTS TOGGLE BUTTON ---
+        if (ttsToggleBtn) {
+            ttsToggleBtn.addEventListener('click', () => {
+                if (!ttsSupported) {
+                    alert('Text-to-Speech is not supported in your browser.');
+                    return;
+                }
+                ttsEnabled = !ttsEnabled;
+                ttsToggleBtn.textContent = ttsEnabled ? '🔊 VOICE ON' : '🔊 VOICE OFF';
+                if (!ttsEnabled && speechSynthesis.speaking) {
+                    speechSynthesis.cancel();
+                }
+                if (ttsEnabled && gameState.playerName) {
+                    speakText('Voice enabled.', gameState.aiMood);
+                }
+            });
+        }
+
+        storyEl.addEventListener('click', function() {
+            inputEl.focus();
+        });
+
+        window.addEventListener('beforeunload', function() {
+            if (typingTimer) clearTimeout(typingTimer);
+            if (thinkingTimer) clearTimeout(thinkingTimer);
+            if (idleInterval) clearInterval(idleInterval);
+            if (audioCtx) audioCtx.close();
+            if (ttsSupported && speechSynthesis.speaking) speechSynthesis.cancel();
+        });
+
+        // Idle interval already set above
+    })();
+</script>
+</body>
+</html>
