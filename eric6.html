@@ -208,30 +208,31 @@
             document.removeEventListener('click', enableOnClick);
         }, { once: true });
 
-// -------------------- TEXT-TO-SPEECH (MALE VOICE WITH PROPER LOADING) --------------------
+
+            // -------------------- TEXT-TO-SPEECH (FORCED MALE / DAVID) --------------------
 let ttsEnabled = false;
 let currentUtterance = null;
 const ttsSupported = window.speechSynthesis !== undefined;
-let maleVoice = null; // will hold the preferred male voice once loaded
-let voicesLoaded = false;
+let maleVoice = null;
+let voicesReady = false;
 
-// Function to find a male voice from the voices list
+// Function to find the best male voice, with "David" as top priority
 function findMaleVoice(voices) {
-    // Priority list of male voice names (case-insensitive)
-    const maleNames = [
-        'microsoft david', 'google uk english male', 'google deutsch', 'microsoft mark',
-        'daniel', 'alex', 'fred', 'harry', 'guy', 'male'
-    ];
-    // First try to find a voice with 'male' in the name
-    let voice = voices.find(v => v.lang.includes('en') && /male/i.test(v.name));
+    if (!voices || voices.length === 0) return null;
+
+    // 1. Look for "David" (case-insensitive)
+    let voice = voices.find(v => v.lang.includes('en') && v.name.toLowerCase().includes('david'));
     if (voice) return voice;
-    // Then check against our list of known male voice names
+
+    // 2. Look for other common male voice names
+    const maleNames = ['google uk english male', 'microsoft mark', 'daniel', 'alex', 'fred', 'harry', 'guy', 'male'];
     voice = voices.find(v => {
         const lowerName = v.name.toLowerCase();
         return v.lang.includes('en') && maleNames.some(name => lowerName.includes(name));
     });
     if (voice) return voice;
-    // Finally, fallback to any English voice (will adjust pitch later)
+
+    // 3. Fallback: any English voice
     return voices.find(v => v.lang.includes('en'));
 }
 
@@ -240,8 +241,8 @@ function loadVoices() {
     const voices = speechSynthesis.getVoices();
     if (voices.length > 0) {
         maleVoice = findMaleVoice(voices);
-        voicesLoaded = true;
-        console.log('TTS voices loaded, male voice:', maleVoice ? maleVoice.name : 'none found');
+        voicesReady = true;
+        console.log('TTS voices loaded. Selected voice:', maleVoice ? maleVoice.name : 'No suitable male voice found.');
     }
 }
 
@@ -254,25 +255,26 @@ if (speechSynthesis.onvoiceschanged !== undefined) {
 function setVoice(utterance, mood) {
     if (!ttsSupported) return;
 
-    // Use the pre-selected male voice if available
+    // If we have a cached male voice, use it
     if (maleVoice) {
         utterance.voice = maleVoice;
-    } else if (voicesLoaded) {
+    } else if (voicesReady) {
         // Voices are loaded but no male voice found – use any English voice
         const fallbackVoice = speechSynthesis.getVoices().find(v => v.lang.includes('en'));
         if (fallbackVoice) utterance.voice = fallbackVoice;
     } else {
-        // Voices not loaded yet – browser will use default; we'll adjust pitch later.
+        // Voices not loaded yet – browser will use default; we'll adjust pitch.
+        // (But we'll try to delay speech until voices are ready – see speakText)
     }
 
     // Adjust pitch and rate to be HAL-like (calm, slightly low, steady)
     switch (mood) {
         case 'angry':
-            utterance.pitch = 0.6;   // lower, more menacing
+            utterance.pitch = 0.6;
             utterance.rate = 0.8;
             break;
         case 'curious':
-            utterance.pitch = 1.0;   // neutral, but still masculine
+            utterance.pitch = 1.0;
             utterance.rate = 0.85;
             break;
         case 'defensive':
@@ -288,6 +290,36 @@ function setVoice(utterance, mood) {
 function speakText(text, mood = 'neutral') {
     if (!ttsEnabled || !ttsSupported) return;
 
+    // If voices aren't ready yet, wait a bit and try again (max 3 attempts)
+    if (!voicesReady) {
+        let attempts = 0;
+        const interval = setInterval(() => {
+            if (voicesReady || attempts > 10) { // 10 * 200ms = 2s timeout
+                clearInterval(interval);
+                if (voicesReady) {
+                    // Recreate utterance and speak
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    setVoice(utterance, mood);
+                    utterance.volume = 1.0;
+                    utterance.onstart = () => console.log('TTS started');
+                    utterance.onend = () => console.log('TTS ended');
+                    utterance.onerror = (e) => console.error('TTS error', e);
+                    speechSynthesis.speak(utterance);
+                    currentUtterance = utterance;
+                } else {
+                    console.warn('TTS voices never loaded – speaking with default voice.');
+                    // Fallback: speak anyway with default voice
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    setVoice(utterance, mood); // will skip voice assignment
+                    speechSynthesis.speak(utterance);
+                }
+            }
+            attempts++;
+        }, 200);
+        return;
+    }
+
+    // Cancel any ongoing speech
     if (speechSynthesis.speaking) {
         speechSynthesis.cancel();
     }
