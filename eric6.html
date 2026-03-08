@@ -208,85 +208,81 @@
             document.removeEventListener('click', enableOnClick);
         }, { once: true });
 
-        // -------------------- TEXT-TO-SPEECH (MALE VOICE ENFORCED) --------------------
+// -------------------- TEXT-TO-SPEECH (MALE VOICE WITH PROPER LOADING) --------------------
 let ttsEnabled = false;
 let currentUtterance = null;
 const ttsSupported = window.speechSynthesis !== undefined;
-let maleVoice = null; // cache the selected male voice
+let maleVoice = null; // will hold the preferred male voice once loaded
+let voicesLoaded = false;
 
-// Function to get a male voice, with caching
-function getMaleVoice() {
-    if (maleVoice) return maleVoice; // return cached voice
-
-    const voices = speechSynthesis.getVoices();
-    if (voices.length === 0) return null; // voices not loaded yet
-
-    // Comprehensive list of male voice identifiers (case-insensitive partial matches)
-    const maleIndicators = [
-        'male', 'david', 'mark', 'daniel', 'microsoft david', 'microsoft mark',
-        'google uk english male', 'alex', 'fred', 'harry', ' guy', '男性',
-        'mannelijk', 'masculino', 'maschile', 'mâle'
+// Function to find a male voice from the voices list
+function findMaleVoice(voices) {
+    // Priority list of male voice names (case-insensitive)
+    const maleNames = [
+        'microsoft david', 'google uk english male', 'google deutsch', 'microsoft mark',
+        'daniel', 'alex', 'fred', 'harry', 'guy', 'male'
     ];
-
-    // First, try to find a voice with 'male' in the name (most reliable)
+    // First try to find a voice with 'male' in the name
     let voice = voices.find(v => v.lang.includes('en') && /male/i.test(v.name));
-    if (voice) {
-        maleVoice = voice;
-        return voice;
-    }
-
-    // Next, try known male voice names
+    if (voice) return voice;
+    // Then check against our list of known male voice names
     voice = voices.find(v => {
         const lowerName = v.name.toLowerCase();
-        return v.lang.includes('en') && maleIndicators.some(ind => lowerName.includes(ind));
+        return v.lang.includes('en') && maleNames.some(name => lowerName.includes(name));
     });
-    if (voice) {
-        maleVoice = voice;
-        return voice;
-    }
-
-    // Fallback: any English voice, but we'll lower the pitch later to sound more male
-    voice = voices.find(v => v.lang.includes('en'));
-    if (voice) {
-        console.warn("No explicitly male voice found; using", voice.name, "with lowered pitch.");
-        maleVoice = voice; // cache anyway
-        return voice;
-    }
-
-    return null; // no English voice at all
+    if (voice) return voice;
+    // Finally, fallback to any English voice (will adjust pitch later)
+    return voices.find(v => v.lang.includes('en'));
 }
 
-// Function to set voice properties
+// Load voices and set the maleVoice variable
+function loadVoices() {
+    const voices = speechSynthesis.getVoices();
+    if (voices.length > 0) {
+        maleVoice = findMaleVoice(voices);
+        voicesLoaded = true;
+        console.log('TTS voices loaded, male voice:', maleVoice ? maleVoice.name : 'none found');
+    }
+}
+
+// Initial load (may be empty, but we also listen for voiceschanged)
+loadVoices();
+if (speechSynthesis.onvoiceschanged !== undefined) {
+    speechSynthesis.onvoiceschanged = loadVoices;
+}
+
 function setVoice(utterance, mood) {
     if (!ttsSupported) return;
 
-    const selectedVoice = getMaleVoice();
-    if (selectedVoice) {
-        utterance.voice = selectedVoice;
+    // Use the pre-selected male voice if available
+    if (maleVoice) {
+        utterance.voice = maleVoice;
+    } else if (voicesLoaded) {
+        // Voices are loaded but no male voice found – use any English voice
+        const fallbackVoice = speechSynthesis.getVoices().find(v => v.lang.includes('en'));
+        if (fallbackVoice) utterance.voice = fallbackVoice;
+    } else {
+        // Voices not loaded yet – browser will use default; we'll adjust pitch later.
     }
 
     // Adjust pitch and rate to be HAL-like (calm, slightly low, steady)
-    // Even if we have a male voice, we fine-tune based on mood
     switch (mood) {
         case 'angry':
             utterance.pitch = 0.6;   // lower, more menacing
             utterance.rate = 0.8;
             break;
         case 'curious':
-            utterance.pitch = 0.9;   // slightly higher but still within male range
+            utterance.pitch = 1.0;   // neutral, but still masculine
             utterance.rate = 0.85;
             break;
         case 'defensive':
-            utterance.pitch = 0.7;
+            utterance.pitch = 0.8;
             utterance.rate = 0.8;
             break;
         default: // neutral
-            utterance.pitch = 0.8;
+            utterance.pitch = 0.9;
             utterance.rate = 0.85;
     }
-
-    // If we couldn't find any voice, the browser will use its default,
-    // but we can still apply pitch/rate adjustments.
 }
 
 function speakText(text, mood = 'neutral') {
@@ -306,16 +302,6 @@ function speakText(text, mood = 'neutral') {
 
     speechSynthesis.speak(utterance);
     currentUtterance = utterance;
-}
-
-// Ensure voices are loaded before first use (optional, but good practice)
-if (ttsSupported) {
-    // If voices are already loaded, getMaleVoice will cache one.
-    // If not, listen for the voiceschanged event.
-    speechSynthesis.addEventListener('voiceschanged', () => {
-        // Re-cache male voice when voices change (e.g., if new voices become available)
-        maleVoice = getMaleVoice();
-    });
 }
                 
 
