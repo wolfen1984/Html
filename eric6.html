@@ -520,38 +520,34 @@ function speakText(text, mood = 'neutral') {
         }
 
         function startTypewriter(fullBaseText, responseText) {
-            cancelTyping(); // ensure no previous typing
-            let index = 0;
-            let partialResponse = '';
-            isTyping = true;
+    cancelTyping();
+    let index = 0;
+    let partialResponse = '';
+    isTyping = true;
 
-            function typeNext() {
-                if (index < responseText.length) {
-                    // Play terminal click sound for each character (if audio enabled)
-                    playTypingSound();
+    if (ttsEnabled) {
+        let speechText = responseText.replace(/\{name\}/g, gameState.playerName || "investigator");
+        speakText(speechText, gameState.aiMood);
+    }
 
-                    partialResponse += responseText[index];
-                    storyEl.textContent = fullBaseText + partialResponse;
-                    storyEl.scrollTop = storyEl.scrollHeight;
-                    index++;
-                    typingTimer = setTimeout(typeNext, 70);
-                } else {
-                    storyEl.textContent = fullBaseText + responseText;
-                    storyEl.scrollTop = storyEl.scrollHeight;
-                    typingTimer = null;
-                    isTyping = false;
-                    lastActivityTime = Date.now();
-
-                    // --- TTS: speak the full response after typing finishes ---
-                    if (ttsEnabled) {
-                        // Replace placeholders for speech (though they should already be replaced)
-                        let speechText = responseText.replace(/\{name\}/g, gameState.playerName || "investigator");
-                        speakText(speechText, gameState.aiMood);
-                    }
-                }
-            }
-            typeNext();
+    function typeNext() {
+        if (index < responseText.length) {
+            playTypingSound();
+            partialResponse += responseText[index];
+            storyEl.textContent = fullBaseText + partialResponse;
+            storyEl.scrollTop = storyEl.scrollHeight;
+            index++;
+            typingTimer = setTimeout(typeNext, 70);
+        } else {
+            storyEl.textContent = fullBaseText + responseText;
+            storyEl.scrollTop = storyEl.scrollHeight;
+            typingTimer = null;
+            isTyping = false;
+            lastActivityTime = Date.now();
         }
+    }
+    typeNext();
+}
 
         // --- Simulated thinking with ellipsis ---
         function respondWithDelay(fullBaseText, responseText) {
@@ -1370,27 +1366,35 @@ function speakText(text, mood = 'neutral') {
 
         // -------------------- MAIN COMMAND HANDLER with error handling --------------------
         function handleCommand() {
-            try {
-                const cmd = inputEl.value.trim();
-                if (cmd === '') {
-                    inputEl.focus();
-                    return;
-                }
+    try {
+        const cmd = inputEl.value.trim();
+        if (cmd === '') {
+            inputEl.focus();
+            return;
+        }
 
-                cancelTyping();
-                resetIdleTimer();
+        // --- Cancel any ongoing TTS ---
+        if (ttsSupported && speechSynthesis.speaking) {
+            speechSynthesis.cancel();
+        }
 
-                // Increment command counter for interface comment
-                gameState.commandCountForInterface++;
+        cancelTyping();
+        resetIdleTimer();
 
-                let currentContent = storyEl.textContent;
-                if (!currentContent.endsWith('\n') && currentContent !== '') {
-                    currentContent += '\n';
-                }
-                const commandLine = '> ' + cmd + '\n';
-                const newBase = currentContent + commandLine;
-                storyEl.textContent = newBase;
-                storyEl.scrollTop = storyEl.scrollHeight;
+        gameState.commandCountForInterface++;
+
+        let currentContent = storyEl.textContent;
+        if (!currentContent.endsWith('\n') && currentContent !== '') {
+            currentContent += '\n';
+        }
+        const commandLine = '> ' + cmd + '\n';
+        const newBase = currentContent + commandLine;
+        storyEl.textContent = newBase;
+        storyEl.scrollTop = storyEl.scrollHeight;
+
+        // ... rest of handleCommand (unchanged) ...
+    } // ... catch ...
+}
 
                 // Name setting
                 if (gameState.playerName === null) {
