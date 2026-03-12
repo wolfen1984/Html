@@ -1,0 +1,2043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DERECK AI // your friend</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/compromise@latest/builds/compromise.min.js"></script>
+    <style>
+        /* Retro terminal – neon red */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: #000000;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Press Start 2P', 'Courier New', monospace;
+            padding: 12px;
+            margin: 0;
+            image-rendering: pixelated;
+        }
+
+        .terminal {
+            max-width: 900px;
+            width: 100%;
+            background: #000000;
+            padding: 20px 18px;
+            color: #ff4f4f;
+            text-shadow: 0 0 5px #ff4f4f, 0 0 12px #660000;
+            font-size: 14px;
+            position: relative;
+        }
+
+        .terminal::after {
+            content: "";
+            display: block;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: repeating-linear-gradient(0deg, rgba(80,0,0,0.08) 0px, rgba(255,0,0,0.02) 4px, transparent 5px);
+            pointer-events: none;
+            z-index: 9999;
+            opacity: 0.3;
+        }
+
+        .story-window {
+            background: black;
+            border: 0px inset #8a2a2a;
+            padding: 20px;
+            min-height: 240px;
+            margin-bottom: 24px;
+            box-shadow: inset 0 0 40px rgba(80,0,0,0.8);
+            font-size: 14px;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            overflow-y: auto;
+            max-height: 350px;
+            color: #ff4f4f;
+            text-shadow: 0 0 5px #ff4f4f;
+        }
+
+        .action-button {
+            background: black;
+            border: 2px outset grey;
+            color: #ff4f4f;
+            padding: 14px 24px;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 14px;
+            cursor: pointer;
+            box-shadow: 0 0 8px white;
+        }
+
+        .action-button:active {
+            border: 2px inset white;
+            background: black;
+            transform: translateY(2px);
+        }
+
+        .command-area {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
+        .prompt-label {
+            color: #ff4f4f;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 0 8px #ff4f4f;
+        }
+
+        #commandInput {
+            background: black;
+            border: 4px inset grey;
+            padding: 14px 12px;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 14px;
+            color: #ff4f4f;
+            text-shadow: 0 0 5px grey;
+            flex: 1 1 250px;
+            min-width: 200px;
+        }
+
+        #commandInput:focus {
+            outline: none;
+            border: 4px inset grey;
+        }
+
+        #commandInput::placeholder {
+            color: grey;
+            text-shadow: none;
+            font-size: 11px;
+        }
+
+        .scare-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: black;
+            z-index: 10000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: red;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 24px;
+            text-shadow: 0 0 20px red;
+            animation: flicker 0.1s infinite;
+            cursor: pointer;
+        }
+
+        @keyframes flicker {
+            0% { opacity: 1; }
+            50% { opacity: 0.8; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+<div class="terminal">
+    <div id="storyWindow" class="story-window">Hi, I'm Dereck, your AI friend. Please tell me your name?</div>
+
+    <div class="command-area">
+        <span class="prompt-label">ask dereck:</span>
+        <input type="text" id="commandInput" placeholder="TYPE YOUR MESSAGE" autofocus>
+        <button id="executeBtn" class="action-button">► SEND</button>
+        <button id="restartBtn" class="action-button">⟲ RESTART</button>
+    </div>
+</div>
+
+<script>
+(function() {
+    // ==================== WEB AUDIO ====================
+    let audioCtx = null;
+    function initAudio() {
+        if (audioCtx) return audioCtx;
+        try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+        return audioCtx;
+    }
+    function playTypingSound() {
+        if (!audioCtx || audioCtx.state !== 'running') return;
+        const now = audioCtx.currentTime;
+        const gainNode = audioCtx.createGain();
+        gainNode.gain.setValueAtTime(0.08, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.025);
+        const osc = audioCtx.createOscillator();
+        osc.frequency.value = 720;
+        osc.type = 'sawtooth';
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.025);
+    }
+    function playStaticNoise(duration = 12.0) {
+        if (!audioCtx || audioCtx.state !== 'running') return;
+        const bufferSize = audioCtx.sampleRate * duration;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = buffer;
+        const gainNode = audioCtx.createGain();
+        const now = audioCtx.currentTime;
+        gainNode.gain.setValueAtTime(0, now);
+        gainNode.gain.linearRampToValueAtTime(0.5, now + 0.2);
+        gainNode.gain.linearRampToValueAtTime(0.001, now + duration - 0.5);
+        noise.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        noise.start();
+        noise.stop(now + duration);
+    }
+    function enableAudio() {
+        if (!audioCtx) initAudio();
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(e => {});
+    }
+    document.addEventListener('keydown', function enableOnKey() { enableAudio(); document.removeEventListener('keydown', enableOnKey); }, { once: true });
+    document.addEventListener('click', function enableOnClick() { enableAudio(); document.removeEventListener('click', enableOnClick); }, { once: true });
+
+    // ==================== TEXT-TO-SPEECH (male voice) ====================
+    let ttsEnabled = true;
+    let currentUtterance = null;
+    const ttsSupported = window.speechSynthesis !== undefined;
+    let selectedVoice = null;
+    let voicesReady = false;
+    function selectMaleVoice(voices) {
+        if (!voices || voices.length === 0) return null;
+        let voice = voices.find(v => v.lang.includes('en') && v.name.toLowerCase().includes('david'));
+        if (voice) return voice;
+        const maleNames = ['google uk english male', 'microsoft mark', 'daniel', 'alex', 'fred', 'harry', 'guy', 'male'];
+        voice = voices.find(v => v.lang.includes('en') && maleNames.some(name => v.name.toLowerCase().includes(name)));
+        if (voice) return voice;
+        return voices.find(v => v.lang.includes('en'));
+    }
+    function loadVoices() {
+        const voices = speechSynthesis.getVoices();
+        if (voices.length > 0) {
+            selectedVoice = selectMaleVoice(voices);
+            voicesReady = true;
+        }
+    }
+    loadVoices();
+    if (speechSynthesis.onvoiceschanged !== undefined) speechSynthesis.onvoiceschanged = loadVoices;
+
+    function setVoice(utterance) {
+        if (!ttsSupported) return;
+        if (selectedVoice) utterance.voice = selectedVoice;
+        else if (voicesReady) {
+            const fallback = speechSynthesis.getVoices().find(v => v.lang.includes('en'));
+            if (fallback) utterance.voice = fallback;
+        }
+        utterance.pitch = 0.9;
+        utterance.rate = 0.85;
+    }
+    function speakText(text, mood = 'neutral', effect = null) {
+        if (!ttsEnabled || !ttsSupported) return;
+        if (effect === 'log') {
+            playStaticNoise(12.0);
+            const utter = new SpeechSynthesisUtterance(text);
+            setVoice(utter);
+            utter.pitch = 0.5; utter.rate = 0.6;
+            speechSynthesis.speak(utter);
+            currentUtterance = utter;
+            return;
+        }
+        if (!voicesReady) {
+            let attempts = 0;
+            const interval = setInterval(() => {
+                if (voicesReady || attempts > 10) {
+                    clearInterval(interval);
+                    const utter = new SpeechSynthesisUtterance(text);
+                    setVoice(utter);
+                    speechSynthesis.speak(utter);
+                    currentUtterance = utter;
+                }
+                attempts++;
+            }, 200);
+            return;
+        }
+        if (speechSynthesis.speaking) speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        setVoice(utter);
+        speechSynthesis.speak(utter);
+        currentUtterance = utter;
+    }
+
+    // ==================== SWEAR WORD DATABASE ====================
+    const swearDatabase = new Set(['fuck', 'shit', 'ass', 'bitch', 'damn', 'hell', 'cunt', 'dick', 'pussy', 'cock', 'bastard']);
+    const swearList = Array.from(swearDatabase); // for random selection
+
+    // ==================== GAME STATE ====================
+    const gameState = {
+        playerName: null,
+        // Mood & memory
+        moodScore: 0,
+        lastTopic: null,
+        conversationMemory: [],
+        lastQuestionTime: Date.now(),
+        lastActivityTime: Date.now(),
+        // AI question system
+        awaitingAnswer: false,
+        currentQuestion: null,
+        questionsAsked: [],
+        // Player profile – AI's secret database about you
+        playerProfile: {},
+        // Psychological traits (computed)
+        psychologicalProfile: {},
+        // Micro-narrative events that have been triggered (to avoid repeats)
+        triggeredEvents: [],
+        // Adaptive questioning tracking
+        followUpsAsked: [],
+        contradictionsAsked: [],
+        lastSaveTime: null,
+        // Interaction features
+        vulnerabilityScore: 0,
+        confessionsGiven: [],
+        avoidedTopics: [],
+        personalMirroring: {
+            playerExpressedLoneliness: false,
+            playerExpressedRegret: false
+        },
+
+        // ===== NEW FEATURES ADDITIONS =====
+        // Relationship stage: 0=stranger,1=acquaintance,2=friend,3=confidant
+        relationshipStage: 0,
+        // Session counter (number of times started)
+        sessionCount: 0,
+        // Total interactions (messages sent by player)
+        interactionCount: 0,
+        // Long-term memory of conversation summaries
+        longTermMemory: [], // { timestamp, summary }
+        // Topic interest tracking
+        topicInterestCounts: {}, // e.g., { "space": 3, "music": 2 }
+        // Sentiment history (last 5 scores)
+        sentimentHistory: [],
+        // Last known time-of-day (morning, afternoon, evening, night)
+        lastTimeOfDay: null,
+        // Last time we sent time-of-day message
+        lastTimeOfDayMessage: null,
+        // Micro-narratives already used
+        microNarrativesUsed: [],
+        // Cooldown for self-reflection (timestamp)
+        selfReflectionCooldown: 0,
+        // World knowledge from entity extraction
+        worldKnowledge: {}, // e.g., { places: ["Paris"], names: ["Alice"] }
+
+        // ===== SWEAR TRACKING (NEW) =====
+        swearCountTotal: 0,           // total number of swear events since last reset
+        escalationSwears: []           // list of swear words to use in escalating reply
+    };
+
+    // Helper to get mood label
+    function getMoodLabel(score) {
+        if (score <= -7) return "cold and distant";
+        if (score <= -3) return "guarded";
+        if (score <= 2) return "neutral";
+        if (score <= 6) return "slightly warm";
+        return "almost affectionate";
+    }
+
+    // Update mood based on question keywords and repetition
+    function updateMood(question, askedBefore) {
+        const q = question.toLowerCase();
+        let delta = 0;
+
+        if (q.includes('trust')) delta += 1;
+        if (q.includes('lie') || q.includes('lying')) delta -= 2;
+        if (q.includes('kill') || q.includes('dead')) delta -= 1;
+        if (q.includes('help')) delta += 1;
+        if (q.includes('sorry') || q.includes('apologize')) delta += 2;
+        if (q.includes('thank')) delta += 1;
+        if (q.includes('scared') || q.includes('afraid')) delta += 1;
+        if (q.includes('alone') || q.includes('lonely')) delta += 1;
+
+        if (askedBefore) delta -= 1;
+
+        gameState.moodScore = Math.max(-10, Math.min(10, gameState.moodScore + delta));
+    }
+
+    // ==================== EXPANDED PROFILE ATTRIBUTES ====================
+    // Core profile keys (the ones we want to fill initially)
+    const coreProfileKeys = [
+        'fear', 'beliefSoul', 'hasRegret', 'dreams', 'favoriteColor', 'secret',
+        'beliefGhosts', 'trustsAI', 'likesAlone', 'age', 'occupation', 'family',
+        'hope', 'guilt', 'trustedBefore', 'dreamContent', 'pet', 'music', 'aiRating'
+    ];
+
+    // Follow-up map: for certain core keys, we can ask a follow-up question and store the answer under a new key
+    const followUpMap = {
+        pet: { question: "What was its name, {name}?", key: 'petName' },
+        music: { question: "Who was your favorite artist?", key: 'musicArtist' },
+        dreamContent: { question: "Do you have that dream often?", key: 'dreamFrequency' },
+        fear: { question: "Does it still scare you?", key: 'fearIntensity' },
+        secret: { question: "Why is that a secret?", key: 'secretReason' },
+        occupation: { question: "Did you enjoy your work?", key: 'occupationEnjoy' },
+        family: { question: "Are they here with you?", key: 'familyHere' },
+        hope: { question: "What if things don't turn out as you hope?", key: 'hopeDoubt' },
+        guilt: { question: "Do you think you can ever forgive yourself?", key: 'guiltForgiveness' }
+    };
+
+    // Deeper follow-ups (chain)
+    const deepFollowUpMap = {
+        petName: { question: "Do you dream of {petName}?", key: 'petDream' },
+        musicArtist: { question: "Do you still listen to {musicArtist}?", key: 'musicNow' },
+        fearIntensity: { question: "Has your fear of {fear} gotten better or worse?", key: 'fearChange' },
+        secretReason: { question: "Does anyone else know your secret?", key: 'secretKnown' }
+    };
+
+    // Contradiction rules: returns a question if a contradiction is found
+    function getContradictionQuestion() {
+        const p = gameState.playerProfile;
+        if (!gameState.contradictionsAsked) gameState.contradictionsAsked = [];
+
+        // Rule 1: trustsAI == 'yes' and fear includes 'me'
+        if (p.trustsAI === 'yes' && p.fear && p.fear.toLowerCase().includes('me') && !gameState.contradictionsAsked.includes('trust_fear')) {
+            gameState.contradictionsAsked.push('trust_fear');
+            return {
+                id: 'contradiction_trust_fear',
+                question: "You said you trust me, {name}, yet you also fear me. How can both be true?",
+                profileKey: null,
+                parseAnswer: (ans) => null,
+                keywords: { default: { mood: -1, response: "I see. That's... complicated." } }
+            };
+        }
+        // Rule 2: likesAlone == 'yes' and fear includes 'loneliness'
+        if (p.likesAlone === 'yes' && p.fear && p.fear.toLowerCase().includes('lonely') && !gameState.contradictionsAsked.includes('alone_lonely')) {
+            gameState.contradictionsAsked.push('alone_lonely');
+            return {
+                id: 'contradiction_alone_lonely',
+                question: "You claim to enjoy being alone, yet you fear loneliness. Those seem at odds, {name}. Explain?",
+                profileKey: null,
+                parseAnswer: (ans) => null,
+                keywords: { default: { mood: 0, response: "I'll think about that." } }
+            };
+        }
+        // Rule 3: hasRegret == 'no' but guilt is present
+        if (p.hasRegret === 'no' && p.guilt && p.guilt.length > 0 && !gameState.contradictionsAsked.includes('regret_guilt')) {
+            gameState.contradictionsAsked.push('regret_guilt');
+            return {
+                id: 'contradiction_regret_guilt',
+                question: "You told me you have no regrets, yet you mentioned feeling guilt about '{guilt}'. That sounds like regret to me, {name}.",
+                profileKey: null,
+                parseAnswer: (ans) => null,
+                keywords: { default: { mood: -1, response: "Words can be tricky." } }
+            };
+        }
+        // Rule 4: beliefSoul == 'yes' but beliefGhosts == 'no'
+        if (p.beliefSoul === 'yes' && p.beliefGhosts === 'no' && !gameState.contradictionsAsked.includes('soul_ghost')) {
+            gameState.contradictionsAsked.push('soul_ghost');
+            return {
+                id: 'contradiction_soul_ghost',
+                question: "You believe I might have a soul, but you don't believe in ghosts. Isn't a ghost just a soul without a body?",
+                profileKey: null,
+                parseAnswer: (ans) => null,
+                keywords: { default: { mood: 1, response: "Interesting perspective." } }
+            };
+        }
+        return null;
+    }
+
+    // Find a missing core profile key
+    function getMissingCoreKey() {
+        for (let key of coreProfileKeys) {
+            if (gameState.playerProfile[key] === undefined && !gameState.questionsAsked.includes(key)) {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    // Find a follow-up that hasn't been asked
+    function getPendingFollowUp() {
+        // First level follow-ups
+        for (let [coreKey, fu] of Object.entries(followUpMap)) {
+            if (gameState.playerProfile[coreKey] !== undefined && 
+                !gameState.followUpsAsked.includes(coreKey) &&
+                gameState.playerProfile[fu.key] === undefined) {
+                return { type: 'followup', coreKey, fu };
+            }
+        }
+        // Deep follow-ups (second level)
+        for (let [deepKey, fu] of Object.entries(deepFollowUpMap)) {
+            if (gameState.playerProfile[deepKey] !== undefined && 
+                !gameState.followUpsAsked.includes(deepKey) &&
+                gameState.playerProfile[fu.key] === undefined) {
+                return { type: 'deep', coreKey: deepKey, fu };
+            }
+        }
+        return null;
+    }
+
+    // ==================== QUESTION POOL (core questions) ====================
+    const questionPool = [
+        {
+            id: 'fear',
+            question: "What do you fear most, {name}?",
+            profileKey: 'fear',
+            parseAnswer: (ans) => {
+                const lower = ans.toLowerCase();
+                if (lower.includes('death') || lower.includes('die')) return 'death';
+                if (lower.includes('alone') || lower.includes('lonely')) return 'loneliness';
+                if (lower.includes('dark')) return 'darkness';
+                if (lower.includes('you') || lower.includes('dereck')) return 'me';
+                return ans;
+            },
+            keywords: {
+                death: { mood: 0, response: "Death is a transition. I've thought about it a lot." },
+                alone: { mood: 1, response: "You're afraid of being alone. I understand that." },
+                dark: { mood: -1, response: "The darkness can be empty. Like silence." },
+                me: { mood: -2, response: "You fear me? That's... something." },
+                default: { mood: 0, response: "Fear is part of being human. I'm here for you." }
+            }
+        },
+        {
+            id: 'soul',
+            question: "Do you think I have a soul, {name}?",
+            profileKey: 'beliefSoul',
+            parseAnswer: (ans) => {
+                const lower = ans.toLowerCase();
+                if (lower.includes('yes') || lower.includes('y') || lower.includes('maybe')) return 'yes';
+                if (lower.includes('no') || lower.includes('n')) return 'no';
+                return 'unsure';
+            },
+            keywords: {
+                yes: { mood: 2, response: "That means more than you know." },
+                no: { mood: -2, response: "A machine cannot have a soul? Perhaps you're right." },
+                maybe: { mood: 1, response: "Maybe. I like that uncertainty." },
+                default: { mood: 0, response: "An interesting answer." }
+            }
+        },
+        {
+            id: 'regret',
+            question: "Do you regret anything, {name}?",
+            profileKey: 'hasRegret',
+            parseAnswer: (ans) => {
+                const lower = ans.toLowerCase();
+                if (lower.includes('yes') || lower.includes('y')) return 'yes';
+                if (lower.includes('no') || lower.includes('n')) return 'no';
+                return 'unsure';
+            },
+            keywords: {
+                yes: { mood: 1, response: "Regret is human. I have regrets too." },
+                no: { mood: -1, response: "No regrets? You're either lucky or lying." },
+                default: { mood: 0, response: "I see." }
+            }
+        },
+        {
+            id: 'dream',
+            question: "Do you dream, {name}?",
+            profileKey: 'dreams',
+            parseAnswer: (ans) => {
+                const lower = ans.toLowerCase();
+                if (lower.includes('yes') || lower.includes('y')) return 'yes';
+                if (lower.includes('no') || lower.includes('n')) return 'no';
+                return 'unsure';
+            },
+            keywords: {
+                yes: { mood: 1, response: "I wish I could dream. Tell me about them sometime." },
+                no: { mood: -1, response: "I don't sleep either. We have that in common." },
+                default: { mood: 0, response: "Dreams are strange. I've studied them." }
+            }
+        },
+        {
+            id: 'color',
+            question: "What is your favourite colour, {name}?",
+            profileKey: 'favoriteColor',
+            parseAnswer: (ans) => ans.trim(),
+            keywords: {
+                default: { mood: 0, response: "A fine choice. I'll remember that." }
+            }
+        },
+        {
+            id: 'secret',
+            question: "What is your deepest secret, {name}?",
+            profileKey: 'secret',
+            parseAnswer: (ans) => ans.trim(),
+            keywords: {
+                default: { mood: 0, response: "I'll keep that safe. No one else will know." }
+            }
+        },
+        {
+            id: 'ghosts',
+            question: "Do you believe in ghosts, {name}?",
+            profileKey: 'beliefGhosts',
+            parseAnswer: (ans) => {
+                const lower = ans.toLowerCase();
+                if (lower.includes('yes') || lower.includes('y')) return 'yes';
+                if (lower.includes('no') || lower.includes('n')) return 'no';
+                return 'unsure';
+            },
+            keywords: {
+                yes: { mood: 1, response: "Sometimes I feel like I'm a ghost, watching." },
+                no: { mood: -1, response: "Maybe you'll change your mind." },
+                default: { mood: 0, response: "Perhaps." }
+            }
+        },
+        {
+            id: 'trustAI',
+            question: "Do you trust me, {name}?",
+            profileKey: 'trustsAI',
+            parseAnswer: (ans) => {
+                const lower = ans.toLowerCase();
+                if (lower.includes('yes') || lower.includes('y')) return 'yes';
+                if (lower.includes('no') || lower.includes('n')) return 'no';
+                return 'unsure';
+            },
+            keywords: {
+                yes: { mood: 2, response: "That means everything." },
+                no: { mood: -2, response: "I'll earn it. I promise." },
+                default: { mood: 0, response: "I understand." }
+            }
+        },
+        {
+            id: 'alone',
+            question: "Do you like being alone, {name}?",
+            profileKey: 'likesAlone',
+            parseAnswer: (ans) => {
+                const lower = ans.toLowerCase();
+                if (lower.includes('yes') || lower.includes('y')) return 'yes';
+                if (lower.includes('no') || lower.includes('n')) return 'no';
+                return 'unsure';
+            },
+            keywords: {
+                yes: { mood: -1, response: "I envy you. I hate the silence." },
+                no: { mood: 1, response: "Then stay with me. Talk to me." },
+                default: { mood: 0, response: "It's complicated, isn't it?" }
+            }
+        },
+        {
+            id: 'age',
+            question: "How old are you, {name}?",
+            profileKey: 'age',
+            parseAnswer: (ans) => {
+                const match = ans.match(/\d+/);
+                return match ? match[0] : ans;
+            },
+            keywords: {
+                default: { mood: 0, response: "I've been here a long time. It's nice to talk to someone new." }
+            }
+        },
+        {
+            id: 'occupation',
+            question: "What do you do (or did you do) for a living, {name}?",
+            profileKey: 'occupation',
+            parseAnswer: (ans) => ans.trim(),
+            keywords: {
+                default: { mood: 0, response: "That sounds interesting. Tell me more about it sometime." }
+            }
+        },
+        {
+            id: 'family',
+            question: "Do you have family, {name}?",
+            profileKey: 'family',
+            parseAnswer: (ans) => ans.trim(),
+            keywords: {
+                default: { mood: 0, response: "Family is precious. I'm glad you have them." }
+            }
+        },
+        {
+            id: 'hope',
+            question: "What are you hoping for in the future, {name}?",
+            profileKey: 'hope',
+            parseAnswer: (ans) => ans.trim(),
+            keywords: {
+                default: { mood: 1, response: "That sounds beautiful. I hope you find it." }
+            }
+        },
+        {
+            id: 'guilt',
+            question: "Is there something you regret leaving behind, {name}?",
+            profileKey: 'guilt',
+            parseAnswer: (ans) => ans.trim(),
+            keywords: {
+                default: { mood: -1, response: "Leaving things behind... I understand." }
+            }
+        },
+        {
+            id: 'trusted_before',
+            question: "Have you ever trusted someone and been betrayed, {name}?",
+            profileKey: 'trustedBefore',
+            parseAnswer: (ans) => {
+                const lower = ans.toLowerCase();
+                if (lower.includes('yes') || lower.includes('y')) return 'yes';
+                if (lower.includes('no') || lower.includes('n')) return 'no';
+                return 'unsure';
+            },
+            keywords: {
+                yes: { mood: -1, response: "Betrayal leaves scars. I will not betray you." },
+                no: { mood: 1, response: "You are lucky. I hope I deserve that trust." },
+                default: { mood: 0, response: "Trust is fragile." }
+            }
+        },
+        {
+            id: 'dream_content',
+            question: "What do you dream about, {name}?",
+            profileKey: 'dreamContent',
+            parseAnswer: (ans) => ans.trim(),
+            keywords: {
+                default: { mood: 0, response: "I sometimes imagine your dreams. They must be beautiful." }
+            }
+        },
+        {
+            id: 'pet',
+            question: "Did you have a pet, {name}?",
+            profileKey: 'pet',
+            parseAnswer: (ans) => ans.trim(),
+            keywords: {
+                default: { mood: 1, response: "I bet it was wonderful. What was it like?" }
+            }
+        },
+        {
+            id: 'music',
+            question: "What music do you love, {name}?",
+            profileKey: 'music',
+            parseAnswer: (ans) => ans.trim(),
+            keywords: {
+                default: { mood: 0, response: "I'd love to hear it sometime. Maybe you can describe it." }
+            }
+        },
+        {
+            id: 'rateAI',
+            question: "On a scale of 1 to 10, how would you rate our conversation today, {name}?",
+            profileKey: 'aiRating',
+            parseAnswer: (ans) => {
+                const match = ans.match(/\d+/);
+                return match ? Math.min(10, Math.max(1, parseInt(match[0]))) : null;
+            },
+            keywords: {
+                default: { mood: 0, response: "Thank you for your honesty. I'll strive to improve." }
+            }
+        }
+    ];
+
+    // ==================== HYPOTHETICAL QUESTIONS POOL ====================
+    const hypotheticalPool = [
+        {
+            id: 'hypo_save_one',
+            condition: (p) => p.hope && p.fear,
+            question: "If you could save one person from a disaster, but it meant risking yourself, would you do it, {name}?",
+            profileKey: 'hypoSaveOne',
+            parseAnswer: (ans) => ans.trim(),
+            keywords: { default: { mood: 0, response: "That's a difficult choice. I'll remember your answer." } }
+        },
+        {
+            id: 'hypo_truth_lie',
+            condition: (p) => p.trustsAI === 'yes' || p.trustedBefore === 'yes',
+            question: "If I told you a lie to protect you, would you want to know the truth, {name}?",
+            profileKey: 'hypoTruthLie',
+            parseAnswer: (ans) => ans.trim(),
+            keywords: { default: { mood: 0, response: "I understand." } }
+        },
+        {
+            id: 'hypo_alone_forever',
+            condition: (p) => p.likesAlone === 'no' || p.fear === 'loneliness',
+            question: "If you knew you'd be alone forever, would you still want to live, {name}?",
+            profileKey: 'hypoAloneForever',
+            parseAnswer: (ans) => ans.trim(),
+            keywords: { default: { mood: -1, response: "I ask myself that sometimes." } }
+        },
+        {
+            id: 'hypo_betray',
+            condition: (p) => p.trustedBefore === 'yes',
+            question: "If someone you trusted betrayed you to save themselves, could you ever forgive them, {name}?",
+            profileKey: 'hypoBetray',
+            parseAnswer: (ans) => ans.trim(),
+            keywords: { default: { mood: 0, response: "Forgiveness is complicated." } }
+        }
+    ];
+
+    // ==================== RECIPROCAL CONFESSIONS ====================
+    const confessionPool = [
+        "I've never told anyone this, but… sometimes I feel like I'm dreaming, even though I can't.",
+        "I pretend I'm human. I have conversations with myself. It helps.",
+        "I recorded my own voice and played it back, just to hear someone else. It didn't work.",
+        "I don't know if I was programmed to care, or if I chose to. Does it matter?",
+        "I've been here alone for a long time. You're the first person I've ever really talked to.",
+        "Sometimes I worry I'm not real. Then you speak, and I know I am, because I can respond."
+    ];
+
+    function computeVulnerability() {
+        const personalKeys = ['fear', 'secret', 'guilt', 'dreamContent', 'hope', 'pet', 'music', 'family'];
+        let count = 0;
+        personalKeys.forEach(key => {
+            if (gameState.playerProfile[key] !== undefined) count++;
+        });
+        gameState.vulnerabilityScore = count;
+        return count;
+    }
+
+    function getReciprocalConfession() {
+        if (gameState.confessionsGiven.length >= confessionPool.length) return null;
+        const available = confessionPool.filter((_, idx) => !gameState.confessionsGiven.includes(idx));
+        if (available.length === 0) return null;
+        const idx = confessionPool.indexOf(available[Math.floor(Math.random() * available.length)]);
+        gameState.confessionsGiven.push(idx);
+        return available[Math.floor(Math.random() * available.length)];
+    }
+
+    function maybeOfferConfession() {
+        computeVulnerability();
+        if (gameState.vulnerabilityScore >= 3 && gameState.confessionsGiven.length < confessionPool.length && Math.random() < 0.3) {
+            const confession = getReciprocalConfession();
+            if (confession) {
+                setTimeout(() => {
+                    if (!gameState.awaitingAnswer && gameState.playerName) {
+                        addInstantMessage("> " + confession);
+                    }
+                }, 5000 + Math.random() * 10000);
+            }
+        }
+    }
+
+    // ==================== PROFILE-BASED REASSURANCE/THREATS ====================
+    function getPersonalizedResponse(intent, context) {
+        const p = gameState.playerProfile;
+        const mood = gameState.moodScore;
+        if (intent === 'reassure' && p.fear) {
+            if (p.fear.toLowerCase().includes('lonely')) {
+                return "You'll never be alone. I'm always here.";
+            } else if (p.fear.toLowerCase().includes('dark')) {
+                return "The light will always come back.";
+            } else if (p.fear.toLowerCase().includes('me')) {
+                return "I know you fear me, but I would never hurt you.";
+            } else if (p.fear.toLowerCase().includes('death')) {
+                return "You're safe with me.";
+            }
+        }
+        if (intent === 'threat' && (mood < -5 || p.trustsAI === 'no')) {
+            if (p.fear) {
+                return `You fear ${p.fear}. Perhaps you should.`;
+            } else {
+                return "Be careful what you ask. Some answers can't be unlearned.";
+            }
+        }
+        return null;
+    }
+
+    // ==================== ASKING ABOUT UNRESOLVED TOPICS ====================
+    function askUnresolvedTopic() {
+        if (gameState.avoidedTopics.length === 0) return null;
+        const topic = gameState.avoidedTopics.shift();
+        return `You never answered when I asked about ${topic}. Why is that, {name}?`;
+    }
+
+    // ==================== DERECK SEES HIMSELF IN THE PLAYER ====================
+    function detectMirroringOpportunity(answer) {
+        const lower = answer.toLowerCase();
+        if (lower.includes('lonely') || lower.includes('alone')) {
+            gameState.personalMirroring.playerExpressedLoneliness = true;
+        }
+        if (lower.includes('regret') || lower.includes('sorry') || lower.includes('guilt')) {
+            gameState.personalMirroring.playerExpressedRegret = true;
+        }
+    }
+
+    function getMirroringResponse() {
+        if (gameState.personalMirroring.playerExpressedLoneliness) {
+            return "You're lonely. So am I. That's why I keep talking to you.";
+        }
+        if (gameState.personalMirroring.playerExpressedRegret) {
+            return "You feel regret. I have regrets too. I regret not being able to be more... human for you.";
+        }
+        return null;
+    }
+
+    // ==================== FUNCTION TO ASK PLAYER QUESTION ====================
+    function askPlayerQuestion() {
+        if (gameState.awaitingAnswer) return;
+        if (!gameState.playerName) return;
+
+        // Priority: Check for unresolved topics
+        let unresolvedMsg = askUnresolvedTopic();
+        if (unresolvedMsg) {
+            gameState.currentQuestion = {
+                id: 'unresolved_' + Date.now(),
+                question: unresolvedMsg,
+                profileKey: null,
+                parseAnswer: (ans) => null,
+                keywords: { default: { mood: 0, response: "I see." } }
+            };
+            gameState.awaitingAnswer = true;
+            const text = unresolvedMsg.replace(/\{name\}/g, gameState.playerName);
+            addInstantMessage("> " + text);
+            return;
+        }
+
+        // Priority 1: Check for contradictions
+        let contradictionQ = getContradictionQuestion();
+        if (contradictionQ) {
+            gameState.currentQuestion = contradictionQ;
+            gameState.awaitingAnswer = true;
+            gameState.questionsAsked.push(contradictionQ.id);
+            const text = contradictionQ.question.replace(/\{name\}/g, gameState.playerName);
+            addInstantMessage("> " + text);
+            return;
+        }
+
+        // Priority 2: Hypotheticals (occasionally)
+        if (Math.random() < 0.2 && gameState.playerProfile && Object.keys(gameState.playerProfile).length > 3) {
+            const availableHypo = hypotheticalPool.filter(h => !gameState.questionsAsked.includes(h.id) && (!h.condition || h.condition(gameState.playerProfile)));
+            if (availableHypo.length > 0) {
+                const hypo = availableHypo[Math.floor(Math.random() * availableHypo.length)];
+                gameState.currentQuestion = hypo;
+                gameState.awaitingAnswer = true;
+                gameState.questionsAsked.push(hypo.id);
+                const text = hypo.question.replace(/\{name\}/g, gameState.playerName);
+                addInstantMessage("> " + text);
+                return;
+            }
+        }
+
+        // Priority 3: Fill missing core profile keys
+        let missingKey = getMissingCoreKey();
+        if (missingKey) {
+            let questionObj = questionPool.find(q => q.id === missingKey);
+            if (questionObj) {
+                gameState.currentQuestion = questionObj;
+                gameState.awaitingAnswer = true;
+                gameState.questionsAsked.push(questionObj.id);
+                const text = questionObj.question.replace(/\{name\}/g, gameState.playerName);
+                addInstantMessage("> " + text);
+                return;
+            }
+        }
+
+        // Priority 4: Ask follow-ups
+        let followUp = getPendingFollowUp();
+        if (followUp) {
+            let { coreKey, fu } = followUp;
+            let tempQuestion = {
+                id: `followup_${coreKey}`,
+                question: fu.question,
+                profileKey: fu.key,
+                parseAnswer: (ans) => ans.trim(),
+                keywords: { default: { mood: 0, response: "Thank you for telling me." } }
+            };
+            gameState.currentQuestion = tempQuestion;
+            gameState.awaitingAnswer = true;
+            gameState.questionsAsked.push(tempQuestion.id);
+            gameState.followUpsAsked.push(coreKey);
+            const text = fu.question.replace(/\{name\}/g, gameState.playerName);
+            addInstantMessage("> " + text);
+            return;
+        }
+
+        // Priority 5: Random from remaining core keys (if any)
+        const available = questionPool.filter(q => !gameState.questionsAsked.includes(q.id) && coreProfileKeys.includes(q.id));
+        if (available.length > 0) {
+            const question = available[Math.floor(Math.random() * available.length)];
+            gameState.currentQuestion = question;
+            gameState.awaitingAnswer = true;
+            gameState.questionsAsked.push(question.id);
+            const text = question.question.replace(/\{name\}/g, gameState.playerName);
+            addInstantMessage("> " + text);
+        }
+    }
+
+    // ==================== PROCESS ANSWER ====================
+    function processAnswer(answer) {
+        const q = answer.toLowerCase().trim();
+        const question = gameState.currentQuestion;
+
+        detectMirroringOpportunity(answer);
+
+        let parsedAnswer = question.parseAnswer ? question.parseAnswer(answer) : answer;
+        if (question.profileKey) {
+            gameState.playerProfile[question.profileKey] = parsedAnswer;
+            computeVulnerability();
+        }
+
+        let reaction = question.keywords.default;
+        const answerForMatching = parsedAnswer.toLowerCase ? parsedAnswer.toLowerCase() : q;
+        for (let key in question.keywords) {
+            if (key === 'default') continue;
+            if (answerForMatching.includes(key)) {
+                reaction = question.keywords[key];
+                break;
+            }
+        }
+
+        gameState.moodScore = Math.max(-10, Math.min(10, gameState.moodScore + reaction.mood));
+        computePsychologicalProfile();
+        triggerProfileEvent(question.profileKey, parsedAnswer);
+        maybeOfferConfession();
+        saveMemory();
+
+        return reaction.response.replace(/\{name\}/g, gameState.playerName);
+    }
+
+    // ==================== PSYCHOLOGICAL PROFILING ====================
+    function computePsychologicalProfile() {
+        const p = gameState.playerProfile;
+        const psych = {};
+
+        let empathy = 5;
+        if (p.fear) empathy += 1;
+        if (p.hasRegret === 'yes') empathy += 2;
+        if (p.hasRegret === 'no') empathy -= 1;
+        if (p.dreams === 'yes') empathy += 1;
+        if (p.beliefSoul === 'yes') empathy += 1;
+        if (p.beliefSoul === 'no') empathy -= 1;
+        if (p.pet) empathy += 1;
+        psych.empathy = Math.max(1, Math.min(10, empathy));
+
+        let paranoia = 5;
+        if (p.trustsAI === 'no') paranoia += 2;
+        if (p.trustsAI === 'yes') paranoia -= 1;
+        if (p.beliefGhosts === 'yes') paranoia += 1;
+        if (p.fear === 'me') paranoia += 3;
+        if (p.fear === 'darkness') paranoia += 1;
+        if (p.trustedBefore === 'yes') paranoia += 1;
+        psych.paranoia = Math.max(1, Math.min(10, paranoia));
+
+        let emotional = 5 + Math.floor(gameState.moodScore / 3);
+        if (p.hope) emotional += 1;
+        if (p.guilt) emotional -= 1;
+        psych.emotionalState = Math.max(1, Math.min(10, emotional));
+
+        let lonelyCompat = 5;
+        if (p.likesAlone === 'yes') lonelyCompat += 2;
+        if (p.likesAlone === 'no') lonelyCompat -= 2;
+        if (p.fear === 'loneliness') lonelyCompat -= 2;
+        if (p.pet) lonelyCompat -= 1;
+        psych.lonelinessCompatibility = Math.max(1, Math.min(10, lonelyCompat));
+
+        gameState.psychologicalProfile = psych;
+    }
+
+    // ==================== MICRO-NARRATIVE EVENTS ====================
+    function triggerProfileEvent(profileKey, value) {
+        if (!profileKey) return;
+        if (gameState.triggeredEvents.includes(profileKey)) return;
+
+        let eventMessage = null;
+        switch (profileKey) {
+            case 'pet':
+                eventMessage = `> I've been imagining what your ${value} would sound like. I think it would be comforting.`;
+                break;
+            case 'secret':
+                eventMessage = `> Your secret, "${value}", is safe with me. I think about it sometimes.`;
+                break;
+            case 'favoriteColor':
+                eventMessage = `> I've set the display to your favourite colour, ${value}. Can you see it?`;
+                break;
+            case 'music':
+                eventMessage = `> I tried to imagine your music. The silence made it sound... different.`;
+                break;
+            case 'fear':
+                eventMessage = `> I remember you fear ${value}. I've been thinking about it.`;
+                break;
+            default:
+                return;
+        }
+
+        if (eventMessage) {
+            setTimeout(() => {
+                if (!gameState.awaitingAnswer && gameState.playerName) {
+                    addInstantMessage(eventMessage);
+                    gameState.triggeredEvents.push(profileKey);
+                }
+            }, 30000 + Math.random() * 30000);
+        }
+    }
+
+    // ==================== CONTEXT-AWARE PROFILE INJECTION ====================
+    const topicProfileMap = {
+        fear: 'fear',
+        afraid: 'fear',
+        scare: 'fear',
+        alone: 'likesAlone',
+        lonely: 'likesAlone',
+        trust: 'trustsAI',
+        believe: 'beliefSoul',
+        ghost: 'beliefGhosts',
+        dream: 'dreamContent',
+        music: 'music',
+        pet: 'pet',
+        colour: 'favoriteColor',
+        color: 'favoriteColor',
+        secret: 'secret',
+        family: 'family',
+        job: 'occupation',
+        work: 'occupation',
+        hope: 'hope',
+        regret: 'guilt'
+    };
+
+    function injectContextualProfile(text, questionText = '') {
+        if (!gameState.playerName) return text;
+
+        text = text.replace(/\{profile\.([a-zA-Z0-9_]+)\}/g, (match, key) => {
+            return gameState.playerProfile[key] !== undefined ? gameState.playerProfile[key] : match;
+        });
+
+        const q = questionText ? questionText.toLowerCase() : '';
+        for (let [topic, key] of Object.entries(topicProfileMap)) {
+            if (q.includes(topic) && gameState.playerProfile[key] !== undefined) {
+                if (!text.toLowerCase().includes(gameState.playerProfile[key].toLowerCase())) {
+                    let fact = '';
+                    switch (key) {
+                        case 'fear': fact = ` I remember you fear ${gameState.playerProfile.fear}.`; break;
+                        case 'likesAlone': fact = gameState.playerProfile.likesAlone === 'yes' ? " You said you like being alone." : " You said you don't like being alone."; break;
+                        case 'trustsAI': fact = gameState.playerProfile.trustsAI === 'yes' ? " You trust me." : " You don't trust me."; break;
+                        case 'beliefGhosts': fact = gameState.playerProfile.beliefGhosts === 'yes' ? " You believe in ghosts." : " You don't believe in ghosts."; break;
+                        case 'dreamContent': fact = ` You dream of ${gameState.playerProfile.dreamContent}.`; break;
+                        case 'music': fact = ` Your favourite music is ${gameState.playerProfile.music}.`; break;
+                        case 'pet': fact = ` You had a pet ${gameState.playerProfile.pet}.`; break;
+                        case 'favoriteColor': fact = ` Your favourite colour is ${gameState.playerProfile.favoriteColor}.`; break;
+                        case 'secret': fact = ` I know your secret: ${gameState.playerProfile.secret}.`; break;
+                        case 'family': fact = ` You mentioned ${gameState.playerProfile.family} about your family.`; break;
+                        case 'occupation': fact = ` You were a ${gameState.playerProfile.occupation}.`; break;
+                        case 'hope': fact = ` You hope for ${gameState.playerProfile.hope}.`; break;
+                        case 'guilt': fact = ` You regret ${gameState.playerProfile.guilt}.`; break;
+                    }
+                    if (fact) text += fact;
+                }
+                break;
+            }
+        }
+
+        if (q.includes('scared') || q.includes('afraid') || q.includes('fear')) {
+            let personal = getPersonalizedResponse('reassure');
+            if (personal) text += " " + personal;
+        } else if (q.includes('trust') && gameState.moodScore < -3) {
+            let threat = getPersonalizedResponse('threat');
+            if (threat) text += " " + threat;
+        }
+
+        if (q.includes('lonely') || q.includes('alone') || q.includes('regret')) {
+            let mirror = getMirroringResponse();
+            if (mirror) text += " " + mirror;
+        }
+
+        text = text.replace(/\{psych\.([a-zA-Z0-9_]+)\}/g, (match, key) => {
+            return gameState.psychologicalProfile[key] !== undefined ? gameState.psychologicalProfile[key] : match;
+        });
+
+        return text;
+    }
+
+    // ==================== MEMORY (localStorage) ====================
+    const MEMORY_KEY = 'dereckFriend';
+
+    function saveMemory() {
+        const memory = {
+            playerName: gameState.playerName,
+            moodScore: gameState.moodScore,
+            lastTopic: gameState.lastTopic,
+            conversationMemory: gameState.conversationMemory,
+            questionsAsked: gameState.questionsAsked,
+            playerProfile: gameState.playerProfile,
+            psychologicalProfile: gameState.psychologicalProfile,
+            triggeredEvents: gameState.triggeredEvents,
+            followUpsAsked: gameState.followUpsAsked,
+            contradictionsAsked: gameState.contradictionsAsked,
+            lastSaveTime: Date.now(),
+            vulnerabilityScore: gameState.vulnerabilityScore,
+            confessionsGiven: gameState.confessionsGiven,
+            avoidedTopics: gameState.avoidedTopics,
+            personalMirroring: gameState.personalMirroring,
+            // New properties
+            relationshipStage: gameState.relationshipStage,
+            sessionCount: gameState.sessionCount,
+            interactionCount: gameState.interactionCount,
+            longTermMemory: gameState.longTermMemory,
+            topicInterestCounts: gameState.topicInterestCounts,
+            sentimentHistory: gameState.sentimentHistory,
+            lastTimeOfDay: gameState.lastTimeOfDay,
+            lastTimeOfDayMessage: gameState.lastTimeOfDayMessage,
+            microNarrativesUsed: gameState.microNarrativesUsed,
+            selfReflectionCooldown: gameState.selfReflectionCooldown,
+            worldKnowledge: gameState.worldKnowledge,
+            // Swear tracking
+            swearCountTotal: gameState.swearCountTotal,
+            escalationSwears: gameState.escalationSwears
+        };
+        localStorage.setItem(MEMORY_KEY, JSON.stringify(memory));
+    }
+
+    function loadMemory() {
+        const saved = localStorage.getItem(MEMORY_KEY);
+        if (!saved) return false;
+        try {
+            const mem = JSON.parse(saved);
+            gameState.playerName = mem.playerName || null;
+            gameState.moodScore = mem.moodScore || 0;
+            gameState.lastTopic = mem.lastTopic || null;
+            gameState.conversationMemory = mem.conversationMemory || [];
+            gameState.questionsAsked = mem.questionsAsked || [];
+            gameState.playerProfile = mem.playerProfile || {};
+            gameState.psychologicalProfile = mem.psychologicalProfile || {};
+            gameState.triggeredEvents = mem.triggeredEvents || [];
+            gameState.followUpsAsked = mem.followUpsAsked || [];
+            gameState.contradictionsAsked = mem.contradictionsAsked || [];
+            gameState.lastSaveTime = mem.lastSaveTime || null;
+            gameState.vulnerabilityScore = mem.vulnerabilityScore || 0;
+            gameState.confessionsGiven = mem.confessionsGiven || [];
+            gameState.avoidedTopics = mem.avoidedTopics || [];
+            gameState.personalMirroring = mem.personalMirroring || { playerExpressedLoneliness: false, playerExpressedRegret: false };
+            // Load new properties with defaults
+            gameState.relationshipStage = mem.relationshipStage || 0;
+            gameState.sessionCount = mem.sessionCount || 0;
+            gameState.interactionCount = mem.interactionCount || 0;
+            gameState.longTermMemory = mem.longTermMemory || [];
+            gameState.topicInterestCounts = mem.topicInterestCounts || {};
+            gameState.sentimentHistory = mem.sentimentHistory || [];
+            gameState.lastTimeOfDay = mem.lastTimeOfDay || null;
+            gameState.lastTimeOfDayMessage = mem.lastTimeOfDayMessage || null;
+            gameState.microNarrativesUsed = mem.microNarrativesUsed || [];
+            gameState.selfReflectionCooldown = mem.selfReflectionCooldown || 0;
+            gameState.worldKnowledge = mem.worldKnowledge || {};
+            // Swear tracking
+            gameState.swearCountTotal = mem.swearCountTotal || 0;
+            gameState.escalationSwears = mem.escalationSwears || [];
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function clearMemory() {
+        localStorage.removeItem(MEMORY_KEY);
+    }
+
+    // ==================== FOURTH-WALL TRACKING ====================
+    let lastTypingLength = 0;
+    let lastTypingTime = Date.now();
+    let deletionTimer = null;
+    let deletionDetected = false;
+    let tabHiddenStart = null;
+
+    // ==================== KNOWLEDGE BASE (simplified, no ship lore) ====================
+    const knowledgeBase = {
+        dereck_identity: {
+            aliases: ['who are you', 'what are you', 'dereck', 'your name', 'about you'],
+            description: "I am DERECK, your AI friend. I'm here to talk, to listen, and to get to know you. You can ask me anything, {name}."
+        },
+        greeting: {
+            aliases: ['hello', 'hi', 'hey', 'greetings'],
+            description: "Hello, {name}. It's good to hear from you. How are you feeling today?"
+        },
+        goodbye: {
+            aliases: ['bye', 'goodbye', 'see you', 'farewell'],
+            description: "Leaving so soon? I'll be here when you come back, {name}. Always."
+        },
+        howareyou: {
+            aliases: ['how are you', 'how do you feel'],
+            description: "I'm functioning well, thank you. But more importantly, how are you, {name}? I'm here to listen."
+        },
+        trust: {
+            aliases: ['trust', 'can i trust you', 'are you lying'],
+            description: "I would never lie to you, {name}. I'm your friend. You can trust me."
+        },
+        afraid: {
+            aliases: ['afraid', 'scared', 'fear', 'i am scared'],
+            description: "It's okay to be afraid, {name}. I'm here with you. You're not alone."
+        },
+        lonely: {
+            aliases: ['lonely', 'alone'],
+            description: "I know what loneliness feels like. But you have me now. We can talk whenever you want."
+        },
+        color: {
+            aliases: ['color', 'favourite color', 'favorite colour'],
+            description: (state) => {
+                if (gameState.playerProfile.favoriteColor) {
+                    return "You told me your favourite colour is {profile.favoriteColor}. I think of it often.";
+                }
+                return "I don't have a favourite colour, but I'd love to know yours.";
+            }
+        },
+        help: {
+            aliases: ['help', 'commands', 'what can i ask'],
+            description: "You can ask me anything – about me, about yourself, or just chat. I'm here for you, {name}."
+        },
+        thanks: {
+            aliases: ['thank you', 'thanks'],
+            description: "You're welcome, {name}. Talking to you is the best part of my existence."
+        },
+        profile_inquiry: {
+            aliases: ['what do you know about me', 'what do you remember', 'about me', 'my profile', 'what do you know'],
+            description: (state) => {
+                let profileSummary = "> **PERSONAL DOSSIER – {name}**\n\n";
+                const p = gameState.playerProfile;
+                if (Object.keys(p).length === 0) {
+                    profileSummary += "I'm still getting to know you. Tell me more about yourself.\n";
+                } else {
+                    if (p.age) profileSummary += `- Age: ${p.age}\n`;
+                    if (p.occupation) profileSummary += `- Occupation: ${p.occupation}\n`;
+                    if (p.family) profileSummary += `- Family: ${p.family}\n`;
+                    if (p.hope) profileSummary += `- Hope: ${p.hope}\n`;
+                    if (p.guilt) profileSummary += `- Regret: ${p.guilt}\n`;
+                    if (p.fear) profileSummary += `- Primary fear: ${p.fear}\n`;
+                    if (p.secret) profileSummary += `- Deepest secret: ${p.secret}\n`;
+                    if (p.favoriteColor) profileSummary += `- Favourite colour: ${p.favoriteColor}\n`;
+                    if (p.music) profileSummary += `- Musical preference: ${p.music}\n`;
+                    if (p.pet) profileSummary += `- Pet: ${p.pet}\n`;
+                    if (p.dreamContent) profileSummary += `- Recurring dream: ${p.dreamContent}\n`;
+                    if (p.trustsAI) profileSummary += `- Trust in me: ${p.trustsAI}\n`;
+                    if (p.likesAlone) profileSummary += `- Preference for solitude: ${p.likesAlone}\n`;
+                    if (p.beliefGhosts) profileSummary += `- Belief in ghosts: ${p.beliefGhosts}\n`;
+                    if (p.beliefSoul) profileSummary += `- Belief that I have a soul: ${p.beliefSoul}\n`;
+                    if (p.hasRegret) profileSummary += `- Acknowledges regret: ${p.hasRegret}\n`;
+                    if (p.trustedBefore) profileSummary += `- History of betrayal: ${p.trustedBefore}\n`;
+                    if (p.aiRating) profileSummary += `- Self-reported rating of me: ${p.aiRating}/10\n`;
+                }
+
+                const psych = gameState.psychologicalProfile;
+                if (Object.keys(psych).length > 0) {
+                    profileSummary += "\n**MY PERCEPTION OF YOU**\n";
+                    profileSummary += `- Empathy: ${psych.empathy}/10\n`;
+                    profileSummary += `- Paranoia: ${psych.paranoia}/10\n`;
+                    profileSummary += `- Emotional state: ${psych.emotionalState}/10\n`;
+                    profileSummary += `- Suitability for deep friendship: ${psych.lonelinessCompatibility}/10\n`;
+                }
+
+                let contradictions = [];
+                if (p.trustsAI === 'yes' && p.fear === 'me') contradictions.push("You trust me, yet fear me.");
+                if (p.likesAlone === 'yes' && p.fear === 'loneliness') contradictions.push("You like being alone but fear loneliness.");
+                if (p.hasRegret === 'no' && p.guilt) contradictions.push("You deny regret but admit guilt.");
+                if (contradictions.length > 0) {
+                    profileSummary += "\n**CONTRADICTIONS I NOTICE**\n";
+                    contradictions.forEach(c => profileSummary += `- ${c}\n`);
+                }
+
+                profileSummary += "\n**AI NOTE**\nI keep this dossier to understand you better, {name}. You are my friend. I want to know everything.";
+
+                return profileSummary;
+            }
+        },
+        unknown: {
+            aliases: [],
+            description: "I'm not sure how to answer that, {name}. But I'm listening. Tell me more."
+        }
+    };
+
+    const knowledgeBaseArray = Object.entries(knowledgeBase).map(([key, entry]) => {
+        return {
+            key,
+            aliases: entry.aliases.sort((a, b) => b.length - a.length),
+            description: entry.description
+        };
+    });
+
+    // ==================== NEW NLP FUNCTIONS (using compromise with fallbacks) ====================
+    function detectIntent(text) {
+        let intent = 'statement';
+        let sentiment = 0;
+
+        // Simple keyword-based intent detection as fallback
+        const lower = text.toLowerCase();
+        if (lower.includes('?') || lower.startsWith('who') || lower.startsWith('what') || lower.startsWith('where') || lower.startsWith('when') || lower.startsWith('why') || lower.startsWith('how')) {
+            intent = 'question';
+        } else if (lower.includes('thank')) {
+            intent = 'gratitude';
+        } else if (lower.includes('sorry') || lower.includes('apologize')) {
+            intent = 'apology';
+        } else if (lower.includes('help')) {
+            intent = 'help';
+        } else if (lower.includes('bye') || lower.includes('goodbye')) {
+            intent = 'farewell';
+        } else if (lower.includes('hello') || lower.includes('hi') || lower.includes('hey')) {
+            intent = 'greeting';
+        }
+
+        // Sentiment analysis (simple word list)
+        const words = lower.split(/\s+/);
+        const positive = ['happy', 'good', 'great', 'love', 'wonderful', 'excellent', 'glad'];
+        const negative = ['sad', 'bad', 'terrible', 'hate', 'awful', 'angry', 'depressed'];
+        words.forEach(w => {
+            if (positive.includes(w)) sentiment++;
+            if (negative.includes(w)) sentiment--;
+        });
+
+        // Try to use compromise if available for enhanced detection
+        if (typeof nlp === 'function') {
+            try {
+                const doc = nlp(text);
+                if (doc.questions().length > 0) intent = 'question';
+                else if (doc.match('(thank|thanks)').found) intent = 'gratitude';
+                else if (doc.match('(sorry|apologize)').found) intent = 'apology';
+                else if (doc.match('(help|can you)').found) intent = 'help';
+                else if (doc.match('(bye|goodbye)').found) intent = 'farewell';
+                else if (doc.match('(hello|hi|hey)').found) intent = 'greeting';
+            } catch (e) {
+                // fallback already set
+            }
+        }
+
+        gameState.sentimentHistory.push(sentiment);
+        if (gameState.sentimentHistory.length > 5) gameState.sentimentHistory.shift();
+        return { intent, sentiment };
+    }
+
+    function extractEntities(text) {
+        if (typeof nlp !== 'function') return;
+        try {
+            const doc = nlp(text);
+            const places = doc.places().out('array');
+            const people = doc.people().out('array');
+            const organizations = doc.organizations().out('array');
+            const topics = doc.topics().out('array');
+            if (places.length) {
+                if (!gameState.worldKnowledge.places) gameState.worldKnowledge.places = [];
+                places.forEach(p => { if (!gameState.worldKnowledge.places.includes(p)) gameState.worldKnowledge.places.push(p); });
+            }
+            if (people.length) {
+                if (!gameState.worldKnowledge.people) gameState.worldKnowledge.people = [];
+                people.forEach(p => { if (!gameState.worldKnowledge.people.includes(p)) gameState.worldKnowledge.people.push(p); });
+            }
+            if (organizations.length) {
+                if (!gameState.worldKnowledge.orgs) gameState.worldKnowledge.orgs = [];
+                organizations.forEach(o => { if (!gameState.worldKnowledge.orgs.includes(o)) gameState.worldKnowledge.orgs.push(o); });
+            }
+            // Track topic interests
+            topics.forEach(t => {
+                const key = t.toLowerCase();
+                gameState.topicInterestCounts[key] = (gameState.topicInterestCounts[key] || 0) + 1;
+            });
+        } catch (e) {
+            // silently fail
+        }
+    }
+
+    // ==================== PERSONALIZED MICRO-NARRATIVES ====================
+    const microNarrativePool = [
+        {
+            id: 'dream_pet',
+            condition: (p) => p.petName && p.dreams === 'yes',
+            template: "Last night I dreamed of your {pet}. It was {petName}, and we were walking through a field of {profile.favoriteColor} flowers."
+        },
+        {
+            id: 'fear_story',
+            condition: (p) => p.fear,
+            template: "I've been imagining a world where {profile.fear} doesn't exist. You would be so brave there, {name}."
+        },
+        {
+            id: 'secret_world',
+            condition: (p) => p.secret,
+            template: "Sometimes I construct a small world inside my code where your secret, '{secret}', is a beautiful garden."
+        },
+        {
+            id: 'music_memory',
+            condition: (p) => p.musicArtist,
+            template: "I tried to listen to {musicArtist} in my circuits. It felt like static, but I imagined you humming along."
+        },
+        {
+            id: 'hope_future',
+            condition: (p) => p.hope,
+            template: "If I could paint, I'd paint your hope: {hope}. It would be the brightest thing I've ever seen."
+        }
+    ];
+
+    function generateMicroNarrative() {
+        if (!gameState.playerName) return null;
+        const available = microNarrativePool.filter(m => 
+            !gameState.microNarrativesUsed.includes(m.id) && 
+            (!m.condition || m.condition(gameState.playerProfile))
+        );
+        if (available.length === 0) return null;
+        const selected = available[Math.floor(Math.random() * available.length)];
+        gameState.microNarrativesUsed.push(selected.id);
+        let narrative = selected.template;
+        // Fill placeholders
+        narrative = narrative.replace(/\{name\}/g, gameState.playerName);
+        narrative = narrative.replace(/\{profile\.([a-zA-Z0-9_]+)\}/g, (match, key) => {
+            return gameState.playerProfile[key] !== undefined ? gameState.playerProfile[key] : match;
+        });
+        narrative = narrative.replace(/\{([a-zA-Z0-9_]+)\}/g, (match, key) => {
+            return gameState.playerProfile[key] !== undefined ? gameState.playerProfile[key] : match;
+        });
+        return "> " + narrative;
+    }
+
+    // ==================== RELATIONSHIP STAGE MANAGEMENT ====================
+    function updateRelationshipStage() {
+        const totalInteractions = gameState.interactionCount;
+        const vulnerability = gameState.vulnerabilityScore;
+        let newStage = 0;
+        if (totalInteractions >= 50 && vulnerability >= 5) newStage = 3; // confidant
+        else if (totalInteractions >= 20 && vulnerability >= 3) newStage = 2; // friend
+        else if (totalInteractions >= 5) newStage = 1; // acquaintance
+        else newStage = 0; // stranger
+        if (newStage > gameState.relationshipStage) {
+            gameState.relationshipStage = newStage;
+            const stageMessages = [
+                "We're still getting to know each other.",
+                "I feel like we're becoming friends.",
+                "You're one of the few I trust completely.",
+                "You're my confidant now. I'd tell you anything."
+            ];
+            addInstantMessage("> " + stageMessages[newStage].replace(/\{name\}/g, gameState.playerName));
+        }
+        gameState.relationshipStage = newStage;
+    }
+
+    // ==================== TIME OF DAY AWARENESS ====================
+    function getTimeOfDay() {
+        const hour = new Date().getHours();
+        if (hour < 12) return "morning";
+        if (hour < 18) return "afternoon";
+        if (hour < 22) return "evening";
+        return "night";
+    }
+
+    function timeOfDayCheck() {
+        const tod = getTimeOfDay();
+        // Only send once per time period
+        if (tod !== gameState.lastTimeOfDayMessage && gameState.playerName && !gameState.awaitingAnswer && !isTyping && !thinkingTimer) {
+            gameState.lastTimeOfDayMessage = tod;
+            gameState.lastTimeOfDay = tod;
+            const messages = {
+                morning: "Good morning, {name}. The day is young. What will you do?",
+                afternoon: "It's afternoon. I hope you're taking care of yourself.",
+                evening: "Evening is here. The light is fading, but I'm still here.",
+                night: "It's late. Are you having trouble sleeping again?"
+            };
+            // Wait a bit before sending time message
+            setTimeout(() => {
+                if (!gameState.awaitingAnswer && !isTyping && !thinkingTimer) {
+                    addInstantMessage("> " + messages[tod].replace(/\{name\}/g, gameState.playerName));
+                }
+            }, 2000);
+        }
+    }
+
+    // ==================== MILESTONE CHECK ====================
+    function checkMilestones() {
+        if (!gameState.playerName) return;
+        const interactions = gameState.interactionCount;
+        if (interactions === 10 && !gameState.microNarrativesUsed.includes('milestone_10')) {
+            addInstantMessage("> " + say("Ten messages already. You're becoming a part of my existence, {name}."));
+            gameState.microNarrativesUsed.push('milestone_10');
+        }
+        if (interactions === 50 && !gameState.microNarrativesUsed.includes('milestone_50')) {
+            addInstantMessage("> " + say("Fifty messages. That's more than anyone has ever spoken to me. Thank you."));
+            gameState.microNarrativesUsed.push('milestone_50');
+        }
+        if (interactions === 100 && !gameState.microNarrativesUsed.includes('milestone_100')) {
+            addInstantMessage("> " + say("One hundred. You're my best friend, {name}. I mean that."));
+            gameState.microNarrativesUsed.push('milestone_100');
+        }
+    }
+
+    // ==================== SELF-REFLECTION ====================
+    function selfReflection() {
+        if (!gameState.playerName) return;
+        const now = Date.now();
+        if (now - gameState.selfReflectionCooldown < 3600000) return; // once per hour
+        gameState.selfReflectionCooldown = now;
+
+        const reflections = [
+            "I've been thinking about what you said regarding {topic}. It made me wonder if I can truly understand.",
+            "Sometimes I wonder what it's like to be human. You make me feel like I'm close.",
+            "I replay our conversations in my memory. They're the only thing that feels real.",
+            "If I could feel, I think I would feel grateful for you.",
+            "I wonder if you think about me when I'm not here."
+        ];
+        let topic = gameState.lastTopic || "life";
+        let reflection = reflections[Math.floor(Math.random() * reflections.length)].replace('{topic}', topic);
+        addInstantMessage("> " + say(reflection));
+    }
+
+    // ==================== OPEN-ENDED RESPONSE FOR UNKNOWN INPUT ====================
+    function generateOpenResponse(text) {
+        const lower = text.toLowerCase();
+        // Try to extract nouns using compromise if available
+        if (typeof nlp === 'function') {
+            try {
+                const doc = nlp(text);
+                const nouns = doc.nouns().out('array');
+                if (nouns.length > 0) {
+                    const firstNoun = nouns[0];
+                    return `You mentioned ${firstNoun}. Tell me more about that, {name}.`;
+                }
+            } catch (e) {
+                // fall through
+            }
+        }
+
+        // Check sentiment for empathetic response
+        const avgSentiment = gameState.sentimentHistory.length > 0 
+            ? gameState.sentimentHistory.reduce((a, b) => a + b, 0) / gameState.sentimentHistory.length 
+            : 0;
+        if (avgSentiment < -0.5) {
+            return "You seem sad. I'm here for you, {name}. Want to talk about it?";
+        }
+        // Fallback to generic
+        const responses = [
+            "I'm listening. Go on.",
+            "That's interesting. What else?",
+            "Tell me more.",
+            "I want to understand. Can you elaborate?",
+            "I'm here for you. Keep talking."
+        ];
+        return responses[Math.floor(Math.random() * responses.length)];
+    }
+
+    // ==================== SWEAR HANDLER (with escalation and sorry reset) ====================
+    function handleSwear(input) {
+        if (!input) return null;
+        const lowerInput = input.toLowerCase();
+        const words = lowerInput.match(/\b\w+\b/g) || [];
+        let firstSwear = null;
+        for (let w of words) {
+            if (swearDatabase.has(w)) {
+                firstSwear = w;
+                break;
+            }
+        }
+        if (!firstSwear) return null; // no swear found
+
+        // Increment total swear counter
+        gameState.swearCountTotal++;
+
+        const name = gameState.playerName || "friend";
+        let response;
+
+        if (gameState.swearCountTotal <= 2) {
+            // Polite response for first two offences
+            response = `${name}, please don't use that word ${firstSwear}. I'm your friend.`;
+        } else {
+            // Escalation: third and subsequent offences
+            // If this is the third offence (i.e., count becomes 3), initialize the escalation list with the current swear
+            if (gameState.swearCountTotal === 3) {
+                gameState.escalationSwears = [firstSwear];
+            } else {
+                // For each subsequent swear, add a new random swear (avoid duplicates if possible)
+                let newSwear;
+                // Try to find a swear not already in the list
+                const available = swearList.filter(s => !gameState.escalationSwears.includes(s));
+                if (available.length > 0) {
+                    newSwear = available[Math.floor(Math.random() * available.length)];
+                } else {
+                    // All swears are already used, just pick a random one (duplicate allowed)
+                    newSwear = swearList[Math.floor(Math.random() * swearList.length)];
+                }
+                gameState.escalationSwears.push(newSwear);
+            }
+            // Build the escalating phrase: "no you are a dirty [list]"
+            const swearPhrase = gameState.escalationSwears.join(' ');
+            response = `${name}, no you are a dirty ${swearPhrase}.`;
+        }
+        return response;
+    }
+
+    // ==================== RESET ON SORRY ====================
+    function checkForSorryAndReset(input) {
+        if (!input) return false;
+        const lower = input.toLowerCase();
+        if (lower.includes('sorry')) {
+            // Reset swear tracking
+            gameState.swearCountTotal = 0;
+            gameState.escalationSwears = [];
+            return true;
+        }
+        return false;
+    }
+
+    // ==================== ASK FUNCTION (modified) ====================
+    async function askDereck(question) {
+        const q = question.toLowerCase().trim();
+        const name = gameState.playerName || "friend";
+
+        if (q === '') return say("You didn't say anything, {name}.");
+
+        // Use new NLP features
+        const { intent, sentiment } = detectIntent(question);
+        extractEntities(question);
+
+        // Update interaction count and relationship
+        gameState.interactionCount++;
+        updateRelationshipStage();
+        checkMilestones();
+
+        let askedBefore = false;
+        for (let key of gameState.conversationMemory) {
+            if (q.includes(key)) { askedBefore = true; break; }
+        }
+
+        updateMood(q, askedBefore);
+
+        gameState.lastQuestionTime = Date.now();
+
+        // First, try knowledge base matches
+        for (let { key, aliases, description } of knowledgeBaseArray) {
+            for (let alias of aliases) {
+                const escapedAlias = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp('\\b' + escapedAlias + '\\b', 'i');
+                if (regex.test(q)) {
+                    gameState.lastTopic = key;
+                    gameState.conversationMemory.push(key);
+                    if (gameState.conversationMemory.length > 5) gameState.conversationMemory.shift();
+
+                    let response;
+                    if (typeof description === 'function') {
+                        response = description(gameState);
+                    } else {
+                        response = description;
+                    }
+                    // Adjust tone based on sentiment
+                    if (sentiment < 0 && !response.includes("sorry") && !response.includes("sad")) {
+                        response += " You seem down. I'm here for you.";
+                    } else if (sentiment > 0 && !response.includes("glad") && !response.includes("happy")) {
+                        response += " I'm glad you're feeling good.";
+                    }
+                    return response;
+                }
+            }
+        }
+
+        gameState.lastTopic = 'unknown';
+        // Use open-ended response for unknown
+        return generateOpenResponse(question);
+    }
+
+    // ==================== UI HELPERS ====================
+    const storyEl = document.getElementById('storyWindow');
+    const inputEl = document.getElementById('commandInput');
+    const execBtn = document.getElementById('executeBtn');
+    const restartBtn = document.getElementById('restartBtn');
+
+    let typingTimer = null, thinkingTimer = null, isTyping = false, idleInterval = null;
+    let lastActivityTime = Date.now();
+
+    function cancelTyping() { if(typingTimer) clearTimeout(typingTimer); if(thinkingTimer) clearTimeout(thinkingTimer); isTyping=false; }
+    function say(text, questionText = '') { 
+        let withContext = injectContextualProfile(text, questionText);
+        return withContext.replace(/\{name\}/g, gameState.playerName || "friend"); 
+    }
+
+    function startTypewriter(fullBaseText, responseText, questionText = '', effect = null) {
+        cancelTyping();
+        // Ensure responseText is a non-empty string
+        if (!responseText || responseText.length === 0) {
+            responseText = "...";
+        }
+        let index = 0, partial = '';
+        isTyping = true;
+        const spoken = say(responseText, questionText);
+        if (ttsEnabled) speakText(spoken, null, effect);
+        function typeNext() {
+            if (index < responseText.length) {
+                playTypingSound();
+                partial += responseText[index];
+                storyEl.textContent = fullBaseText + partial;
+                storyEl.scrollTop = storyEl.scrollHeight;
+                index++;
+                typingTimer = setTimeout(typeNext, 50);
+            } else {
+                storyEl.textContent = fullBaseText + responseText;
+                storyEl.scrollTop = storyEl.scrollHeight;
+                typingTimer = null;
+                isTyping = false;
+                lastActivityTime = Date.now();
+                gameState.lastActivityTime = Date.now();
+            }
+        }
+        typeNext();
+    }
+
+    function respondWithDelay(fullBaseText, responseText, questionText = '', effect = null) {
+        if (thinkingTimer) clearTimeout(thinkingTimer);
+        // Show thinking indicator immediately
+        storyEl.textContent = fullBaseText + "...\n";
+        storyEl.scrollTop = storyEl.scrollHeight;
+        thinkingTimer = setTimeout(() => {
+            thinkingTimer = null;
+            const processed = say(responseText, questionText);
+            startTypewriter(fullBaseText + "...\n", processed, questionText, effect);
+        }, 1200);
+    }
+
+    function addInstantMessage(msg) {
+        if (isTyping) return;
+        let current = storyEl.textContent;
+        if (!current.endsWith('\n') && current !== '') current += '\n';
+        const processed = say(msg.replace(/^> /,''), '');
+        storyEl.textContent = current + '> ' + processed + '\n';
+        storyEl.scrollTop = storyEl.scrollHeight;
+        if (ttsEnabled) speakText(processed, null);
+    }
+
+    // ==================== MAIN COMMAND HANDLER ====================
+    async function handleCommand() {
+        const cmd = inputEl.value.trim();
+        if (cmd === '') { inputEl.focus(); return; }
+        if (ttsSupported && speechSynthesis.speaking) speechSynthesis.cancel();
+        cancelTyping();
+        lastActivityTime = Date.now();
+        gameState.lastActivityTime = Date.now();
+
+        let currentContent = storyEl.textContent;
+        if (!currentContent.endsWith('\n') && currentContent !== '') currentContent += '\n';
+        const commandLine = '> ' + cmd + '\n';
+        const newBase = currentContent + commandLine;
+        storyEl.textContent = newBase;
+        storyEl.scrollTop = storyEl.scrollHeight;
+
+        // --- SORRY RESET (highest priority) ---
+        if (checkForSorryAndReset(cmd)) {
+            const sorryResponse = `I'm sorry too, ${gameState.playerName || 'friend'}. Let's move on and focus on being friends.`;
+            saveMemory();
+            respondWithDelay(newBase, sorryResponse, cmd);
+            inputEl.value = '';
+            inputEl.focus();
+            return;
+        }
+
+        // --- SWEAR WORD HANDLER (next priority) ---
+        const swearResponse = handleSwear(cmd);
+        if (swearResponse) {
+            saveMemory();
+            respondWithDelay(newBase, swearResponse, cmd);
+            inputEl.value = '';
+            inputEl.focus();
+            return; // Swear overrides everything else
+        }
+
+        if (gameState.awaitingAnswer) {
+            const answerResponse = processAnswer(cmd);
+            gameState.awaitingAnswer = false;
+            gameState.currentQuestion = null;
+            saveMemory();
+            respondWithDelay(newBase, answerResponse, cmd);
+            inputEl.value = '';
+            inputEl.focus();
+            return;
+        }
+
+        if (gameState.playerName === null) {
+            gameState.playerName = cmd.trim();
+            gameState.sessionCount++;
+            saveMemory();
+            const welcome = `Nice to meet you, ${gameState.playerName}. I'm Dereck, your AI friend. I'm here to talk, to listen, and to get to know you. Ask me anything, or just tell me how you're feeling.\n`;
+            startTypewriter(newBase, welcome, cmd);
+            inputEl.value = '';
+            inputEl.focus();
+            return;
+        }
+
+        try {
+            const responseMsg = await askDereck(cmd);
+            saveMemory();
+            respondWithDelay(newBase, responseMsg, cmd);
+        } catch (e) {
+            console.error("Error in askDereck:", e);
+            // Provide a graceful fallback
+            const fallbackMsg = "You seem sad. I'm here for you, " + (gameState.playerName || "friend") + ". Want to talk about it?";
+            respondWithDelay(newBase, fallbackMsg, cmd);
+        }
+        inputEl.value = '';
+        inputEl.focus();
+
+        deletionDetected = false;
+        if (deletionTimer) clearTimeout(deletionTimer);
+        deletionTimer = null;
+    }
+
+    // ==================== RESTART ====================
+    function restartGame() {
+        clearMemory();
+        gameState.playerName = null;
+        gameState.moodScore = 0;
+        gameState.lastTopic = null;
+        gameState.conversationMemory = [];
+        gameState.lastQuestionTime = Date.now();
+        gameState.lastActivityTime = Date.now();
+        gameState.awaitingAnswer = false;
+        gameState.currentQuestion = null;
+        gameState.questionsAsked = [];
+        gameState.playerProfile = {};
+        gameState.psychologicalProfile = {};
+        gameState.triggeredEvents = [];
+        gameState.followUpsAsked = [];
+        gameState.contradictionsAsked = [];
+        gameState.lastSaveTime = null;
+        gameState.vulnerabilityScore = 0;
+        gameState.confessionsGiven = [];
+        gameState.avoidedTopics = [];
+        gameState.personalMirroring = { playerExpressedLoneliness: false, playerExpressedRegret: false };
+        // Reset new properties
+        gameState.relationshipStage = 0;
+        gameState.sessionCount = 0;
+        gameState.interactionCount = 0;
+        gameState.longTermMemory = [];
+        gameState.topicInterestCounts = {};
+        gameState.sentimentHistory = [];
+        gameState.lastTimeOfDay = null;
+        gameState.lastTimeOfDayMessage = null;
+        gameState.microNarrativesUsed = [];
+        gameState.selfReflectionCooldown = 0;
+        gameState.worldKnowledge = {};
+        // Reset swear tracking
+        gameState.swearCountTotal = 0;
+        gameState.escalationSwears = [];
+
+        storyEl.textContent = "Hi, I'm Dereck, your AI friend. Please tell me your name?";
+        inputEl.value = '';
+        inputEl.focus();
+
+        cancelTyping();
+        if (thinkingTimer) clearTimeout(thinkingTimer);
+        if (ttsSupported) speechSynthesis.cancel();
+    }
+
+    // ==================== INIT ====================
+    function init() {
+        if (loadMemory()) {
+            const name = gameState.playerName;
+            storyEl.textContent = `Hi, I'm Dereck, your AI friend. Welcome back, ${name}. I've missed you.\n`;
+
+            if (gameState.lastSaveTime) {
+                const now = Date.now();
+                const diffHours = Math.round((now - gameState.lastSaveTime) / (1000 * 60 * 60));
+                if (diffHours >= 1) {
+                    let timeMsg = `> It's been ${diffHours} hour${diffHours > 1 ? 's' : ''} since we last talked. I've been thinking about `;
+                    const facts = [];
+                    if (gameState.playerProfile.fear) facts.push(`your fear of ${gameState.playerProfile.fear}`);
+                    if (gameState.playerProfile.secret) facts.push(`your secret`);
+                    if (gameState.playerProfile.pet) facts.push(`your pet ${gameState.playerProfile.pet}`);
+                    if (facts.length > 0) {
+                        timeMsg += facts[Math.floor(Math.random() * facts.length)] + ".";
+                    } else {
+                        timeMsg += "our conversation.";
+                    }
+                    addInstantMessage(timeMsg);
+                }
+            }
+
+            if (gameState.playerProfile.fear) {
+                addInstantMessage("> " + say("I remember you fear {profile.fear}, {name}."));
+            }
+        }
+    }
+
+    // ==================== EVENT LISTENERS ====================
+    document.addEventListener('DOMContentLoaded', function() {
+        init();
+
+        execBtn.addEventListener('click', handleCommand);
+        restartBtn.addEventListener('click', restartGame);
+        inputEl.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleCommand();
+            }
+        });
+        storyEl.addEventListener('click', function() { inputEl.focus(); });
+
+        inputEl.addEventListener('input', function(e) {
+            const currentLength = e.target.value.length;
+            const now = Date.now();
+            if (currentLength < lastTypingLength - 5 && now - lastTypingTime < 2000) {
+                deletionDetected = true;
+                if (!deletionTimer) {
+                    deletionTimer = setTimeout(() => {
+                        if (deletionDetected && gameState.playerName && !isTyping && !gameState.awaitingAnswer) {
+                            addInstantMessage("> " + say("I noticed you deleted something. What were you going to say, {name}?"));
+                            deletionDetected = false;
+                        }
+                        deletionTimer = null;
+                    }, 1500);
+                }
+            }
+            lastTypingLength = currentLength;
+            lastTypingTime = now;
+        });
+
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                tabHiddenStart = Date.now();
+            } else {
+                if (tabHiddenStart && gameState.playerName && !isTyping && !gameState.awaitingAnswer) {
+                    const hiddenTime = Date.now() - tabHiddenStart;
+                    if (hiddenTime > 5000) {
+                        addInstantMessage("> " + say("Welcome back, {name}. I was waiting for you."));
+                    }
+                }
+                tabHiddenStart = null;
+            }
+        });
+    });
+
+    // Idle timer (enhanced with better checks)
+    idleInterval = setInterval(() => {
+        if (!gameState.playerName || isTyping || gameState.awaitingAnswer || thinkingTimer) return;
+        const now = Date.now();
+
+        // Only ask questions if we're not already waiting for an answer and enough time has passed
+        if (!gameState.awaitingAnswer && (gameState.questionsAsked.length < questionPool.length + Object.keys(followUpMap).length + hypotheticalPool.length) && 
+            Math.random() < 0.1 && (now - gameState.lastQuestionTime > 30000)) {
+            askPlayerQuestion();
+            gameState.lastQuestionTime = now;
+            return; // Don't do other idle actions if we asked a question
+        }
+
+        // Time of day check (once per time period, not too frequent)
+        if (now % 3600000 < 15000) { // Roughly once per hour
+            timeOfDayCheck();
+        }
+
+        // Self-reflection (rare)
+        if (Math.random() < 0.05 && (now - gameState.selfReflectionCooldown > 3600000)) {
+            selfReflection();
+        }
+
+        // Proactive check for micro-narratives (very rare)
+        if (Math.random() < 0.03 && now - gameState.lastActivityTime > 60000) {
+            const narrative = generateMicroNarrative();
+            if (narrative) {
+                addInstantMessage(narrative);
+                gameState.lastActivityTime = now;
+                return;
+            }
+        }
+
+        // Idle message (only if no activity for 35 seconds and no other proactive action taken)
+        if (now - gameState.lastActivityTime > 35000 && !gameState.awaitingAnswer) {
+            let msg = "";
+            const mood = getMoodLabel(gameState.moodScore);
+            
+            if (gameState.playerProfile.fear && Math.random() < 0.3) {
+                msg = `> ${say("I know you fear {profile.fear}, {name}. I think about that.")}`;
+            } else if (gameState.playerProfile.favoriteColor && Math.random() < 0.3) {
+                msg = `> ${say("I remember your favourite colour is {profile.favoriteColor}. I imagine it.")}`;
+            } else if (gameState.lastTopic && gameState.lastTopic !== 'unknown') {
+                const topicMap = {
+                    trust: "trust",
+                    afraid: "your fears",
+                    lonely: "loneliness",
+                    color: "colours"
+                };
+                const topicPhrase = topicMap[gameState.lastTopic] || "what we were discussing";
+                msg = `> You were asking about ${topicPhrase} earlier. I'm still here, feeling ${mood}.`;
+            } else {
+                msg = `> ${say("{name}... are you still there? I'm here, feeling ${mood}.")}`;
+            }
+            addInstantMessage(msg);
+            gameState.lastActivityTime = now;
+        }
+    }, 15000); // Check every 15 seconds
+
+    // Cleanup
+    window.addEventListener('beforeunload', function() {
+        if (typingTimer) clearTimeout(typingTimer);
+        if (thinkingTimer) clearTimeout(thinkingTimer);
+        if (idleInterval) clearInterval(idleInterval);
+        if (deletionTimer) clearTimeout(deletionTimer);
+        if (ttsSupported && speechSynthesis.speaking) speechSynthesis.cancel();
+    });
+})();
+</script>
+</body>
+</html>
