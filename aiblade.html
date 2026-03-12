@@ -16,7 +16,6 @@
             font-family: 'Press Start 2P', 'Courier New', monospace;
             padding: 16px;
         }
-        /* CRT effect with scanlines – adjusted for green */
         .crt::before {
             content: " ";
             display: block;
@@ -170,7 +169,7 @@
         <div class="header">
             <div class="header-left">LAPD 2049<br>BLADE RUNNER UNIT</div>
             <div class="header-right">CASE FILE: #BC-2049<br>CLASSIFIED</div>
-            <div class="header-center">⏣ NIGHT CITY BLUES ⏣</div>
+            <div class="header-center">⏣ NIGHT CITY ⏣</div>
         </div>
 
         <div id="outputArea" class="output">
@@ -201,7 +200,6 @@
 
     <script>
         (function() {
-            // DOM elements
             const outputDiv = document.getElementById('outputArea');
             const inputField = document.getElementById('userInput');
             const aiStatus = document.getElementById('aiStatus');
@@ -210,20 +208,16 @@
             const loadBtn = document.getElementById('loadBtn');
             const fileInput = document.getElementById('fileInput');
 
-            // ========== BLADE RUNNER SYSTEM PROMPT ==========
+            // System prompt that defines the game master role
             const systemPrompt = `You are the game master for a Blade Runner-style interactive fiction game. The player is a blade runner in Los Angeles 2049, hunting rogue replicants. Track everything: location (districts: Your apartment, Police HQ, Chinatown, Bradbury Building, Tyrell Corporation, The Docks, Animoid Row), inventory (max 5 items: badge, blaster, spinner keys, Voight-Kampff device, etc.), health (0-10), reputation with LAPD and with replicants (each from -5 to +5). Be absolutely consistent. Use second person, atmospheric noir style with dystopian, rain-soaked elements. Responses should be 2-3 sentences, but can be longer for key scenes. End with a clear prompt for the player's next action. Always subtly reflect the player's health, inventory, or reputation when relevant, but keep it immersive.`;
 
             const introMessage = `RAIN SLASHES ACROSS THE DIMMED STREETS OF LOS ANGELES. YOU SIT IN YOUR APARTMENT, A HALF-EMPTY BOTTLE OF JOHNNY WALKER ON THE TABLE. YOUR SPINNER IS PARKED OUTSIDE. THE VOICEMAIL BLINKS: A NEW ASSIGNMENT FROM CAPTAIN BRYANT.\n\nWHAT DO YOU DO?`;
 
-            // Messages array: first assistant message includes system + intro
+            // Messages array for conversation history (excluding system prompt, which is prepended to each AI call)
             let messages = [
-                { 
-                    role: 'assistant', 
-                    content: systemPrompt + '\n\n' + introMessage
-                }
+                { role: 'assistant', content: introMessage }
             ];
 
-            // Helper: append output
             function appendOutput(text) {
                 const p = document.createElement('p');
                 p.textContent = text;
@@ -231,30 +225,20 @@
                 outputDiv.scrollTop = outputDiv.scrollHeight;
             }
 
-            // Rebuild output from messages (skip system prompt inside, only show user/assistant)
             function rebuildOutputFromMessages() {
                 outputDiv.innerHTML = '';
                 for (let msg of messages) {
                     if (msg.role === 'user') {
                         appendOutput('> ' + msg.content.toUpperCase());
                     } else if (msg.role === 'assistant') {
-                        // filter out the system prompt if it appears (only first message contains it)
-                        let content = msg.content;
-                        if (msg === messages[0] && content.startsWith(systemPrompt)) {
-                            content = content.slice(systemPrompt.length).trim();
-                        }
-                        appendOutput(content);
+                        appendOutput(msg.content);
                     }
                 }
             }
 
-            // Reset game
             function resetGame() {
                 messages = [
-                    { 
-                        role: 'assistant', 
-                        content: systemPrompt + '\n\n' + introMessage
-                    }
+                    { role: 'assistant', content: introMessage }
                 ];
                 rebuildOutputFromMessages();
                 aiStatus.textContent = '⚡ BLADE RUNNER AI // AWAITING INPUT ⚡';
@@ -262,7 +246,6 @@
                 inputField.focus();
             }
 
-            // Save game
             function saveGame() {
                 const dataStr = JSON.stringify(messages, null, 2);
                 const blob = new Blob([dataStr], { type: 'application/json' });
@@ -278,13 +261,12 @@
                 setTimeout(() => aiStatus.textContent = '⚡ BLADE RUNNER AI // READY ⚡', 1500);
             }
 
-            // Load game
             function loadGameFromFile(file) {
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     try {
                         const loaded = JSON.parse(e.target.result);
-                        if (!Array.isArray(loaded) || loaded.length === 0 || loaded[0].role !== 'assistant') {
+                        if (!Array.isArray(loaded) || loaded.length === 0) {
                             throw new Error('Invalid save file');
                         }
                         messages = loaded;
@@ -300,9 +282,8 @@
                 reader.readAsText(file);
             }
 
-            // Call free AI (Pollinations chat endpoint)
+            // New reliable API call using Pollinations text generation
             async function callFreeAI(userInput) {
-                // Add user message
                 messages.push({ role: 'user', content: userInput });
                 appendOutput('> ' + userInput.toUpperCase());
 
@@ -310,26 +291,26 @@
                 inputField.disabled = true;
 
                 try {
-                    const response = await fetch('https://text.pollinations.ai/openai/chat/completions', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            model: 'openai',
-                            messages: messages,
-                            temperature: 0.8,
-                            max_tokens: 350
-                        })
-                    });
-
-                    if (!response.ok) {
-                        const errorText = await response.text();
-                        throw new Error(`API error (${response.status}): ${errorText.slice(0, 200)}`);
+                    // Build the full prompt: system + conversation history
+                    let fullPrompt = systemPrompt + "\n\n";
+                    for (let msg of messages) {
+                        if (msg.role === 'user') {
+                            fullPrompt += "Player: " + msg.content + "\n";
+                        } else {
+                            fullPrompt += "Game Master: " + msg.content + "\n";
+                        }
                     }
+                    fullPrompt += "Game Master:";
 
-                    const data = await response.json();
-                    const aiMessage = data.choices[0].message.content.trim();
+                    // Pollinations text generation endpoint (GET request, works with CORS)
+                    const url = `https://text.pollinations.ai/${encodeURIComponent(fullPrompt)}?model=openai&json=false&seed=${Math.floor(Math.random()*1000000)}`;
+                    
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    const aiMessage = await response.text();
 
-                    // Add AI response
                     messages.push({ role: 'assistant', content: aiMessage });
                     appendOutput(aiMessage);
 
@@ -338,15 +319,13 @@
                     inputField.focus();
                 } catch (err) {
                     console.error(err);
-                    aiStatus.textContent = `❌ ERROR: ${err.message.slice(0, 80)} ❌`;
-                    // Remove the last user message
-                    messages.pop();
+                    aiStatus.textContent = `❌ ERROR: ${err.message} ❌`;
+                    messages.pop(); // remove the user message that caused error
                     inputField.disabled = false;
                     inputField.focus();
                 }
             }
 
-            // Handle Enter key
             function handleCommand() {
                 const cmd = inputField.value.trim();
                 if (cmd === '') return;
@@ -361,7 +340,6 @@
                 }
             });
 
-            // Buttons
             resetBtn.addEventListener('click', resetGame);
             saveBtn.addEventListener('click', saveGame);
             loadBtn.addEventListener('click', () => fileInput.click());
@@ -370,7 +348,6 @@
                 fileInput.value = '';
             });
 
-            // Focus input
             inputField.focus();
         })();
     </script>
