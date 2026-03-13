@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+              <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BLADE RUNNER: NIGHT CITY</title>
+    <title>BLADE RUNNER: NIGHT CITY · FLOPPY ACCESS</title>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -267,7 +267,7 @@
             const hudRepUnder = document.getElementById('hudRepUnder');
             const hudRepPolice = document.getElementById('hudRepPolice');
 
-            // ========== ENHANCED SYSTEM PROMPT with clickable suggestion instruction ==========
+            // ========== SYSTEM PROMPT ==========
             const systemPrompt = `You are the game master for a Blade Runner-style interactive fiction game. The player is a blade runner in Los Angeles 2049, hunting rogue replicants.
 
 You MUST track the following variables and include them at the END of each response in the exact format:
@@ -289,24 +289,28 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
 
             const introMessage = `RAIN SLASHES ACROSS THE DIMMED STREETS OF LOS ANGELES. YOU SIT IN YOUR APARTMENT, A HALF-EMPTY BOTTLE OF JOHNNY WALKER ON THE TABLE. YOUR SPINNER IS PARKED OUTSIDE. THE VOICEMAIL BLINKS: A NEW ASSIGNMENT FROM CAPTAIN BRYANT.\n\nWHAT DO YOU DO? [CHECK VOICEMAIL]  [EXIT APARTMENT]`;
 
-            // Initial state line (hidden from display)
             const initialState = "##STATE## Your apartment|10|21:00|Rain|0|0|0|1";
 
-            // Messages array: start with assistant message that includes intro + state line
             let messages = [
                 { role: 'assistant', content: introMessage + "\n" + initialState }
             ];
 
-            // Audio context for ambient soundscapes
+            // Audio context
             let audioCtx = null;
             let rainNode = null;
             let humNode = null;
             let currentLocation = "Your apartment";
 
+            // Floppy sound nodes
+            let floppySource = null;
+            let floppyGain = null;
+            let floppyLooping = false;
+
+            // Initialize audio and ambient
             function initAudio() {
                 if (audioCtx) return;
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                // Rain noise (filtered noise)
+                // Rain noise
                 const bufferSize = 2 * audioCtx.sampleRate;
                 const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
                 const output = noiseBuffer.getChannelData(0);
@@ -322,14 +326,14 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
                 filter.frequency.value = 1000;
 
                 const gain = audioCtx.createGain();
-                gain.gain.value = 0.1; // base rain volume
+                gain.gain.value = 0.1;
 
                 noise.connect(filter);
                 filter.connect(gain);
                 gain.connect(audioCtx.destination);
                 rainNode = { noise, filter, gain };
 
-                // Hum (low sine wave for city)
+                // City hum
                 const humOsc = audioCtx.createOscillator();
                 humOsc.type = "sine";
                 humOsc.frequency.value = 120;
@@ -343,9 +347,118 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
                 humOsc.start();
             }
 
+            // ========== FLOPPY DISK DRIVE SOUND ==========
+            function createFloppyBuffer(ctx) {
+                const duration = 3.0; // seconds, then loop
+                const sampleRate = ctx.sampleRate;
+                const buffer = ctx.createBuffer(1, sampleRate * duration, sampleRate);
+                const data = buffer.getChannelData(0);
+                
+                // Constants
+                const motorBaseFreq = 110; // Hz – low hum
+                const seekClickProb = 0.008; // probability per sample (approx 384 clicks/sec at 48k? too many) – we'll do time-based
+                let time = 0;
+                const dt = 1 / sampleRate;
+                
+                for (let i = 0; i < buffer.length; i++) {
+                    time = i * dt;
+                    
+                    // 1. Motor hum with slight amplitude modulation (simulates uneven spin)
+                    let humAmp = 0.1 + 0.03 * Math.sin(2 * Math.PI * 1.5 * time); // 1.5 Hz modulation
+                    let motor = humAmp * Math.sin(2 * Math.PI * motorBaseFreq * time);
+                    
+                    // Add a bit of higher harmonic
+                    motor += 0.03 * Math.sin(2 * Math.PI * motorBaseFreq * 2 * time);
+                    
+                    // 2. Head stepping clicks (random pulses, short duration)
+                    let click = 0;
+                    // Use a simple impulse when random threshold exceeded, and keep it short
+                    if (Math.random() < seekClickProb * 10) { // tweak density
+                        // shape a small click (exponential decay)
+                        // we can just add a short pulse; for simplicity, we'll generate a small impulse now
+                        // but to make it sound like a click, we need a transient. We'll add a short sine burst or noise burst.
+                        // Instead, we'll generate a click by adding a short envelope later – but that's complex per sample.
+                        // Alternative: pre-generate a click waveform and convolve? too heavy.
+                        // Simpler: add a short filtered noise burst at random intervals.
+                        // We'll approximate by adding a small pulse of high-frequency noise.
+                        let noise = (Math.random() * 2 - 1) * 0.2;
+                        // but to make it pop, we'll modulate amplitude with a quick envelope.
+                        // We'll just add a spike of noise at this sample, which will sound like a tick.
+                        click = noise * 0.3;
+                    }
+                    
+                    // More consistent: generate a few short clicks per second using a separate oscillator? 
+                    // Let's also add periodic "seek" sweeps very subtle.
+                    
+                    // 3. Continuous high-frequency hiss (read/write head noise)
+                    let hiss = (Math.random() * 2 - 1) * 0.03;
+                    
+                    // Combine
+                    let sample = motor + click + hiss;
+                    
+                    // Soft clip to avoid harshness
+                    if (sample > 0.8) sample = 0.8;
+                    if (sample < -0.8) sample = -0.8;
+                    
+                    data[i] = sample;
+                }
+                
+                // Add a couple of intentional "seek clicks" at known positions for recognizability
+                // (overwrite some regions)
+                for (let clickTime of [0.4, 1.2, 2.1]) {
+                    let idx = Math.floor(clickTime * sampleRate);
+                    if (idx < buffer.length) {
+                        // short burst of noise
+                        for (let j = 0; j < sampleRate * 0.02; j++) { // 20 ms click
+                            if (idx + j < buffer.length) {
+                                data[idx + j] += (Math.random() * 2 - 1) * 0.5 * (1 - j/(sampleRate*0.02));
+                            }
+                        }
+                    }
+                }
+                
+                return buffer;
+            }
+
+            function startFloppySound() {
+                if (!audioCtx) {
+                    initAudio();
+                }
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+                stopFloppySound(); // stop any previous
+
+                floppyGain = audioCtx.createGain();
+                floppyGain.gain.value = 0.1; // moderate volume
+                floppyGain.connect(audioCtx.destination);
+
+                const buffer = createFloppyBuffer(audioCtx);
+                floppySource = audioCtx.createBufferSource();
+                floppySource.buffer = buffer;
+                floppySource.loop = true;
+                floppySource.connect(floppyGain);
+                floppySource.start();
+                floppyLooping = true;
+            }
+
+            function stopFloppySound() {
+                if (floppySource) {
+                    try {
+                        floppySource.stop();
+                    } catch (e) {}
+                    floppySource.disconnect();
+                    floppySource = null;
+                }
+                if (floppyGain) {
+                    floppyGain.disconnect();
+                    floppyGain = null;
+                }
+                floppyLooping = false;
+            }
+
             function updateAmbientSound(location) {
                 if (!audioCtx || !rainNode || !humNode) return;
-                // Adjust rain intensity and hum based on location
                 let rainVol = 0.1;
                 let humFreq = 120;
                 let humVol = 0.02;
@@ -375,27 +488,20 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
                 humNode.gain.gain.setValueAtTime(humVol, audioCtx.currentTime);
             }
 
-            // Helper: update HUD from state line
             function updateHUDFromState(stateLine) {
                 const parts = stateLine.replace('##STATE##', '').trim().split('|');
                 if (parts.length < 8) return;
                 const [loc, health, time, weather, repC, repU, repP, quest] = parts;
                 hudLocation.textContent = loc.toUpperCase();
-                // Health bar: 10 blocks, filled = health
                 const healthNum = parseInt(health) || 10;
                 const filled = '█'.repeat(healthNum);
                 const empty = '░'.repeat(10 - healthNum);
                 hudHealthBar.textContent = `[${filled}${empty}]`;
-
                 hudTime.textContent = time;
                 hudWeather.textContent = weather;
-
-                // Reputation bars: display numeric with sign
                 hudRepCorp.textContent = formatRep(parseInt(repC));
                 hudRepUnder.textContent = formatRep(parseInt(repU));
                 hudRepPolice.textContent = formatRep(parseInt(repP));
-
-                // Update ambient sound if location changed
                 if (currentLocation !== loc) {
                     currentLocation = loc;
                     updateAmbientSound(loc);
@@ -407,14 +513,12 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
                 return `${val}`;
             }
 
-            // Helper: filter out state lines from display content
             function filterStateFromContent(content) {
                 const idx = content.indexOf('##STATE##');
                 if (idx === -1) return content;
                 return content.substring(0, idx).trim();
             }
 
-            // Append output without state line (for display)
             function appendOutput(text) {
                 const p = document.createElement('p');
                 p.textContent = text;
@@ -422,7 +526,6 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
                 outputDiv.scrollTop = outputDiv.scrollHeight;
             }
 
-            // Rebuild output from messages (skip state lines)
             function rebuildOutputFromMessages() {
                 outputDiv.innerHTML = '';
                 for (let msg of messages) {
@@ -431,13 +534,10 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
                     } else if (msg.role === 'assistant') {
                         const displayContent = filterStateFromContent(msg.content);
                         if (displayContent) {
-                            // we rebuild as plain text, clickable conversion will happen on next AI response only
-                            // for loaded games, just show text without clickables (safer)
                             appendOutput(displayContent);
                         }
                     }
                 }
-                // Update HUD from last assistant message
                 const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
                 if (lastAssistant) {
                     const stateLine = lastAssistant.content.split('##STATE##')[1];
@@ -447,26 +547,20 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
                 }
             }
 
-            // ========== CLICKABLE CONVERSION ==========
-            // Transforms bracketed text like [DO SOMETHING] into clickable spans
             function makeClickable(paragraphElement) {
                 const originalText = paragraphElement.textContent;
-                // Replace [anything] with a clickable span
                 const html = originalText.replace(/\[([^\]]+)\]/g, '<span class="clickable" data-command="$1">[$1]</span>');
                 paragraphElement.innerHTML = html;
-                // Attach event listeners to each new clickable span
                 paragraphElement.querySelectorAll('.clickable').forEach(span => {
                     span.addEventListener('click', (e) => {
                         e.stopPropagation();
                         const command = span.dataset.command;
-                        // Set the input field value and trigger the command
                         inputField.value = command;
-                        handleCommand();  // this will send the command and clear input
+                        handleCommand();
                     });
                 });
             }
 
-            // Enhanced typewriter: types out text, then applies clickable conversion
             async function typewriterEffect(text, container) {
                 const p = document.createElement('p');
                 container.appendChild(p);
@@ -476,15 +570,13 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
                     fullText += char;
                     p.textContent = fullText;
                     playKeySound();
-                    await new Promise(resolve => setTimeout(resolve, 45)); // smooth typing
+                    await new Promise(resolve => setTimeout(resolve, 45));
                     container.scrollTop = container.scrollHeight;
                 }
-                // After typing, turn any bracketed text into clickable elements
                 makeClickable(p);
                 return p;
             }
 
-            // Boot sequence
             async function bootSequence() {
                 inputField.disabled = true;
                 aiStatus.textContent = '⚡ SYSTEM BOOTING... ⚡';
@@ -503,7 +595,6 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
                     await new Promise(r => setTimeout(r, 400));
                 }
 
-                // ASCII progress bar
                 appendOutput('> BOOT SEQUENCE: ');
                 const barContainer = document.createElement('p');
                 outputDiv.appendChild(barContainer);
@@ -513,27 +604,22 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
                     await new Promise(r => setTimeout(r, 80));
                 }
                 await new Promise(r => setTimeout(r, 300));
-                outputDiv.innerHTML = ''; // clear boot
-                // Show intro message (with clickable items)
+                outputDiv.innerHTML = '';
                 const introWithoutState = filterStateFromContent(introMessage);
-                // Use typewriter for intro so clickables appear
                 await typewriterEffect(introWithoutState, outputDiv);
                 aiStatus.textContent = '⚡ SYSTEM WAITING // AWAITING INPUT ⚡';
                 inputField.disabled = false;
                 inputField.focus();
-                // Update HUD from initial state
                 updateHUDFromState(initialState);
             }
 
-            // Reset game (boot + reset messages)
             function resetGame() {
                 messages = [
                     { role: 'assistant', content: introMessage + "\n" + initialState }
                 ];
-                bootSequence(); // reboots and shows intro
+                bootSequence();
             }
 
-            // Save game
             function saveGame() {
                 const dataStr = JSON.stringify(messages, null, 2);
                 const blob = new Blob([dataStr], { type: 'application/json' });
@@ -549,7 +635,6 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
                 setTimeout(() => aiStatus.textContent = '⚡ SYSTEM WAITING // READY ⚡', 1500);
             }
 
-            // Load game
             function loadGameFromFile(file) {
                 const reader = new FileReader();
                 reader.onload = (e) => {
@@ -571,7 +656,6 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
                 reader.readAsText(file);
             }
 
-            // Play a short blip for typing (audio)
             function playKeySound() {
                 try {
                     if (!audioCtx) {
@@ -594,13 +678,15 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
                 } catch (e) {}
             }
 
-            // Call AI
             async function callFreeAI(userInput) {
                 messages.push({ role: 'user', content: userInput });
                 appendOutput('> ' + userInput.toUpperCase());
 
-                aiStatus.textContent = '⏳ SYSTEM THINKING... ⏳';
+                aiStatus.textContent = '⏳ AI THINKING... ⏳';
                 inputField.disabled = true;
+
+                // Start floppy drive sound
+                startFloppySound();
 
                 try {
                     let fullPrompt = systemPrompt + "\n\n";
@@ -619,7 +705,9 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     let aiMessage = await response.text();
 
-                    // Ensure state line exists (if AI forgets, we append a default based on last known state)
+                    // Stop floppy sound immediately
+                    stopFloppySound();
+
                     if (!aiMessage.includes('##STATE##')) {
                         const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
                         let lastState = '';
@@ -631,19 +719,15 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
                         aiMessage += '\n' + lastState;
                     }
 
-                    // Split state line from display text
                     const stateLineIndex = aiMessage.indexOf('##STATE##');
                     const displayText = stateLineIndex >= 0 ? aiMessage.substring(0, stateLineIndex).trim() : aiMessage;
                     const stateLine = stateLineIndex >= 0 ? aiMessage.substring(stateLineIndex) : '';
 
-                    // Typewriter effect for display text (with clickable conversion after typing)
-                    aiStatus.textContent = '⏳ SYSTEM PROCESSING... ⏳';
+                    aiStatus.textContent = '⏳ SYSTEM TYPING... ⏳';
                     await typewriterEffect(displayText, outputDiv);
 
-                    // Push full message with state line
                     messages.push({ role: 'assistant', content: displayText + (stateLine ? '\n' + stateLine : '') });
 
-                    // Update HUD from state line
                     if (stateLine) {
                         updateHUDFromState(stateLine);
                     }
@@ -652,15 +736,15 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
                     inputField.disabled = false;
                     inputField.focus();
                 } catch (err) {
+                    stopFloppySound();
                     console.error(err);
                     aiStatus.textContent = `❌ ERROR: ${err.message} ❌`;
-                    messages.pop(); // remove user message
+                    messages.pop();
                     inputField.disabled = false;
                     inputField.focus();
                 }
             }
 
-            // Handle command
             function handleCommand() {
                 const cmd = inputField.value.trim();
                 if (cmd === '') return;
@@ -683,10 +767,8 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
                 fileInput.value = '';
             });
 
-            // Initial boot
             window.addEventListener('load', () => {
                 bootSequence();
-                // Initialize audio on first click
                 document.body.addEventListener('click', function init() {
                     initAudio();
                     updateAmbientSound(currentLocation);
@@ -695,4 +777,4 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
         })();
     </script>
 </body>
-</html>
+</html>     
