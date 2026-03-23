@@ -663,71 +663,86 @@ IMPORTANT: Inject occasional random encounters based on location and reputation.
             }
 
             async function callFreeAI(userInput) {
-                messages.push({ role: 'user', content: userInput });
-                appendOutput('> ' + userInput.toUpperCase());
+    messages.push({ role: 'user', content: userInput });
+    appendOutput('> ' + userInput.toUpperCase());
 
-                aiStatus.textContent = '⏳ SYSTEM PROCESSING... ⏳';
-                inputField.disabled = true;
+    aiStatus.textContent = '⏳ SYSTEM PROCESSING... ⏳';
+    inputField.disabled = true;
 
-                // Start floppy drive sound
-                startFloppySound();
+    startFloppySound();
 
-                try {
-                    let fullPrompt = systemPrompt + "\n\n";
-                    for (let msg of messages) {
-                        if (msg.role === 'user') {
-                            fullPrompt += "Player: " + msg.content + "\n";
-                        } else {
-                            fullPrompt += "Game Master: " + msg.content + "\n";
-                        }
-                    }
-                    fullPrompt += "Game Master:";
-
-                    const url = `https://text.pollinations.ai/${encodeURIComponent(fullPrompt)}?model=openai&json=false&seed=${Math.floor(Math.random()*1000000)}`;
-                    
-                    const response = await fetch(url);
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    let aiMessage = await response.text();
-
-                    // Stop floppy sound immediately
-                    stopFloppySound();
-
-                    if (!aiMessage.includes('##STATE##')) {
-                        const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
-                        let lastState = '';
-                        if (lastAssistant) {
-                            const parts = lastAssistant.content.split('##STATE##');
-                            if (parts.length > 1) lastState = '##STATE##' + parts[1];
-                        }
-                        if (!lastState) lastState = initialState;
-                        aiMessage += '\n' + lastState;
-                    }
-
-                    const stateLineIndex = aiMessage.indexOf('##STATE##');
-                    const displayText = stateLineIndex >= 0 ? aiMessage.substring(0, stateLineIndex).trim() : aiMessage;
-                    const stateLine = stateLineIndex >= 0 ? aiMessage.substring(stateLineIndex) : '';
-
-                    aiStatus.textContent = '⏳ SYSTEM TYPING... ⏳';
-                    await typewriterEffect(displayText, outputDiv);
-
-                    messages.push({ role: 'assistant', content: displayText + (stateLine ? '\n' + stateLine : '') });
-
-                    if (stateLine) {
-                        updateHUDFromState(stateLine);
-                    }
-
-                    aiStatus.textContent = '⚡ SYSTEM WAITING // READY ⚡';
-                    inputField.disabled = false;
-                    inputField.focus();
-                } catch (err) {
-                    stopFloppySound();
-                    console.error(err);
-                    aiStatus.textContent = `❌ ERROR: ${err.message} ❌`;
-                    messages.pop();
-                    inputField.disabled = false;
-                    inputField.focus();
-                }
+    try {
+        // Build the prompt exactly as before (system + conversation history)
+        let fullPrompt = systemPrompt + "\n\n";
+        for (let msg of messages) {
+            if (msg.role === 'user') {
+                fullPrompt += "Player: " + msg.content + "\n";
+            } else {
+                fullPrompt += "Game Master: " + msg.content + "\n";
             }
+        }
+        fullPrompt += "Game Master:";
+
+        // --- NEW: POST request to Pollinations.ai ---
+        const response = await fetch('https://text.pollinations.ai/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                messages: [{ role: "user", content: fullPrompt }],
+                model: "openai",         // use "openai" or "mistral" – check their docs
+                seed: Math.floor(Math.random() * 1000000)
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+        }
+
+        const data = await response.json();
+        let aiMessage = data.choices?.[0]?.message?.content || data.response || data.text;
+
+        if (!aiMessage) throw new Error("Empty response from AI");
+
+        stopFloppySound();
+
+        // Ensure state line is present (append last known state if missing)
+        if (!aiMessage.includes('##STATE##')) {
+            const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
+            let lastState = '';
+            if (lastAssistant) {
+                const parts = lastAssistant.content.split('##STATE##');
+                if (parts.length > 1) lastState = '##STATE##' + parts[1];
+            }
+            if (!lastState) lastState = initialState;
+            aiMessage += '\n' + lastState;
+        }
+
+        const stateLineIndex = aiMessage.indexOf('##STATE##');
+        const displayText = stateLineIndex >= 0 ? aiMessage.substring(0, stateLineIndex).trim() : aiMessage;
+        const stateLine = stateLineIndex >= 0 ? aiMessage.substring(stateLineIndex) : '';
+
+        aiStatus.textContent = '⏳ SYSTEM TYPING... ⏳';
+        await typewriterEffect(displayText, outputDiv);
+
+        messages.push({ role: 'assistant', content: displayText + (stateLine ? '\n' + stateLine : '') });
+
+        if (stateLine) {
+            updateHUDFromState(stateLine);
+        }
+
+        aiStatus.textContent = '⚡ SYSTEM WAITING // READY ⚡';
+        inputField.disabled = false;
+        inputField.focus();
+
+    } catch (err) {
+        stopFloppySound();
+        console.error(err);
+        aiStatus.textContent = `❌ ERROR: ${err.message} ❌`;
+        messages.pop(); // remove the user message that failed
+        inputField.disabled = false;
+        inputField.focus();
+    }
+}
 
             function handleCommand() {
                 const cmd = inputField.value.trim();
