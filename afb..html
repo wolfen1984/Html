@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Castle of the Damned - Nightfall Games 1984</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { background-color: #0a0f0a; color: #33ff33; font-family: 'Courier New', monospace; font-size: 14px; margin: 0; padding: 20px; }
+        .game-container { max-width: 1600px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; background: #000000aa; border: 2px solid #2a6f2a; padding: 16px; border-radius: 8px; }
+        .panel { background: #0c1a0c; border: 1px solid #2c8c2c; padding: 12px; margin-bottom: 12px; border-radius: 6px; }
+        .panel-title { font-size: 1.4rem; font-weight: bold; border-bottom: 2px solid #33ff33; margin-bottom: 12px; text-transform: uppercase; }
+        .stats-grid { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; }
+        button { background: #1a2a1a; border: 1px solid #33ff33; color: #33ff33; font-family: monospace; font-weight: bold; padding: 6px 12px; margin: 4px 4px 0 0; cursor: pointer; }
+        button:hover { background: #2e6b2e; color: #000; }
+        .combat-log { background: #030703; height: 180px; overflow-y: auto; font-size: 12px; padding: 6px; border: 1px solid #1e5a1e; white-space: pre-wrap; }
+        .players-list, .guild-members { max-height: 260px; overflow-y: auto; }
+        .player-entry, .guild-member-entry { background: #0a120a; margin: 6px 0; padding: 6px; border-left: 3px solid #3c9c3c; display: flex; justify-content: space-between; flex-wrap: wrap; }
+        .enemy-card { background: #1e1a0a; border: 1px solid #aa8833; padding: 8px; margin: 8px 0; }
+        .inventory-item { background: #0f1a0f; display: inline-block; margin: 3px; padding: 4px 8px; border: 1px solid #2a822a; font-size: 11px; }
+        .chat-tabs { display: flex; gap: 8px; margin-bottom: 8px; border-bottom: 1px solid #33ff33; }
+        .chat-tab { padding: 4px 8px; cursor: pointer; background: #1a2a1a; border-radius: 4px 4px 0 0; }
+        .chat-tab.active { background: #2e6b2e; color: #000; }
+        .chat-messages { height: 150px; overflow-y: auto; font-size: 12px; background: #030703; padding: 6px; border: 1px solid #1e5a1e; }
+        .chat-input-area { margin-top: 8px; display: flex; gap: 8px; }
+        .chat-input-area input { flex: 1; background: #021002; border: 1px solid #33ff33; color: #33ff33; padding: 6px; }
+        @media (max-width: 800px) { .game-container { grid-template-columns: 1fr; } }
+        .error-message { color: #ff6666; border: 1px solid red; padding: 8px; margin-bottom: 12px; display: none; }
+        .modal { position: fixed; top:0; left:0; width:100%; height:100%; background:#000000dd; z-index:1000; display:flex; justify-content:center; align-items:center; }
+        .modal-content { background:#0c1c0c; border:3px solid #33ff33; padding:24px; max-width:500px; width:90%; }
+        .flex-row { display: flex; gap: 12px; flex-wrap: wrap; }
+    </style>
+</head>
+<body>
+<div class="game-container" id="gameRoot">
+    <div style="grid-column: 1/-1; text-align: center; font-size: 1.8rem; letter-spacing: 4px;">
+        ⚔️ CASTLE OF THE DAMNED ⚔️<br>
+        <span style="font-size: 0.7rem;">created by NIGHTFALL GAMES 1984 — text adventure RPG</span>
+    </div>
+    <div id="errorBanner" class="error-message"></div>
+    <!-- LEFT COLUMN -->
+    <div>
+        <div class="panel" id="profilePanel">
+            <div class="panel-title">📜 CHARACTER PROFILE</div>
+            <div id="profileContent">Loading soul sigil...</div>
+            <button id="editProfileBtn" style="margin-top:8px;">✍️ Edit Tagline/Name</button>
+        </div>
+        <div class="panel">
+            <div class="panel-title">📊 STATS & LEVEL</div>
+            <div id="statsArea">—</div>
+        </div>
+        <div class="panel">
+            <div class="panel-title">🎒 INVENTORY / GEAR</div>
+            <div id="inventoryArea">—</div>
+            <div id="weaponsArea">—</div>
+            <div id="armorArea">—</div>
+            <button id="useItemBtn">💊 Use Health Potion</button>
+        </div>
+        <div class="panel">
+            <div class="panel-title">🏆 LEADERBOARD (Glory Rankings)</div>
+            <div id="leaderboardList">Fetching champions...</div>
+        </div>
+        <div class="panel" id="guildPanel">
+            <div class="panel-title">🏰 GUILD / CLAN</div>
+            <div id="guildInfo">Not in a guild</div>
+            <div id="guildButtons"></div>
+            <div id="guildBank" style="margin-top:8px;"></div>
+            <div id="guildMembersList" class="guild-members"></div>
+        </div>
+        <!-- NPC panel (restored) -->
+        <div class="panel">
+            <div class="panel-title">🏰 CASTLE LORE & NPC</div>
+            <div id="npcMessage">"Hail, wanderer! Trade whispers or face the horrors." — Old Sage</div>
+            <button id="talkNpcBtn">💬 Talk to Elder</button>
+        </div>
+    </div>
+    <!-- RIGHT COLUMN -->
+    <div>
+        <div class="panel">
+            <div class="panel-title">⚔️ CASTLE COURTYARD [COMBAT]</div>
+            <div id="enemyArea">
+                <div class="enemy-card">🐺 A foul creature stalks nearby...</div>
+                <button id="attackBtn">🗡️ ATTACK ENEMY</button>
+                <button id="newEnemyBtn">🔍 Find New Foe</button>
+            </div>
+            <div class="combat-log" id="combatLog">> The halls echo with despair. Choose your fate...</div>
+        </div>
+        <div class="panel">
+            <div class="panel-title">👥 LIVING ADVENTURERS</div>
+            <div id="playersListArea" class="players-list">Searching for souls...</div>
+            <div class="flex-row" style="margin-top:8px;">
+                <button id="createPartyBtn">👥 Create Party</button>
+                <button id="inviteToPartyBtn">📨 Invite to Party</button>
+                <button id="leavePartyBtn">🚪 Leave Party</button>
+                <button id="createGuildBtn">🏰 Create Guild</button>
+                <button id="tradeBtn">🤝 Trade with Player</button>
+                <button id="arenaBtn">⚔️ Duel Arena</button>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="panel-title">💬 CHAT ROOMS</div>
+            <div class="chat-tabs">
+                <div class="chat-tab active" data-channel="global">🌍 Global</div>
+                <div class="chat-tab" data-channel="guild">🏰 Guild</div>
+                <div class="chat-tab" data-channel="party">👥 Party</div>
+                <div class="chat-tab" data-channel="whisper">💌 Whisper</div>
+            </div>
+            <div id="chatMessages" class="chat-messages"></div>
+            <div class="chat-input-area">
+                <input type="text" id="chatMessageInput" placeholder="Type message..." maxlength="200">
+                <select id="whisperTarget" style="display:none; background:#021002; color:#33ff33;"></select>
+                <button id="sendChatBtn">💬 SEND</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODALS -->
+<div id="creationModal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <h2 style="color:#aaffaa;">🏰 SOUL BINDING</h2>
+        <div id="modalBody"></div>
+        <button id="modalConfirmBtn">⚔️ Enter The Damned Castle</button>
+    </div>
+</div>
+
+<div id="tradeModal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <h2>🤝 TRADE</h2>
+        <div id="tradeContent"></div>
+        <div class="flex-row" style="justify-content:space-between;">
+            <button id="tradeConfirmBtn">✅ Confirm</button>
+            <button id="tradeCancelBtn">❌ Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div id="arenaModal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <h2>⚔️ DUEL ARENA</h2>
+        <div id="arenaContent"></div>
+        <div id="arenaCombat" style="margin-top:12px;"></div>
+        <button id="arenaCloseBtn">Close</button>
+    </div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-auth.js";
+    import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, onSnapshot, runTransaction, orderBy, limit, addDoc, serverTimestamp, deleteDoc, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyCIlWFkpHfOcETJJu5bAou1KdFW2s2k-zY",
+        authDomain: "dungeon-df5f4.firebaseapp.com",
+        projectId: "dungeon-df5f4",
+        storageBucket: "dungeon-df5f4.firebasestorage.app",
+        messagingSenderId: "628602990956",
+        appId: "1:628602990956:web:427c225a3ef3b89cb4c349"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // --- Global state ---
+    let currentUser = null;
+    let userDocRef = null;
+    let unsubscribeUser = null;
+    let unsubscribePlayers = null;
+    let currentEnemy = null;
+    let combatLogs = [];
+    let currentParty = null;
+    let currentGuild = null;
+    let activeChatChannel = "global";
+    let currentTrade = null;
+    let currentDuel = null;
+    let unsubParty = null;
+    let unsubGuild = null;
+    let unsubGlobalChat = null;
+    let unsubGuildChat = null;
+    let unsubPartyChat = null;
+
+    // --- Enemy templates (original) ---
+    const ENEMY_TEMPLATES = [
+        { baseName: "Skeletal Knight", baseHp: 32, baseAttack: 12, baseXp: 45, baseGold: 25, level: 2 },
+        { baseName: "Ghoul Servant", baseHp: 22, baseAttack: 8, baseXp: 28, baseGold: 15, level: 1 },
+        { baseName: "Vampire Spawn", baseHp: 38, baseAttack: 14, baseXp: 65, baseGold: 40, level: 3 },
+        { baseName: "Cursed Armor", baseHp: 45, baseAttack: 10, baseXp: 70, baseGold: 35, level: 3 },
+        { baseName: "Shadow Wolf", baseHp: 26, baseAttack: 11, baseXp: 35, baseGold: 20, level: 2 },
+        { baseName: "Flesh Golem", baseHp: 55, baseAttack: 15, baseXp: 90, baseGold: 55, level: 4 },
+        { baseName: "Banshee", baseHp: 35, baseAttack: 13, baseXp: 80, baseGold: 45, level: 3 },
+        { baseName: "Dread Knight", baseHp: 60, baseAttack: 18, baseXp: 120, baseGold: 70, level: 5 }
+    ];
+
+    const WEAPON_DROPS = [
+        { name: "Iron Sword", damage: 8, rarity: "common" },
+        { name: "Steel Axe", damage: 10, rarity: "common" },
+        { name: "Mage's Rod", damage: 7, rarity: "common" },
+        { name: "Shadow Dagger", damage: 9, rarity: "uncommon" },
+        { name: "Crystal Blade", damage: 12, rarity: "rare" },
+        { name: "Doomhammer", damage: 15, rarity: "epic" }
+    ];
+
+    const ARMOR_DROPS = [
+        { name: "Leather Vest", defense: 3, rarity: "common" },
+        { name: "Chainmail", defense: 5, rarity: "common" },
+        { name: "Dark Plate", defense: 7, rarity: "uncommon" },
+        { name: "Mystic Robe", defense: 4, rarity: "uncommon" },
+        { name: "Dragonscale", defense: 10, rarity: "rare" }
+    ];
+
+    const ITEM_DROPS = [
+        { name: "Health Potion", qty: 1, type: "consumable" },
+        { name: "Mana Potion", qty: 1, type: "consumable" },
+        { name: "Blessed Water", qty: 1, type: "consumable", effect: "heal 15" }
+    ];
+
+    // Helper functions
+    function getScaledEnemy(playerLevel) {
+        let candidates = ENEMY_TEMPLATES.filter(e => e.level <= playerLevel + 2 && e.level >= Math.max(1, playerLevel - 1));
+        if (candidates.length === 0) candidates = ENEMY_TEMPLATES;
+        const template = candidates[Math.floor(Math.random() * candidates.length)];
+        const levelDiff = playerLevel - template.level;
+        const hpMultiplier = 1 + (levelDiff * 0.1);
+        const attackBonus = levelDiff * 1.5;
+        const xpBonus = levelDiff * 8;
+        const goldBonus = levelDiff * 5;
+        return {
+            name: template.baseName,
+            hp: Math.max(10, Math.floor(template.baseHp * hpMultiplier)),
+            maxHp: Math.max(10, Math.floor(template.baseHp * hpMultiplier)),
+            attack: Math.max(5, template.baseAttack + attackBonus),
+            xpReward: Math.max(20, template.baseXp + xpBonus),
+            goldReward: Math.max(10, template.baseGold + goldBonus),
+            level: template.level + levelDiff
+        };
+    }
+    function getRandomEnemy(playerLevel) {
+        const enemy = getScaledEnemy(playerLevel);
+        return { ...enemy, hp: enemy.maxHp };
+    }
+    function getRandomLoot() {
+        const loot = [];
+        const roll = Math.random();
+        if (roll < 0.3) {
+            const weapon = WEAPON_DROPS[Math.floor(Math.random() * WEAPON_DROPS.length)];
+            loot.push({ type: "weapon", item: { ...weapon } });
+        } else if (roll < 0.5) {
+            const armor = ARMOR_DROPS[Math.floor(Math.random() * ARMOR_DROPS.length)];
+            loot.push({ type: "armor", item: { ...armor } });
+        } else if (roll < 0.9) {
+            const potion = ITEM_DROPS[Math.floor(Math.random() * ITEM_DROPS.length)];
+            loot.push({ type: "item", item: { ...potion } });
+        }
+        return loot;
+    }
+    function calcPlayerDamage(userData, isCritical = false) {
+        let weaponDamage = userData.equippedWeapon?.damage || 5;
+        let statBonus = 0;
+        const cls = userData.className;
+        if (cls === "Warrior") statBonus = userData.strength;
+        else if (cls === "Rogue") statBonus = userData.agility;
+        else if (cls === "Mage") statBonus = userData.intelligence;
+        else statBonus = userData.strength;
+        let base = Math.max(5, statBonus + weaponDamage + Math.floor(userData.level * 1.2));
+        if (isCritical) base *= 2;
+        return base;
+    }
+    function calcPlayerDefense(userData) {
+        return userData.equippedArmor?.defense || 2;
+    }
+
+    // --- Combat (fully restored) ---
+    async function playerAttack() {
+        if (!userDocRef) { addCombatLog("No character loaded."); return; }
+        if (!currentEnemy) { addCombatLog("No enemy to fight! Find new foe."); return; }
+        const userSnap = await getDoc(userDocRef);
+        if (!userSnap.exists()) return;
+        const user = userSnap.data();
+        if (user.hp <= 0) {
+            addCombatLog("You are defeated! Reviving with half HP...");
+            await updateDoc(userDocRef, { hp: Math.max(1, Math.floor(user.maxHp / 2)) });
+            return;
+        }
+        const isCritical = Math.random() < 0.15;
+        const playerDamage = calcPlayerDamage(user, isCritical);
+        const critMsg = isCritical ? "CRITICAL HIT! " : "";
+        addCombatLog(`${critMsg}You strike the ${currentEnemy.name} for ${playerDamage} damage!`);
+        let newEnemyHp = currentEnemy.hp - playerDamage;
+        if (newEnemyHp <= 0) {
+            // Victory
+            const xpGain = currentEnemy.xpReward;
+            const goldGain = currentEnemy.goldReward;
+            addCombatLog(`⚡ VICTORY! Slain ${currentEnemy.name}. +${xpGain} XP, +${goldGain} gold.`);
+            if (currentParty && currentParty.members && currentParty.members.length > 1) {
+                const members = currentParty.members;
+                const shareXP = Math.floor(xpGain / members.length);
+                const shareGold = Math.floor(goldGain / members.length);
+                for (let memberId of members) {
+                    const memberRef = doc(db, "users", memberId);
+                    await runTransaction(db, async (transaction) => {
+                        const memberSnap = await transaction.get(memberRef);
+                        if (!memberSnap.exists()) return;
+                        const memberData = memberSnap.data();
+                        let newXP = memberData.xp + shareXP;
+                        let newLevel = memberData.level;
+                        let newMaxHp = memberData.maxHp;
+                        let newStrength = memberData.strength, newAgility = memberData.agility, newInt = memberData.intelligence;
+                        let levelUps = 0;
+                        while (newXP >= newLevel * 100) {
+                            newXP -= newLevel * 100;
+                            newLevel++;
+                            levelUps++;
+                            newMaxHp += 8;
+                            if (memberData.className === "Warrior") newStrength += 2;
+                            else if (memberData.className === "Rogue") newAgility += 2;
+                            else if (memberData.className === "Mage") newInt += 2;
+                            else { newStrength += 1; newAgility += 1; }
+                            if (memberId === currentUser.uid) addCombatLog(`✨ LEVEL UP! You are now level ${newLevel}! ✨`);
+                        }
+                        transaction.update(memberRef, {
+                            xp: newXP,
+                            level: newLevel,
+                            maxHp: newMaxHp,
+                            hp: Math.min(memberData.hp + 5, newMaxHp),
+                            strength: newStrength,
+                            agility: newAgility,
+                            intelligence: newInt,
+                            gold: memberData.gold + shareGold
+                        });
+                    });
+                }
+                const loot = getRandomLoot();
+                if (loot.length) {
+                    const luckyMemberId = members[Math.floor(Math.random() * members.length)];
+                    const luckyRef = doc(db, "users", luckyMemberId);
+                    const luckySnap = await getDoc(luckyRef);
+                    const luckyData = luckySnap.data();
+                    for (const l of loot) {
+                        if (l.type === "weapon") {
+                            let newWeapons = [...(luckyData.weapons || [])];
+                            newWeapons.push(l.item);
+                            await updateDoc(luckyRef, { weapons: newWeapons });
+                            addCombatLog(`🎁 ${luckyData.name} found a ${l.item.name}!`);
+                        } else if (l.type === "armor") {
+                            let newArmors = [...(luckyData.armors || [])];
+                            newArmors.push(l.item);
+                            await updateDoc(luckyRef, { armors: newArmors });
+                            addCombatLog(`🛡️ ${luckyData.name} found ${l.item.name}!`);
+                        } else {
+                            let newInv = [...(luckyData.inventory || [])];
+                            const existing = newInv.find(i => i.name === l.item.name);
+                            if (existing) existing.qty += (l.item.qty || 1);
+                            else newInv.push({ ...l.item, qty: l.item.qty || 1 });
+                            await updateDoc(luckyRef, { inventory: newInv });
+                            addCombatLog(`🧪 ${luckyData.name} found ${l.item.name}!`);
+                        }
+                    }
+                }
+            } else {
+                // Solo
+                let newXP = user.xp + xpGain;
+                let newLevel = user.level;
+                let newMaxHp = user.maxHp;
+                let newStrength = user.strength, newAgility = user.agility, newInt = user.intelligence;
+                let levelUps = 0;
+                while (newXP >= newLevel * 100) {
+                    newXP -= newLevel * 100;
+                    newLevel++;
+                    levelUps++;
+                    newMaxHp += 8;
+                    if (user.className === "Warrior") newStrength += 2;
+                    else if (user.className === "Rogue") newAgility += 2;
+                    else if (user.className === "Mage") newInt += 2;
+                    else { newStrength += 1; newAgility += 1; }
+                    addCombatLog(`✨ LEVEL UP! You are now level ${newLevel}! ✨`);
+                }
+                const updates = {
+                    xp: newXP,
+                    level: newLevel,
+                    gold: user.gold + goldGain,
+                    maxHp: newMaxHp,
+                    hp: Math.min(user.hp + 5, newMaxHp),
+                    strength: newStrength,
+                    agility: newAgility,
+                    intelligence: newInt
+                };
+                const loot = getRandomLoot();
+                for (const l of loot) {
+                    if (l.type === "weapon") {
+                        let newWeapons = [...(user.weapons || [])];
+                        newWeapons.push(l.item);
+                        updates.weapons = newWeapons;
+                        addCombatLog(`🎁 You found a ${l.item.name} (${l.item.damage} damage)!`);
+                    } else if (l.type === "armor") {
+                        let newArmors = [...(user.armors || [])];
+                        newArmors.push(l.item);
+                        updates.armors = newArmors;
+                        addCombatLog(`🛡️ You found ${l.item.name} (+${l.item.defense} defense)!`);
+                    } else if (l.type === "item") {
+                        let newInv = [...(user.inventory || [])];
+                        const existing = newInv.find(i => i.name === l.item.name);
+                        if (existing) existing.qty += (l.item.qty || 1);
+                        else newInv.push({ ...l.item, qty: l.item.qty || 1 });
+                        updates.inventory = newInv;
+                        addCombatLog(`🧪 You found ${l.item.name}!`);
+                    }
+                }
+                await updateDoc(userDocRef, updates);
+            }
+            currentEnemy = null;
+            updateEnemyUI();
+            addCombatLog("You loot the corpse and feel stronger.");
+            return;
+        }
+        // Enemy counterattack
+        let enemyDamage = Math.max(3, currentEnemy.attack + Math.floor(Math.random() * 6) - 2);
+        const defense = calcPlayerDefense(user);
+        enemyDamage = Math.max(1, enemyDamage - defense);
+        const newPlayerHp = user.hp - enemyDamage;
+        addCombatLog(`${currentEnemy.name} hits back for ${enemyDamage} damage!`);
+        if (newPlayerHp <= 0) {
+            await updateDoc(userDocRef, { hp: 0 });
+            addCombatLog("You collapse... darkness consumes you. Reviving at half HP.");
+            await updateDoc(userDocRef, { hp: Math.max(1, Math.floor(user.maxHp / 2)) });
+        } else {
+            await updateDoc(userDocRef, { hp: newPlayerHp });
+        }
+        currentEnemy.hp = newEnemyHp;
+        updateEnemyUI();
+    }
+
+    function updateEnemyUI() {
+        const enemyDiv = document.getElementById("enemyArea");
+        if (!enemyDiv) return;
+        if (!currentEnemy) {
+            enemyDiv.innerHTML = `<div class="enemy-card">💀 Enemy defeated! Find another.</div>
+                                   <button id="attackBtn">🗡️ ATTACK ENEMY</button>
+                                   <button id="newEnemyBtn">🔍 Find New Foe</button>`;
+        } else {
+            enemyDiv.innerHTML = `<div class="enemy-card">👾 ${currentEnemy.name} (Lv.${currentEnemy.level}) | HP: ${currentEnemy.hp}/${currentEnemy.maxHp} | Attack: ${currentEnemy.attack}<br>⚔️ Reward: ${currentEnemy.xpReward} XP, ${currentEnemy.goldReward} gold</div>
+                                  <button id="attackBtn">🗡️ ATTACK ENEMY</button>
+                                  <button id="newEnemyBtn">🔍 Find New Foe</button>`;
+        }
+        document.getElementById("attackBtn")?.addEventListener("click", playerAttack);
+        document.getElementById("newEnemyBtn")?.addEventListener("click", async () => {
+            const userSnap = await getDoc(userDocRef);
+            if (userSnap.exists()) {
+                currentEnemy = getRandomEnemy(userSnap.data().level);
+                updateEnemyUI();
+                addCombatLog(`A wild ${currentEnemy.name} appears!`);
+            }
+        });
+    }
+
+    // --- Original sendToPlayer transaction (fully restored) ---
+    async function sendToPlayer(targetUid, targetName, type, value) {
+        if (!userDocRef || !currentUser) { alert("Not logged in."); return false; }
+        if (currentUser.uid === targetUid) { alert("Cannot send to yourself"); return false; }
+        try {
+            await runTransaction(db, async (transaction) => {
+                const senderRef = doc(db, "users", currentUser.uid);
+                const receiverRef = doc(db, "users", targetUid);
+                const senderSnap = await transaction.get(senderRef);
+                const receiverSnap = await transaction.get(receiverRef);
+                if (!senderSnap.exists() || !receiverSnap.exists()) throw new Error("User missing");
+                const sender = senderSnap.data();
+                const receiver = receiverSnap.data();
+                if (type === "gold") {
+                    const amount = parseInt(value);
+                    if (isNaN(amount) || amount <= 0 || sender.gold < amount) throw new Error("Invalid gold amount");
+                    transaction.update(senderRef, { gold: sender.gold - amount });
+                    transaction.update(receiverRef, { gold: receiver.gold + amount });
+                    addCombatLog(`💰 Sent ${amount} gold to ${targetName}.`);
+                } else if (type === "item") {
+                    const itemIndex = sender.inventory.findIndex(i => i.name === value);
+                    if (itemIndex === -1) throw new Error("Item not found");
+                    const itemToSend = { ...sender.inventory[itemIndex], qty: 1 };
+                    let newSenderInv = [...sender.inventory];
+                    if (newSenderInv[itemIndex].qty > 1) newSenderInv[itemIndex].qty -= 1;
+                    else newSenderInv.splice(itemIndex, 1);
+                    let newReceiverInv = [...receiver.inventory];
+                    const existing = newReceiverInv.find(i => i.name === itemToSend.name);
+                    if (existing) existing.qty += 1;
+                    else newReceiverInv.push(itemToSend);
+                    transaction.update(senderRef, { inventory: newSenderInv });
+                    transaction.update(receiverRef, { inventory: newReceiverInv });
+                    addCombatLog(`📦 Sent ${itemToSend.name} to ${targetName}.`);
+                } else if (type === "weapon") {
+                    const weaponIdx = sender.weapons.findIndex(w => w.name === value);
+                    if (weaponIdx === -1) throw new Error("Weapon not found");
+                    const weaponToSend = { ...sender.weapons[weaponIdx] };
+                    let newSenderWeapons = [...sender.weapons];
+                    newSenderWeapons.splice(weaponIdx, 1);
+                    let newReceiverWeapons = [...receiver.weapons];
+                    newReceiverWeapons.push(weaponToSend);
+                    transaction.update(senderRef, { weapons: newSenderWeapons });
+                    transaction.update(receiverRef, { weapons: newReceiverWeapons });
+                    addCombatLog(`⚔️ Sent weapon ${weaponToSend.name} to ${targetName}.`);
+                }
+            });
+            return true;
+        } catch (err) {
+            alert("Transfer failed: " + err.message);
+            return false;
+        }
+    }
+
+    // --- Chat System (multi-channel) ---
+    async function sendChatMessage(text) {
+        if (!currentUser || !text.trim()) return;
+        const userSnap = await getDoc(userDocRef);
+        if (!userSnap.exists()) return;
+        const userData = userSnap.data();
+        const message = { text: text.trim(), senderName: userData.name, senderId: currentUser.uid, timestamp: serverTimestamp() };
+        if (activeChatChannel === "global") {
+            await addDoc(collection(db, "globalChat"), message);
+        } else if (activeChatChannel === "guild" && currentGuild) {
+            await addDoc(collection(db, "guildChat", currentGuild.id, "messages"), message);
+        } else if (activeChatChannel === "party" && currentParty) {
+            await addDoc(collection(db, "partyChat", currentParty.id, "messages"), message);
+        } else if (activeChatChannel === "whisper") {
+            const targetId = document.getElementById("whisperTarget").value;
+            if (targetId) {
+                await addDoc(collection(db, "whispers"), { ...message, targetId });
+            } else {
+                addCombatLog("Select a whisper target first.");
+            }
+        }
+    }
+
+    function setupChatListeners() {
+        if (unsubGlobalChat) unsubGlobalChat();
+        if (unsubGuildChat) unsubGuildChat();
+        if (unsubPartyChat) unsubPartyChat();
+        const chatDiv = document.getElementById("chatMessages");
+        if (!chatDiv) return;
+        const renderMessages = (msgs) => { chatDiv.innerHTML = msgs.map(m => `💬 ${m.senderName}: ${m.text}`).join('<br>'); };
+        unsubGlobalChat = onSnapshot(query(collection(db, "globalChat"), orderBy("timestamp", "desc"), limit(30)), (snap) => {
+            if (activeChatChannel === "global") renderMessages(snap.docs.map(d => d.data()).reverse());
+        });
+        if (currentGuild) {
+            unsubGuildChat = onSnapshot(query(collection(db, "guildChat", currentGuild.id, "messages"), orderBy("timestamp", "desc"), limit(30)), (snap) => {
+                if (activeChatChannel === "guild") renderMessages(snap.docs.map(d => d.data()).reverse());
+            });
+        }
+        if (currentParty) {
+            unsubPartyChat = onSnapshot(query(collection(db, "partyChat", currentParty.id, "messages"), orderBy("timestamp", "desc"), limit(30)), (snap) => {
+                if (activeChatChannel === "party") renderMessages(snap.docs.map(d => d.data()).reverse());
+            });
+        }
+    }
+
+    // --- Party functions ---
+    async function createParty() {
+        if (currentParty) { addCombatLog("You are already in a party."); return; }
+        const partyRef = await addDoc(collection(db, "parties"), { leaderId: currentUser.uid, members: [currentUser.uid], createdAt: serverTimestamp() });
+        await updateDoc(userDocRef, { partyId: partyRef.id });
+        addCombatLog("Party created! Invite others using the 'Invite to Party' button.");
+    }
+    async function inviteToParty() {
+        const targetUid = prompt("Enter the UID or name of player to invite (use name from players list):");
+        if (!targetUid) return;
+        if (!currentParty) { addCombatLog("You are not in a party."); return; }
+        await addDoc(collection(db, "partyInvites"), { partyId: currentParty.id, targetId: targetUid, senderId: currentUser.uid, status: "pending" });
+        addCombatLog(`Invite sent to ${targetUid}.`);
+    }
+    async function leaveParty() {
+        if (!currentParty) return;
+        // Remove partyId from user and remove user from party members
+        await updateDoc(userDocRef, { partyId: null });
+        await updateDoc(doc(db, "parties", currentParty.id), { members: arrayRemove(currentUser.uid) });
+        addCombatLog("You left the party.");
+        currentParty = null;
+    }
+
+    // --- Guild functions ---
+    async function createGuild() {
+        const name = prompt("Guild name:");
+        if (!name) return;
+        const tag = prompt("Tag (3-5 chars):");
+        if (!tag) return;
+        const guildRef = await addDoc(collection(db, "guilds"), { name, tag, leaderId: currentUser.uid, members: [currentUser.uid], bankGold: 0, bankItems: [], points: 0, createdAt: serverTimestamp() });
+        await updateDoc(userDocRef, { guildId: guildRef.id });
+        addCombatLog(`Guild ${name} [${tag}] created!`);
+    }
+
+    // --- Trading System placeholder ---
+    async function startTrade(targetUid) {
+        const tradeRef = await addDoc(collection(db, "trades"), {
+            initiatorId: currentUser.uid,
+            targetId: targetUid,
+            initiatorOffer: { gold: 0, items: [], weapons: [], armors: [] },
+            targetOffer: { gold: 0, items: [], weapons: [], armors: [] },
+            status: "pending",
+            createdAt: serverTimestamp()
+        });
+        addCombatLog(`Trade request sent.`);
+        alert("Trade system is under construction – please use the send buttons for now.");
+    }
+
+    // --- Duel Arena placeholder ---
+    async function challengePlayer(targetId) {
+        const bet = prompt("Bet amount (gold):");
+        if (!bet || isNaN(bet)) return;
+        const duelRef = await addDoc(collection(db, "duels"), {
+            challengerId: currentUser.uid,
+            targetId: targetId,
+            bet: parseInt(bet),
+            status: "pending",
+            createdAt: serverTimestamp()
+        });
+        addCombatLog(`Duel challenge sent!`);
+        alert("Duel arena is under construction – watch this space!");
+    }
+
+    // --- UI Rendering (original) ---
+    function renderPlayerUI(user) {
+        if (!user) return;
+        document.getElementById("profileContent").innerHTML = `
+            <strong>${user.name || "Nameless"} (${user.className})</strong><br>
+            🏷️ "${user.tagline}"<br>
+            ❤️ HP: ${user.hp}/${user.maxHp} | 🪙 Gold: ${user.gold}<br>
+            ⚔️ Lv.${user.level} (${user.xp}/${user.level*100} XP)
+        `;
+        document.getElementById("statsArea").innerHTML = `
+            <div class="stats-grid">
+                <span>💪 STR: ${user.strength}</span> <span>🏃 AGI: ${user.agility}</span> <span>🔮 INT: ${user.intelligence}</span>
+                <span>🛡️ DEF: ${calcPlayerDefense(user)}</span>
+                <span>🗡️ Weapon: ${user.equippedWeapon?.name || "Fists"} (${user.equippedWeapon?.damage || 3} dmg)</span>
+                <span>🛡️ Armor: ${user.equippedArmor?.name || "Rags"} (${user.equippedArmor?.defense || 2} def)</span>
+            </div>
+        `;
+        let invHtml = "";
+        (user.inventory || []).forEach(it => { invHtml += `<div class="inventory-item">🍷 ${it.name} x${it.qty}</div>`; });
+        if (invHtml === "") invHtml = "<i>Empty pouch</i>";
+        document.getElementById("inventoryArea").innerHTML = invHtml;
+
+        let wepHtml = "";
+        (user.weapons || []).forEach(w => { wepHtml += `<div class="inventory-item">⚔️ ${w.name} (${w.damage})</div>`; });
+        document.getElementById("weaponsArea").innerHTML = wepHtml + (user.weapons?.length ? "<br><button id='equipWeaponBtn'>🔧 Equip Weapon (first in list)</button>" : "");
+
+        let armorHtml = "";
+        (user.armors || []).forEach(a => { armorHtml += `<div class="inventory-item">🛡️ ${a.name} (+${a.defense})</div>`; });
+        document.getElementById("armorArea").innerHTML = armorHtml + (user.armors?.length ? "<br><button id='equipArmorBtn'>🔧 Equip Armor (first in list)</button>" : "");
+
+        // Re-attach equip buttons because they are recreated each render
+        setTimeout(() => {
+            const equipWeaponBtn = document.getElementById("equipWeaponBtn");
+            if (equipWeaponBtn) equipWeaponBtn.onclick = async () => {
+                if (user.weapons?.length) {
+                    await updateDoc(userDocRef, { equippedWeapon: user.weapons[0] });
+                    addCombatLog(`Equipped ${user.weapons[0].name}`);
+                }
+            };
+            const equipArmorBtn = document.getElementById("equipArmorBtn");
+            if (equipArmorBtn) equipArmorBtn.onclick = async () => {
+                if (user.armors?.length) {
+                    await updateDoc(userDocRef, { equippedArmor: user.armors[0] });
+                    addCombatLog(`Equipped ${user.armors[0].name}`);
+                }
+            };
+        }, 0);
+    }
+
+    async function useHealthPotion() {
+        if (!userDocRef) return;
+        const snap = await getDoc(userDocRef);
+        const user = snap.data();
+        const potionIdx = user.inventory.findIndex(i => i.name === "Health Potion");
+        if (potionIdx === -1 || user.inventory[potionIdx].qty <= 0) {
+            addCombatLog("No health potion left!");
+            return;
+        }
+        if (user.hp >= user.maxHp) {
+            addCombatLog("Already full health.");
+            return;
+        }
+        const heal = 25;
+        let newHp = Math.min(user.maxHp, user.hp + heal);
+        let newInv = [...user.inventory];
+        if (newInv[potionIdx].qty === 1) newInv.splice(potionIdx, 1);
+        else newInv[potionIdx].qty -= 1;
+        await updateDoc(userDocRef, { hp: newHp, inventory: newInv });
+        addCombatLog(`🧪 You drink a potion, restoring ${heal} HP.`);
+    }
+
+    // --- Auth & Init ---
+    onAuthStateChanged(auth, async (user) => {
+        console.log("Auth state changed:", user);
+        if (user) {
+            currentUser = user;
+            userDocRef = doc(db, "users", user.uid);
+            const snap = await getDoc(userDocRef);
+            if (!snap.exists()) {
+                console.log("No user doc, showing creation modal");
+                showCreationModal(user.uid);
+            } else {
+                console.log("User doc exists, starting listener");
+                startUserListener(user.uid);
+            }
+        } else {
+            console.log("No user, signing in anonymously");
+            try {
+                await signInAnonymously(auth);
+            } catch (err) {
+                showError(`Authentication failed: ${err.message}. Enable Anonymous Auth in Firebase.`);
+                console.error(err);
+            }
+        }
+    });
+
+    function startUserListener(uid) {
+        userDocRef = doc(db, "users", uid);
+        unsubscribeUser = onSnapshot(userDocRef, (docSnap) => { if (docSnap.exists()) renderPlayerUI(docSnap.data()); });
+        // Subscribe to party and guild
+        onSnapshot(userDocRef, async (snap) => {
+            const data = snap.data();
+            if (data?.partyId) {
+                const partySnap = await getDoc(doc(db, "parties", data.partyId));
+                if (partySnap.exists()) currentParty = { id: partySnap.id, ...partySnap.data() };
+            } else currentParty = null;
+            if (data?.guildId) {
+                const guildSnap = await getDoc(doc(db, "guilds", data.guildId));
+                if (guildSnap.exists()) currentGuild = { id: guildSnap.id, ...guildSnap.data() };
+            } else currentGuild = null;
+            setupChatListeners();
+        });
+
+        // Players list (original buttons restored)
+        unsubscribePlayers = onSnapshot(query(collection(db, "users")), (snapshot) => {
+            const playersDiv = document.getElementById("playersListArea");
+            if (!playersDiv) return;
+            let html = "";
+            snapshot.forEach(docu => {
+                const p = docu.data();
+                if (docu.id !== uid) {
+                    html += `<div class="player-entry">
+                                <span><b>${p.name}</b> (${p.className})<br>🏷️ ${p.tagline}</span>
+                                <div>
+                                    <button class="sendGoldBtn" data-uid="${docu.id}" data-name="${p.name}">💰Send Gold</button>
+                                    <button class="sendItemBtn" data-uid="${docu.id}" data-name="${p.name}">📦Send Item</button>
+                                    <button class="sendWeaponBtn" data-uid="${docu.id}" data-name="${p.name}">⚔️Send Weapon</button>
+                                    <button class="challengeBtn" data-uid="${docu.id}">⚔️ Duel</button>
+                                </div>
+                            </div>`;
+                }
+            });
+            playersDiv.innerHTML = html;
+
+            document.querySelectorAll(".sendGoldBtn").forEach(btn => {
+                btn.onclick = async (e) => {
+                    const targetUid = btn.dataset.uid;
+                    const targetName = btn.dataset.name;
+                    const amount = prompt("Enter gold amount to send:");
+                    if (amount && !isNaN(amount)) {
+                        await sendToPlayer(targetUid, targetName, "gold", parseInt(amount));
+                    }
+                };
+            });
+            document.querySelectorAll(".sendItemBtn").forEach(btn => {
+                btn.onclick = async () => {
+                    const targetUid = btn.dataset.uid;
+                    const targetName = btn.dataset.name;
+                    const senderSnap = await getDoc(userDocRef);
+                    if (!senderSnap.exists()) return;
+                    const items = senderSnap.data().inventory.map(i => i.name);
+                    if (!items.length) { alert("No items to send"); return; }
+                    const itemName = prompt(`Items: ${items.join(", ")}\nEnter exact item name:`);
+                    if (itemName && items.includes(itemName)) {
+                        await sendToPlayer(targetUid, targetName, "item", itemName);
+                    } else alert("Invalid item");
+                };
+            });
+            document.querySelectorAll(".sendWeaponBtn").forEach(btn => {
+                btn.onclick = async () => {
+                    const targetUid = btn.dataset.uid;
+                    const targetName = btn.dataset.name;
+                    const senderSnap = await getDoc(userDocRef);
+                    if (!senderSnap.exists()) return;
+                    const weapons = senderSnap.data().weapons.map(w => w.name);
+                    if (!weapons.length) { alert("No weapons to send"); return; }
+                    const wepName = prompt(`Weapons: ${weapons.join(", ")}\nEnter weapon name:`);
+                    if (wepName && weapons.includes(wepName)) {
+                        await sendToPlayer(targetUid, targetName, "weapon", wepName);
+                    } else alert("Invalid weapon");
+                };
+            });
+            document.querySelectorAll(".challengeBtn").forEach(btn => {
+                btn.onclick = () => challengePlayer(btn.dataset.uid);
+            });
+        });
+
+        // Leaderboard (original)
+        const leaderQuery = query(collection(db, "users"), orderBy("level", "desc"), orderBy("xp", "desc"), limit(10));
+        onSnapshot(leaderQuery, (snap) => {
+            let rankHtml = "<ol>";
+            snap.forEach((docu) => { const p = docu.data(); rankHtml += `<li><b>${p.name}</b> (${p.className}) Lv.${p.level} | ${p.xp} XP | 🪙${p.gold}</li>`; });
+            rankHtml += "</ol>";
+            document.getElementById("leaderboardList").innerHTML = rankHtml || "No champions";
+        });
+
+        // Initial enemy
+        const userData = (await getDoc(userDocRef)).data();
+        if (userData) currentEnemy = getRandomEnemy(userData.level);
+        updateEnemyUI();
+    }
+
+    function showCreationModal(uid) {
+        const modal = document.getElementById("creationModal");
+        const modalBody = document.getElementById("modalBody");
+        if (!modal || !modalBody) return;
+        modalBody.innerHTML = `
+            <label>⚔️ Adventurer Name:</label><br>
+            <input id="charName" placeholder="Sir Alaric" value="Wanderer"><br>
+            <label>🎭 Class:</label><br>
+            <select id="charClass"><option>Warrior</option><option>Mage</option><option>Rogue</option></select><br>
+            <label>📜 Tagline (ex: 'Fight to the death'):</label><br>
+            <input id="charTagline" placeholder="Doom approaches..."><br>
+        `;
+        modal.style.display = "flex";
+        const confirmBtn = document.getElementById("modalConfirmBtn");
+        if (!confirmBtn) return;
+        const confirmHandler = async () => {
+            const name = document.getElementById("charName").value.trim() || "Damned Soul";
+            const className = document.getElementById("charClass").value;
+            const tagline = document.getElementById("charTagline").value.trim() || "Embrace the dark";
+            await createCharacter(uid, name, className, tagline);
+            modal.style.display = "none";
+            startUserListener(uid);
+        };
+        confirmBtn.onclick = confirmHandler;
+    }
+
+    async function createCharacter(uid, name, className, tagline) {
+        let str = 10, agi = 10, int = 10, maxHp = 35;
+        let weapon = { name: "Rusty Dagger", damage: 5 };
+        let armor = { name: "Ragged Cloth", defense: 2 };
+        let inventory = [{ name: "Health Potion", qty: 2 }];
+        let weapons = [weapon];
+        let armors = [armor];
+        if (className === "Warrior") {
+            str = 16; agi = 10; int = 8; maxHp = 48;
+            weapon = { name: "Broadsword", damage: 9 };
+            weapons = [weapon];
+            armor = { name: "Chainmail", defense: 5 };
+            armors = [armor];
+            inventory.push({ name: "Iron Ration", qty: 1 });
+        } else if (className === "Mage") {
+            str = 8; agi = 10; int = 16; maxHp = 32;
+            weapon = { name: "Wizard Staff", damage: 6 };
+            weapons = [weapon];
+            armor = { name: "Mystic Robe", defense: 4 };
+            armors = [armor];
+            inventory.push({ name: "Mana Herb", qty: 1 });
+        } else if (className === "Rogue") {
+            str = 10; agi = 16; int = 8; maxHp = 38;
+            weapon = { name: "Poison Dagger", damage: 7 };
+            weapons = [weapon];
+            armor = { name: "Leather Vest", defense: 3 };
+            armors = [armor];
+            inventory.push({ name: "Lockpick", qty: 1 });
+        }
+        const userData = {
+            uid, name, className, tagline,
+            gold: 100, xp: 0, level: 1, hp: maxHp, maxHp,
+            strength: str, agility: agi, intelligence: int,
+            weapons, equippedWeapon: weapon,
+            armors, equippedArmor: armor,
+            inventory
+        };
+        await setDoc(doc(db, "users", uid), userData);
+        return userData;
+    }
+
+    function addCombatLog(msg) {
+        combatLogs.unshift(`> ${new Date().toLocaleTimeString()} ${msg}`);
+        if (combatLogs.length > 30) combatLogs.pop();
+        const logDiv = document.getElementById("combatLog");
+        if (logDiv) logDiv.innerHTML = combatLogs.map(l => l).join('<br>');
+    }
+
+    function showError(msg) {
+        const banner = document.getElementById("errorBanner");
+        if (banner) {
+            banner.innerHTML = `⚠️ ${msg} ⚠️`;
+            banner.style.display = "block";
+        }
+        console.error(msg);
+    }
+
+    // --- Event Listeners (all buttons) ---
+    document.getElementById("editProfileBtn")?.addEventListener("click", async () => {
+        if (!userDocRef) { alert("Character not loaded yet."); return; }
+        const snap = await getDoc(userDocRef);
+        if (snap.exists()) {
+            const newName = prompt("New name:", snap.data().name);
+            const newTag = prompt("New tagline:", snap.data().tagline);
+            if (newName) await updateDoc(userDocRef, { name: newName });
+            if (newTag) await updateDoc(userDocRef, { tagline: newTag });
+        }
+    });
+    document.getElementById("useItemBtn")?.addEventListener("click", useHealthPotion);
+    document.getElementById("talkNpcBtn")?.addEventListener("click", () => {
+        const msgs = ["The crypts whisper your name...", "Seek the obsidian key!", "Beware the blood moon rise.", "Castle walls bleed memories."];
+        const msg = msgs[Math.floor(Math.random() * msgs.length)];
+        const npcDiv = document.getElementById("npcMessage");
+        if (npcDiv) npcDiv.innerHTML = `🧙 " ${msg} " — Elder Sage`;
+        addCombatLog(`NPC: ${msg}`);
+    });
+    document.getElementById("sendChatBtn")?.addEventListener("click", async () => {
+        const input = document.getElementById("chatMessageInput");
+        if (input) await sendChatMessage(input.value);
+        if (input) input.value = "";
+    });
+    document.getElementById("createPartyBtn")?.addEventListener("click", createParty);
+    document.getElementById("inviteToPartyBtn")?.addEventListener("click", inviteToParty);
+    document.getElementById("leavePartyBtn")?.addEventListener("click", leaveParty);
+    document.getElementById("createGuildBtn")?.addEventListener("click", createGuild);
+    document.getElementById("tradeBtn")?.addEventListener("click", () => {
+        const targetUid = prompt("Enter the UID of player to trade with:");
+        if (targetUid) startTrade(targetUid);
+    });
+    document.getElementById("arenaBtn")?.addEventListener("click", () => {
+        const targetUid = prompt("Enter the UID of player to duel:");
+        if (targetUid) challengePlayer(targetUid);
+    });
+    document.querySelectorAll(".chat-tab").forEach(tab => {
+        tab.addEventListener("click", () => {
+            document.querySelectorAll(".chat-tab").forEach(t => t.classList.remove("active"));
+            tab.classList.add("active");
+            activeChatChannel = tab.dataset.channel;
+            const whisperSelect = document.getElementById("whisperTarget");
+            if (whisperSelect) whisperSelect.style.display = activeChatChannel === "whisper" ? "inline-block" : "none";
+            if (activeChatChannel === "whisper") {
+                // Populate whisper targets from players list
+                const players = document.querySelectorAll(".player-entry span b");
+                if (whisperSelect) whisperSelect.innerHTML = '<option value="">Select target</option>' + Array.from(players).map(p => `<option value="${p.innerText}">${p.innerText}</option>`).join('');
+            }
+            setupChatListeners();
+        });
+    });
+
+    addCombatLog("CASTLE OF THE DAMNED - Enhanced with parties, guilds, trading, duels, and multi-chat!");
+</script>
+</body>
+</html>
