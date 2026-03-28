@@ -1846,18 +1846,28 @@
         ];
         
         function updateGuildUI() {
-            document.getElementById('guild-points').innerHTML = hero.guildPoints;
+            console.log("updateGuildUI called"); // Debug log
+            const guildPointsEl = document.getElementById('guild-points');
+            const guildBonusEl = document.getElementById('guild-bonus');
+            const guildQuestsEl = document.getElementById('guild-quests');
+            const guildShopEl = document.getElementById('guild-shop');
+            
+            if (guildPointsEl) guildPointsEl.innerHTML = hero.guildPoints;
+            else console.warn("guild-points element not found");
+            
             let bonusText = "None";
             if (hero.guildBonuses && hero.guildBonuses.length) {
                 bonusText = hero.guildBonuses.map(b => b.name).join(", ");
             }
-            document.getElementById('guild-bonus').innerHTML = `Active Bonus: ${bonusText}`;
+            if (guildBonusEl) guildBonusEl.innerHTML = `Active Bonus: ${bonusText}`;
+            
             // Render guild quests
             let questsHtml = "";
             guildQuests.forEach((q, idx) => {
                 questsHtml += `<div class="item" style="padding:8px;"><div>${q.name}</div><div>Progress: ${q.progress}/${q.target}</div><button onclick="completeGuildQuest(${idx})" style="padding:4px 8px; font-size:10px;">Complete (if ready)</button></div>`;
             });
-            document.getElementById('guild-quests').innerHTML = questsHtml;
+            if (guildQuestsEl) guildQuestsEl.innerHTML = questsHtml;
+            
             // Render guild shop
             let shopHtml = "";
             const guildItems = [
@@ -1867,9 +1877,9 @@
             guildItems.forEach(item => {
                 shopHtml += `<div class="item" style="padding:8px;"><div>${item.name}</div><div>Cost: ${item.cost} GP</div><button onclick="buyGuildItem('${item.name}', ${item.cost})" style="padding:4px 8px; font-size:10px;">Buy</button></div>`;
             });
-            document.getElementById('guild-shop').innerHTML = shopHtml;
-            // Guild messages are now handled by the real-time listener
+            if (guildShopEl) guildShopEl.innerHTML = shopHtml;
         }
+        
         
         function completeGuildQuest(idx) {
             let q = guildQuests[idx];
@@ -1932,15 +1942,58 @@
                         const msg = doc.data();
                         messagesHtml += `<div class="guild-message">${msg.name}: ${msg.text}</div>`;
                     });
-                    document.getElementById('guild-messages').innerHTML = messagesHtml;
+                    const guildMessagesEl = document.getElementById('guild-messages');
+                    if (guildMessagesEl) guildMessagesEl.innerHTML = messagesHtml;
                 });
+        }
+
+        // ========== SCREEN MANAGEMENT (with debug) ==========
+        function showScreen(screenId) {
+            console.log("Showing screen:", screenId);
+            document.querySelectorAll('#hub-content > div').forEach(div => div.style.display = 'none');
+            const target = document.getElementById(screenId);
+            if (target) {
+                target.style.display = 'flex';
+                console.log("Screen displayed:", screenId);
+            } else {
+                console.error("Screen not found:", screenId);
+            }
+            updateEnergy();
+            if (screenId === 'hero-screen') {
+                const stats = getCurrentStats();
+                document.getElementById('hero-avatar-big').innerHTML = hero.avatar;
+                document.getElementById('stat-attack').innerHTML = stats.attack;
+                document.getElementById('stat-defense').innerHTML = stats.defense;
+                document.getElementById('stat-level').innerHTML = hero.level;
+                document.getElementById('stat-xp').innerHTML = `${hero.xp} / ${hero.xpToNext}`;
+                document.getElementById('stat-crit').innerHTML = `${stats.critChance}%`;
+                document.getElementById('stat-dodge').innerHTML = `${stats.dodgeChance}%`;
+                renderEquipped();
+                let setBonus = getSetBonuses();
+                let setText = "";
+                if (setBonus.attack > 0 || setBonus.defense > 0) setText = `Set Bonus: +${setBonus.attack} ATK, +${setBonus.defense} DEF, +${setBonus.crit}% CRIT, +${setBonus.dodge}% DODGE`;
+                else setText = "No active set bonuses";
+                document.getElementById('set-bonus-display').innerHTML = setText;
+            }
+            if (screenId === 'inventory-screen') { renderEquipped(); renderInventory(); }
+            if (screenId === 'shop-screen') renderShop();
+            if (screenId === 'rankings-screen') renderLeaderboard();
+            if (screenId === 'town-screen') updateTownUI();
+            if (screenId === 'quest-screen') renderQuestList();
+            if (screenId === 'guild-screen') {
+                console.log("Updating guild UI");
+                updateGuildUI();
+            }
+            if (screenId === 'hub-default') {
+                if (hero.xpBoostEndTime > Date.now()) document.getElementById('xp-buff-status').style.display = 'block';
+                else document.getElementById('xp-buff-status').style.display = 'none';
+            }
+            updateHeroBar();
         }
         
         // ====================== INITIALIZATION ======================
         function initializeGame() {
             console.log('%cQUESTLAND MMO EDITION v5.0 - FIREBASE POWERED', 'color:#00ff88');
-            // The continue button is shown after successful login if a character exists
-            // We'll call loadPlayerData inside auth callback
         }
         
         // Start Firebase auth
@@ -1948,11 +2001,9 @@
             currentUserId = userCredential.user.uid;
             console.log("Logged in as:", currentUserId);
             loadPlayerData().then(() => {
-                // Check if player has a name (means they created a character)
                 if (hero.name && hero.name !== "SIR PIXEL" || hero.gold > 0) {
                     document.getElementById('continue-btn').style.display = 'block';
                 }
-                // Start game loop
                 setInterval(() => {
                     if (document.getElementById('hub-screen').classList.contains('active')) savePlayerData();
                 }, 30000);
