@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>DUNGEON CRAWLER 3D - TEXTURED FLOOR &amp; WALLS (FIXED CONTROLS)</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        
+        * {
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: #0f0;
+            font-family: 'Press Start 2P', system-ui;
+            overflow: hidden;
+            image-rendering: crisp-edges;
+            image-rendering: pixelated;
+        }
+        
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #111;
+        }
+        
+        canvas {
+            border: 8px solid #222;
+            box-shadow: 
+                0 0 0 8px #111,
+                0 0 0 16px #000,
+                0 0 40px rgba(0, 255, 0, 0.3);
+            image-rendering: crisp-edges;
+            image-rendering: pixelated;
+            cursor: crosshair;
+        }
+        
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            pointer-events: none;
+            z-index: 10;
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+            text-shadow: 0 0 10px #0f0;
+            background: rgba(0,0,0,0.5);
+            padding: 8px 12px;
+            border-radius: 4px;
+            backdrop-filter: blur(2px);
+        }
+        
+        #title {
+            position: absolute;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 28px;
+            letter-spacing: 8px;
+            color: #0f0;
+            text-shadow: 
+                0 0 10px #0f0,
+                0 0 20px #0f0;
+            z-index: 20;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+        
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.85);
+            padding: 12px 24px;
+            border: 4px solid #0f0;
+            font-size: 12px;
+            text-align: center;
+            white-space: nowrap;
+            z-index: 30;
+            pointer-events: none;
+            font-family: 'Press Start 2P', monospace;
+            letter-spacing: 1px;
+        }
+        
+        .scanlines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                to bottom,
+                transparent 0px,
+                transparent 2px,
+                rgba(0, 255, 0, 0.07) 2px,
+                rgba(0, 255, 0, 0.07) 4px
+            );
+            pointer-events: none;
+            z-index: 40;
+            animation: flicker 0.15s infinite alternate;
+        }
+        
+        @keyframes flicker {
+            0% { opacity: 0.95; }
+            100% { opacity: 1; }
+        }
+        
+        #dialog-box {
+            position: absolute;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 540px;
+            background: rgba(0, 0, 0, 0.95);
+            border: 4px solid #ffcc00;
+            padding: 15px;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 12px;
+            color: #ffcc00;
+            text-align: center;
+            z-index: 100;
+            pointer-events: none;
+            transition: opacity 0.2s;
+            border-radius: 12px;
+            box-shadow: 0 0 20px rgba(255,204,0,0.3);
+            backdrop-filter: blur(4px);
+        }
+        
+        @media (max-width: 700px) {
+            #instructions { font-size: 8px; white-space: normal; width: 90%; padding: 8px; }
+            #hud { font-size: 8px; }
+            #title { font-size: 16px; top: 8px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="title">⚔️ DUNGEON CRAWLER ⚔️</div>
+        
+        <div id="hud">
+            <div>❤️ HEALTH <span id="health">100</span>% ████████</div>
+            <div>⭐ SCORE <span id="score">00000</span></div>
+            <div>🔑 KEYS: <span id="keys">0</span></div>
+            <div>📍 <span id="location">DUNGEON LVL 1</span></div>
+        </div>
+        
+        <canvas id="canvas" width="640" height="400"></canvas>
+        
+        <div id="instructions">
+            🕹️ WASD / ARROWS — MOVE &amp; TURN &nbsp;&nbsp;|&nbsp;&nbsp; 🗣️ E — TALK &nbsp;&nbsp;|&nbsp;&nbsp; ⎋ ESC — PAUSE
+            <br>
+            🗝️ FIND KEY → OPEN LOCKED DOORS &nbsp;&nbsp;|&nbsp;&nbsp; 🧙 FIND THE WIZARD
+            <br>
+            <span style="color:#ffaa33;">✅ FIXED: LEFT ARROW TURNS LEFT, RIGHT ARROW TURNS RIGHT</span>
+        </div>
+        
+        <div class="scanlines"></div>
+    </div>
+
+    <div id="dialog-box" style="display: none;"></div>
+
+    <script>
+        (function(){
+            // ---------------------- RAYCASTING ENGINE ----------------------
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            const SCREEN_WIDTH = 640;
+            const SCREEN_HEIGHT = 400;
+            const MAP_WIDTH = 14;
+            const MAP_HEIGHT = 14;
+            
+            // World map: 0=empty, 1=stone wall, 2=mossy wall, 3=locked door
+            const worldMap = [
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,0,0,0,0,0,1,0,0,0,0,0,0,1],
+                [1,0,2,2,0,0,1,0,2,0,0,3,0,1],
+                [1,0,2,0,0,0,0,0,0,0,0,0,0,1],
+                [1,0,0,0,1,1,1,0,0,1,0,0,0,1],
+                [1,0,0,0,1,0,1,0,0,1,0,0,0,1],
+                [1,1,0,1,1,0,0,0,0,0,0,0,0,1],
+                [1,0,0,0,0,0,0,2,2,0,0,0,0,1],
+                [1,0,0,1,0,0,0,0,0,0,0,0,0,1],
+                [1,0,0,1,0,2,0,0,0,0,0,0,0,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                [1,0,3,0,0,0,0,0,0,0,0,0,0,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+            ];
+            
+            // Player start
+            let posX = 2.5;
+            let posY = 1.5;
+            let dirX = 0.0;
+            let dirY = 1.0;
+            let planeX = 0.66;
+            let planeY = 0.0;
+            
+            let moveSpeed = 0;
+            let rotSpeed = 0;
+            const BASE_MOVE_SPEED = 4.5;
+            const BASE_ROT_SPEED = 2.8;
+            
+            const keys = {};
+            let oldTime = 0;
+            let paused = false;
+            
+            let health = 100;
+            let score = 0;
+            let keyCount = 0;
+            
+            // ====================== TEXTURES (WALL + FLOOR) ======================
+            // --- WALL TEXTURE ---
+            const wallTexture = new Image();
+            wallTexture.crossOrigin = "Anonymous";
+            let wallTextureLoaded = false;
+            wallTexture.src = "https://raw.githubusercontent.com/wolfen1984/Html/main/wall1.png";
+            wallTexture.onload = () => {
+                wallTextureLoaded = true;
+                console.log("✅ Wall texture loaded");
+            };
+            wallTexture.onerror = () => {
+                console.warn("⚠️ Wall texture fallback");
+                wallTextureLoaded = false;
+            };
+            
+            // --- FLOOR TEXTURE (PNG from GitHub) ---
+            const floorTexture = new Image();
+            floorTexture.crossOrigin = "Anonymous";
+            let floorTextureLoaded = false;
+            let floorTextureData = null;      // ImageData pixel array
+            let floorTexWidth = 0, floorTexHeight = 0;
+            
+            floorTexture.src = "https://raw.githubusercontent.com/wolfen1984/Html/main/floor1.png";
+            floorTexture.onload = () => {
+                floorTextureLoaded = true;
+                // Pre-extract pixel data for fast floor rendering
+                try {
+                    const offCanvas = document.createElement('canvas');
+                    offCanvas.width = floorTexture.width;
+                    offCanvas.height = floorTexture.height;
+                    const offCtx = offCanvas.getContext('2d');
+                    offCtx.drawImage(floorTexture, 0, 0);
+                    const imgData = offCtx.getImageData(0, 0, floorTexture.width, floorTexture.height);
+                    floorTextureData = imgData.data;
+                    floorTexWidth = floorTexture.width;
+                    floorTexHeight = floorTexture.height;
+                    console.log(`✅ Floor texture loaded (${floorTexWidth}x${floorTexHeight})`);
+                } catch(e) {
+                    console.warn("Floor texture pixel extraction failed", e);
+                    floorTextureLoaded = false;
+                }
+            };
+            floorTexture.onerror = () => {
+                console.warn("⚠️ Failed to load floor texture, using gradient fallback");
+                floorTextureLoaded = false;
+            };
+            
+            // ====================== SPRITES (NPC, ITEMS) ======================
+            let sprites = [
+                { x: 4.5, y: 3.5, type: 'coin', icon: '💰' },
+                { x: 7.2, y: 5.5, type: 'coin', icon: '💰' },
+                { x: 9.0, y: 2.5, type: 'coin', icon: '💰' },
+                { x: 5.5, y: 8.0, type: 'key', icon: '🔑' },
+                { x: 10.5, y: 10.5, type: 'map_fragment', icon: '🗺️' },
+                { x: 3.0, y: 11.5, type: 'npc', icon: '🧙', name: 'Wizard', 
+                  dialog: "Greetings, traveler! Behind the locked door lies the treasure of ages. Find the key and open it! Also, take this map fragment to see the whole dungeon." }
+            ];
+            
+            const wizardImage = new Image();
+            wizardImage.crossOrigin = "Anonymous";
+            let wizardImageLoaded = false;
+            wizardImage.src = "https://raw.githubusercontent.com/wolfen1984/Html/main/dem.png";
+            wizardImage.onload = () => { wizardImageLoaded = true; };
+            wizardImage.onerror = () => { wizardImageLoaded = false; };
+            
+            let nearbyNPC = null;
+            let dialogActive = false;
+            let pickupMessage = '';
+            let messageTimer = 0;
+            
+            let visited = Array(MAP_HEIGHT).fill().map(() => Array(MAP_WIDTH).fill(false));
+            
+            // ====================== UTILITIES ======================
+            function markVisitedAround(x, y, radius = 2) {
+                for (let dy = -radius; dy <= radius; dy++) {
+                    for (let dx = -radius; dx <= radius; dx++) {
+                        let nx = Math.floor(x + dx);
+                        let ny = Math.floor(y + dy);
+                        if (nx >= 0 && nx < MAP_WIDTH && ny >= 0 && ny < MAP_HEIGHT) {
+                            visited[ny][nx] = true;
+                        }
+                    }
+                }
+            }
+            
+            function revealFullMap() {
+                for (let y = 0; y < MAP_HEIGHT; y++) {
+                    for (let x = 0; x < MAP_WIDTH; x++) {
+                        visited[y][x] = true;
+                    }
+                }
+                pickupMessage = '🗺️ MAP REVEALED!';
+                messageTimer = 120;
+            }
+            
+            function canMoveTo(x, y) {
+                let mapX = Math.floor(x);
+                let mapY = Math.floor(y);
+                if (mapX < 0 || mapX >= MAP_WIDTH || mapY < 0 || mapY >= MAP_HEIGHT) return false;
+                let cell = worldMap[mapY][mapX];
+                if (cell === 0) return true;
+                if (cell === 3) { // locked door
+                    if (keyCount > 0) {
+                        keyCount--;
+                        worldMap[mapY][mapX] = 0;
+                        pickupMessage = '🔓 DOOR UNLOCKED!';
+                        messageTimer = 60;
+                        return true;
+                    } else {
+                        pickupMessage = '🔒 NEED A KEY!';
+                        messageTimer = 60;
+                        return false;
+                    }
+                }
+                return false;
+            }
+            
+            function isSpriteVisible(sx, sy) {
+                const dx = sx - posX;
+                const dy = sy - posY;
+                const distance = Math.hypot(dx, dy);
+                if (distance < 0.2) return true;
+                const steps = Math.max(1, Math.floor(distance * 12));
+                for (let t = 0; t <= steps; t++) {
+                    const stepX = posX + (dx * t / steps);
+                    const stepY = posY + (dy * t / steps);
+                    const mapX = Math.floor(stepX);
+                    const mapY = Math.floor(stepY);
+                    if (worldMap[mapY][mapX] !== 0) {
+                        if (Math.abs(stepX - sx) > 0.3 || Math.abs(stepY - sy) > 0.3) return false;
+                    }
+                }
+                return true;
+            }
+            
+            // ====================== INPUT ======================
+            function handleKeyDown(e) {
+                keys[e.key] = true;
+                if (e.key === "Escape") {
+                    paused = !paused;
+                    if (paused) {
+                        ctx.fillStyle = "rgba(0,0,0,0.9)";
+                        ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+                        ctx.fillStyle = "#0f0";
+                        ctx.font = "24px 'Press Start 2P'";
+                        ctx.textAlign = "center";
+                        ctx.fillText("PAUSED", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 20);
+                        ctx.font = "12px 'Press Start 2P'";
+                        ctx.fillText("PRESS ESC TO CONTINUE", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 30);
+                    }
+                }
+                if (e.key === 'e' || e.key === 'E') {
+                    if (!paused && nearbyNPC && !dialogActive) {
+                        dialogActive = true;
+                        const dialogBox = document.getElementById('dialog-box');
+                        dialogBox.style.display = 'block';
+                        dialogBox.innerHTML = `🧙 ${nearbyNPC.name}: "${nearbyNPC.dialog}"<br><span style="font-size:9px;">🔁 PRESS E AGAIN TO CLOSE</span>`;
+                        setTimeout(() => {
+                            if (dialogActive) {
+                                dialogActive = false;
+                                dialogBox.style.display = 'none';
+                            }
+                        }, 8000);
+                    } else if (dialogActive) {
+                        dialogActive = false;
+                        document.getElementById('dialog-box').style.display = 'none';
+                    }
+                }
+            }
+            
+            function handleKeyUp(e) { keys[e.key] = false; }
+            
+            function updateMovement(frameTimeSec) {
+                if (paused) return;
+                moveSpeed = BASE_MOVE_SPEED * frameTimeSec;
+                rotSpeed = BASE_ROT_SPEED * frameTimeSec;
+                
+                // forward / backward
+                if (keys['w'] || keys['ArrowUp']) {
+                    let newX = posX + dirX * moveSpeed;
+                    let newY = posY + dirY * moveSpeed;
+                    if (canMoveTo(newX, posY)) posX = newX;
+                    if (canMoveTo(posX, newY)) posY = newY;
+                }
+                if (keys['s'] || keys['ArrowDown']) {
+                    let newX = posX - dirX * moveSpeed;
+                    let newY = posY - dirY * moveSpeed;
+                    if (canMoveTo(newX, posY)) posX = newX;
+                    if (canMoveTo(posX, newY)) posY = newY;
+                }
+                
+                // strafe left/right (A/D)
+                if (keys['a'] || keys['A']) {
+                    let newX = posX - planeX * moveSpeed;
+                    let newY = posY - planeY * moveSpeed;
+                    if (canMoveTo(newX, posY)) posX = newX;
+                    if (canMoveTo(posX, newY)) posY = newY;
+                }
+                if (keys['d'] || keys['D']) {
+                    let newX = posX + planeX * moveSpeed;
+                    let newY = posY + planeY * moveSpeed;
+                    if (canMoveTo(newX, posY)) posX = newX;
+                    if (canMoveTo(posX, newY)) posY = newY;
+                }
+                
+                // ----- FIXED TURNING CONTROLS -----
+                // ArrowLeft should rotate left (counter-clockwise) -> positive rotation angle
+                // ArrowRight should rotate right (clockwise) -> negative rotation angle
+                if (keys['ArrowLeft']) {
+                    let rot = rotSpeed;          // positive = turn left
+                    let oldDirX = dirX;
+                    dirX = dirX * Math.cos(rot) - dirY * Math.sin(rot);
+                    dirY = oldDirX * Math.sin(rot) + dirY * Math.cos(rot);
+                    let oldPlaneX = planeX;
+                    planeX = planeX * Math.cos(rot) - planeY * Math.sin(rot);
+                    planeY = oldPlaneX * Math.sin(rot) + planeY * Math.cos(rot);
+                }
+                if (keys['ArrowRight']) {
+                    let rot = -rotSpeed;         // negative = turn right
+                    let oldDirX = dirX;
+                    dirX = dirX * Math.cos(rot) - dirY * Math.sin(rot);
+                    dirY = oldDirX * Math.sin(rot) + dirY * Math.cos(rot);
+                    let oldPlaneX = planeX;
+                    planeX = planeX * Math.cos(rot) - planeY * Math.sin(rot);
+                    planeY = oldPlaneX * Math.sin(rot) + planeY * Math.cos(rot);
+                }
+                
+                markVisitedAround(posX, posY, 2);
+                
+                // collect items & NPC detection
+                nearbyNPC = null;
+                for (let i = sprites.length - 1; i >= 0; i--) {
+                    const s = sprites[i];
+                    const dx = s.x - posX;
+                    const dy = s.y - posY;
+                    const dist = Math.hypot(dx, dy);
+                    
+                    if (dist < 0.5 && s.type !== 'npc') {
+                        if (s.type === 'coin') {
+                            score += 50;
+                            pickupMessage = '💰 +50 GOLD!';
+                            messageTimer = 60;
+                        } else if (s.type === 'key') {
+                            keyCount++;
+                            pickupMessage = '🔑 KEY ACQUIRED!';
+                            messageTimer = 60;
+                        } else if (s.type === 'map_fragment') {
+                            revealFullMap();
+                        }
+                        sprites.splice(i, 1);
+                        continue;
+                    }
+                    if (s.type === 'npc' && dist < 1.5) nearbyNPC = s;
+                }
+                
+                document.getElementById('health').textContent = health;
+                document.getElementById('score').textContent = String(score).padStart(5, '0');
+                document.getElementById('keys').textContent = keyCount;
+            }
+            
+            // ====================== TEXTURED FLOOR RENDERER (per-pixel with ImageData) ======================
+            function drawTexturedFloor() {
+                if (!floorTextureLoaded || !floorTextureData) {
+                    // fallback gradient
+                    const gradFloor = ctx.createLinearGradient(0, SCREEN_HEIGHT/2, 0, SCREEN_HEIGHT);
+                    gradFloor.addColorStop(0, '#2a2418');
+                    gradFloor.addColorStop(1, '#1a1510');
+                    ctx.fillStyle = gradFloor;
+                    ctx.fillRect(0, SCREEN_HEIGHT / 2, SCREEN_WIDTH, SCREEN_HEIGHT / 2);
+                    return;
+                }
+                
+                const halfHeight = SCREEN_HEIGHT / 2;
+                const cameraHeight = 0.5;   // eye level
+                const texW = floorTexWidth;
+                const texH = floorTexHeight;
+                
+                // Create ImageData for the floor region only (lower half)
+                const imageData = ctx.getImageData(0, halfHeight, SCREEN_WIDTH, halfHeight);
+                const data = imageData.data;
+                
+                // Precompute left/right ray vectors
+                const leftRayX = dirX - planeX;
+                const leftRayY = dirY - planeY;
+                const rightRayX = dirX + planeX;
+                const rightRayY = dirY + planeY;
+                
+                for (let y = halfHeight; y < SCREEN_HEIGHT; y++) {
+                    const dy = y - halfHeight;
+                    if (dy === 0) continue;
+                    // perspective: rowDistance = cameraHeight * screenHeight / dy
+                    const rowDistance = cameraHeight * SCREEN_HEIGHT / dy;
+                    
+                    // World positions at left and right edges of this row
+                    const leftWorldX = posX + rowDistance * leftRayX;
+                    const leftWorldY = posY + rowDistance * leftRayY;
+                    const rightWorldX = posX + rowDistance * rightRayX;
+                    const rightWorldY = posY + rowDistance * rightRayY;
+                    
+                    const stepX = (rightWorldX - leftWorldX) / SCREEN_WIDTH;
+                    const stepY = (rightWorldY - leftWorldY) / SCREEN_WIDTH;
+                    
+                    let floorX = leftWorldX;
+                    let floorY = leftWorldY;
+                    
+                    const rowOffset = (y - halfHeight) * SCREEN_WIDTH * 4;
+                    
+                    for (let x = 0; x < SCREEN_WIDTH; x++) {
+                        // texture coordinate from fractional part of world position (tiles every 1 unit)
+                        let tx = Math.floor((floorX - Math.floor(floorX)) * texW);
+                        let ty = Math.floor((floorY - Math.floor(floorY)) * texH);
+                        tx = Math.min(texW - 1, Math.max(0, tx));
+                        ty = Math.min(texH - 1, Math.max(0, ty));
+                        
+                        const texIdx = (ty * texW + tx) * 4;
+                        const r = floorTextureData[texIdx];
+                        const g = floorTextureData[texIdx + 1];
+                        const b = floorTextureData[texIdx + 2];
+                        
+                        // distance shading: darker further away
+                        let shade = Math.min(1.0, 1.2 / (rowDistance * 0.35));
+                        shade = Math.max(0.35, shade);
+                        
+                        const pixelIdx = rowOffset + x * 4;
+                        data[pixelIdx] = r * shade;
+                        data[pixelIdx + 1] = g * shade;
+                        data[pixelIdx + 2] = b * shade;
+                        data[pixelIdx + 3] = 255;
+                        
+                        floorX += stepX;
+                        floorY += stepY;
+                    }
+                }
+                ctx.putImageData(imageData, 0, halfHeight);
+            }
+            
+            // ====================== TEXTURED WALL RAYCASTING ======================
+            function castWalls() {
+                const texWidth = wallTextureLoaded ? wallTexture.width : 64;
+                for (let x = 0; x < SCREEN_WIDTH; x++) {
+                    const cameraX = 2 * x / SCREEN_WIDTH - 1;
+                    const rayDirX = dirX + planeX * cameraX;
+                    const rayDirY = dirY + planeY * cameraX;
+                    
+                    let mapX = Math.floor(posX);
+                    let mapY = Math.floor(posY);
+                    
+                    const deltaDistX = (rayDirX === 0) ? 1e30 : Math.abs(1 / rayDirX);
+                    const deltaDistY = (rayDirY === 0) ? 1e30 : Math.abs(1 / rayDirY);
+                    
+                    let stepX, stepY;
+                    let sideDistX, sideDistY;
+                    
+                    if (rayDirX < 0) {
+                        stepX = -1;
+                        sideDistX = (posX - mapX) * deltaDistX;
+                    } else {
+                        stepX = 1;
+                        sideDistX = (mapX + 1.0 - posX) * deltaDistX;
+                    }
+                    if (rayDirY < 0) {
+                        stepY = -1;
+                        sideDistY = (posY - mapY) * deltaDistY;
+                    } else {
+                        stepY = 1;
+                        sideDistY = (mapY + 1.0 - posY) * deltaDistY;
+                    }
+                    
+                    let hit = false;
+                    let side = 0;
+                    while (!hit) {
+                        if (sideDistX < sideDistY) {
+                            sideDistX += deltaDistX;
+                            mapX += stepX;
+                            side = 0;
+                        } else {
+                            sideDistY += deltaDistY;
+                            mapY += stepY;
+                            side = 1;
+                        }
+                        if (worldMap[mapY][mapX] > 0) hit = true;
+                    }
+                    
+                    const perpWallDist = side === 0 ? (sideDistX - deltaDistX) : (sideDistY - deltaDistY);
+                    const lineHeight = Math.floor(SCREEN_HEIGHT / perpWallDist);
+                    let drawStart = Math.max(0, -lineHeight / 2 + SCREEN_HEIGHT / 2);
+                    let drawEnd = Math.min(SCREEN_HEIGHT, lineHeight / 2 + SCREEN_HEIGHT / 2);
+                    
+                    let wallX;
+                    if (side === 0) wallX = posY + perpWallDist * rayDirY;
+                    else wallX = posX + perpWallDist * rayDirX;
+                    wallX -= Math.floor(wallX);
+                    
+                    const texX = Math.floor(wallX * texWidth);
+                    const texX_clamped = Math.min(texWidth - 1, Math.max(0, texX));
+                    const darkness = Math.min(1, 1 / (perpWallDist * 0.3 + 0.2));
+                    
+                    if (wallTextureLoaded && wallTexture.complete) {
+                        const srcY = 0;
+                        const srcH = wallTexture.height;
+                        const destY = drawStart;
+                        const destH = drawEnd - drawStart;
+                        if (destH > 0) {
+                            ctx.save();
+                            ctx.globalAlpha = Math.min(1, darkness + 0.2);
+                            ctx.drawImage(wallTexture, texX_clamped, srcY, 1, srcH, x, destY, 1, destH);
+                            ctx.globalAlpha = 1.0;
+                            ctx.restore();
+                        }
+                    } else {
+                        let wallType = worldMap[mapY][mapX];
+                        let color;
+                        if (wallType === 1) color = side === 0 ? '#8a8a8a' : '#5a5a5a';
+                        else if (wallType === 2) color = side === 0 ? '#bc9a6a' : '#8b5a2b';
+                        else if (wallType === 3) color = side === 0 ? '#e57e1f' : '#b85c00';
+                        else color = '#4a4a4a';
+                        ctx.fillStyle = color;
+                        ctx.globalAlpha = darkness;
+                        ctx.fillRect(x, drawStart, 1, drawEnd - drawStart);
+                        ctx.globalAlpha = 1.0;
+                    }
+                    
+                    // Pixel grit effect
+                    if (x % 3 === 0) {
+                        ctx.fillStyle = 'rgba(0,0,0,0.18)';
+                        ctx.fillRect(x, drawStart, 1, drawEnd - drawStart);
+                    }
+                }
+            }
+            
+            // ====================== SPRITE RENDERING ======================
+            function drawSprites() {
+                const visibleSprites = [];
+                for (const s of sprites) {
+                    const dx = s.x - posX;
+                    const dy = s.y - posY;
+                    const distSq = dx*dx + dy*dy;
+                    const distance = Math.sqrt(distSq);
+                    const invDet = 1.0 / (planeX * dirY - dirX * planeY);
+                    const transformX = invDet * (dirY * dx - dirX * dy);
+                    const transformY = invDet * (-planeY * dx + planeX * dy);
+                    if (transformY <= 0.05) continue;
+                    if (!isSpriteVisible(s.x, s.y)) continue;
+                    const spriteScreenX = Math.floor(SCREEN_WIDTH / 2 * (1 + transformX / transformY));
+                    const spriteHeight = Math.abs(Math.floor(SCREEN_HEIGHT / transformY));
+                    visibleSprites.push({ ...s, distance, spriteScreenX, spriteHeight });
+                }
+                visibleSprites.sort((a,b) => b.distance - a.distance);
+                for (const s of visibleSprites) {
+                    const spriteWidth = s.spriteHeight;
+                    ctx.save();
+                    ctx.shadowBlur = 8;
+                    if (s.type === 'npc' && wizardImageLoaded && wizardImage.complete) {
+                        const imgX = s.spriteScreenX - spriteWidth/2;
+                        const imgY = SCREEN_HEIGHT/2 - s.spriteHeight/2;
+                        ctx.drawImage(wizardImage, imgX, imgY, spriteWidth, s.spriteHeight);
+                    } else {
+                        ctx.font = `${Math.floor(s.spriteHeight * 0.85)}px "Segoe UI Emoji", "Apple Color Emoji", Arial`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillStyle = s.type === 'npc' ? '#aaffdd' : '#ffdd66';
+                        ctx.shadowColor = '#ffaa33';
+                        ctx.fillText(s.icon, s.spriteScreenX, SCREEN_HEIGHT / 2);
+                    }
+                    ctx.restore();
+                }
+            }
+            
+            // ====================== MINIMAP ======================
+            function drawMiniMap() {
+                const miniX = SCREEN_WIDTH - 140;
+                const miniY = 20;
+                const blockSize = 8;
+                ctx.fillStyle = 'rgba(0,0,0,0.88)';
+                ctx.fillRect(miniX - 5, miniY - 5, MAP_WIDTH * blockSize + 10, MAP_HEIGHT * blockSize + 10);
+                for (let y = 0; y < MAP_HEIGHT; y++) {
+                    for (let x = 0; x < MAP_WIDTH; x++) {
+                        if (visited[y][x]) {
+                            if (worldMap[y][x] === 1) ctx.fillStyle = '#6a6a6a';
+                            else if (worldMap[y][x] === 2) ctx.fillStyle = '#aa8866';
+                            else if (worldMap[y][x] === 3) ctx.fillStyle = '#cc8844';
+                            else ctx.fillStyle = '#2a2a2a';
+                            ctx.fillRect(miniX + x * blockSize, miniY + y * blockSize, blockSize, blockSize);
+                        } else {
+                            ctx.fillStyle = '#0a0a0a';
+                            ctx.fillRect(miniX + x * blockSize, miniY + y * blockSize, blockSize, blockSize);
+                        }
+                    }
+                }
+                for (let sprite of sprites) {
+                    let ix = Math.floor(sprite.x);
+                    let iy = Math.floor(sprite.y);
+                    if (visited[iy] && visited[iy][ix]) {
+                        ctx.fillStyle = '#ffcc44';
+                        ctx.fillRect(miniX + sprite.x * blockSize - 2, miniY + sprite.y * blockSize - 2, 5, 5);
+                    }
+                }
+                const playerX = miniX + posX * blockSize;
+                const playerY = miniY + posY * blockSize;
+                ctx.fillStyle = '#00ff66';
+                ctx.fillRect(playerX - 3, playerY - 3, 6, 6);
+                ctx.strokeStyle = '#66ff66';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(playerX, playerY);
+                ctx.lineTo(playerX + dirX * 12, playerY + dirY * 12);
+                ctx.stroke();
+                ctx.fillStyle = '#0f0';
+                ctx.font = '8px "Press Start 2P"';
+                ctx.textAlign = 'center';
+                ctx.fillText('MAP', miniX + (MAP_WIDTH * blockSize)/2, miniY - 5);
+            }
+            
+            // ====================== MAIN RENDER LOOP ======================
+            function renderScene() {
+                // 1. Ceiling (gradient)
+                const gradCeil = ctx.createLinearGradient(0, 0, 0, SCREEN_HEIGHT/2);
+                gradCeil.addColorStop(0, '#0a0a1a');
+                gradCeil.addColorStop(1, '#151525');
+                ctx.fillStyle = gradCeil;
+                ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT / 2);
+                
+                // 2. Textured floor (using the PNG exactly like walls)
+                drawTexturedFloor();
+                
+                // 3. Textured walls
+                castWalls();
+                
+                // 4. Sprites (NPC / items)
+                drawSprites();
+                
+                // 5. Minimap overlay
+                drawMiniMap();
+                
+                // 6. Scanline / CRT effect
+                ctx.fillStyle = 'rgba(0, 255, 0, 0.04)';
+                for (let i = 0; i < SCREEN_HEIGHT; i += 3) ctx.fillRect(0, i, SCREEN_WIDTH, 1);
+                
+                if (messageTimer > 0) {
+                    ctx.fillStyle = '#ffdd88';
+                    ctx.font = 'bold 18px "Press Start 2P"';
+                    ctx.textAlign = 'center';
+                    ctx.shadowBlur = 12;
+                    ctx.fillText(pickupMessage, SCREEN_WIDTH / 2, 85);
+                    ctx.shadowBlur = 0;
+                    messageTimer--;
+                }
+                
+                if (nearbyNPC && !dialogActive) {
+                    ctx.fillStyle = '#ccffaa';
+                    ctx.font = '12px "Press Start 2P"';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('💬 PRESS E TO TALK', SCREEN_WIDTH / 2, SCREEN_HEIGHT - 45);
+                }
+            }
+            
+            // ====================== GAME LOOP ======================
+            let lastTimestamp = 0;
+            function gameLoop(timestamp) {
+                if (!lastTimestamp) lastTimestamp = timestamp;
+                let frameTime = Math.min(0.033, (timestamp - lastTimestamp) / 1000);
+                lastTimestamp = timestamp;
+                updateMovement(frameTime);
+                renderScene();
+                requestAnimationFrame(gameLoop);
+            }
+            
+            function init() {
+                window.addEventListener('keydown', handleKeyDown);
+                window.addEventListener('keyup', handleKeyUp);
+                canvas.style.width = '640px';
+                canvas.style.height = '400px';
+                markVisitedAround(posX, posY, 4);
+                console.log('🏰 DUNGEON READY — Textured floor + walls | Arrow keys fixed (LEFT = turn left, RIGHT = turn right)');
+                requestAnimationFrame(gameLoop);
+            }
+            
+            window.onload = init;
+        })();
+    </script>
+</body>
+</html>
