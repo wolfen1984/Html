@@ -628,68 +628,105 @@ const imgElements = sceneImagePaths.map(src => {
         let animFrame;
         let sceneInterval = null;
         let movieActive = false;
+        // Pan/zoom effect state
+let panScale = 1.0;
+let panOffsetX = 0;
+let panOffsetY = 0;
+const ZOOM_SPEED = 0.0003;      // Very slow, dreamlike zoom
+const PAN_SPEED = 0.015;        // Subtle drift (pixels per frame)
 
         function drawLakeScene() {
-            if (!ctx) return;
-            const w = canvas.width, h = canvas.height;
-            
-            // Draw pre-rendered image background
-            if (imgElements[currentScene] && imgElements[currentScene].complete) {
-                ctx.drawImage(imgElements[currentScene], 0, 0, w, h);
-            } else {
-                // fallback gradient
-                const grad = ctx.createLinearGradient(0,0,0,h);
-                grad.addColorStop(0, '#031e2c');
-                grad.addColorStop(1, '#010c14');
-                ctx.fillStyle = grad;
-                ctx.fillRect(0,0,w,h);
-            }
-            
-            // ===== PARTICLE EFFECTS (fog/mist, glitch, scanlines) =====
-            // Dynamic mist overlay
-            ctx.fillStyle = 'rgba(180, 225, 255, 0.06)';
-            for (let i=0;i<6;i++) {
-                ctx.beginPath();
-                ctx.ellipse(100 + i*120 + Math.sin(Date.now()/1500 + i)*15, h-40 + Math.cos(Date.now()/2000)*8, 140, 35, 0, 0, Math.PI*2);
-                ctx.fill();
-            }
-            
-            // Water reflection flicker (only on scenes 0,2)
-            if (currentScene === 0 || currentScene === 2) {
-                ctx.fillStyle = `rgba(80, 180, 220, ${0.03 + Math.sin(Date.now()/700)*0.02})`;
-                ctx.fillRect(0, h-30, w, 30);
-            }
-            
-            // Underwater particles (scene 1)
-            if (currentScene === 1) {
-                ctx.fillStyle = 'rgba(150, 220, 250, 0.04)';
-                for (let p=0; p<8; p++) {
-                    ctx.beginPath();
-                    ctx.arc(80 + p*90 + (Date.now()/400)%90, 60 + p*40, 8, 0, Math.PI*2);
-                    ctx.fill();
-                }
-            }
-            
-            // VHS tracking lines / glitch (always)
-            ctx.strokeStyle = '#3ad0ff';
-            ctx.lineWidth = 1.5;
-            for (let g=0; g<4; g++) {
-                if (Math.random() > 0.9) {
-                    ctx.beginPath();
-                    ctx.moveTo(0, Math.random()*h);
-                    ctx.lineTo(w, Math.random()*h);
-                    ctx.stroke();
-                }
-            }
-            
-            // Occasional white flash (horror sting)
-            if (Math.random() > 0.97) {
-                ctx.fillStyle = 'rgba(255,255,255,0.15)';
-                ctx.fillRect(0,0,w,h);
-            }
-            
-            animFrame = requestAnimationFrame(drawLakeScene);
+    if (!ctx) return;
+    const w = canvas.width, h = canvas.height;
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, w, h);
+    
+    // Apply slow zoom and pan
+    panScale = Math.min(panScale + ZOOM_SPEED, 1.15); // cap at 15% zoom
+    
+    // Subtle floating drift (underwater feel)
+    panOffsetX += PAN_SPEED * Math.sin(Date.now() / 3000) * 0.5;
+    panOffsetY += PAN_SPEED * Math.cos(Date.now() / 4000) * 0.3;
+    
+    // Calculate source rectangle from current image
+    const img = imgElements[currentScene];
+    if (img && img.complete) {
+        const imgW = img.width;
+        const imgH = img.height;
+        
+        // Crop based on zoom scale
+        const cropW = imgW / panScale;
+        const cropH = imgH / panScale;
+        
+        // Center crop with drift offset
+        let cropX = (imgW - cropW) / 2 + panOffsetX;
+        let cropY = (imgH - cropH) / 2 + panOffsetY;
+        
+        // Clamp to image boundaries
+        cropX = Math.max(0, Math.min(cropX, imgW - cropW));
+        cropY = Math.max(0, Math.min(cropY, imgH - cropH));
+        
+        // Draw zoomed/panned portion to canvas
+        ctx.drawImage(
+            img,
+            cropX, cropY, cropW, cropH,
+            0, 0, w, h
+        );
+    } else {
+        // Fallback gradient (unchanged)
+        const grad = ctx.createLinearGradient(0, 0, 0, h);
+        grad.addColorStop(0, '#031e2c');
+        grad.addColorStop(1, '#010c14');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
+    }
+    
+    // ===== PARTICLE EFFECTS (fog/mist, glitch, scanlines) =====
+    // Dynamic mist overlay
+    ctx.fillStyle = 'rgba(180, 225, 255, 0.06)';
+    for (let i = 0; i < 6; i++) {
+        ctx.beginPath();
+        ctx.ellipse(100 + i * 120 + Math.sin(Date.now() / 1500 + i) * 15, h - 40 + Math.cos(Date.now() / 2000) * 8, 140, 35, 0, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    // Water reflection flicker (scenes 0,2)
+    if (currentScene === 0 || currentScene === 2) {
+        ctx.fillStyle = `rgba(80, 180, 220, ${0.03 + Math.sin(Date.now() / 700) * 0.02})`;
+        ctx.fillRect(0, h - 30, w, 30);
+    }
+    
+    // Underwater particles (scene 1)
+    if (currentScene === 1) {
+        ctx.fillStyle = 'rgba(150, 220, 250, 0.04)';
+        for (let p = 0; p < 8; p++) {
+            ctx.beginPath();
+            ctx.arc(80 + p * 90 + (Date.now() / 400) % 90, 60 + p * 40, 8, 0, Math.PI * 2);
+            ctx.fill();
         }
+    }
+    
+    // VHS tracking lines / glitch
+    ctx.strokeStyle = '#3ad0ff';
+    ctx.lineWidth = 1.5;
+    for (let g = 0; g < 4; g++) {
+        if (Math.random() > 0.9) {
+            ctx.beginPath();
+            ctx.moveTo(0, Math.random() * h);
+            ctx.lineTo(w, Math.random() * h);
+            ctx.stroke();
+        }
+    }
+    
+    // Occasional white flash
+    if (Math.random() > 0.97) {
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillRect(0, 0, w, h);
+    }
+    
+    animFrame = requestAnimationFrame(drawLakeScene);
+}
 
         function startFilmSequence() {
             if (movieActive) return;
@@ -735,10 +772,15 @@ const imgElements = sceneImagePaths.map(src => {
                     return;
                 }
                 currentScene = step;
-                textDiv.innerHTML = scenes[step].text;
-                if (scenes[step].sound) scenes[step].sound();
-                step++;
-            }, 7500);
+                 // Reset pan/zoom for new scene
+    panScale = 1.0;
+    panOffsetX = 0;
+    panOffsetY = 0;
+    
+    textDiv.innerHTML = scenes[step].text;
+    if (scenes[step].sound) scenes[step].sound();
+    step++;
+}, 7500);
         }
 
         function startMovieSequence() {
