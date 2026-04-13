@@ -439,10 +439,10 @@
         let animFrame = null;
         let movieActive = false;
         let fogParticles = [];
-        let sceneInterval = null;
+        let sceneTimer = null;          // replaced setInterval with setTimeout handle
         let allImagesLoaded = false;
 
-        // ========== AUDIO CONTEXT ==========
+        // ========== AUDIO FUNCTIONS (unchanged) ==========
         function initAudio() {
             if (audioCtx) return audioCtx;
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -461,7 +461,6 @@
             }
         }
 
-        // POWER-UP STATIC + TAPE HISS (Lynchian)
         function playTapeHiss() {
             if (!audioCtx) return;
             const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.8, audioCtx.sampleRate);
@@ -479,7 +478,6 @@
             noise.start();
         }
 
-        // MAIN DRONE — Carpenter-style pulsing bass + Lynch detune
         function startForestDrone() {
             if (!audioCtx || masterDrone) return;
             masterDrone = audioCtx.createOscillator();
@@ -511,10 +509,8 @@
             }
         }
 
-        // WIND + DISTANT HOWL LAYER
         function playWindHowl(intensity = 1) {
             if (!audioCtx) return;
-            // Wind noise
             const noiseBuf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2.2, audioCtx.sampleRate);
             const nd = noiseBuf.getChannelData(0);
             for (let i = 0; i < noiseBuf.length; i++) nd[i] = Math.random() * 1.8 - 0.9;
@@ -529,7 +525,6 @@
             noiseSrc.connect(lp).connect(noiseGain).connect(audioCtx.destination);
             noiseSrc.start();
 
-            // Howl sweep
             const howl = audioCtx.createOscillator();
             const howlGain = audioCtx.createGain();
             howl.type = 'sine';
@@ -542,7 +537,6 @@
             howl.stop(audioCtx.currentTime + 2.3);
         }
 
-        // HEARTBEAT — building paranoia
         function startHeartbeat() {
             if (!audioCtx) return;
             const pulseOsc = audioCtx.createOscillator();
@@ -566,7 +560,6 @@
             return pulseOsc;
         }
 
-        // TRANSFORMATION GROWL + BONE CRACK
         function playTransformation() {
             if (!audioCtx) return;
             const growl = audioCtx.createOscillator();
@@ -591,7 +584,6 @@
             crack.start();
         }
 
-        // FINAL CHASE STINGER — sudden high tension
         function playChaseStinger() {
             if (!audioCtx) return;
             const stinger = audioCtx.createOscillator();
@@ -606,7 +598,7 @@
             playWindHowl(1.6);
         }
 
-        // ========== EXTERNAL BACKGROUND IMAGES (WITH PRELOAD) ==========
+        // ========== IMAGE PRELOADING ==========
         const sceneImagePaths = [
             'forest_scene0.jpg',
             'bunker_scene1.jpg',
@@ -623,7 +615,6 @@
                 callback();
                 return;
             }
-            
             sceneImagePaths.forEach((path, index) => {
                 const img = new Image();
                 img.onload = () => {
@@ -664,15 +655,12 @@
             if (!ctx) return;
             const w = canvas.width, h = canvas.height;
             
-            // Clear canvas completely
             ctx.clearRect(0, 0, w, h);
 
-            // Draw background image for current scene
             const currentImg = imgElements[currentScene];
             if (currentImg && currentImg.complete) {
                 ctx.drawImage(currentImg, 0, 0, w, h);
             } else {
-                // Fallback gradient
                 const grad = ctx.createLinearGradient(0, 0, 0, h);
                 grad.addColorStop(0, '#02060f');
                 grad.addColorStop(1, '#0c1422');
@@ -683,7 +671,7 @@
                 ctx.fillText(`LOADING SCENE ${currentScene+1}...`, 20, 60);
             }
 
-            // Fog particles
+            // Fog
             ctx.shadowBlur = 12;
             ctx.shadowColor = '#aaccff';
             for (let p of fogParticles) {
@@ -696,7 +684,7 @@
             ctx.globalAlpha = 1;
             ctx.shadowBlur = 0;
 
-            // VHS glitch lines
+            // VHS glitch
             if (Math.random() > 0.88) {
                 ctx.strokeStyle = 'rgba(170, 220, 255, 0.7)';
                 ctx.lineWidth = 2;
@@ -708,7 +696,7 @@
                 }
             }
 
-            // White flash for jumpscare
+            // Flash
             if (Math.random() > 0.97) {
                 ctx.fillStyle = 'rgba(255,255,255,0.15)';
                 ctx.fillRect(0, 0, w, h);
@@ -717,7 +705,13 @@
             animFrame = requestAnimationFrame(drawWerewolfScene);
         }
 
-        // ========== FILM SEQUENCE ==========
+        // Force a single redraw (used after scene change)
+        function forceRedraw() {
+            if (animFrame) cancelAnimationFrame(animFrame);
+            animFrame = requestAnimationFrame(drawWerewolfScene);
+        }
+
+        // ========== FILM SEQUENCE (recursive setTimeout) ==========
         function startFilmSequence() {
             if (movieActive) return;
             movieActive = true;
@@ -739,9 +733,9 @@
             const textDiv = document.getElementById('narrationText');
             let heartbeatOsc = null;
 
-            function advanceScene() {
+            function nextScene() {
                 if (step >= narrationTexts.length) {
-                    clearInterval(sceneInterval);
+                    // End sequence
                     playChaseStinger();
                     textDiv.innerHTML = `<span style="color:#ff5555;font-size:24px;">THE CURSE SPREADS TO YOU</span>`;
                     setTimeout(() => {
@@ -753,15 +747,21 @@
                     return;
                 }
 
+                // 1. Update current scene index
                 currentScene = step;
-                
+                console.log(`Scene changed to ${currentScene} (${narrationTexts[step]})`);
+
+                // 2. Force an immediate redraw so the new image appears
+                forceRedraw();
+
+                // 3. Update narration text (with a tiny delay for smooth transition)
                 textDiv.classList.remove('active');
                 setTimeout(() => {
                     textDiv.innerHTML = narrationTexts[step];
                     textDiv.classList.add('active');
-                }, 180);
+                }, 100);
 
-                // Trigger sounds
+                // 4. Play sound for this scene
                 if (step === 0) playWindHowl(0.9);
                 if (step === 1) { playWindHowl(1.2); playTapeHiss(); }
                 if (step === 2) {
@@ -771,17 +771,19 @@
                 if (step === 3) { playTransformation(); playWindHowl(1.6); }
                 if (step === 4) playChaseStinger();
 
+                // 5. Increment step and schedule next scene
                 step++;
+                sceneTimer = setTimeout(nextScene, 7600);
             }
 
-            // Start interval only after all images are confirmed loaded
+            // Wait for images to be fully loaded, then start
             if (allImagesLoaded) {
-                sceneInterval = setInterval(advanceScene, 7600);
+                sceneTimer = setTimeout(nextScene, 100); // short delay for canvas to settle
             } else {
                 const checkLoading = setInterval(() => {
                     if (allImagesLoaded) {
                         clearInterval(checkLoading);
-                        sceneInterval = setInterval(advanceScene, 7600);
+                        sceneTimer = setTimeout(nextScene, 100);
                     }
                 }, 100);
             }
@@ -826,7 +828,7 @@
             if (!isAudioReady && overlay.style.display !== 'none') unlockAndStart(ev);
         });
 
-        // Preload images immediately
+        // Preload images at startup
         preloadImages(() => {
             console.log('All scene images preloaded.');
         });
@@ -835,7 +837,7 @@
             stopDrone();
             activeLayers.forEach(id => clearInterval(id));
             if (animFrame) cancelAnimationFrame(animFrame);
-            if (sceneInterval) clearInterval(sceneInterval);
+            if (sceneTimer) clearTimeout(sceneTimer);
         });
     })();
 </script>
