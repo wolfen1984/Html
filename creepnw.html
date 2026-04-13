@@ -439,7 +439,7 @@
         let animFrame = null;
         let movieActive = false;
         let fogParticles = [];
-        let sceneTimer = null;          // replaced setInterval with setTimeout handle
+        let sceneTimer = null;
         let allImagesLoaded = false;
 
         // ========== AUDIO FUNCTIONS (unchanged) ==========
@@ -705,13 +705,68 @@
             animFrame = requestAnimationFrame(drawWerewolfScene);
         }
 
-        // Force a single redraw (used after scene change)
-        function forceRedraw() {
+        // ========== FILM SEQUENCE (Synchronized Image + Text) ==========
+        const narrationTexts = [
+            "THE BLACK FOREST... 1984...<br>THE WIND CARRIES WHISPERS OF 1945...",
+            "AN ABANDONED BUNKER...<br>THE DOOR STILL BEARS THE MARK...",
+            "INSIDE... BROKEN VIALS... THE EXPERIMENT NEVER DIED...",
+            "THE MOON RISES... BONES SHIFT...<br>THE BEAST AWAKENS...",
+            "IT HUNTS... NO ESCAPE... ONLY THE HOWL REMAINS..."
+        ];
+
+        let currentStep = 0;
+        let heartbeatOsc = null;
+        const textDiv = document.getElementById('narrationText');
+
+        // Function to set scene (image + text) atomically
+        function setScene(step) {
+            currentScene = step;
+            // Force a redraw to show the new image immediately
             if (animFrame) cancelAnimationFrame(animFrame);
             animFrame = requestAnimationFrame(drawWerewolfScene);
+            
+            // Update narration text
+            textDiv.classList.remove('active');
+            textDiv.innerHTML = narrationTexts[step];
+            // Force reflow to restart transition
+            void textDiv.offsetWidth;
+            textDiv.classList.add('active');
+            
+            console.log(`Scene set to ${step}: ${narrationTexts[step]}`);
         }
 
-        // ========== FILM SEQUENCE (recursive setTimeout) ==========
+        function nextScene() {
+            if (currentStep >= narrationTexts.length) {
+                // End of film
+                playChaseStinger();
+                textDiv.innerHTML = `<span style="color:#ff5555;font-size:24px;">THE CURSE SPREADS TO YOU</span>`;
+                setTimeout(() => {
+                    cancelAnimationFrame(animFrame);
+                    document.getElementById('endScreen').style.display = 'flex';
+                    stopDrone();
+                    playWindHowl(2);
+                }, 2400);
+                return;
+            }
+
+            // Set the scene (image + text)
+            setScene(currentStep);
+
+            // Play corresponding sound
+            if (currentStep === 0) playWindHowl(0.9);
+            if (currentStep === 1) { playWindHowl(1.2); playTapeHiss(); }
+            if (currentStep === 2) {
+                if (!heartbeatOsc) heartbeatOsc = startHeartbeat();
+                playTransformation();
+            }
+            if (currentStep === 3) { playTransformation(); playWindHowl(1.6); }
+            if (currentStep === 4) playChaseStinger();
+
+            // Move to next step and schedule
+            currentStep++;
+            sceneTimer = setTimeout(nextScene, 7600);
+        }
+
         function startFilmSequence() {
             if (movieActive) return;
             movieActive = true;
@@ -719,71 +774,31 @@
             ctx = canvas.getContext('2d');
             
             initFog();
+            // Draw initial scene (index 0)
             drawWerewolfScene();
+            
+            // Immediately set the first narration text
+            textDiv.classList.remove('active');
+            textDiv.innerHTML = narrationTexts[0];
+            void textDiv.offsetWidth;
+            textDiv.classList.add('active');
+            console.log('Initial scene 0 set');
 
-            const narrationTexts = [
-                "THE BLACK FOREST... 1984...<br>THE WIND CARRIES WHISPERS OF 1945...",
-                "AN ABANDONED BUNKER...<br>THE DOOR STILL BEARS THE MARK...",
-                "INSIDE... BROKEN VIALS... THE EXPERIMENT NEVER DIED...",
-                "THE MOON RISES... BONES SHIFT...<br>THE BEAST AWAKENS...",
-                "IT HUNTS... NO ESCAPE... ONLY THE HOWL REMAINS..."
-            ];
-
-            let step = 0;
-            const textDiv = document.getElementById('narrationText');
-            let heartbeatOsc = null;
-
-            function nextScene() {
-                if (step >= narrationTexts.length) {
-                    // End sequence
-                    playChaseStinger();
-                    textDiv.innerHTML = `<span style="color:#ff5555;font-size:24px;">THE CURSE SPREADS TO YOU</span>`;
-                    setTimeout(() => {
-                        cancelAnimationFrame(animFrame);
-                        document.getElementById('endScreen').style.display = 'flex';
-                        stopDrone();
-                        playWindHowl(2);
-                    }, 2400);
-                    return;
-                }
-
-                // 1. Update current scene index
-                currentScene = step;
-                console.log(`Scene changed to ${currentScene} (${narrationTexts[step]})`);
-
-                // 2. Force an immediate redraw so the new image appears
-                forceRedraw();
-
-                // 3. Update narration text (with a tiny delay for smooth transition)
-                textDiv.classList.remove('active');
-                setTimeout(() => {
-                    textDiv.innerHTML = narrationTexts[step];
-                    textDiv.classList.add('active');
-                }, 100);
-
-                // 4. Play sound for this scene
-                if (step === 0) playWindHowl(0.9);
-                if (step === 1) { playWindHowl(1.2); playTapeHiss(); }
-                if (step === 2) {
-                    if (!heartbeatOsc) heartbeatOsc = startHeartbeat();
-                    playTransformation();
-                }
-                if (step === 3) { playTransformation(); playWindHowl(1.6); }
-                if (step === 4) playChaseStinger();
-
-                // 5. Increment step and schedule next scene
-                step++;
-                sceneTimer = setTimeout(nextScene, 7600);
-            }
-
-            // Wait for images to be fully loaded, then start
+            // Start the progression only after images are confirmed loaded
             if (allImagesLoaded) {
-                sceneTimer = setTimeout(nextScene, 100); // short delay for canvas to settle
+                // Short delay to let everything settle, then start scene 1 after 7.6s
+                sceneTimer = setTimeout(() => {
+                    currentStep = 1; // Next scene will be index 1
+                    nextScene();
+                }, 7600);
             } else {
                 const checkLoading = setInterval(() => {
                     if (allImagesLoaded) {
                         clearInterval(checkLoading);
-                        sceneTimer = setTimeout(nextScene, 100);
+                        sceneTimer = setTimeout(() => {
+                            currentStep = 1;
+                            nextScene();
+                        }, 7600);
                     }
                 }, 100);
             }
@@ -828,7 +843,7 @@
             if (!isAudioReady && overlay.style.display !== 'none') unlockAndStart(ev);
         });
 
-        // Preload images at startup
+        // Preload images immediately
         preloadImages(() => {
             console.log('All scene images preloaded.');
         });
