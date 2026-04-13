@@ -427,22 +427,22 @@
 
 <script>
     (function() {
-        // ========== GLOBAL VARIABLES (FIXED) ==========
+        // ========== GLOBAL STATE ==========
         let audioCtx = null;
         let masterDrone = null;
         let masterGain = null;
         let isAudioReady = false;
         let activeLayers = [];
         
-        // Canvas and animation state
         let canvas, ctx;
         let currentScene = 0;
         let animFrame = null;
         let movieActive = false;
         let fogParticles = [];
         let sceneInterval = null;
+        let allImagesLoaded = false;
 
-        // ========== AUDIO FUNCTIONS (unchanged) ==========
+        // ========== AUDIO CONTEXT ==========
         function initAudio() {
             if (audioCtx) return audioCtx;
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -461,6 +461,7 @@
             }
         }
 
+        // POWER-UP STATIC + TAPE HISS (Lynchian)
         function playTapeHiss() {
             if (!audioCtx) return;
             const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.8, audioCtx.sampleRate);
@@ -478,6 +479,7 @@
             noise.start();
         }
 
+        // MAIN DRONE — Carpenter-style pulsing bass + Lynch detune
         function startForestDrone() {
             if (!audioCtx || masterDrone) return;
             masterDrone = audioCtx.createOscillator();
@@ -509,8 +511,10 @@
             }
         }
 
+        // WIND + DISTANT HOWL LAYER
         function playWindHowl(intensity = 1) {
             if (!audioCtx) return;
+            // Wind noise
             const noiseBuf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2.2, audioCtx.sampleRate);
             const nd = noiseBuf.getChannelData(0);
             for (let i = 0; i < noiseBuf.length; i++) nd[i] = Math.random() * 1.8 - 0.9;
@@ -525,6 +529,7 @@
             noiseSrc.connect(lp).connect(noiseGain).connect(audioCtx.destination);
             noiseSrc.start();
 
+            // Howl sweep
             const howl = audioCtx.createOscillator();
             const howlGain = audioCtx.createGain();
             howl.type = 'sine';
@@ -537,6 +542,7 @@
             howl.stop(audioCtx.currentTime + 2.3);
         }
 
+        // HEARTBEAT — building paranoia
         function startHeartbeat() {
             if (!audioCtx) return;
             const pulseOsc = audioCtx.createOscillator();
@@ -560,6 +566,7 @@
             return pulseOsc;
         }
 
+        // TRANSFORMATION GROWL + BONE CRACK
         function playTransformation() {
             if (!audioCtx) return;
             const growl = audioCtx.createOscillator();
@@ -584,6 +591,7 @@
             crack.start();
         }
 
+        // FINAL CHASE STINGER — sudden high tension
         function playChaseStinger() {
             if (!audioCtx) return;
             const stinger = audioCtx.createOscillator();
@@ -598,20 +606,45 @@
             playWindHowl(1.6);
         }
 
-        // ========== EXTERNAL BACKGROUND IMAGES ==========
+        // ========== EXTERNAL BACKGROUND IMAGES (WITH PRELOAD) ==========
         const sceneImagePaths = [
-            'forest_scene0.jpg',   // Scene 0: Forest path
-            'bunker_scene1.jpg',   // Scene 1: Bunker entrance
-            'lab_scene2.jpg',      // Scene 2: Inside lab
-            'transformation_scene3.jpg', // Scene 3: Partial werewolf
-            'werewolf_scene4.jpg'  // Scene 4: Full werewolf
+            'forest_scene0.jpg',
+            'bunker_scene1.jpg',
+            'lab_scene2.jpg',
+            'transformation_scene3.jpg',
+            'werewolf_scene4.jpg'
         ];
 
-        const imgElements = sceneImagePaths.map(src => {
-            const img = new Image();
-            img.src = src;
-            return img;
-        });
+        const imgElements = [];
+        let imagesLoadedCount = 0;
+
+        function preloadImages(callback) {
+            if (sceneImagePaths.length === 0) {
+                callback();
+                return;
+            }
+            
+            sceneImagePaths.forEach((path, index) => {
+                const img = new Image();
+                img.onload = () => {
+                    imagesLoadedCount++;
+                    if (imagesLoadedCount === sceneImagePaths.length) {
+                        allImagesLoaded = true;
+                        callback();
+                    }
+                };
+                img.onerror = () => {
+                    console.warn(`Failed to load: ${path}`);
+                    imagesLoadedCount++;
+                    if (imagesLoadedCount === sceneImagePaths.length) {
+                        allImagesLoaded = true;
+                        callback();
+                    }
+                };
+                img.src = path;
+                imgElements[index] = img;
+            });
+        }
 
         // ========== CANVAS DRAWING ==========
         function initFog() {
@@ -630,10 +663,14 @@
         function drawWerewolfScene() {
             if (!ctx) return;
             const w = canvas.width, h = canvas.height;
+            
+            // Clear canvas completely
+            ctx.clearRect(0, 0, w, h);
 
             // Draw background image for current scene
-            if (imgElements[currentScene] && imgElements[currentScene].complete) {
-                ctx.drawImage(imgElements[currentScene], 0, 0, w, h);
+            const currentImg = imgElements[currentScene];
+            if (currentImg && currentImg.complete) {
+                ctx.drawImage(currentImg, 0, 0, w, h);
             } else {
                 // Fallback gradient
                 const grad = ctx.createLinearGradient(0, 0, 0, h);
@@ -641,9 +678,9 @@
                 grad.addColorStop(1, '#0c1422');
                 ctx.fillStyle = grad;
                 ctx.fillRect(0, 0, w, h);
-                ctx.fillStyle = '#ff4444';
+                ctx.fillStyle = '#ffaa00';
                 ctx.font = '14px "Press Start 2P"';
-                ctx.fillText(`IMAGE ${currentScene+1} MISSING`, 20, 60);
+                ctx.fillText(`LOADING SCENE ${currentScene+1}...`, 20, 60);
             }
 
             // Fog particles
@@ -671,7 +708,7 @@
                 }
             }
 
-            // White flash
+            // White flash for jumpscare
             if (Math.random() > 0.97) {
                 ctx.fillStyle = 'rgba(255,255,255,0.15)';
                 ctx.fillRect(0, 0, w, h);
@@ -687,23 +724,8 @@
             canvas = document.getElementById('werewolf-canvas');
             ctx = canvas.getContext('2d');
             
-            // Wait for images
-            let loaded = 0;
-            imgElements.forEach(img => { if (img.complete) loaded++; });
-            if (loaded < imgElements.length) {
-                const check = setInterval(() => {
-                    let allLoaded = true;
-                    imgElements.forEach(img => { if (!img.complete) allLoaded = false; });
-                    if (allLoaded) {
-                        clearInterval(check);
-                        initFog();
-                        drawWerewolfScene();
-                    }
-                }, 50);
-            } else {
-                initFog();
-                drawWerewolfScene();
-            }
+            initFog();
+            drawWerewolfScene();
 
             const narrationTexts = [
                 "THE BLACK FOREST... 1984...<br>THE WIND CARRIES WHISPERS OF 1945...",
@@ -717,7 +739,7 @@
             const textDiv = document.getElementById('narrationText');
             let heartbeatOsc = null;
 
-            sceneInterval = setInterval(() => {
+            function advanceScene() {
                 if (step >= narrationTexts.length) {
                     clearInterval(sceneInterval);
                     playChaseStinger();
@@ -732,12 +754,14 @@
                 }
 
                 currentScene = step;
+                
                 textDiv.classList.remove('active');
                 setTimeout(() => {
                     textDiv.innerHTML = narrationTexts[step];
                     textDiv.classList.add('active');
                 }, 180);
 
+                // Trigger sounds
                 if (step === 0) playWindHowl(0.9);
                 if (step === 1) { playWindHowl(1.2); playTapeHiss(); }
                 if (step === 2) {
@@ -748,10 +772,22 @@
                 if (step === 4) playChaseStinger();
 
                 step++;
-            }, 7600);
+            }
+
+            // Start interval only after all images are confirmed loaded
+            if (allImagesLoaded) {
+                sceneInterval = setInterval(advanceScene, 7600);
+            } else {
+                const checkLoading = setInterval(() => {
+                    if (allImagesLoaded) {
+                        clearInterval(checkLoading);
+                        sceneInterval = setInterval(advanceScene, 7600);
+                    }
+                }, 100);
+            }
         }
 
-        // ========== MAIN FLOW ==========
+        // ========== MAIN MOVIE FLOW ==========
         function startMovieSequence() {
             if (!audioCtx) return;
             playTapeHiss();
@@ -786,8 +822,13 @@
             isAudioReady = true;
         }
         overlay.addEventListener('click', unlockAndStart);
-        window.addEventListener('keydown', function(ev) {
+        window.addEventListener('keydown', (ev) => {
             if (!isAudioReady && overlay.style.display !== 'none') unlockAndStart(ev);
+        });
+
+        // Preload images immediately
+        preloadImages(() => {
+            console.log('All scene images preloaded.');
         });
 
         window.addEventListener('beforeunload', () => {
