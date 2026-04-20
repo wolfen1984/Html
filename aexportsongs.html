@@ -403,57 +403,63 @@
 
     // ---------- EXPORT (FIXED DURATION) ----------
     async function exportTrackToMP3(trackId) {
-      const track = tracks.find(t => t.id === trackId);
-      if (!track) return;
-      const status = document.getElementById('statusText');
-      status.textContent = `RENDERING ${track.name}...`;
-      const sampleRate = 44100;
-// Number of times the entire sequence repeats (change this value)
-const exportLoops = 2;   // ← Set to 2, 3, 4, etc.
-
-// Duration for the requested number of loops + 4 seconds tail
-const duration = track.totalSteps * (60 / track.bpm / 4) * exportLoops + 4.0;
-      const offlineCtx = new OfflineAudioContext(2, sampleRate * duration, sampleRate);
-      const gLevel = guitarSlider.value / 100;
-      const bLevel = bassSlider.value / 100;
-      const dLevel = drumsSlider.value / 100;
-      const { guitarG, bassG, drumsG, master } = buildAudioGraph(offlineCtx, gLevel, bLevel, dLevel);
-      master.connect(offlineCtx.destination);
-      scheduleTrackOffline(track, offlineCtx, 0.1, guitarG, bassG, drumsG);
-      
-      try {
-        const renderedBuffer = await offlineCtx.startRendering();
-        status.textContent = `ENCODING MP3...`;
-        const left = renderedBuffer.getChannelData(0);
-        const right = renderedBuffer.getChannelData(1);
-        const intLeft = new Int16Array(left.length);
-        const intRight = new Int16Array(right.length);
-        for (let i = 0; i < left.length; i++) {
-          intLeft[i] = Math.max(-32768, Math.min(32767, left[i] * 32767));
-          intRight[i] = Math.max(-32768, Math.min(32767, right[i] * 32767));
-        }
-        const mp3encoder = new lamejs.Mp3Encoder(2, sampleRate, 128);
-        const samplesPerFrame = 1152;
-        const mp3Data = [];
-        for (let i = 0; i < intLeft.length; i += samplesPerFrame) {
-          const leftChunk = intLeft.subarray(i, i + samplesPerFrame);
-          const rightChunk = intRight.subarray(i, i + samplesPerFrame);
-          const mp3buf = mp3encoder.encodeBuffer(leftChunk, rightChunk);
-          if (mp3buf.length > 0) mp3Data.push(mp3buf);
-        }
-        const end = mp3encoder.flush();
-        if (end.length > 0) mp3Data.push(end);
-        const blob = new Blob(mp3Data, { type: 'audio/mp3' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = `${track.name.replace(/\s/g,'_')}_broken_circuit.mp3`;
-        a.click(); URL.revokeObjectURL(url);
-        status.textContent = `EXPORT OK: ${track.name}`;
-      } catch(e) {
-        status.textContent = 'EXPORT FAILED';
-        console.error(e);
-      }
+  const track = tracks.find(t => t.id === trackId);
+  if (!track) return;
+  const status = document.getElementById('statusText');
+  status.textContent = `RENDERING ${track.name}...`;
+  const sampleRate = 44100;
+  
+  // ─── SET NUMBER OF LOOPS ───
+  const exportLoops = 2;   // ← change to desired number of repetitions
+  
+  const loopDuration = track.totalSteps * (60 / track.bpm / 4);
+  const totalDuration = loopDuration * exportLoops + 4.0; // +4s tail
+  
+  const offlineCtx = new OfflineAudioContext(2, sampleRate * totalDuration, sampleRate);
+  const gLevel = guitarSlider.value / 100;
+  const bLevel = bassSlider.value / 100;
+  const dLevel = drumsSlider.value / 100;
+  const { guitarG, bassG, drumsG, master } = buildAudioGraph(offlineCtx, gLevel, bLevel, dLevel);
+  master.connect(offlineCtx.destination);
+  
+  // Schedule each loop with an offset
+  for (let loop = 0; loop < exportLoops; loop++) {
+    const startOffset = loop * loopDuration;
+    scheduleTrackOffline(track, offlineCtx, startOffset + 0.1, guitarG, bassG, drumsG);
+  }
+  
+  try {
+    const renderedBuffer = await offlineCtx.startRendering();
+    status.textContent = `ENCODING MP3...`;
+    const left = renderedBuffer.getChannelData(0);
+    const right = renderedBuffer.getChannelData(1);
+    const intLeft = new Int16Array(left.length);
+    const intRight = new Int16Array(right.length);
+    for (let i = 0; i < left.length; i++) {
+      intLeft[i] = Math.max(-32768, Math.min(32767, left[i] * 32767));
+      intRight[i] = Math.max(-32768, Math.min(32767, right[i] * 32767));
     }
-
+    const mp3encoder = new lamejs.Mp3Encoder(2, sampleRate, 128);
+    const samplesPerFrame = 1152;
+    const mp3Data = [];
+    for (let i = 0; i < intLeft.length; i += samplesPerFrame) {
+      const leftChunk = intLeft.subarray(i, i + samplesPerFrame);
+      const rightChunk = intRight.subarray(i, i + samplesPerFrame);
+      const mp3buf = mp3encoder.encodeBuffer(leftChunk, rightChunk);
+      if (mp3buf.length > 0) mp3Data.push(mp3buf);
+    }
+    const end = mp3encoder.flush();
+    if (end.length > 0) mp3Data.push(end);
+    const blob = new Blob(mp3Data, { type: 'audio/mp3' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `${track.name.replace(/\s/g,'_')}_broken_circuit.mp3`;
+    a.click(); URL.revokeObjectURL(url);
+    status.textContent = `EXPORT OK: ${track.name}`;
+  } catch(e) {
+    status.textContent = 'EXPORT FAILED';
+    console.error(e);
+  }
+}
     // ---------- UI & ONLINE PLAYBACK ----------
     let audioCtx = null, isPlaying = false, currentTrackId = null, loopTimeout = null, vizInterval;
     let guitarGain, bassGain, drumsGain;
