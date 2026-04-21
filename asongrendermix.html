@@ -318,52 +318,64 @@
     }
 
     function buildAudioGraph(ctx, params) {
-      const master = ctx.createGain(); master.gain.value = 0.85;
-      const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -24; comp.ratio.value = 6;
-      
-      const reverbBus = ctx.createGain(); reverbBus.gain.value = 0.65;
-      const delayBus = ctx.createDelay(3); delayBus.delayTime.value = 0.42;
-      const delayFB = ctx.createGain(); delayFB.gain.value = 0.62; delayBus.connect(delayFB); delayFB.connect(delayBus);
-      const slap = ctx.createDelay(2); slap.delayTime.value = 0.135; const slapFB = ctx.createGain(); slapFB.gain.value = 0.32; slap.connect(slapFB); slapFB.connect(slap);
-      
-      const chorusDelay = ctx.createDelay(0.03);
-      const chorusLFO = ctx.createOscillator(); chorusLFO.type='sine'; chorusLFO.frequency.value=0.8;
-      const chorusDepth = ctx.createGain(); chorusDepth.gain.value=0.002;
-      chorusLFO.connect(chorusDepth).connect(chorusDelay.delayTime);
-      chorusLFO.start();
-      const chorusGain = ctx.createGain(); chorusGain.gain.value = 0.5;
-      
-      const createChain = (vol, distAmt, revSend, chorSend, delaySend) => {
-        const inputGain = ctx.createGain(); inputGain.gain.value = vol;
-        const dist = ctx.createWaveShaper(); dist.curve = createDistortionCurve(distAmt*2.5); dist.oversample='4x';
-        const dryGain = ctx.createGain(); dryGain.gain.value = 1.0;
-        const revSendGain = ctx.createGain(); revSendGain.gain.value = revSend;
-        const chorSendGain = ctx.createGain(); chorSendGain.gain.value = chorSend;
-        const delaySendGain = ctx.createGain(); delaySendGain.gain.value = delaySend;
-        
-        inputGain.connect(dist).connect(dryGain);
-        dryGain.connect(revSendGain); dryGain.connect(chorSendGain); dryGain.connect(delaySendGain);
-        revSendGain.connect(reverbBus);
-        chorSendGain.connect(chorusDelay).connect(chorusGain);
-        delaySendGain.connect(delayBus); delaySendGain.connect(slap);
-        return { input: inputGain, dry: dryGain };
-      };
+  const master = ctx.createGain(); master.gain.value = 0.85;
+  const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -24; comp.ratio.value = 6;
+  
+  // Global FX buses
+  const reverbBus = ctx.createGain(); reverbBus.gain.value = 0.65;
+  const delayBus = ctx.createDelay(3); delayBus.delayTime.value = 0.42;
+  const delayFB = ctx.createGain(); delayFB.gain.value = 0.62; delayBus.connect(delayFB); delayFB.connect(delayBus);
+  const slap = ctx.createDelay(2); slap.delayTime.value = 0.135; const slapFB = ctx.createGain(); slapFB.gain.value = 0.32; slap.connect(slapFB); slapFB.connect(slap);
+  
+  // Chorus bus
+  const chorusDelay = ctx.createDelay(0.03);
+  const chorusLFO = ctx.createOscillator(); chorusLFO.type='sine'; chorusLFO.frequency.value=0.8;
+  const chorusDepth = ctx.createGain(); chorusDepth.gain.value=0.002;
+  chorusLFO.connect(chorusDepth).connect(chorusDelay.delayTime);
+  chorusLFO.start();
+  const chorusGain = ctx.createGain(); chorusGain.gain.value = 0.5;
+  
+  // Per‑instrument chains (with individual distortion)
+  const createChain = (vol, distAmt, revSend, chorSend, delaySend) => {
+    const inputGain = ctx.createGain(); inputGain.gain.value = vol;
+    const dist = ctx.createWaveShaper(); dist.curve = createDistortionCurve(distAmt*2.5); dist.oversample='4x';
+    const dryGain = ctx.createGain(); dryGain.gain.value = 1.0;
+    const revSendGain = ctx.createGain(); revSendGain.gain.value = revSend;
+    const chorSendGain = ctx.createGain(); chorSendGain.gain.value = chorSend;
+    const delaySendGain = ctx.createGain(); delaySendGain.gain.value = delaySend;
+    
+    inputGain.connect(dist).connect(dryGain);
+    dryGain.connect(revSendGain); dryGain.connect(chorSendGain); dryGain.connect(delaySendGain);
+    revSendGain.connect(reverbBus);
+    chorSendGain.connect(chorusDelay).connect(chorusGain);
+    delaySendGain.connect(delayBus); delaySendGain.connect(slap);
+    return { input: inputGain, dry: dryGain };
+  };
 
-      const gtr = createChain(params.gtrVol, params.gtrDist, params.gtrRev, params.gtrChor, params.gtrDelay);
-      const bass = createChain(params.bassVol, params.bassDist, params.bassRev, params.bassChor, params.bassDelay);
-      const drum = createChain(params.drumVol, params.drumDist, params.drumRev, params.drumChor, params.drumDelay);
+  const gtr = createChain(params.gtrVol, params.gtrDist, params.gtrRev, params.gtrChor, params.gtrDelay);
+  const bass = createChain(params.bassVol, params.bassDist, params.bassRev, params.bassChor, params.bassDelay);
+  const drum = createChain(params.drumVol, params.drumDist, params.drumRev, params.drumChor, params.drumDelay);
 
-      [gtr.dry, bass.dry, drum.dry].forEach(n=>n.connect(comp));
-      reverbBus.connect(comp); delayBus.connect(comp); slap.connect(comp); chorusGain.connect(comp);
-      
-      const masterDist = ctx.createWaveShaper();
-      masterDist.curve = createDistortionCurve(params.masterDist * 2.5);
-      masterDist.oversample = '4x';
-      comp.connect(masterDist);
-      masterDist.connect(master);
-      
-      return { gtrIn: gtr.input, bassIn: bass.input, drumIn: drum.input, master, masterDist, ctx };
-    }
+  // Connect dry signals and FX returns to the compressor
+  [gtr.dry, bass.dry, drum.dry].forEach(n=>n.connect(comp));
+  reverbBus.connect(comp); delayBus.connect(comp); slap.connect(comp); chorusGain.connect(comp);
+  
+  // === ORIGINAL MASTER CHAIN: LOWPASS → DISTORTION ===
+  const lowpass = ctx.createBiquadFilter();
+  lowpass.type = 'lowpass';
+  lowpass.frequency.value = 7800;   // 7.8 kHz cutoff (original tape-like roll‑off)
+
+  const masterDist = ctx.createWaveShaper();
+  masterDist.curve = createDistortionCurve(220);  // fixed original amount – that warm, crunchy saturation
+  masterDist.oversample = '4x';
+
+  // Connect: comp → lowpass → masterDist → master
+  comp.connect(lowpass);
+  lowpass.connect(masterDist);
+  masterDist.connect(master);
+  
+  return { gtrIn: gtr.input, bassIn: bass.input, drumIn: drum.input, master, masterDist, ctx };
+}
 
     function scheduleTrackOffline(track, ctx, startTime, gtrIn, bassIn, drumIn) {
       const stepDur = 60 / track.bpm / 4;
