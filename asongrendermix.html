@@ -67,6 +67,16 @@
   font-size: 0.55rem;
   color: #b0ffb0;
 }
+    .master-distortion {
+  margin-top: 16px;
+  border-top: 1px dashed #3aff6e;
+  padding-top: 14px;
+  width: 100%;
+}
+.master-distortion .slider-label {
+  color: #ffaa6e;
+  text-shadow: 0 0 8px #ff7e2e;
+}
     .eq-container { margin: 10px 0 0; }
     .equalizer { display: flex; gap: 8px; height: 50px; align-items: flex-end; justify-content: center; }
     .bar { width: 24px; background: linear-gradient(to top, #1f8f1f, #9aff9a); border: 1px solid #2aff6e; border-bottom: none; box-shadow: 0 0 18px #2eff7e, inset 0 0 6px #b3ffb3; height: 20px; transition: height 0.08s; }
@@ -119,6 +129,11 @@
         <div class="slider-item"><div class="slider-label">🎸 GUITAR</div><input type="range" id="guitarVol" min="0" max="100" value="75"><div class="slider-value" id="guitarVal">75%</div></div>
         <div class="slider-item"><div class="slider-label">🎸 BASS</div><input type="range" id="bassVol" min="0" max="100" value="85"><div class="slider-value" id="bassVal">85%</div></div>
         <div class="slider-item"><div class="slider-label">🥁 DRUMS</div><input type="range" id="drumsVol" min="0" max="100" value="80"><div class="slider-value" id="drumsVal">80%</div></div>
+     <div class="slider-item master-distortion">
+  <div class="slider-label">🔥 MASTER DIST</div>
+  <input type="range" id="masterDist" min="0" max="100" value="0">
+  <div class="slider-value" id="masterDistVal">0%</div>
+</div>
       </div>
     </div>
 
@@ -350,6 +365,14 @@
       [gtr.dry, bass.dry, drum.dry].forEach(n=>n.connect(comp));
       reverbBus.connect(comp); delayBus.connect(comp); slap.connect(comp); chorusGain.connect(comp);
       comp.connect(master);
+
+      const masterDist = ctx.createWaveShaper();
+  masterDist.curve = createDistortionCurve(params.masterDist * 2.5);
+  masterDist.oversample = '4x';
+  
+  // Connect comp → masterDist → master
+  comp.connect(masterDist);
+  masterDist.connect(master);
       
       return { gtrIn: gtr.input, bassIn: bass.input, drumIn: drum.input, master, ctx };
     }
@@ -374,6 +397,8 @@
       gtrDist: document.getElementById('gtrDist'), gtrRev: document.getElementById('gtrRev'), gtrChor: document.getElementById('gtrChor'), gtrDelay: document.getElementById('gtrDelay'),
       bassDist: document.getElementById('bassDist'), bassRev: document.getElementById('bassRev'), bassChor: document.getElementById('bassChor'), bassDelay: document.getElementById('bassDelay'),
       drumDist: document.getElementById('drumDist'), drumRev: document.getElementById('drumRev'), drumChor: document.getElementById('drumChor'), drumDelay: document.getElementById('drumDelay')
+   const masterDistSlider = document.getElementById('masterDist');
+const masterDistVal = document.getElementById('masterDistVal');
     };
     const valSpans = {
       gtrVol: document.getElementById('guitarVal'), bassVol: document.getElementById('bassVal'), drumVol: document.getElementById('drumsVal'),
@@ -388,12 +413,14 @@
         gtrDist: sliders.gtrDist.value/100, gtrRev: sliders.gtrRev.value/100, gtrChor: sliders.gtrChor.value/100, gtrDelay: sliders.gtrDelay.value/100,
         bassDist: sliders.bassDist.value/100, bassRev: sliders.bassRev.value/100, bassChor: sliders.bassChor.value/100, bassDelay: sliders.bassDelay.value/100,
         drumDist: sliders.drumDist.value/100, drumRev: sliders.drumRev.value/100, drumChor: sliders.drumChor.value/100, drumDelay: sliders.drumDelay.value/100
+      masterDist: masterDistSlider.value / 100,
       };
     }
 
     function updateSliderLabels() {
-      for(let k in sliders) valSpans[k].textContent = sliders[k].value+'%';
-    }
+  for(let k in sliders) valSpans[k].textContent = sliders[k].value+'%';
+  masterDistVal.textContent = masterDistSlider.value + '%';   // ← add here
+}
     Object.values(sliders).forEach(s=>s.addEventListener('input', ()=>{
       updateSliderLabels();
       if(graphNodes) {
@@ -404,6 +431,14 @@
         // distortion curves would need rebuild; for simplicity we update gains only
       }
     }));
+  // 👇 INSERT THE MASTER DISTORTION LISTENER HERE
+masterDistSlider.addEventListener('input', () => {
+  updateSliderLabels();
+  if (graphNodes && graphNodes.masterDist) {
+    graphNodes.masterDist.curve = createDistortionCurve(masterDistSlider.value * 2.5);
+  }
+});
+
     updateSliderLabels();
 
     async function initAudio() {
