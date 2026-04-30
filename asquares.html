@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Dungeon Cards · Open Walk</title>
+    <style>
+        :root {
+            --bg: #0d0d1a;
+            --card-size: min(16vw, 75px);
+            --gap: min(1vw, 4px);
+            --card-inner: calc(var(--card-size) - 8px);
+        }
+        * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+        body { background: var(--bg); display:flex; justify-content:center; align-items:center; min-height:100vh; min-height:100dvh; font-family: 'Segoe UI', 'Roboto', system-ui, sans-serif; overflow: hidden; touch-action:manipulation; background-image: radial-gradient(ellipse at center, #1a1a35 0%, #0d0d1a 70%), repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.003) 2px, rgba(255,255,255,0.003) 4px), repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(255,255,255,0.003) 2px, rgba(255,255,255,0.003) 4px); }
+        .game-wrapper { display:flex; flex-direction:column; align-items:center; gap:10px; padding:10px; max-width:500px; width:100%; }
+        .stats-panel { width:100%; background:rgba(20,20,40,0.85); border:2px solid #2a2a45; border-radius:16px; padding:12px 16px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-around; backdrop-filter:blur(10px); box-shadow:0 4px 20px rgba(0,0,0,0.5); }
+        .stat-item { display:flex; align-items:center; gap:6px; font-size:0.85rem; color:#ccc; font-weight:600; white-space:nowrap; }
+        .stat-icon { font-size:1.1rem; filter:drop-shadow(0 0 3px currentColor); }
+        .stat-value { color:#fff; font-weight:700; min-width:22px; text-align:center; transition:all 0.2s; }
+        .stat-value.pulse { animation:statPulse 0.4s ease-out; }
+        @keyframes statPulse { 0%,100%{ transform:scale(1); } 30%{ transform:scale(1.35); color:#ffd700; } }
+        .hp-bar-outer { flex-basis:100%; height:10px; background:#1a0a0a; border-radius:10px; overflow:hidden; border:1px solid #3a1010; }
+        .hp-bar-inner { height:100%; background:linear-gradient(90deg, #e74c3c, #c0392b, #e74c3c); border-radius:10px; transition:width 0.4s ease; box-shadow:inset 0 1px 0 rgba(255,255,255,0.2), 0 0 8px rgba(231,76,60,0.5); }
+        .hp-bar-inner.danger { background:linear-gradient(90deg, #ff3333, #cc0000); animation:dangerPulse 0.6s infinite; }
+        @keyframes dangerPulse { 0%,100%{ box-shadow:0 0 8px rgba(255,0,0,0.5); } 50%{ box-shadow:0 0 18px rgba(255,0,0,0.9); } }
+        .combo-badge { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) scale(0); font-size:2rem; font-weight:900; color:#ffd700; pointer-events:none; z-index:100; text-shadow:0 0 20px rgba(255,215,0,0.8),0 0 40px rgba(255,165,0,0.6); transition:transform 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .combo-badge.show { transform:translate(-50%,-50%) scale(1); animation:comboFly 0.9s ease-out forwards; }
+        @keyframes comboFly { 0%{ transform:translate(-50%,-50%) scale(0.4); opacity:1; } 50%{ transform:translate(-50%,-70%) scale(1.3); opacity:1; } 100%{ transform:translate(-50%,-120%) scale(0.8); opacity:0; } }
+        .grid-container { display:grid; grid-template-columns: repeat(5, var(--card-size)); grid-template-rows: repeat(5, var(--card-size)); gap:var(--gap); padding:12px; background:rgba(15,15,30,0.7); border-radius:20px; border:2px solid #2a2a40; box-shadow:0 8px 40px rgba(0,0,0,0.6),inset 0 0 60px rgba(0,0,0,0.4); position:relative; }
+        .grid-container::after { content:''; position:absolute; inset:-3px; border-radius:22px; border:1px solid rgba(201,168,76,0.2); pointer-events:none; z-index:0; }
+        .card { width:var(--card-size); height:var(--card-size); border-radius:10px; position:relative; cursor:pointer; transition:transform 0.15s ease, box-shadow 0.15s ease; display:flex; align-items:center; justify-content:center; flex-direction:column; z-index:1; overflow:hidden; border:2px solid #333; background:#1a1a2e; box-shadow:0 3px 8px rgba(0,0,0,0.5); }
+        .card::before { content:''; position:absolute; inset:3px; border-radius:7px; border:1px solid rgba(255,255,255,0.05); pointer-events:none; z-index:2; }
+        .card.revealed { cursor:pointer; filter:brightness(1) saturate(1); animation:cardReveal 0.35s ease-out; }
+        @keyframes cardReveal { 0%{ transform:rotateY(90deg) scale(0.7); filter:brightness(2); } 60%{ transform:rotateY(-5deg) scale(1.05); } 100%{ transform:rotateY(0deg) scale(1); filter:brightness(1); } }
+        .card.revealed:active { transform:scale(0.9); transition:transform 0.08s ease; }
+        .card.enemy { border-color:#c0392b; background:linear-gradient(145deg, #2a1015, #1a0a0d); box-shadow:0 0 12px rgba(192,57,43,0.35); }
+        .card.health { border-color:#27ae60; background:linear-gradient(145deg, #0a1f12, #051008); box-shadow:0 0 12px rgba(39,174,96,0.35); }
+        .card.gold { border-color:#c9a84c; background:linear-gradient(145deg, #1f1a0a, #121005); box-shadow:0 0 12px rgba(201,168,76,0.35); }
+        .card.weapon { border-color:#e67e22; background:linear-gradient(145deg, #1f1408, #120c04); box-shadow:0 0 12px rgba(230,126,34,0.35); }
+        .card.shield { border-color:#2980b9; background:linear-gradient(145deg, #081420, #040a10); box-shadow:0 0 12px rgba(41,128,185,0.35); }
+        .card.trap { border-color:#8e44ad; background:linear-gradient(145deg, #150a1f, #0a0510); box-shadow:0 0 12px rgba(142,68,173,0.35); }
+        .card.boss { border-color:#e74c3c; background:linear-gradient(145deg, #2a0808, #1a0404); box-shadow:0 0 20px rgba(231,76,60,0.6),0 0 40px rgba(200,0,0,0.3); animation:bossGlow 1.5s infinite; }
+        .card.exit { border-color:#f1c40f; background:linear-gradient(145deg, #1a1808, #0d0c04); box-shadow:0 0 18px rgba(241,196,15,0.5),0 0 35px rgba(255,215,0,0.25); animation:exitGlow 2s infinite; }
+        .card.poison { border-color:#6c3483; background:linear-gradient(145deg, #1a0a20, #0d0515); box-shadow:0 0 12px rgba(108,52,131,0.4); }
+        .card.burn { border-color:#d35400; background:linear-gradient(145deg, #2a1508, #1a0a04); box-shadow:0 0 12px rgba(211,84,0,0.4); }
+        .card.antidote { border-color:#2ecc71; background:linear-gradient(145deg, #0a1f12, #051008); box-shadow:0 0 12px rgba(46,204,113,0.4); }
+        .card.burnCure { border-color:#3498db; background:linear-gradient(145deg, #081420, #040a10); box-shadow:0 0 12px rgba(52,152,219,0.4); }
+        .card.teleport { border-color:#9b59b6; background:linear-gradient(145deg, #1a0a25, #0d0515); box-shadow:0 0 12px rgba(155,89,182,0.5); }
+        .card.treasure { border-color:#f39c12; background:linear-gradient(145deg, #2a2008, #1a1404); box-shadow:0 0 14px rgba(243,156,18,0.5); }
+        .card.shrine { border-color:#f1c40f; background:linear-gradient(145deg, #1a1808, #0d0c04); box-shadow:0 0 14px rgba(241,196,15,0.5); }
+        .card.curse { border-color:#2c3e50; background:linear-gradient(145deg, #0a0a0f, #050508); box-shadow:0 0 12px rgba(44,62,80,0.5); }
+        .card.fountain { border-color:#1abc9c; background:linear-gradient(145deg, #081816, #040c0a); box-shadow:0 0 14px rgba(26,188,156,0.5); }
+        .card.mimic { border-color:#c9a84c; background:linear-gradient(145deg, #1f1a0a, #121005); box-shadow:0 0 12px rgba(201,168,76,0.5); }
+        .card.event { border-color:#e67e22; background:linear-gradient(145deg, #2a1e08, #1a1304); box-shadow:0 0 14px rgba(230,126,34,0.5); }
+        .card.campfire { border-color:#e67e22; background:linear-gradient(145deg, #2a1e08, #1a1304); box-shadow:0 0 14px rgba(230,126,34,0.5); }
+        .card.rubble { border-color:#7f8c8d; background:linear-gradient(145deg, #1a1a1a, #0f0f0f); box-shadow:0 0 6px rgba(127,140,141,0.5); }
+        .card.player { border-color:#00d4ff; background:linear-gradient(145deg, #0a1a2a, #051020); cursor:default; z-index:10; box-shadow:0 0 22px rgba(0,212,255,0.55),0 0 45px rgba(0,180,255,0.25); animation:playerGlow 2s infinite; border-width:3px; }
+        @keyframes playerGlow { 0%,100%{ box-shadow:0 0 22px rgba(0,212,255,0.5); } 50%{ box-shadow:0 0 35px rgba(0,230,255,0.75),0 0 55px rgba(0,180,255,0.35); } }
+        @keyframes bossGlow { 0%,100%{ box-shadow:0 0 20px rgba(231,76,60,0.5); } 50%{ box-shadow:0 0 35px rgba(255,50,30,0.8),0 0 50px rgba(200,0,0,0.4); } }
+        @keyframes exitGlow { 0%,100%{ box-shadow:0 0 18px rgba(241,196,15,0.5); } 50%{ box-shadow:0 0 30px rgba(255,220,50,0.8),0 0 50px rgba(255,200,0,0.4); } }
+        .card-icon { font-size:calc(var(--card-inner) * 0.45); z-index:3; line-height:1; pointer-events:none; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.6)); }
+        .card-label { font-size:calc(var(--card-inner) * 0.18); font-weight:700; color:#ddd; z-index:3; pointer-events:none; text-shadow:0 1px 2px rgba(0,0,0,0.8); margin-top:2px; }
+        .card-value { font-size:calc(var(--card-inner) * 0.17); font-weight:600; color:#ffd700; z-index:3; pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,0.9); }
+        .card.player.shake { animation:shake 0.5s ease-out; }
+        @keyframes shake { 0%,100%{ transform:translateX(0); } 10%{ transform:translateX(-6px); } 20%{ transform:translateX(6px); } 30%{ transform:translateX(-5px); } 40%{ transform:translateX(5px); } 50%{ transform:translateX(-3px); } 60%{ transform:translateX(3px); } 70%{ transform:translateX(-1px); } 80%{ transform:translateX(1px); } }
+        .card.player.heal-flash { animation:healFlash 0.6s ease-out; }
+        @keyframes healFlash { 0%{ box-shadow:0 0 40px rgba(46,204,113,1),0 0 80px rgba(46,204,113,0.6); } 100%{ box-shadow:0 0 22px rgba(0,212,255,0.5); } }
+        .float-text { position:fixed; pointer-events:none; z-index:200; font-weight:900; font-size:1.3rem; animation:floatUp 1s ease-out forwards; text-shadow:0 2px 6px rgba(0,0,0,0.7); white-space:nowrap; }
+        @keyframes floatUp { 0%{ opacity:1; transform:translateY(0) scale(0.6); } 30%{ opacity:1; transform:translateY(-25px) scale(1.2); } 100%{ opacity:0; transform:translateY(-70px) scale(0.9); } }
+        .float-text.damage { color:#ff4444; font-size:1.5rem; }
+        .float-text.heal { color:#2ecc71; font-size:1.3rem; }
+        .float-text.gold-gain { color:#f1c40f; font-size:1.2rem; }
+        .float-text.bonus { color:#ff9f43; font-size:1.1rem; }
+        .overlay { position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:300; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:16px; animation:fadeIn 0.4s ease; }
+        @keyframes fadeIn { from{ opacity:0; } to{ opacity:1; } }
+        .modal-card { background:#1a1a30; border:2px solid #4a3040; border-radius:20px; padding:30px 24px; text-align:center; max-width:340px; width:90%; box-shadow:0 10px 50px rgba(0,0,0,0.7); }
+        .modal-card h2 { color:#e74c3c; font-size:2rem; margin-bottom:6px; letter-spacing:3px; }
+        .modal-card .btn { display:inline-block; padding:14px 28px; background:linear-gradient(180deg, #c0392b, #8b1a1a); color:#fff; border:2px solid #e74c3c; border-radius:30px; font-size:1.1rem; font-weight:700; cursor:pointer; letter-spacing:2px; transition:all 0.2s; box-shadow:0 4px 15px rgba(231,76,60,0.4); margin:8px; text-transform:uppercase; }
+        .modal-card .btn:active { transform:scale(0.93); background:#a02020; }
+        .class-btn { background:linear-gradient(180deg, #2c3e50, #1a252f); border-color:#34495e; margin:6px; }
+        .zap-btn { background:#9b59b6; color:white; border:none; padding:6px 12px; border-radius:20px; font-weight:bold; font-size:0.8rem; cursor:pointer; letter-spacing:1px; transition:transform 0.1s; display:none; }
+        .zap-btn:active { transform:scale(0.9); }
+        .zap-btn.disabled { opacity:0.5; pointer-events:none; }
+        @media (max-width:380px) { :root{ --card-size: min(17vw, 60px); } .stats-panel{ padding:8px 10px; gap:4px; } .stat-item{ font-size:0.7rem; gap:3px; } .stat-icon{ font-size:0.9rem; } }
+        @media (min-width:600px) { :root{ --card-size:80px; --gap:5px; } .stat-item{ font-size:0.95rem; } }
+    </style>
+</head>
+<body>
+    <div class="game-wrapper">
+        <div class="stats-panel">
+            <div class="stat-item"><span class="stat-icon">❤️</span> <span class="stat-value" id="hpDisplay">20</span>/<span id="maxHpDisplay">20</span></div>
+            <div class="stat-item"><span class="stat-icon">⚔️</span> <span class="stat-value" id="atkDisplay">3</span></div>
+            <div class="stat-item"><span class="stat-icon">🛡️</span> <span class="stat-value" id="defDisplay">0</span></div>
+            <div class="stat-item"><span class="stat-icon">💰</span> <span class="stat-value" id="goldDisplay">0</span></div>
+            <div class="stat-item"><span class="stat-icon">🏰</span> Lv.<span class="stat-value" id="levelDisplay">1</span></div>
+            <div class="stat-item"><span class="stat-icon">👣</span> <span class="stat-value" id="movesDisplay">0</span></div>
+            <div class="stat-item" id="statusDisplay" style="display:none;"></div>
+            <div class="hp-bar-outer"><div class="hp-bar-inner" id="hpBar" style="width:100%"></div></div>
+            <button class="zap-btn" id="zapButton">⚡ Zap</button>
+        </div>
+        <div class="grid-container" id="gridContainer"></div>
+        <div class="combo-badge" id="comboBadge"></div>
+    </div>
+    <div class="game-over-overlay" id="gameOverOverlay" style="display:none;">
+        <div class="game-over-card">
+            <span class="skull">💀</span>
+            <h2>Game Over</h2>
+            <div class="final-stats" id="finalStats"></div>
+            <button class="btn-restart" id="btnRestart">⚔️ Play Again</button>
+        </div>
+    </div>
+    <div class="overlay" id="classSelectOverlay" style="display:flex;">
+        <div class="modal-card">
+            <h2 style="color:#f1c40f;">Choose Your Class</h2>
+            <button class="btn class-btn" data-class="knight">🛡️ Knight<br><small>HP 20 · ATK 4 · DEF 2</small></button>
+            <button class="btn class-btn" data-class="mage">🔮 Mage<br><small>HP 15 · ATK 2 · DEF 0 · Zap</small></button>
+            <button class="btn class-btn" data-class="thief">🗡️ Thief<br><small>HP 18 · ATK 3 · DEF 0 · +50% Gold</small></button>
+        </div>
+    </div>
+    <div class="overlay" id="eventOverlay" style="display:none;">
+        <div class="modal-card">
+            <h2 id="eventTitle" style="color:#e67e22;">Event</h2>
+            <p id="eventDesc" style="color:#ccc; margin:12px 0;"></p>
+            <button class="btn" id="eventChoiceA">Choice A</button>
+            <button class="btn" id="eventChoiceB">Choice B</button>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            const gridContainer = document.getElementById('gridContainer');
+            const hpDisplay = document.getElementById('hpDisplay');
+            const maxHpDisplay = document.getElementById('maxHpDisplay');
+            const atkDisplay = document.getElementById('atkDisplay');
+            const defDisplay = document.getElementById('defDisplay');
+            const goldDisplay = document.getElementById('goldDisplay');
+            const levelDisplay = document.getElementById('levelDisplay');
+            const movesDisplay = document.getElementById('movesDisplay');
+            const hpBar = document.getElementById('hpBar');
+            const comboBadge = document.getElementById('comboBadge');
+            const gameOverOverlay = document.getElementById('gameOverOverlay');
+            const finalStats = document.getElementById('finalStats');
+            const btnRestart = document.getElementById('btnRestart');
+            const statusDisplay = document.getElementById('statusDisplay');
+            const zapButton = document.getElementById('zapButton');
+            const classSelectOverlay = document.getElementById('classSelectOverlay');
+            const eventOverlay = document.getElementById('eventOverlay');
+            const eventTitle = document.getElementById('eventTitle');
+            const eventDesc = document.getElementById('eventDesc');
+            const eventChoiceA = document.getElementById('eventChoiceA');
+            const eventChoiceB = document.getElementById('eventChoiceB');
+
+            const GRID_SIZE = 5;
+            let grid = [];
+            let playerRow = 2;
+            let playerCol = 2;
+            let playerHP = 20;
+            let maxHP = 20;
+            let playerAtk = 3;
+            let playerDef = 0;
+            let gold = 0;
+            let score = 0;
+            let dungeonLevel = 1;
+            let moveCount = 0;
+            let enemiesDefeated = 0;
+            let comboCount = 0;
+            let maxCombo = 0;
+            let gameOver = false;
+            let highScore = parseInt(localStorage.getItem('dungeonCardsWalkHighScore') || '0');
+            let playerClass = null;
+            let abilityUsedThisLevel = false;
+            let campfireBuff = false;
+            let zapMode = false;
+            let goldMultiplier = 1; // for Thief
+
+            let poisoned = false;
+            let burning = false;
+            let poisonTimer = 2;
+            let burnTimer = 3;
+
+            const classStats = {
+                knight: { hp: 20, atk: 4, def: 2, ability: 'none' },
+                mage:   { hp: 15, atk: 2, def: 0, ability: 'zap' },
+                thief:  { hp: 18, atk: 3, def: 0, ability: 'gold' }
+            };
+
+            function getEnemyPower() {
+                const base = dungeonLevel + Math.floor(moveCount / 8);
+                return {
+                    hp: 2 + base + Math.floor(Math.random() * (3 + base)),
+                    atk: 1 + Math.floor(base / 2) + Math.floor(Math.random() * (2 + Math.floor(base / 3)))
+                };
+            }
+
+            function generateCard() {
+                const roll = Math.random() * 100;
+                let type;
+                if (roll < 23) type = 'enemy';
+                else if (roll < 33) type = 'gold';
+                else if (roll < 42) type = 'health';
+                else if (roll < 49) type = 'weapon';
+                else if (roll < 55) type = 'shield';
+                else if (roll < 60) type = 'trap';
+                else if (roll < 62) type = 'boss';
+                else if (roll < 63) type = 'exit';
+                else if (roll < 66) type = 'poison';
+                else if (roll < 69) type = 'burn';
+                else if (roll < 71) type = 'antidote';
+                else if (roll < 73) type = 'burnCure';
+                else if (roll < 75) type = 'teleport';
+                else if (roll < 77) type = 'treasure';
+                else if (roll < 79) type = 'shrine';
+                else if (roll < 81) type = 'curse';
+                else if (roll < 83) type = 'fountain';
+                else if (roll < 85) type = 'mimic';
+                else if (roll < 88) type = 'event';
+                else if (roll < 91) type = 'campfire';
+                else if (roll < 94) type = 'rubble';
+                else type = 'enemy';
+
+                const card = { type, revealed: true, value: 0, subValue: 0 }; // ALL REVEALED
+                switch (type) {
+                    case 'enemy': const ep = getEnemyPower(); card.value = ep.hp; card.subValue = ep.atk; break;
+                    case 'gold': card.value = 5 + Math.floor(Math.random() * 20) + dungeonLevel * 2; break;
+                    case 'health': card.value = 3 + Math.floor(Math.random() * 8) + Math.floor(dungeonLevel / 2); break;
+                    case 'weapon': card.value = 1 + Math.floor(Math.random() * 3); break;
+                    case 'shield': card.value = 1 + Math.floor(Math.random() * 2); break;
+                    case 'trap': card.value = 2 + Math.floor(Math.random() * 5) + Math.floor(dungeonLevel / 2); break;
+                    case 'boss': const bp = getEnemyPower(); card.value = bp.hp * 2 + 3; card.subValue = bp.atk + 2; break;
+                    case 'treasure': card.value = 20 + Math.floor(Math.random() * 40) + dungeonLevel * 5; break;
+                    case 'mimic': const mp = getEnemyPower(); card.value = Math.floor(mp.hp * 1.3) + 2; card.subValue = Math.floor(mp.atk * 1.3); break;
+                    case 'event': card.value = 0; break;
+                    case 'campfire': card.value = 0; break;
+                    case 'rubble': card.value = 0; break;
+                }
+                return card;
+            }
+
+            function createInitialGrid() {
+                grid = [];
+                for (let r = 0; r < GRID_SIZE; r++) {
+                    grid[r] = [];
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        grid[r][c] = generateCard();
+                    }
+                }
+                grid[playerRow][playerCol] = { type: 'player', revealed: true, value: 0, subValue: 0 };
+            }
+
+            function regenerateAllExceptPlayer() {
+                for (let r = 0; r < GRID_SIZE; r++) {
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        if (r === playerRow && c === playerCol) continue;
+                        grid[r][c] = generateCard();
+                    }
+                }
+            }
+
+            function fightEnemy(card, isBoss) {
+                let enemyHP = card.value;
+                const enemyAtk = card.subValue;
+                let totalDmg = 0;
+                while (enemyHP > 0 && playerHP > 0) {
+                    enemyHP -= playerAtk;
+                    if (enemyHP <= 0) break;
+                    const dmg = Math.max(0, enemyAtk - playerDef);
+                    playerHP -= dmg;
+                    totalDmg += dmg;
+                }
+                if (playerHP <= 0) {
+                    playerHP = 0;
+                    return;
+                }
+                comboCount++;
+                if (comboCount > maxCombo) maxCombo = comboCount;
+                const comboBonus = Math.min(comboCount, 10);
+                score += (isBoss ? 100 : 15 + card.value * 3) * comboBonus;
+                enemiesDefeated++;
+                let goldGain = (isBoss ? 25 + Math.floor(Math.random() * 40) : 3 + Math.floor(Math.random() * card.value * 2));
+                goldGain = Math.floor(goldGain * goldMultiplier);
+                gold += goldGain;
+                showCombo(comboCount);
+                spawnFloatText(null, isBoss ? 'BOSS DOWN!' : 'SLAYED!', 'gold-gain');
+            }
+
+            async function resolveCard(card, cardElement) {
+                if (gameOver) return;
+                switch (card.type) {
+                    case 'enemy': fightEnemy(card, false); break;
+                    case 'boss': fightEnemy(card, true); break;
+                    case 'health':
+                        let healAmt = card.value;
+                        if (campfireBuff) healAmt *= 2;
+                        playerHP = Math.min(maxHP, playerHP + healAmt);
+                        spawnFloatText(cardElement, `+${healAmt} HP`, 'heal');
+                        flashPlayerCard('heal-flash');
+                        comboCount = 0;
+                        break;
+                    case 'gold':
+                        let g = Math.floor(card.value * goldMultiplier);
+                        gold += g;
+                        score += g;
+                        spawnFloatText(cardElement, `+${g} 💰`, 'gold-gain');
+                        comboCount = 0;
+                        break;
+                    case 'weapon': playerAtk += card.value; score += card.value * 8; spawnFloatText(cardElement, `+${card.value} ATK`, 'bonus'); comboCount = 0; break;
+                    case 'shield': playerDef += card.value; score += card.value * 10; spawnFloatText(cardElement, `+${card.value} DEF`, 'bonus'); comboCount = 0; break;
+                    case 'trap': const trapDmg = card.value; const actualDmg = Math.max(0, trapDmg - playerDef); playerHP -= actualDmg; spawnFloatText(cardElement, `-${actualDmg} HP`, 'damage'); flashPlayerCard('shake'); comboCount = 0; break;
+                    case 'poison': poisoned = true; poisonTimer = 2; spawnFloatText(cardElement, '☠️ Poisoned!', 'damage'); comboCount = 0; break;
+                    case 'burn': burning = true; burnTimer = 3; spawnFloatText(cardElement, '🔥 Burning!', 'damage'); comboCount = 0; break;
+                    case 'antidote': if(poisoned){ poisoned=false; spawnFloatText(cardElement, '💚 Cured!', 'heal'); } else { playerHP = Math.min(maxHP, playerHP+3); spawnFloatText(cardElement, '+3 HP', 'heal'); } comboCount = 0; break;
+                    case 'burnCure': if(burning){ burning=false; spawnFloatText(cardElement, '💧 Cooled!', 'heal'); } else { playerHP = Math.min(maxHP, playerHP+3); spawnFloatText(cardElement, '+3 HP', 'heal'); } comboCount = 0; break;
+                    case 'treasure': let tg = Math.floor(card.value * goldMultiplier); gold += tg; score += tg; spawnFloatText(cardElement, `💰+${tg}`, 'gold-gain'); comboCount = 0; break;
+                    case 'shrine': if(Math.random()<0.5){ playerAtk+=2; spawnFloatText(cardElement, '⚔️ ATK+2', 'bonus'); } else { playerDef+=2; spawnFloatText(cardElement, '🛡️ DEF+2', 'bonus'); } comboCount = 0; break;
+                    case 'curse': const loss = 1+Math.floor(Math.random()*2); if(Math.random()<0.5){ playerAtk = Math.max(1, playerAtk-loss); spawnFloatText(cardElement, `⚔️ ATK-${loss}`, 'damage'); } else { playerDef = Math.max(0, playerDef-loss); spawnFloatText(cardElement, `🛡️ DEF-${loss}`, 'damage'); } comboCount = 0; break;
+                    case 'fountain': playerHP = maxHP; poisoned = false; burning = false; spawnFloatText(cardElement, '⛲ Full heal!', 'heal'); flashPlayerCard('heal-flash'); comboCount = 0; break;
+                    case 'campfire': campfireBuff = true; spawnFloatText(cardElement, '🔥 Campfire buff!', 'bonus'); comboCount = 0; break;
+                    case 'rubble': playerHP = Math.max(0, playerHP-1); spawnFloatText(cardElement, '🧱 Stumble! -1 HP', 'damage'); flashPlayerCard('shake'); break;
+                    case 'mimic': fightEnemy(card, false); break;
+                    case 'event': await showEventModal(); comboCount = 0; break;
+                }
+                updateStats();
+                if (playerHP <= 0) { playerHP = 0; triggerGameOver(); }
+            }
+
+            function applyStatusEffects() {
+                let damage = 0;
+                if (poisoned) { poisonTimer--; if(poisonTimer<=0){ damage+=1; poisonTimer=2; } }
+                if (burning) { burnTimer--; if(burnTimer<=0){ damage+=2; burnTimer=3; } }
+                if (damage > 0) {
+                    playerHP = Math.max(0, playerHP - damage);
+                    spawnFloatText(null, `-${damage} HP (status)`, 'damage');
+                    flashPlayerCard('shake');
+                    if (playerHP <= 0) { playerHP = 0; triggerGameOver(); return true; }
+                }
+                return false;
+            }
+
+            function teleportPlayer() {
+                const candidates = [];
+                for (let r = 0; r < GRID_SIZE; r++) for (let c = 0; c < GRID_SIZE; c++) if (!(r===playerRow && c===playerCol)) candidates.push([r,c]);
+                if (candidates.length===0) return;
+                const [newR, newC] = candidates[Math.floor(Math.random()*candidates.length)];
+                grid[playerRow][playerCol] = generateCard();
+                grid[newR][newC] = { type:'player', revealed:true, value:0, subValue:0 };
+                playerRow = newR; playerCol = newC;
+                spawnFloatText(null, '🌀 Teleported!', 'bonus');
+            }
+
+            async function movePlayer(targetRow, targetCol) {
+                const targetCard = grid[targetRow][targetCol];
+                const cardEl = gridContainer.querySelector(`.card[data-row="${targetRow}"][data-col="${targetCol}"]`);
+                await resolveCard(targetCard, cardEl);
+                if (gameOver) return;
+                const wasExit = targetCard.type === 'exit';
+                const wasTeleport = targetCard.type === 'teleport';
+                grid[playerRow][playerCol] = generateCard();
+                grid[targetRow][targetCol] = { type:'player', revealed:true, value:0, subValue:0 };
+                playerRow = targetRow; playerCol = targetCol;
+                moveCount++;
+                if (wasExit) {
+                    dungeonLevel++; score += 50 * dungeonLevel; maxHP += 5; playerHP = Math.min(maxHP, playerHP+8);
+                    campfireBuff = false; abilityUsedThisLevel = false; regenerateAllExceptPlayer();
+                    spawnFloatText(null, 'DEEPER!', 'bonus');
+                }
+                if (wasTeleport) teleportPlayer();
+                if (applyStatusEffects()) { updateStats(); renderGrid(); return; }
+                updateStats();
+                if (playerHP <= 0) triggerGameOver();
+                renderGrid();
+                updateZapButton();
+            }
+
+            function canMoveTo(r, c) {
+                if (r<0||r>=GRID_SIZE||c<0||c>=GRID_SIZE) return false;
+                if (r===playerRow && c===playerCol) return false;
+                if (Math.abs(r-playerRow)+Math.abs(c-playerCol)!==1) return false;
+                if (grid[r][c].type === 'rubble') return false; // blocked
+                return true;
+            }
+
+            function handleCardClick(r, c) {
+                if (gameOver) return;
+                if (zapMode) {
+                    const card = grid[r][c];
+                    if (card.type === 'enemy' || card.type === 'mimic') { executeZap(r,c); }
+                    return;
+                }
+                if (!canMoveTo(r,c)) return;
+                movePlayer(r,c);
+            }
+
+            function executeZap(r, c) {
+                if (!abilityUsedThisLevel && playerClass==='mage' && !gameOver) {
+                    abilityUsedThisLevel = true; zapMode = false;
+                    const card = grid[r][c];
+                    score += 30; enemiesDefeated++;
+                    spawnFloatText(null, '⚡ Zapped!', 'bonus');
+                    grid[r][c] = generateCard(); // replacement already revealed
+                    updateZapButton();
+                    renderGrid();
+                }
+            }
+
+            function updateZapButton() {
+                if (playerClass==='mage' && !abilityUsedThisLevel && !gameOver) {
+                    zapButton.style.display = 'inline-block';
+                    const anyEnemy = grid.some(row => row.some(card => card.type==='enemy'||card.type==='mimic'));
+                    zapButton.classList.toggle('disabled', !anyEnemy);
+                } else { zapButton.style.display = 'none'; }
+            }
+
+            zapButton.addEventListener('click', ()=>{
+                if (zapMode) { zapMode=false; zapButton.textContent='⚡ Zap'; renderGrid(); }
+                else { zapMode=true; zapButton.textContent='Cancel'; renderGrid(); }
+            });
+
+            function showEventModal() {
+                return new Promise(resolve => {
+                    const events = [
+                        { desc:'A wandering merchant offers a trade: 10 gold for +2 ATK.', choiceA:'Accept (-10g, +2 ATK)', choiceB:'Decline', effectA:()=>{ if(gold>=10){ gold-=10; playerAtk+=2; spawnFloatText(null,'+2 ATK','bonus'); } }, effectB:()=>{} },
+                        { desc:'You find a mysterious altar. Sacrifice 5 max HP for a permanent +1 DEF?', choiceA:'Sacrifice', choiceB:'Leave', effectA:()=>{ maxHP-=5; playerHP=Math.min(playerHP,maxHP); playerDef+=1; spawnFloatText(null,'+1 DEF','bonus'); }, effectB:()=>{} },
+                        { desc:'A goblin challenges you to a game of dice. Win: +15 gold. Lose: -5 gold.', choiceA:'Play (50% chance)', choiceB:'Walk away', effectA:()=>{ if(Math.random()<0.5){ gold+=15; spawnFloatText(null,'+15 💰','gold-gain'); } else { gold=Math.max(0,gold-5); spawnFloatText(null,'-5 💰','damage'); } }, effectB:()=>{} },
+                        { desc:'A cursed fountain bubbles. Drink?', choiceA:'Drink (random effect)', choiceB:'Ignore', effectA:()=>{ const r=Math.random(); if(r<0.4){ playerHP=Math.min(maxHP,playerHP+6); spawnFloatText(null,'+6 HP','heal');} else if(r<0.8){ playerHP-=3; spawnFloatText(null,'-3 HP','damage');} else { poisoned=true; poisonTimer=2; spawnFloatText(null,'Poisoned!','damage');} }, effectB:()=>{} }
+                    ];
+                    const evt = events[Math.floor(Math.random()*events.length)];
+                    eventTitle.textContent = '⚡ Event'; eventDesc.textContent = evt.desc;
+                    eventChoiceA.textContent = evt.choiceA; eventChoiceB.textContent = evt.choiceB;
+                    eventOverlay.style.display = 'flex';
+                    function choose(effect) { eventOverlay.style.display = 'none'; effect(); resolve(); }
+                    eventChoiceA.onclick = () => choose(evt.effectA);
+                    eventChoiceB.onclick = () => choose(evt.effectB);
+                });
+            }
+
+            function spawnFloatText(cardElement, text, cssClass) {
+                const el = document.createElement('div'); el.className = 'float-text '+cssClass; el.textContent = text; document.body.appendChild(el);
+                let x,y;
+                if(cardElement){ const rect=cardElement.getBoundingClientRect(); x=rect.left+rect.width/2; y=rect.top; }
+                else { const rect=gridContainer.getBoundingClientRect(); x=rect.left+rect.width/2; y=rect.top+rect.height/2; }
+                el.style.left=x+'px'; el.style.top=y+'px'; el.style.transform='translate(-50%,-50%)';
+                el.addEventListener('animationend',()=>el.remove());
+                setTimeout(()=>{ if(el.parentNode) el.remove(); }, 1100);
+            }
+
+            function flashPlayerCard(animClass) {
+                const playerCardEl = gridContainer.querySelector('.card.player');
+                if(playerCardEl){ playerCardEl.classList.remove('shake','heal-flash'); void playerCardEl.offsetWidth; playerCardEl.classList.add(animClass); setTimeout(()=>playerCardEl.classList.remove(animClass),600); }
+            }
+
+            function showCombo(count) {
+                if(count<2) return;
+                comboBadge.textContent = count>=10 ? `🔥 ${count}x COMBO!` : `⚡ ${count}x COMBO!`;
+                comboBadge.classList.remove('show'); void comboBadge.offsetWidth; comboBadge.classList.add('show');
+                setTimeout(()=>comboBadge.classList.remove('show'),1000);
+            }
+
+            function pulseStat(el) { el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse'); }
+
+            function updateStatusDisplay() {
+                let html = '';
+                if(poisoned) html += '<span style="color:#9b59b6;">☠️ Poison</span> ';
+                if(burning) html += '<span style="color:#e67e22;">🔥 Burn</span> ';
+                if(campfireBuff) html += '<span style="color:#e67e22;">🔥 Campfire</span> ';
+                if(html){ statusDisplay.innerHTML = html.trim(); statusDisplay.style.display = 'flex'; }
+                else { statusDisplay.style.display = 'none'; }
+            }
+
+            function updateStats() {
+                hpDisplay.textContent = playerHP; maxHpDisplay.textContent = maxHP; atkDisplay.textContent = playerAtk;
+                defDisplay.textContent = playerDef; goldDisplay.textContent = gold; levelDisplay.textContent = dungeonLevel;
+                movesDisplay.textContent = moveCount; const hpPercent = Math.max(0,(playerHP/maxHP)*100);
+                hpBar.style.width = hpPercent+'%'; hpBar.classList.toggle('danger', hpPercent<=25);
+                pulseStat(hpDisplay); pulseStat(goldDisplay); updateStatusDisplay(); updateZapButton();
+            }
+
+            function renderGrid() {
+                gridContainer.innerHTML = '';
+                for (let r=0; r<GRID_SIZE; r++) {
+                    for (let c=0; c<GRID_SIZE; c++) {
+                        const card = grid[r][c];
+                        const cardEl = document.createElement('div');
+                        cardEl.classList.add('card'); cardEl.dataset.row=r; cardEl.dataset.col=c;
+                        if (card.type==='player') {
+                            cardEl.classList.add('player'); cardEl.innerHTML = `<span class="card-icon">🦸</span><span class="card-label">HERO</span>`;
+                        } else {
+                            cardEl.classList.add('revealed', card.type);
+                            let icon, label, valueText;
+                            switch(card.type) {
+                                case 'enemy': icon='👹'; label='Enemy'; valueText=`❤${card.value} ⚔${card.subValue}`; break;
+                                case 'boss': icon='👿'; label='BOSS'; valueText=`❤${card.value} ⚔${card.subValue}`; break;
+                                case 'health': icon='🧪'; label='Potion'; valueText=`+${card.value} HP`; break;
+                                case 'gold': icon='💰'; label='Gold'; valueText=`${card.value}`; break;
+                                case 'weapon': icon='⚔️'; label='Weapon'; valueText=`+${card.value} ATK`; break;
+                                case 'shield': icon='🛡️'; label='Shield'; valueText=`+${card.value} DEF`; break;
+                                case 'trap': icon='💀'; label='Trap'; valueText=`-${card.value} HP`; break;
+                                case 'exit': icon='🚪'; label='Exit'; valueText='Deeper'; break;
+                                case 'poison': icon='☠️'; label='Poison'; valueText='Status'; break;
+                                case 'burn': icon='🔥'; label='Burn'; valueText='Status'; break;
+                                case 'antidote': icon='💚'; label='Antidote'; valueText='Cure'; break;
+                                case 'burnCure': icon='💧'; label='Salve'; valueText='Cure'; break;
+                                case 'teleport': icon='🌀'; label='Teleport'; valueText='Random'; break;
+                                case 'treasure': icon='👑'; label='Treasure'; valueText=`+${card.value} 💰`; break;
+                                case 'shrine': icon='⛩️'; label='Shrine'; valueText='Blessing'; break;
+                                case 'curse': icon='🕷️'; label='Curse'; valueText='Curse'; break;
+                                case 'fountain': icon='⛲'; label='Fountain'; valueText='Full Heal'; break;
+                                case 'mimic': icon='📦'; label='Chest?'; valueText=`❤${card.value} ⚔${card.subValue}`; break;
+                                case 'event': icon='❓'; label='Event'; valueText='Choice'; break;
+                                case 'campfire': icon='🔥'; label='Campfire'; valueText='Buff'; break;
+                                case 'rubble': icon='🧱'; label='Rubble'; valueText='Blocked'; break;
+                            }
+                            cardEl.innerHTML = `<span class="card-icon">${icon}</span><span class="card-label">${label}</span><span class="card-value">${valueText}</span>`;
+                            if (zapMode && (card.type==='enemy'||card.type==='mimic')) cardEl.style.outline='2px solid #ff0';
+                            cardEl.addEventListener('click', ()=>handleCardClick(r,c));
+                        }
+                        gridContainer.appendChild(cardEl);
+                    }
+                }
+            }
+
+            function triggerGameOver() {
+                gameOver = true; zapMode = false; updateStats(); renderGrid();
+                if(score>highScore){ highScore=score; localStorage.setItem('dungeonCardsWalkHighScore',highScore); }
+                setTimeout(()=>{
+                    finalStats.innerHTML = `
+                        🏆 Final Score: <span>${score}</span><br>
+                        📊 High Score: <span>${highScore}</span><br>
+                        🏰 Dungeon Level: <span>${dungeonLevel}</span><br>
+                        👣 Moves: <span>${moveCount}</span><br>
+                        💀 Enemies Defeated: <span>${enemiesDefeated}</span><br>
+                        ⚔️ Final ATK: <span>${playerAtk}</span> | 🛡️ DEF: <span>${playerDef}</span><br>
+                        💰 Gold: <span>${gold}</span><br>
+                        🔥 Max Combo: <span>${maxCombo}x</span>
+                    `;
+                    gameOverOverlay.style.display = 'flex';
+                },500);
+            }
+
+            function startGame(chosenClass) {
+                playerClass = chosenClass;
+                const stats = classStats[chosenClass];
+                playerHP = stats.hp; maxHP = stats.hp; playerAtk = stats.atk; playerDef = stats.def;
+                gold = 0; score = 0; dungeonLevel = 1; moveCount = 0;
+                enemiesDefeated = 0; comboCount = 0; maxCombo = 0; gameOver = false;
+                playerRow = 2; playerCol = 2; poisoned = false; burning = false;
+                poisonTimer = 2; burnTimer = 3; campfireBuff = false; abilityUsedThisLevel = false; zapMode = false;
+                goldMultiplier = (chosenClass === 'thief') ? 1.5 : 1;
+                createInitialGrid();
+                updateStats();
+                renderGrid();
+                hpBar.classList.remove('danger');
+                zapButton.style.display = 'none';
+                gameOverOverlay.style.display = 'none';
+            }
+
+            function showClassSelection() {
+                classSelectOverlay.style.display = 'flex';
+                gameOverOverlay.style.display = 'none';
+            }
+
+            document.querySelectorAll('.class-btn').forEach(btn => {
+                btn.addEventListener('click', (e)=>{ const cls=e.currentTarget.dataset.class; classSelectOverlay.style.display='none'; startGame(cls); });
+            });
+
+            btnRestart.addEventListener('click', ()=> showClassSelection());
+
+            gridContainer.addEventListener('touchstart', (e)=>{ if(e.touches.length>1) e.preventDefault(); }, {passive:false});
+            document.addEventListener('gesturestart', (e)=> e.preventDefault());
+
+            document.addEventListener('keydown', (e)=>{
+                if(gameOver){ if(e.key==='Enter'||e.key===' '||e.key==='r') showClassSelection(); return; }
+                let targetR=playerRow, targetC=playerCol;
+                switch(e.key.toLowerCase()){
+                    case 'w': case 'arrowup': targetR=playerRow-1; break;
+                    case 's': case 'arrowdown': targetR=playerRow+1; break;
+                    case 'a': case 'arrowleft': targetC=playerCol-1; break;
+                    case 'd': case 'arrowright': targetC=playerCol+1; break;
+                    default: return;
+                }
+                e.preventDefault();
+                if(canMoveTo(targetR,targetC)) handleCardClick(targetR,targetC);
+            });
+
+            showClassSelection();
+            if(highScore>0) console.log(`🏆 High Score: ${highScore}`);
+        })();
+    </script>
+</body>
+</html>
