@@ -1588,7 +1588,7 @@
                 { id: 'templar', name: 'Templar', class: 'human', emoji: '⛨', atk: 3, hp: 7, cost: 5, ability: 'Bulwark', tier: 'rare' },
                 { id: 'sniper', name: 'Sniper', class: 'human', emoji: '🎯', atk: 6, hp: 1, cost: 4, ability: 'Pierce 3', tier: 'rare', splashDamage: 3 },
                 { id: 'squire', name: 'Squire', class: 'human', emoji: '🛡️', atk: 1, hp: 2, cost: 1, ability: 'Loyal', tier: 'common' },
-                { id: 'acolyte', name: 'Acolyte', class: 'human', emoji: '🙏', atk: 1, hp: 1, cost: 1, ability: 'Heal 1', tier: 'common', onPlayHeal: 1 },
+                { id: 'acolyte', name: 'Acolyte', class: 'human', emoji: '🙏', atk: 1, hp: 1, cost: 1, ability: 'Heal 1', tier: 'common', onPlayHeal: 1, spell: true }
                 { id: 'spark_mage', name: 'Spark M.', class: 'human', emoji: '⚡', atk: 1, hp: 1, cost: 1, ability: 'Draw 1', tier: 'uncommon', onPlayDraw: 1 },
                 { id: 'footman', name: 'Footman', class: 'human', emoji: '⚔️', atk: 2, hp: 3, cost: 2, ability: 'Steady', tier: 'common' },
                 { id: 'apprentice', name: 'Apprentice', class: 'human', emoji: '🔮', atk: 2, hp: 2, cost: 2, ability: 'Bolt 1', tier: 'common', splashDamage: 1 },
@@ -1922,6 +1922,39 @@ state.playerFrozen = false;
     let cost = card.cost;
     if (who === 'player' && hasRelic('r_common_discount') && card.tier === 'common') cost = Math.max(0, cost - 1);
     if (cost > energy) return false;
+
+                    // ===== SPELL card (player only) =====
+    if (who === 'player' && card.spell) {
+        state.playerEnergy -= cost;
+        hand.splice(handIndex, 1);
+        state.playerDiscard.push(card);        // goes to discard, becomes defender later if drawn normally
+
+        // Clone to avoid mutating the original card in discard
+        const spellCopy = cloneCard(card);
+        triggerOnPlay(who, spellCopy, card);   // heal, draw, etc.
+
+        // Combo tracking still works for spells
+        state.cardsPlayedThisTurn++;
+        if (state.comboClass === card.class && state.comboCount > 0) {
+            state.comboCount++;
+            const bonus = getComboBonus();
+            if (state.comboCount >= 2) {
+                sfxCombo();
+                addBattleLog('COMBO x' + state.comboCount + '! (+' + bonus.atk + ' ATK' + (bonus.draw ? ', Draw ' + bonus.draw : '') + (bonus.energy ? ', +' + bonus.energy + '⚡' : '') + ')', 'log-combo');
+                if (bonus.draw) for (let d = 0; d < bonus.draw; d++) drawCard('player');
+                if (bonus.energy) state.playerEnergy = Math.min(getMaxEnergy(), state.playerEnergy + bonus.energy);
+                spawnComboParticles();
+            }
+        } else {
+            state.comboClass = card.class;
+            state.comboCount = 1;
+        }
+
+        checkGameEnd();
+        updateUI();
+        return true;
+    }
+    // ===== END SPELL =====
 
     // ===== SHIELD ALLY special play (player only) =====
     if (who === 'player' && card.shieldAlly > 0) {
