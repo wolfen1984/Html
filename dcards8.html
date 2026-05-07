@@ -2053,18 +2053,55 @@ if (who === 'player' && hasRelic('r_pact_of_blood') && card.class === 'vampire')
 }
     if (cost > energy) return false;
 
-                        // ===== SPELL card (player only) =====
+                            // ===== SPELL card (player only) =====
     if (who === 'player' && card.spell) {
         state.playerEnergy -= cost;
         hand.splice(handIndex, 1);
-        state.playerDiscard.push(card);        // goes to discard, becomes defender later if drawn normally
-
-        // Clone to avoid mutating the original card in discard
-        const spellCopy = cloneCard(card);
-        triggerOnPlay(who, spellCopy, card);   // heal, draw, etc.
-
-        // Combo tracking still works for spells
         state.cardsPlayedThisTurn++;
+
+        // ----- NEW: Discard‑interacting spells -----
+        if (card.id === 'gravedigger') {
+            if (state.playerDiscard.length > 0) {
+                const randomIndex = Math.floor(Math.random() * state.playerDiscard.length);
+                const retrieved = state.playerDiscard.splice(randomIndex, 1)[0];
+                state.playerHand.push(retrieved);
+                addBattleLog('Gravedigger retrieves ' + retrieved.name + ' from discard!', 'log-info');
+            } else {
+                addBattleLog('Gravedigger finds nothing in the discard.', 'log-info');
+            }
+            state.playerDiscard.push(card);
+        } else if (card.id === 'reanimate') {
+            if (state.playerDiscard.length > 0) {
+                const randomIndex = Math.floor(Math.random() * state.playerDiscard.length);
+                const deadCard = state.playerDiscard.splice(randomIndex, 1)[0];
+                const revived = cloneCard(deadCard);
+                revived.atk = Math.max(0, revived.atk - 1);
+                revived.hp = Math.max(1, revived.hp - 1);       // at least 1 HP to survive
+                revived.currentHp = revived.hp;
+                const oldField = state.playerField;
+                if (oldField) state.playerDiscard.push(oldField);
+                state.playerField = revived;
+                addBattleLog('Reanimate raises ' + revived.name + ' (' + revived.atk + '/' + revived.hp + ') from the grave!', 'log-heal');
+            } else {
+                addBattleLog('Reanimate finds nothing to resurrect.', 'log-info');
+            }
+            state.playerDiscard.push(card);
+        } else if (card.id === 'explosive_demise') {
+            const discCount = state.playerDiscard.length;
+            state.enemyLife = Math.max(0, state.enemyLife - discCount);
+            spawnDamagePop('enemy-field', discCount, '#ff0000');
+            addBattleLog('Explosive Demise deals ' + discCount + ' damage (cards in discard)!', 'log-damage');
+            if (discCount >= 5) triggerScreenShake();
+            state.playerDiscard.push(card);
+        } else {
+            // Original generic spell behaviour (heal, draw, etc.)
+            state.playerDiscard.push(card);
+            const spellCopy = cloneCard(card);
+            triggerOnPlay(who, spellCopy, card);
+        }
+        // ----- END new spells -----
+
+        // Combo tracking (works for all spells, including new ones)
         if (state.comboClass === card.class && state.comboCount > 0) {
             state.comboCount++;
             const bonus = getComboBonus();
