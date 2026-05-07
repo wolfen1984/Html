@@ -1794,31 +1794,95 @@ playerFrozen: false,
 }
 
             function getEnemyPersonality() {
-                return ['aggressive', 'defensive', 'balanced', 'tricky', 'relentless'][state.wins % 5];
-            }
+    const personalities = [
+        'aggressive', 'defensive', 'balanced', 'tricky', 'relentless',
+        'reckless', 'healer', 'burn'
+    ];
+    return personalities[state.wins % personalities.length];
+}
 
-            function predictEnemyIntent() {
-                if (state.gameOver || !state.isPlayerTurn) return '';
-                const futureEnergy = Math.min(getMaxEnergy(), state.enemyEnergy + getEnergyPerTurn());
-                const playable = state.enemyHand.map((card, idx) => ({ card, idx })).filter(item => item.card.cost <= futureEnergy);
-                if (playable.length === 0) return state.enemyField ? '▶ Idle (has defender)' : '▶ No playable cards';
-                const personality = getEnemyPersonality();
-                playable.sort((a, b) => {
-                    const ca = a.card, cb = b.card;
-                    let sa = ca.atk * 2 + ca.hp + (ca.lifesteal && state.enemyLife < state.maxEnemyLife * 0.5 ? 8 : 0) + (ca.onPlayDamage ? 5 : 0) + (ca.onPlayHeal && state.enemyLife < state.maxEnemyLife * 0.6 ? 6 : 0) - ca.cost;
-                    let sb = cb.atk * 2 + cb.hp + (cb.lifesteal && state.enemyLife < state.maxEnemyLife * 0.5 ? 8 : 0) + (cb.onPlayDamage ? 5 : 0) + (cb.onPlayHeal && state.enemyLife < state.maxEnemyLife * 0.6 ? 6 : 0) - cb.cost;
-                    if (personality === 'defensive') { sa += ca.hp * 1.5; sb += cb.hp * 1.5; }
-                    if (personality === 'tricky') { if (ca.onPlayDamage) sa += 3; if (cb.onPlayDamage) sb += 3; }
-                    return sb - sa;
-                });
-                const best = playable[0].card;
-                let text = `▶ Will play: ${best.name} ⚔${best.atk} ❤${best.hp}`;
-                if (best.onPlayDamage) text += ` 💥${best.onPlayDamage}`;
-                if (best.burnDamage) text += ` 🔥${best.burnDamage}`;
-                if (best.lifesteal) text += ` 🩸${best.lifesteal}`;
-                if (best.fearEffect) text += ` 😱${best.fearEffect}`;
-                return text;
-            }
+           function predictEnemyIntent() {
+    if (state.gameOver || !state.isPlayerTurn) return '';
+
+    const futureEnergy = Math.min(getMaxEnergy(), state.enemyEnergy + getEnergyPerTurn());
+    const playable = state.enemyHand
+        .map((card, idx) => ({ card, idx }))
+        .filter(item => item.card.cost <= futureEnergy);
+
+    if (playable.length === 0) {
+        return state.enemyField ? '▶ Idle (has defender)' : '▶ No playable cards';
+    }
+
+    const personality = getEnemyPersonality();
+
+    playable.sort((a, b) => {
+        const ca = a.card, cb = b.card;
+        let sa = ca.atk * 2 + ca.hp
+               + (ca.lifesteal && state.enemyLife < state.maxEnemyLife * 0.5 ? 8 : 0)
+               + (ca.onPlayDamage ? 5 : 0)
+               + (ca.onPlayHeal && state.enemyLife < state.maxEnemyLife * 0.6 ? 6 : 0)
+               - ca.cost;
+        let sb = cb.atk * 2 + cb.hp
+               + (cb.lifesteal && state.enemyLife < state.maxEnemyLife * 0.5 ? 8 : 0)
+               + (cb.onPlayDamage ? 5 : 0)
+               + (cb.onPlayHeal && state.enemyLife < state.maxEnemyLife * 0.6 ? 6 : 0)
+               - cb.cost;
+
+        // Existing personalities
+        if (personality === 'defensive') {
+            sa += ca.hp * 1.5;
+            sb += cb.hp * 1.5;
+        }
+        if (personality === 'tricky') {
+            if (ca.onPlayDamage) sa += 3;
+            if (cb.onPlayDamage) sb += 3;
+        }
+
+        // New personalities
+        if (personality === 'reckless') {
+            sa = (ca.atk * 5) + ca.hp - (ca.cost * 0.5);
+            sb = (cb.atk * 5) + cb.hp - (cb.cost * 0.5);
+        }
+        if (personality === 'healer' && state.enemyLife < state.maxEnemyLife * 0.5) {
+            if (ca.lifesteal)   sa += 15;
+            if (ca.onPlayHeal)   sa += 12;
+            if (cb.lifesteal)   sb += 15;
+            if (cb.onPlayHeal)   sb += 12;
+        }
+        if (personality === 'burn') {
+            if (ca.burnDamage)   sa += 10;
+            if (ca.poisonDamage) sa += 10;
+            if (ca.onPlayDamage) sa += 6;
+            if (cb.burnDamage)   sb += 10;
+            if (cb.poisonDamage) sb += 10;
+            if (cb.onPlayDamage) sb += 6;
+        }
+
+        return sb - sa; // highest score first
+    });
+
+    const best = playable[0].card;
+
+    // --- Add personality label ---
+    let personalityLabel = '';
+    switch (personality) {
+        case 'reckless':   personalityLabel = ' (RECKLESS)'; break;
+        case 'healer':     personalityLabel = ' (HEALER)'; break;
+        case 'burn':       personalityLabel = ' (BURN FOCUS)'; break;
+        // You can add labels for the original ones if you like, e.g.:
+        // case 'aggressive': personalityLabel = ' (AGGRESSIVE)'; break;
+        // case 'defensive':  personalityLabel = ' (DEFENSIVE)'; break;
+        // etc.
+        default: personalityLabel = '';
+    }
+
+    let text = `▶ Will play: ${best.name} ⚔${best.atk} ❤${best.hp}${personalityLabel}`;
+    if (best.onPlayDamage) text += ` 💥${best.onPlayDamage}`;
+    if (best.burnDamage)   text += ` 🔥${best.burnDamage}`;
+    if (best.lifesteal)    text += ` 🩸${best.lifesteal}`;
+    if (best.fearEffect)   text += ` 😱${best.fearEffect}`;
+    return text;
+}
 
             function getRewardCards() {
                 const tiers = ['common'];
@@ -2383,9 +2447,63 @@ function triggerDeathrattle(who, card) {
                 drawCard('enemy');
                 const personality = getEnemyPersonality();
                 let played = 0;
-                const maxPlays = personality === 'relentless' ? 4 : personality === 'aggressive' ? 3 : 2;
+                const maxPlays = 
+    personality === 'relentless' || personality === 'reckless' ? 4 :
+    personality === 'aggressive' || personality === 'burn' ? 3 :
+    2;   // defensive, balanced, tricky, healer
                 while (played < maxPlays && !state.gameOver) { const playable = []; for (let i = 0; i < state.enemyHand.length; i++) if (state.enemyHand[i].cost <= state.enemyEnergy) playable.push(i); if (playable.length === 0) break;
-                    playable.sort((a, b) => { const ca = state.enemyHand[a], cb = state.enemyHand[b]; let sa = ca.atk * 2 + ca.hp + (ca.lifesteal && state.enemyLife < state.maxEnemyLife * 0.5 ? 8 : 0) + (ca.onPlayDamage ? 5 : 0) + (ca.onPlayHeal && state.enemyLife < state.maxEnemyLife * 0.6 ? 6 : 0) - ca.cost; let sb = cb.atk * 2 + cb.hp + (cb.lifesteal && state.enemyLife < state.maxEnemyLife * 0.5 ? 8 : 0) + (cb.onPlayDamage ? 5 : 0) + (cb.onPlayHeal && state.enemyLife < state.maxEnemyLife * 0.6 ? 6 : 0) - cb.cost; if (personality === 'defensive') { sa += ca.hp * 1.5; sb += cb.hp * 1.5; } if (personality === 'tricky' && ca.onPlayDamage) sa += 3; if (personality === 'tricky' && cb.onPlayDamage) sb += 3; return sb - sa; });
+                    playable.sort((a, b) => {
+    const ca = state.enemyHand[a], cb = state.enemyHand[b];
+
+    // Base score (same as before)
+    let sa = (ca.atk * 2) + ca.hp
+           + (ca.lifesteal && state.enemyLife < state.maxEnemyLife * 0.5 ? 8 : 0)
+           + (ca.onPlayDamage ? 5 : 0)
+           + (ca.onPlayHeal && state.enemyLife < state.maxEnemyLife * 0.6 ? 6 : 0)
+           - ca.cost;
+    let sb = (cb.atk * 2) + cb.hp
+           + (cb.lifesteal && state.enemyLife < state.maxEnemyLife * 0.5 ? 8 : 0)
+           + (cb.onPlayDamage ? 5 : 0)
+           + (cb.onPlayHeal && state.enemyLife < state.maxEnemyLife * 0.6 ? 6 : 0)
+           - cb.cost;
+
+    // ----- EXISTING PERSONALITIES (unchanged) -----
+    if (personality === 'defensive') {
+        sa += ca.hp * 1.5;
+        sb += cb.hp * 1.5;
+    }
+    if (personality === 'tricky') {
+        if (ca.onPlayDamage) sa += 3;
+        if (cb.onPlayDamage) sb += 3;
+    }
+
+    // ----- NEW PERSONALITIES -----
+    if (personality === 'reckless') {
+        // Heavily weight ATK, ignore cost almost completely
+        sa = (ca.atk * 5) + ca.hp - (ca.cost * 0.5);
+        sb = (cb.atk * 5) + cb.hp - (cb.cost * 0.5);
+    }
+
+    if (personality === 'healer' && state.enemyLife < state.maxEnemyLife * 0.5) {
+        // When hurt, desperate for healing
+        if (ca.lifesteal) sa += 15;
+        if (ca.onPlayHeal) sa += 12;
+        if (cb.lifesteal) sb += 15;
+        if (cb.onPlayHeal) sb += 12;
+    }
+
+    if (personality === 'burn') {
+        // Love damage-over-time effects and direct damage
+        if (ca.burnDamage)   sa += 10;
+        if (ca.poisonDamage) sa += 10;
+        if (ca.onPlayDamage) sa += 6;
+        if (cb.burnDamage)   sb += 10;
+        if (cb.poisonDamage) sb += 10;
+        if (cb.onPlayDamage) sb += 6;
+    }
+
+    return sb - sa;   // highest score first
+});
                     const best = state.enemyHand[playable[0]]; if (personality === 'balanced' && state.enemyEnergy >= 5 && best.cost <= 2 && state.enemyHand.length >= 3 && played >= 1) break;
                     playCard('enemy', playable[0]); played++; if (state.gameOver) break; }
                 applyStatusDamage();
