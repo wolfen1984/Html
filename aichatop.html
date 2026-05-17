@@ -323,39 +323,58 @@
         return contents;
     }
 
-    async function callGemini(contents, systemPrompt, temperature = 0.85, maxTokens = 150) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`;
-        const body = {
-            contents: contents,
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-            generationConfig: {
-                temperature: temperature,
-                maxOutputTokens: maxTokens,
-                topP: 0.95,
-                topK: 40
-            },
-            safetySettings: [
-                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
-                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
-                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
-                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" }
-            ]
-        };
+    // ---------- Google Gemini API Helpers ----------
+// ... (keep your buildGeminiContents function) ...
+
+async function callGemini(contents, systemPrompt, temperature = 0.85, maxTokens = 150, retryCount = 0) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`;
+    const body = {
+        contents: contents,
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        generationConfig: {
+            temperature: temperature,
+            maxOutputTokens: maxTokens,
+            topP: 0.95,
+            topK: 40
+        },
+        safetySettings: [
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" }
+        ]
+    };
+
+    try {
         const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         });
+
+        if (response.status === 429 && retryCount < 3) {
+            const retryAfterHeader = response.headers.get('Retry-After');
+            let waitTime = retryAfterHeader ? parseInt(retryAfterHeader, 10) * 1000 : Math.pow(2, retryCount) * 1000;
+            console.warn(`Rate limited. Retrying in ${waitTime / 1000} seconds... (Attempt ${retryCount + 1})`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+            return callGemini(contents, systemPrompt, temperature, maxTokens, retryCount + 1);
+        }
+
         if (!response.ok) {
             const errText = await response.text();
             throw new Error(`Gemini API error ${response.status}: ${errText}`);
         }
+
         const data = await response.json();
         if (data.candidates && data.candidates.length > 0 && data.candidates[0].content) {
             return data.candidates[0].content.parts[0].text.trim();
         }
         throw new Error('No response from Gemini');
+    } catch (err) {
+        console.error("Gemini API call failed:", err);
+        throw err;
     }
+}
 
     // ---------- Chat message sending ----------
     async function sendChatMessage(contactId) {
