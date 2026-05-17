@@ -485,29 +485,97 @@
     document.getElementById('closeImageBtn').addEventListener('click', () => window._closeGenericModal());
   }
 
-  // ── IMAGE GENERATION (Pollinations.ai, free) ─
-    // ── IMAGE GENERATION (Pollinations.ai, free) ─
+    // ── IMAGE GENERATION (Self‑contained Canvas) ─
   async function generateNpcPortrait(npcId) {
-    if (npcPortraitUrls[npcId]) return npcPortraitUrls[npcId];
+    if (npcPortraitUrls[npcId]) {
+      console.log('📸 Using cached portrait for', npcId);
+      return npcPortraitUrls[npcId];
+    }
     const npc = getNpcById(npcId);
     if (!npc) return null;
+    
+    console.log('🎨 Generating canvas portrait for', npc.name);
+    
+    // Try external Pollinations first (fast, optional)
     const prompt = encodeURIComponent(
       `Portrait photo of a ${npc.sex} ${npc.age}-year-old named ${npc.name}, ${npc.personality}, ${npc.bio}. Vintage 1980s dating app photo, grainy, low resolution, slightly creepy, dark CRT screen glow.`
     );
-    const url = `https://image.pollinations.ai/prompt/${prompt}?width=512&height=512&seed=${npcId.replace(/\D/g, '')}`;
-    try {
-      const res = await fetch(url, { method: 'HEAD' });
-      if (!res.ok) throw new Error('Pollinations image not ready');
-      npcPortraitUrls[npcId] = url;
+    const pollinationsUrl = `https://image.pollinations.ai/prompt/${prompt}?width=512&height=512&seed=${npcId.replace(/\D/g, '')}`;
+    
+    const externalLoaded = await tryLoadImage(pollinationsUrl);
+    if (externalLoaded) {
+      console.log('✅ Pollinations image loaded');
+      npcPortraitUrls[npcId] = pollinationsUrl;
       saveAllData();
-      return url;
-    } catch (e) {
-      console.warn('Pollinations failed, using fallback:', e);
-      const fallbackUrl = `https://picsum.photos/seed/${npcId}/512/512`;
-      npcPortraitUrls[npcId] = fallbackUrl;
-      saveAllData();
-      return fallbackUrl;
+      return pollinationsUrl;
     }
+    
+    // Fallback: generate a canvas avatar
+    console.warn('⚠️ External image blocked or failed, using canvas avatar');
+    const dataUrl = createAvatarCanvas(npc);
+    npcPortraitUrls[npcId] = dataUrl;
+    saveAllData();
+    return dataUrl;
+  }
+
+  // Helper to actually test if an image URL can be displayed
+  function tryLoadImage(url) {
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => resolve(true);
+      img.onerror = () => resolve(false);
+      img.src = url;
+      // Timeout after 5 seconds
+      setTimeout(() => resolve(false), 5000);
+    });
+  }
+
+  // Create a retro CRT‑style avatar using Canvas
+  function createAvatarCanvas(npc) {
+    const size = 512;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+
+    // Dark background
+    ctx.fillStyle = '#0a0d0a';
+    ctx.fillRect(0, 0, size, size);
+
+    // Scanlines
+    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    for (let y = 0; y < size; y += 4) {
+      ctx.fillRect(0, y, size, 2);
+    }
+
+    // Glowing border
+    ctx.strokeStyle = '#33ff44';
+    ctx.lineWidth = 8;
+    ctx.strokeRect(4, 4, size - 8, size - 8);
+
+    // Emoji icon (large)
+    ctx.font = '180px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#33ff44';
+    ctx.shadowColor = '#33ff44';
+    ctx.shadowBlur = 20;
+    ctx.fillText(npc.icon, size / 2, size / 2 - 40);
+
+    // Name (initials)
+    ctx.font = 'bold 60px "Courier New", monospace';
+    ctx.shadowBlur = 10;
+    const initials = npc.name.split(' ').map(w => w[0]).join('').toUpperCase().substring(0, 2);
+    ctx.fillText(initials, size / 2, size / 2 + 100);
+
+    // CRT glow effect (vignette)
+    const gradient = ctx.createRadialGradient(size/2, size/2, size*0.2, size/2, size/2, size*0.7);
+    gradient.addColorStop(0, 'rgba(51,255,68,0)');
+    gradient.addColorStop(1, 'rgba(0,0,0,0.6)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+
+    return canvas.toDataURL('image/png');
   }
 
   // ── MESSAGES ─────────────────────────────────
