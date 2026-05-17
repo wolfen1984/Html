@@ -88,12 +88,10 @@
         <div class="tab" data-tab="compose">✏️ Compose</div>
     </div>
 
-    <!-- INBOX PANEL -->
     <div id="inboxPanel" class="panel active">
         <div class="conversation-list" id="inboxList"></div>
     </div>
 
-    <!-- CONTACTS PANEL -->
     <div id="contactsPanel" class="panel">
         <div class="contacts-list" id="contactsList"></div>
         <div style="padding: 16px;">
@@ -101,7 +99,6 @@
         </div>
     </div>
 
-    <!-- COMPOSE PANEL -->
     <div id="composePanel" class="panel">
         <div class="compose-area">
             <select id="composeContactSelect" class="select-contact">
@@ -129,7 +126,6 @@
     </div>
 </div>
 
-<!-- API KEY MODAL -->
 <div id="apiModal" class="modal">
     <div class="modal-content">
         <h2>🔑 Enter Gemini API Key</h2>
@@ -147,6 +143,11 @@
     let contacts = [];
     let conversations = {};
 
+    // Rate limiter queue
+    let requestQueue = [];
+    let processingQueue = false;
+    const MIN_REQUEST_INTERVAL = 4500; // 4.5 seconds between requests (safe for 15 RPM)
+
     const personalityPrompts = {
         stalker: "You are a creepy stalker who has been watching the player for months. You know details about their life. You send unsettling, possessive messages. Keep responses short (1-2 sentences). Use lowercase, occasional typos, and eerie emojis. Never break character.",
         friend: "You are an old friend from high school. But something is wrong – you seem lost, confused, and sometimes say things that don't make sense. You might be a ghost or possessed. Act friendly but unnerving. Short messages.",
@@ -156,8 +157,7 @@
         unknown: "You are a mysterious stranger who somehow got the player's number. You send short, creepy, vague threats or unsettling observations. Act like a random wrong number that feels dangerous. Keep messages 1-2 sentences."
     };
 
-    // Gemini API config
-    const GEMINI_MODEL = 'gemini-2.0-flash';
+    const GEMINI_MODEL = 'gemini-1.5-flash';  // safe free‑tier model
     const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
     const SAFETY_SETTINGS = [
         { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
@@ -209,7 +209,64 @@
 
     function escapeHtml(str) { return str.replace(/[&<>]/g, function(m){if(m==='&') return '&amp;'; if(m==='<') return '&lt;'; if(m==='>') return '&gt;'; return m;}); }
 
-    // --- Inbox rendering ---
+    // ---------- Rate limiter ----------
+    async function processQueue() {
+        if (processingQueue) return;
+        processingQueue = true;
+        while (requestQueue.length > 0) {
+            const task = requestQueue.shift();
+            try {
+                await task();
+            } catch (e) {
+                console.error('Queued task failed:', e);
+            }
+            await new Promise(r => setTimeout(r, MIN_REQUEST_INTERVAL));
+        }
+        processingQueue = false;
+    }
+
+    function enqueueRequest(task) {
+        requestQueue.push(task);
+        processQueue();
+    }
+
+    // ---------- Gemini API helper ----------
+    async function callGemini(systemPrompt, userMessage, historyMessages = []) {
+        const contents = [
+            ...historyMessages.map(m => ({
+                role: m.fromMe ? 'user' : 'model',
+                parts: [{ text: m.text }]
+            })),
+            { role: 'user', parts: [{ text: userMessage }] }
+        ];
+
+        const body = {
+            system_instruction: { parts: [{ text: systemPrompt }] },
+            contents,
+            generationConfig: {
+                temperature: 0.85,
+                maxOutputTokens: 150
+            },
+            safetySettings: SAFETY_SETTINGS
+        };
+
+        const response = await fetch(`${GEMINI_API_URL}?key=${groqApiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API ${response.status}: ${errorText}`);
+        }
+
+        const data = await response.json();
+        const reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "[silence…]";
+        return reply;
+    }
+
+    // --- Inbox rendering (unchanged) ---
     function renderInbox() {
         const container = document.getElementById('inboxList');
         if (!container) return;
@@ -326,60 +383,103 @@
         input.value = '';
         addMessageToConversation(contactId, text, true);
         renderMessages(contactId);
-        await sendAIResponse(contactId, text);
+        triggerAIResponse(contactId, text);
     }
 
-    // Updated: Gemini API call for chat replies
-    async function sendAIResponse(contactId, userMessage) {
+    function triggerAIResponse(contactId, userMessage) {
         const contact = contacts.find(c => c.id === contactId);
         if (!contact || !groqApiKey) return;
+
         const indicator = document.createElement('div');
         indicator.className = 'message-row incoming typing-indicator';
         indicator.innerHTML = '<div class="msg-bubble" style="display:flex; gap:4px;"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>';
         if (chatMessagesContainer) chatMessagesContainer.appendChild(indicator);
         chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
 
-        const history = conversations[contactId] || [];
-        const recentHistory = history.slice(-12).map(m => ({
-            role: m.fromMe ? 'user' : 'model',
-            parts: [{ text: m.text }]
-        }));
-        const systemMsg = contact.systemPrompt || personalityPrompts[contact.personality] || "You are a mysterious contact. Keep replies short.";
-
-        const requestBody = {
-            system_instruction: { parts: [{ text: systemMsg }] },
-            contents: [...recentHistory, { role: 'user', parts: [{ text: userMessage }] }],
-            generationConfig: {
-                temperature: 0.85,
-                maxOutputTokens: 150
-            },
-            safetySettings: SAFETY_SETTINGS
-        };
-
-        try {
-            const response = await fetch(`${GEMINI_API_URL}?key=${groqApiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestBody)
-            });
-            if (!response.ok) throw new Error(`API error ${response.status}`);
-            const data = await response.json();
-            const reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "[silence…]";
-            if (indicator) indicator.remove();
-            await new Promise(r => setTimeout(r, 1200 + Math.random() * 1300));
-            addMessageToConversation(contactId, reply, false);
-            if (currentOpenContactId === contactId) renderMessages(contactId);
-        } catch(err) {
-            console.error(err);
-            if (indicator) indicator.remove();
-            const errorMsg = "[Message not delivered. The signal faded.]";
-            addMessageToConversation(contactId, errorMsg, false);
-            if (currentOpenContactId === contactId) renderMessages(contactId);
-            document.getElementById('globalStatus').querySelector('span').innerText = `⚠️ ${err.message}`;
-            setTimeout(() => document.getElementById('globalStatus').querySelector('span').innerText = '⚡ NIGHT CREEPER · 1984', 3000);
-        }
+        enqueueRequest(async () => {
+            try {
+                const history = conversations[contactId] || [];
+                const recentHistory = history.slice(-12);
+                const systemMsg = contact.systemPrompt || personalityPrompts[contact.personality] || "You are a mysterious contact. Keep replies short.";
+                const reply = await callGemini(systemMsg, userMessage, recentHistory);
+                if (indicator && indicator.parentNode) indicator.remove();
+                await new Promise(r => setTimeout(r, 1200 + Math.random() * 1300)); // typing delay
+                addMessageToConversation(contactId, reply, false);
+                if (currentOpenContactId === contactId) renderMessages(contactId);
+            } catch (err) {
+                console.error(err);
+                if (indicator && indicator.parentNode) indicator.remove();
+                addMessageToConversation(contactId, "[Message not delivered. The signal faded.]", false);
+                if (currentOpenContactId === contactId) renderMessages(contactId);
+                document.getElementById('globalStatus').querySelector('span').innerText = `⚠️ ${err.message}`;
+                setTimeout(() => document.getElementById('globalStatus').querySelector('span').innerText = '⚡ NIGHT CREEPER · 1984', 3000);
+            }
+        });
     }
 
+    // --- Unsolicited messages also use the queue ---
+    function sendRandomUnknownMessage() {
+        if (!groqApiKey) return;
+        const randomNum = `+1${Math.floor(Math.random() * 900 + 100)}${Math.floor(Math.random() * 900 + 100)}${Math.floor(Math.random() * 9000 + 1000)}`;
+        const unknownName = `Unknown (${randomNum})`;
+        let existing = contacts.find(c => c.name === unknownName);
+        if (!existing) {
+            const newContact = {
+                id: uid(),
+                name: unknownName,
+                personality: 'unknown',
+                systemPrompt: personalityPrompts.unknown,
+                createdAt: Date.now()
+            };
+            contacts.push(newContact);
+            conversations[newContact.id] = [];
+            existing = newContact;
+            saveAllData();
+            renderContacts();
+            renderInbox();
+            populateComposeSelect();
+        }
+
+        enqueueRequest(async () => {
+            try {
+                const systemUnsolicited = `You are a mysterious stranger who somehow got the player's number (${randomNum}). Send a short, creepy, unsettling text message (1-2 sentences) that feels like a wrong number but dangerous. No quotes, no labels, just the message.`;
+                const msgText = await callGemini(systemUnsolicited, 'Send one creepy message.');
+                if (msgText) {
+                    addMessageToConversation(existing.id, msgText, false);
+                    document.getElementById('globalStatus').querySelector('span').innerHTML = `📩 New message from ${escapeHtml(unknownName)}`;
+                    setTimeout(() => document.getElementById('globalStatus').querySelector('span').innerHTML = '⚡ NIGHT CREEPER · 1984', 4000);
+                    renderInbox();
+                }
+            } catch (e) { console.warn("unknown message error", e); }
+        });
+    }
+
+    let lastUnsolicitedTime = Date.now();
+    function maybeSendUnsolicitedMessage() {
+        if (!groqApiKey || contacts.length === 0) return;
+        if (Date.now() - lastUnsolicitedTime < 45000) return;
+        const regularContacts = contacts.filter(c => c.personality !== 'unknown');
+        if (regularContacts.length === 0) return;
+        const randomContact = regularContacts[Math.floor(Math.random() * regularContacts.length)];
+        const lastMsg = (conversations[randomContact.id] || []).slice(-1)[0];
+        if (lastMsg && !lastMsg.fromMe && (Date.now() - lastMsg.timestamp < 120000)) return;
+        lastUnsolicitedTime = Date.now();
+
+        enqueueRequest(async () => {
+            try {
+                const systemUnsolicited = `You are ${randomContact.name}, a ${randomContact.personality}. Send a short, creepy, unsolicited text message to the player, as if you're reaching out out of nowhere. Keep it 1-2 sentences. Do not break character.`;
+                const unsolicitedMsg = await callGemini(systemUnsolicited, 'Send one creepy message.');
+                if (unsolicitedMsg) {
+                    addMessageToConversation(randomContact.id, unsolicitedMsg, false);
+                    document.getElementById('globalStatus').querySelector('span').innerHTML = `📩 New message from ${escapeHtml(randomContact.name)}`;
+                    setTimeout(() => document.getElementById('globalStatus').querySelector('span').innerHTML = '⚡ NIGHT CREEPER · 1984', 4000);
+                    renderInbox();
+                }
+            } catch (e) { console.warn("unsolicited error", e); }
+        });
+    }
+
+    // ---------- Remaining UI functions (unchanged) ----------
     function renderContacts() {
         const container = document.getElementById('contactsList');
         if (!container) return;
@@ -399,8 +499,7 @@
         document.querySelectorAll('.delete-contact').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const id = btn.dataset.id;
-                deleteContactById(id);
+                deleteContactById(btn.dataset.id);
             });
         });
     }
@@ -429,7 +528,7 @@
         const msg = document.getElementById('composeMessage').value.trim();
         if (!contactId || !msg) return;
         addMessageToConversation(contactId, msg, true);
-        await sendAIResponse(contactId, msg);
+        triggerAIResponse(contactId, msg);
         document.getElementById('composeMessage').value = '';
         document.querySelector('.tab[data-tab="inbox"]').click();
         openChat(contactId);
@@ -457,100 +556,6 @@
         setTimeout(() => document.getElementById('globalStatus').querySelector('span').innerText = '⚡ NIGHT CREEPER · 1984', 2500);
     }
 
-    // Updated: Gemini API for unsolicited unknown number
-    async function sendRandomUnknownMessage() {
-        if (!groqApiKey) return;
-        const randomNum = `+1${Math.floor(Math.random() * 900 + 100)}${Math.floor(Math.random() * 900 + 100)}${Math.floor(Math.random() * 9000 + 1000)}`;
-        const unknownName = `Unknown (${randomNum})`;
-        let existing = contacts.find(c => c.name === unknownName);
-        if (!existing) {
-            const newContact = {
-                id: uid(),
-                name: unknownName,
-                personality: 'unknown',
-                systemPrompt: personalityPrompts.unknown,
-                createdAt: Date.now()
-            };
-            contacts.push(newContact);
-            conversations[newContact.id] = [];
-            existing = newContact;
-            saveAllData();
-            renderContacts();
-            renderInbox();
-            populateComposeSelect();
-        }
-        const systemUnsolicited = `You are a mysterious stranger who somehow got the player's number (${randomNum}). Send a short, creepy, unsettling text message (1-2 sentences) that feels like a wrong number but dangerous. No quotes, no labels, just the message.`;
-
-        const requestBody = {
-            system_instruction: { parts: [{ text: systemUnsolicited }] },
-            contents: [{ role: 'user', parts: [{ text: 'Send one creepy message.' }] }],
-            generationConfig: {
-                temperature: 0.9,
-                maxOutputTokens: 80
-            },
-            safetySettings: SAFETY_SETTINGS
-        };
-
-        try {
-            const response = await fetch(`${GEMINI_API_URL}?key=${groqApiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestBody)
-            });
-            if (!response.ok) return;
-            const data = await response.json();
-            let msgText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-            if (msgText) {
-                addMessageToConversation(existing.id, msgText, false);
-                document.getElementById('globalStatus').querySelector('span').innerHTML = `📩 New message from ${escapeHtml(unknownName)}`;
-                setTimeout(() => document.getElementById('globalStatus').querySelector('span').innerHTML = '⚡ NIGHT CREEPER · 1984', 4000);
-                renderInbox();
-            }
-        } catch(e) { console.warn("unknown message error", e); }
-    }
-
-    let lastUnsolicitedTime = Date.now();
-    // Updated: Gemini API for unsolicited from known contacts
-    async function maybeSendUnsolicitedMessage() {
-        if (!groqApiKey) return;
-        if (contacts.length === 0) return;
-        if (Date.now() - lastUnsolicitedTime < 45000) return;
-        const regularContacts = contacts.filter(c => c.personality !== 'unknown');
-        if (regularContacts.length === 0) return;
-        const randomContact = regularContacts[Math.floor(Math.random() * regularContacts.length)];
-        const lastMsg = (conversations[randomContact.id] || []).slice(-1)[0];
-        if (lastMsg && !lastMsg.fromMe && (Date.now() - lastMsg.timestamp < 120000)) return;
-        lastUnsolicitedTime = Date.now();
-        const systemUnsolicited = `You are ${randomContact.name}, a ${randomContact.personality}. Send a short, creepy, unsolicited text message to the player, as if you're reaching out out of nowhere. Keep it 1-2 sentences. Do not break character.`;
-
-        const requestBody = {
-            system_instruction: { parts: [{ text: systemUnsolicited }] },
-            contents: [{ role: 'user', parts: [{ text: 'Send one creepy message.' }] }],
-            generationConfig: {
-                temperature: 0.9,
-                maxOutputTokens: 80
-            },
-            safetySettings: SAFETY_SETTINGS
-        };
-
-        try {
-            const response = await fetch(`${GEMINI_API_URL}?key=${groqApiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestBody)
-            });
-            if (!response.ok) return;
-            const data = await response.json();
-            let unsolicitedMsg = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-            if (unsolicitedMsg) {
-                addMessageToConversation(randomContact.id, unsolicitedMsg, false);
-                document.getElementById('globalStatus').querySelector('span').innerHTML = `📩 New message from ${escapeHtml(randomContact.name)}`;
-                setTimeout(() => document.getElementById('globalStatus').querySelector('span').innerHTML = '⚡ NIGHT CREEPER · 1984', 4000);
-                renderInbox();
-            }
-        } catch(e) { console.warn("unsolicited error", e); }
-    }
-
     function resetApiKey() {
         localStorage.removeItem('nightcreeper_api_key');
         groqApiKey = '';
@@ -571,13 +576,19 @@
             document.getElementById('globalStatus').querySelector('span').innerText = '✅ API key set. The whispers begin.';
             if (window.unsolicitedInterval) clearInterval(window.unsolicitedInterval);
             if (window.unknownInterval) clearInterval(window.unknownInterval);
-            window.unsolicitedInterval = setInterval(() => maybeSendUnsolicitedMessage(), 35000);
-            window.unknownInterval = setInterval(() => sendRandomUnknownMessage(), 65000);
+            // Start timers with a random delay to avoid simultaneous first requests
+            const startDelay1 = 10000 + Math.random() * 15000; // 10–25 sec
+            const startDelay2 = 25000 + Math.random() * 20000; // 25–45 sec
+            setTimeout(() => {
+                window.unsolicitedInterval = setInterval(() => maybeSendUnsolicitedMessage(), 35000);
+                window.unknownInterval = setInterval(() => sendRandomUnknownMessage(), 65000);
+            }, Math.max(startDelay1, startDelay2) + 5000);
         } else {
             alert('Please enter a valid Gemini API key.');
         }
     }
 
+    // --- Event listeners ---
     document.querySelectorAll('.tab').forEach(tab => {
         tab.addEventListener('click', () => {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -605,8 +616,11 @@
         setTimeout(openApiModal, 500);
         document.getElementById('globalStatus').querySelector('span').innerText = '⚠️ Set API key to receive messages.';
     } else {
-        window.unsolicitedInterval = setInterval(() => maybeSendUnsolicitedMessage(), 35000);
-        window.unknownInterval = setInterval(() => sendRandomUnknownMessage(), 65000);
+        // Start timers with a staggered delay to avoid burst
+        setTimeout(() => {
+            window.unsolicitedInterval = setInterval(() => maybeSendUnsolicitedMessage(), 35000);
+            window.unknownInterval = setInterval(() => sendRandomUnknownMessage(), 65000);
+        }, 15000); // 15 seconds before the first unsolicited message
     }
     renderInbox();
     renderContacts();
