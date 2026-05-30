@@ -593,6 +593,34 @@
             return str.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[m] || m);
         }
 
+function parseMessageForPhoto(text) {
+    // Matches %%PHOTO%%{...}%%
+    const photoRegex = /%%PHOTO%%(\{.*?\})%%/;
+    const match = text.match(photoRegex);
+    if (match) {
+        try {
+            const photoData = JSON.parse(match[1]);
+            const cleanText = text.replace(photoRegex, '').trim();
+            return { cleanText, photoData };
+        } catch(e) {
+            return { cleanText: text, photoData: null };
+        }
+    }
+    return { cleanText: text, photoData: null };
+}
+
+function createMessageObject(text, fromMe) {
+    const { cleanText, photoData } = parseMessageForPhoto(text);
+    const finalText = cleanText.trim() || (photoData ? "(Sent a photo)" : "");
+    return {
+        id: uid(),
+        text: finalText,
+        timestamp: Date.now(),
+        fromMe,
+        photo: photoData || null
+    };
+}
+
         function advanceTime(minutes) {
             let [h, m] = gameState.time.split(':').map(Number);
             m += minutes;
@@ -706,52 +734,52 @@
         }
 
         async function performSearch() {
-            const gender = document.getElementById('searchGender').value;
-            const ageMin = document.getElementById('searchAgeMin').value || 18;
-            const ageMax = document.getElementById('searchAgeMax').value || 99;
-            const weightMin = document.getElementById('searchWeightMin').value || 100;
-            const weightMax = document.getElementById('searchWeightMax').value || 300;
-            const heightMin = document.getElementById('searchHeightMin').value || '5\'0"';
-            const heightMax = document.getElementById('searchHeightMax').value || '6\'5"';
-            const description = document.getElementById('searchDescription').value.trim();
+    const gender = document.getElementById('searchGender').value;
+    const ageMin = document.getElementById('searchAgeMin').value || 18;
+    const ageMax = document.getElementById('searchAgeMax').value || 99;
+    const weightMin = document.getElementById('searchWeightMin').value || 100;
+    const weightMax = document.getElementById('searchWeightMax').value || 300;
+    const heightMin = document.getElementById('searchHeightMin').value || '5\'0"';
+    const heightMax = document.getElementById('searchHeightMax').value || '6\'5"';
+    const description = document.getElementById('searchDescription').value.trim();
 
-            let criteria = `Gender: ${gender}, Age: ${ageMin}-${ageMax}, Weight: ${weightMin}-${weightMax} lbs, Height: ${heightMin} - ${heightMax}`;
-            if (description) criteria += `. Additional interests / requirements: ${description}`;
-            showNotification('Searching...');
-            try {
-                const reply = await guardedAIRequest([
-                    { role: 'system', content: 'You are a matchmaking computer for a 1980s dating BBS. Generate 3 potential dating profiles that match the given criteria. Output ONLY a valid JSON array. Each object must have keys: name, photo (emoji), bio (short, max 80 chars), prompt (a realistic 1980s personality description for that character). Do NOT include the character instruction in the prompt.' },
-                    { role: 'user', content: `Search criteria: ${criteria}` }
-                ], 400, 0.9);
+    let criteria = `Gender: ${gender}, Age: ${ageMin}-${ageMax}, Weight: ${weightMin}-${weightMax} lbs, Height: ${heightMin} - ${heightMax}`;
+    if (description) criteria += `. Additional interests / requirements: ${description}`;
+    showNotification('Searching...');
+    try {
+        const reply = await guardedAIRequest([
+            { role: 'system', content: 'You are a matchmaking computer for a 1980s dating BBS. Generate 3 potential dating profiles that match the given criteria. Output ONLY a valid JSON array. Each object must have keys: name, photo (emoji), bio (short, max 80 chars), prompt (a realistic 1980s personality description for that character). Do NOT include the character instruction in the prompt.' },
+            { role: 'user', content: `Search criteria: ${criteria}` }
+        ], 400, 0.9);
 
-                let members;
-                try {
-                    members = tryParseJSON(reply);
-                } catch (parseError) {
-                    showNotification('Search returned invalid format. Please try again.', 5000);
-                    console.error('Search parse error', reply);
-                    return;
-                }
-
-                if (!Array.isArray(members)) throw new Error('Not an array');
-
-               const resultsDiv = document.getElementById('searchResults');
-resultsDiv.innerHTML = '<div style="font-size:7px; margin-bottom:8px;">RESULTS:</div>' +
-    members.map((m) => {
-        const id = 'search_' + uid();
-        return `<div class="contact-item">
-            <div>
-                <div class="contact-name">${m.photo || '👤'} ${escapeHtml(m.name)}</div>
-                <div class="small">${escapeHtml(m.bio || '')}</div>
-            </div>
-            <button class="btn" onclick="addSearchMatch(${JSON.stringify(id)}, ${JSON.stringify(m.name)}, ${JSON.stringify(m.photo || '👤')}, ${JSON.stringify(m.bio || '')}, ${JSON.stringify(m.prompt || '')})">ADD</button>
-        </div>`;
-    }).join('');
-            } catch(e) {
-                console.error('Search error', e);
-                showNotification('Search failed. ' + e.message);
-            }
+        let members;
+        try {
+            members = tryParseJSON(reply);
+        } catch (parseError) {
+            showNotification('Search returned invalid format. Please try again.', 5000);
+            console.error('Search parse error', reply);
+            return;
         }
+
+        if (!Array.isArray(members)) throw new Error('Not an array');
+
+        const resultsDiv = document.getElementById('searchResults');
+        resultsDiv.innerHTML = '<div style="font-size:7px; margin-bottom:8px;">RESULTS:</div>' +
+            members.map((m) => {
+                const id = 'search_' + uid();
+                return `<div class="contact-item">
+                    <div>
+                        <div class="contact-name">${m.photo || '👤'} ${escapeHtml(m.name)}</div>
+                        <div class="small">${escapeHtml(m.bio || '')}</div>
+                    </div>
+                    <button class="btn" onclick="addSearchMatch(${JSON.stringify(id)}, ${JSON.stringify(m.name)}, ${JSON.stringify(m.photo || '👤')}, ${JSON.stringify(m.bio || '')}, ${JSON.stringify(m.prompt || '')})">ADD</button>
+                </div>`;
+            }).join('');
+    } catch(e) {
+        console.error('Search error', e);
+        showNotification('Search failed. ' + e.message);
+    }
+}
 
         function addSearchMatch(id, name, photo, bio, prompt) {
             if (gameState.matches.some(m => m.id === id)) {
