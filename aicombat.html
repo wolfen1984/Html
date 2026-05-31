@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>DUNGEON CRAWLER · 1984</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0a0a; display: flex; justify-content: center; align-items: center;
+            min-height: 100vh; font-family: 'Press Start 2P', 'Courier New', monospace;
+            padding: 16px; image-rendering: pixelated;
+        }
+        body::before {
+            content: ''; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: repeating-linear-gradient(0deg, rgba(0,255,0,0.03) 0px, rgba(0,255,0,0.03) 2px, transparent 2px, transparent 4px);
+            pointer-events: none; z-index: 999; opacity: 0.6;
+        }
+        .monitor {
+            max-width: 520px; width: 100%; height: 90vh; background: #0a1a0a;
+            border: 4px solid #33ff33; border-radius: 8px;
+            box-shadow: 0 0 20px #33ff3355, inset 0 0 15px #000000cc;
+            display: flex; flex-direction: column; overflow: hidden;
+            position: relative; z-index: 1; font-family: 'Press Start 2P', monospace; color: #33ff33;
+        }
+        .status-bar {
+            padding: 10px 16px 6px; display: flex; justify-content: space-between;
+            font-size: 9px; background: #0a0a0a; border-bottom: 2px solid #33ff33; color: #33ff33;
+            text-transform: uppercase; letter-spacing: 2px;
+        }
+        .hp-indicator { color: #ff5555; }
+        .notification-bar {
+            position: absolute; top: 40px; left: 10px; right: 10px;
+            background: #0a1a0a; border: 2px solid #33ff33; color: #33ff33; font-size: 7px;
+            padding: 6px 10px; text-align: center; z-index: 1000; opacity: 0; pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        .notification-bar.show { opacity: 1; pointer-events: auto; }
+        .tabs {
+            display: flex; background: #0a0a0a; border-bottom: 2px solid #33ff33; overflow-x: auto; flex-shrink: 0;
+        }
+        .tab {
+            flex: 1; text-align: center; padding: 6px 3px; font-size: 6px; font-weight: normal;
+            color: #228b22; cursor: pointer; background: #0d1a0d; border: 1px solid #33ff33;
+            border-bottom: none; margin-right: 1px; white-space: nowrap; min-width: 44px; letter-spacing: 1px;
+        }
+        .tab.active { color: #33ff33; background: #0a1a0a; border-bottom: 2px solid #0a1a0a; text-shadow: 0 0 6px #33ff33; }
+        .panel {
+            flex: 1; overflow-y: auto; display: none; background: #0a0a0a; flex-direction: column;
+            scrollbar-width: thin; scrollbar-color: #33ff33 #0a1a0a; min-height: 0;
+        }
+        .panel.active { display: flex; }
+        .messages-area { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+        .message-row { display: flex; max-width: 88%; }
+        .incoming { align-self: flex-start; }
+        .outgoing { align-self: flex-end; }
+        .msg-bubble {
+            padding: 6px 10px; font-size: 7px; line-height: 1.7; word-wrap: break-word;
+            color: #33ff33; background: #0a1a0a; border: 2px solid #33ff33; box-shadow: inset 0 0 5px #000;
+        }
+        .incoming .msg-bubble { border-left: 4px solid #33ff33; background: #0a1a0a; }
+        .outgoing .msg-bubble { border-right: 4px solid #33ff33; background: #001a0a; }
+        .photo-attachment {
+            margin-top: 6px; padding: 4px; background: #000; border: 2px dashed #33ff33; text-align: center; font-size: 6px; color: #33ff33;
+        }
+        .photo-attachment img {
+            max-width: 100%; max-height: 150px; height: auto; display: block; margin: 0 auto 4px; border: 2px solid #33ff33;
+        }
+        .input-area { padding: 6px 8px; background: #0a0a0a; border-top: 2px solid #33ff33; display: flex; gap: 4px; flex-shrink: 0; }
+        .chat-input {
+            flex: 1; background: #0a0a0a; border: 2px solid #33ff33; padding: 6px 8px; color: #33ff33;
+            font-family: 'Press Start 2P', monospace; font-size: 7px; outline: none; caret-color: #33ff33; letter-spacing: 1px;
+        }
+        .chat-input:focus { animation: blink 1s step-end infinite; }
+        @keyframes blink { 0%,100% { border-color: #33ff33; } 50% { border-color: transparent; } }
+        .send-btn {
+            background: #0a1a0a; border: 2px solid #33ff33; width: 36px; height: 32px; display: flex;
+            align-items: center; justify-content: center; color: #33ff33; cursor: pointer; font-size: 14px;
+        }
+        .back-btn { background: none; border: none; color: #33ff33; font-size: 14px; cursor: pointer; width: 28px; }
+        .chat-header {
+            padding: 6px 8px; background: #0a0a0a; border-bottom: 2px solid #33ff33; display: flex;
+            align-items: center; gap: 6px; font-size: 7px; text-transform: uppercase; flex-shrink: 0;
+        }
+        .btn {
+            background: #0a0a0a; border: 2px solid #33ff33; padding: 4px 8px; color: #33ff33; cursor: pointer;
+            font-family: 'Press Start 2P', monospace; font-size: 6px; margin: 2px; text-transform: uppercase;
+        }
+        .btn:active { background: #33ff33; color: #000; }
+        .btn-danger { border-color: #ff5555; color: #ff5555; }
+        .btn-danger:active { background: #ff5555; color: #000; }
+        .flex-row { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+        .contact-item, .quest-item {
+            padding: 8px 10px; border-bottom: 1px solid #33ff3366; display: flex; justify-content: space-between;
+            align-items: center; font-size: 7px; cursor: pointer;
+        }
+        .contact-name { color: #33ff33; }
+        .small { font-size: 5px; color: #228b22; }
+        .profile-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; padding: 8px; }
+        .location-card {
+            background: #0a0a0a; border: 2px solid #33ff3366; padding: 10px 8px; color: #228b22;
+            text-align: center; font-size: 6px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px;
+        }
+        .location-card:hover { border-color: #33ff33; background: #0d1a0d; color: #33ff33; }
+        .footer {
+            text-align: center; font-size: 5px; color: #228b22; padding: 4px 8px; background: #0a0a0a;
+            border-top: 2px solid #33ff33; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
+        }
+        .reset-api { background: none; border: none; color: #ff5555; font-size: 5px; cursor: pointer; text-decoration: underline; }
+        .modal {
+            display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95); align-items: center; justify-content: center;
+        }
+        .modal-content {
+            background: #0a0a0a; border: 4px solid #33ff33; width: 320px; padding: 20px; text-align: center;
+            font-family: 'Press Start 2P', monospace; font-size: 8px; color: #33ff33;
+        }
+        .modal-content input {
+            width: 100%; padding: 8px; margin: 12px 0; background: #0a0a0a; border: 2px solid #33ff33;
+            color: #33ff33; font-family: 'Press Start 2P', monospace; font-size: 8px;
+        }
+        .modal-btn {
+            background: #0a0a0a; border: 2px solid #33ff33; padding: 6px 12px; color: #33ff33; cursor: pointer;
+            font-family: 'Press Start 2P', monospace; font-size: 8px; margin: 4px; text-transform: uppercase;
+        }
+        select {
+            background: #0a0a0a; border: 2px solid #33ff33; color: #33ff33; font-family: 'Press Start 2P', monospace;
+            font-size: 6px; padding: 4px;
+        }
+        .hp-bar { background: #330000; height: 12px; border: 1px solid #33ff33; margin: 4px 0; overflow: hidden; }
+        .hp-fill { background: #33ff33; height: 100%; transition: width 0.4s; }
+        .hp-fill.danger { background: #ff5555; }
+        .stat-row { display: flex; justify-content: space-between; font-size: 6px; padding: 2px 0; }
+    </style>
+</head>
+<body>
+<div class="monitor">
+    <div class="status-bar">
+        <span id="heroNameDisplay">ADVENTURER</span>
+        <span class="hp-indicator">❤️ <span id="statusHp">20/20</span></span>
+        <span>📟 DUNGEON</span>
+    </div>
+    <div class="notification-bar" id="notificationBar"></div>
+    <div class="tabs" id="tabBar">
+        <div class="tab active" data-tab="explore">[EXPLORE]</div>
+        <div class="tab" data-tab="journal">[JOURNAL]</div>
+        <div class="tab" data-tab="party">[PARTY]</div>
+        <div class="tab" data-tab="tavern">[TAVERN]</div>
+        <div class="tab" data-tab="hero">[HERO]</div>
+        <div class="tab" data-tab="battle">[BATTLE]</div>
+    </div>
+
+    <!-- EXPLORE Panel -->
+    <div id="explorePanel" class="panel active">
+        <div style="padding:8px 10px; font-size:7px; border-bottom:2px solid #33ff33;">⚔️ EXPLORE THE REALM</div>
+        <div id="exploreGrid" class="profile-grid" style="overflow-y:auto; padding:8px;"></div>
+        <div id="exploreChatView" style="display:none; flex-direction:column; height:100%;">
+            <div class="chat-header">
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <button class="back-btn" id="closeExploreChatBtn">←</button>
+                    <span id="exploreChatName"></span>
+                </div>
+            </div>
+            <div class="messages-area" id="exploreChatMessages"></div>
+            <div class="input-area">
+                <span style="font-size:9px;color:#33ff33;line-height:32px;">&gt;</span>
+                <input type="text" class="chat-input" id="exploreChatInput" placeholder="WHAT DO YOU DO?_">
+                <button class="send-btn" id="exploreSendBtn">↩</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JOURNAL Panel -->
+    <div id="journalPanel" class="panel">
+        <div style="padding:8px 10px; font-size:7px; border-bottom:2px solid #33ff33;">📜 QUEST LOG</div>
+        <div style="padding:10px; display:flex; flex-direction:column; gap:6px;">
+            <div class="flex-row">
+                <span style="font-size:6px;">DIFFICULTY:</span>
+                <select id="questDifficulty">
+                    <option value="1">⭐ Easy</option>
+                    <option value="2">⭐⭐ Medium</option>
+                    <option value="3">⭐⭐⭐ Hard</option>
+                </select>
+            </div>
+            <input type="text" class="chat-input" id="questKeyword" maxlength="30" placeholder="Keyword (optional)" style="width:100%;">
+            <button class="btn" id="generateQuestBtn">🔎 SEEK QUESTS</button>
+            <div id="questResults" style="margin-top:6px;"></div>
+            <div style="margin-top:10px;"><div style="font-size:6px; border-bottom:1px solid #33ff33; padding-bottom:4px;">ACTIVE QUESTS</div><div id="activeQuestsList"></div></div>
+        </div>
+    </div>
+
+    <!-- PARTY Panel -->
+    <div id="partyPanel" class="panel">
+        <div id="partyListContainer" style="flex:1; overflow-y:auto;"></div>
+        <div id="partyChatView" style="display:none; flex-direction:column; height:100%;">
+            <div class="chat-header"><button class="back-btn" id="closePartyChatBtn">←</button><span id="partyChatName"></span></div>
+            <div class="messages-area" id="partyChatMessages"></div>
+            <div class="input-area">
+                <span style="font-size:9px;color:#33ff33;line-height:32px;">&gt;</span>
+                <input type="text" class="chat-input" id="partyChatInput" placeholder="TALK TO COMPANION_">
+                <button class="send-btn" id="partySendBtn">↩</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TAVERN Panel -->
+    <div id="tavernPanel" class="panel">
+        <div id="tavernListContainer" style="flex:1; overflow-y:auto;"></div>
+        <div id="tavernChatView" style="display:none; flex-direction:column; height:100%;">
+            <div class="chat-header"><button class="back-btn" id="closeTavernChatBtn">←</button><span id="tavernChatName"></span></div>
+            <div class="messages-area" id="tavernChatMessages"></div>
+            <div class="input-area">
+                <span style="font-size:9px;color:#33ff33;line-height:32px;">&gt;</span>
+                <input type="text" class="chat-input" id="tavernChatInput" placeholder="REPLY...">
+                <button class="send-btn" id="tavernSendBtn">↩</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- HERO Panel -->
+    <div id="heroPanel" class="panel" style="padding:10px;">
+        <div style="font-size:7px; margin-bottom:6px;">🗡️ YOUR HERO</div>
+        <input type="text" class="chat-input" id="heroNameInput" maxlength="14" placeholder="Name" style="width:100%; margin-bottom:6px;">
+        <select id="heroClassInput" style="width:100%; margin-bottom:6px;">
+            <option value="Warrior">⚔️ Warrior</option>
+            <option value="Rogue">🗡️ Rogue</option>
+            <option value="Mage">🧙 Mage</option>
+        </select>
+        <textarea class="chat-input" id="heroBioInput" rows="2" maxlength="120" placeholder="Backstory" style="width:100%; margin-bottom:6px; resize:none;"></textarea>
+        <div style="border:2px solid #33ff33; padding:8px; margin-bottom:8px;">
+            <div class="stat-row"><span>HP:</span><span id="heroHp">20/20</span></div>
+            <div class="hp-bar"><div class="hp-fill" id="heroHpBar" style="width:100%;"></div></div>
+            <div class="stat-row"><span>LEVEL:</span><span id="heroLevel">1</span></div>
+            <div class="stat-row"><span>XP:</span><span id="heroXp">0</span></div>
+            <div class="stat-row"><span>GOLD:</span><span id="heroGold">10</span></div>
+        </div>
+        <div style="font-size:6px;">INVENTORY:</div>
+        <div id="heroInventory" style="font-size:6px; color:#228b22; border:1px solid #33ff33; padding:6px; min-height:24px; margin-bottom:6px;">- Empty -</div>
+        <button class="btn" id="saveHeroBtn">💾 SAVE HERO</button>
+        <button class="btn btn-danger" id="restInnBtn" style="margin-top:4px;">🏨 REST AT INN (5 gold)</button>
+    </div>
+
+    <!-- BATTLE Panel -->
+    <div id="battlePanel" class="panel">
+        <div id="battleNoActive" style="padding:30px; text-align:center; font-size:7px; color:#228b22;">⚔️ No active battle.<br>Explore locations to find enemies!</div>
+        <div id="battleActive" style="display:none; flex-direction:column; padding:10px; gap:8px; height:100%;">
+            <div style="font-size:7px;">⚡ BATTLE</div>
+            <div id="battleEnemyImage" style="text-align:center;"></div>
+            <div id="battleEnemyName" style="font-size:7px; text-align:center;"></div>
+            <div class="hp-bar"><div class="hp-fill" id="battleEnemyHpBar" style="width:100%;"></div></div>
+            <div style="font-size:6px; text-align:center;">Enemy HP: <span id="battleEnemyHpText">?/?</span></div>
+            <div class="stat-row"><span>Your HP:</span><span id="battleHeroHp">20/20</span></div>
+            <div id="battleLog" class="messages-area" style="height:80px; border:1px solid #33ff33; padding:4px; font-size:6px; overflow-y:auto;"></div>
+            <div class="flex-row" style="justify-content:space-around;">
+                <button class="btn" id="battleAttackBtn">⚔️ ATTACK</button>
+                <button class="btn" id="battleDefendBtn">🛡️ DEFEND</button>
+                <button class="btn" id="battleItemBtn">🧪 ITEM</button>
+                <button class="btn btn-danger" id="battleFleeBtn">🏃 FLEE</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <span>DUNGEON CRAWLER · 1984</span>
+        <button id="resetApiKeyBtn" class="reset-api">🔑 RESET KEY</button>
+    </div>
+</div>
+
+<!-- API Key Modal -->
+<div id="apiModal" class="modal">
+    <div class="modal-content">
+        <h2 style="font-size:10px; margin-bottom:12px;">🔑 ENTER MISTRAL KEY</h2>
+        <p style="font-size:6px;">GET YOURS AT CONSOLE.MISTRAL.AI</p>
+        <input type="password" id="apiKeyInput" placeholder="YOUR KEY_">
+        <div style="margin-top:12px;">
+            <button class="modal-btn" id="saveApiKeyBtn">SAVE</button>
+            <button class="modal-btn" id="closeApiModalBtn">CANCEL</button>
+        </div>
+        <div class="api-note">FREE TIER · 1 REQ/SEC · NO CREDIT CARD</div>
+    </div>
+</div>
+
+<script>
+    (function() {
+        // ---------- STORAGE ----------
+        let apiKey = localStorage.getItem('dungeon_api_key') || '';
+        let gameState = loadGameState();
+        function uid() { return Date.now() + '-' + Math.random().toString(36).substr(2, 8); }
+        function saveGameState() { localStorage.setItem('dungeon_state', JSON.stringify(gameState)); }
+
+        function generateLocations() {
+            return [
+                { id:"forest", name:"Dark Forest", emoji:"🌲", prompt:"Narrator of dark fantasy forest. 2-3 sentences. Use %%PHOTO%% for pixel art. Start fights ONLY with %%COMBAT%%{Name, AC, HP, AtkBonus, DamageDice}. For loot use %%LOOT%%{item name}. End with 'What do you do?'" },
+                { id:"cave", name:"Crystal Cave", emoji:"💎", prompt:"Narrator of crystal cave. 2-3 sentences. %%PHOTO%% tags. Combat: %%COMBAT%%{...}. Loot: %%LOOT%%{...}. End with 'What do you do?'" },
+                { id:"tower", name:"Abandoned Tower", emoji:"🏰", prompt:"Narrator of haunted tower. 2-3 sentences. %%PHOTO%% tags. Combat: %%COMBAT%%{...}. Loot: %%LOOT%%{...}. End with 'What do you do?'" },
+                { id:"ruins", name:"Sunken Ruins", emoji:"🏛️", prompt:"Narrator of swamp ruins. 2-3 sentences. %%PHOTO%% tags. Combat: %%COMBAT%%{...}. Loot: %%LOOT%%{...}. End with 'What do you do?'" }
+            ];
+        }
+
+        function loadGameState() {
+            const saved = localStorage.getItem('dungeon_state');
+            if (saved) {
+                try {
+                    const p = JSON.parse(saved);
+                    return {
+                        hero: p.hero || { name:'Adventurer', class:'Warrior', bio:'', hp:20, maxHp:20, level:1, xp:0, gold:10, inventory:[] },
+                        party: p.party || [],
+                        quests: p.quests || [],
+                        locations: p.locations || generateLocations(),
+                        messages: p.messages || {},
+                        currentBattle: null,
+                        tavernMessages: p.tavernMessages || [],
+                        combatReturnId: null,
+                        gameStarted: p.gameStarted || false
+                    };
+                } catch(e) {}
+            }
+            return {
+                hero: { name:'Adventurer', class:'Warrior', bio:'', hp:20, maxHp:20, level:1, xp:0, gold:10, inventory:[] },
+                party: [], quests: [], locations: generateLocations(),
+                messages: {}, currentBattle: null, tavernMessages: [], combatReturnId: null, gameStarted: false
+            };
+        }
+
+        function updateGameState(changes) { Object.assign(gameState, changes); saveGameState(); refreshUI(); }
+
+        // ---------- NOTIFICATIONS ----------
+        let notifTimeout;
+        function showNotification(text, dur=3000) {
+            const bar = document.getElementById('notificationBar'); bar.textContent = text; bar.classList.add('show');
+            clearTimeout(notifTimeout); notifTimeout = setTimeout(() => bar.classList.remove('show'), dur);
+        }
+
+        // ---------- IMAGE HELPERS ----------
+        function sanitizeImagePrompt(p) {
+            if (!p) return p;
+            let c = p.replace(/\b(cock|dick|pussy|fuck|naked|nude|sex|porn|penis|vagina|boobs|tits|asshole|shit|clit|cunt|whore|slut|orgasm|masturbat|blowjob|handjob|threesome|gangbang|bdsm|bondage|fetish|kink|erotic|xxx|hardcore|softcore|topless|bottomless|genital)\b/gi, '');
+            const bad = {'🍆':'','🍑':'','💦':'','👅':'','🍒':'','🍌':'','🌶️':'','🥵':'','💋':'😊','🫦':''};
+            c = c.replace(new RegExp(Object.keys(bad).join('|'),'g'), m=>bad[m]||'');
+            return c.replace(/\s{2,}/g,' ').trim();
+        }
+        function pixelArtUrl(prompt) {
+            const safe = sanitizeImagePrompt(prompt);
+            return safe ? `https://image.pollinations.ai/prompt/${encodeURIComponent('16-bit pixel art, retro SNES RPG game sprite, flat colors, '+safe)}` : '';
+        }
+
+        // ---------- DICE ----------
+        function rollDice(sides) { return Math.floor(Math.random()*sides)+1; }
+        function parseDice(str) {
+            if (!str) return 4;
+            if (/^\d+$/.test(str)) return Math.max(1,parseInt(str));
+            const m = str.match(/(\d+)?d(\d+)(?:([+-])(\d+))?/i);
+            if (m) {
+                const cnt = Math.max(1,parseInt(m[1]||'1')), sides = Math.max(2,parseInt(m[2]));
+                let total = 0; for (let i=0;i<cnt;i++) total += rollDice(sides);
+                if (m[3]==='+') total += parseInt(m[4]||'0');
+                if (m[3]==='-') total -= parseInt(m[4]||'0');
+                return Math.max(1,total);
+            }
+            return 4;
+        }
+
+        // ---------- TAG PARSER ----------
+        function parseAllTags(text) {
+            let clean = text;
+            let combat=null, loot=null, photo=null;
+            const photoMatch = clean.match(/%%PHOTO%%(\{[^}]+\})%%/);
+            if (photoMatch) { try { photo = JSON.parse(photoMatch[1]); } catch(e){} clean = clean.replace(photoMatch[0],''); }
+            const combatMatch = clean.match(/%%COMBAT%%\s*\{([^}]+)\}/);
+            if (combatMatch) { combat = combatMatch[1]; clean = clean.replace(combatMatch[0],''); }
+            const lootMatch = clean.match(/%%LOOT%%\s*\{([^}]+)\}/);
+            if (lootMatch) { loot = lootMatch[1].trim(); clean = clean.replace(lootMatch[0],''); }
+            return { cleanText: clean.replace(/\s+/g,' ').trim(), combatData:combat, lootData:loot, photoData:photo };
+        }
+
+        function createMessage(text, fromMe) {
+            const p = parseAllTags(text);
+            const msg = { id:uid(), text: p.cleanText || (p.photoData?"(Sent an image)":""), timestamp:Date.now(), fromMe, photo:p.photoData||null };
+            msg._combatData = p.combatData;
+            msg._lootData = p.lootData;
+            return msg;
+        }
+
+        function renderBubble(msg) {
+            const b = document.createElement('div'); b.className='msg-bubble'; b.textContent=msg.text;
+            if (msg.photo) {
+                const pd = document.createElement('div'); pd.className='photo-attachment';
+                if (msg.photo.imagePrompt) {
+                    const url = pixelArtUrl(msg.photo.imagePrompt);
+                    if (url) {
+                        const img = document.createElement('img'); img.src=url; img.alt='scene';
+                        img.onerror = () => { pd.innerHTML = `<span class="photo-emoji">${msg.photo.emoji||'📸'}</span> ${escapeHtml(msg.photo.caption||'')}`; };
+                        pd.appendChild(img);
+                        if (msg.photo.caption) { const cap = document.createElement('div'); cap.style.fontSize='5px'; cap.textContent=msg.photo.caption; pd.appendChild(cap); }
+                    } else pd.innerHTML = `<span class="photo-emoji">${msg.photo.emoji||'📸'}</span> ${escapeHtml(msg.photo.caption||'')}`;
+                } else pd.innerHTML = `<span class="photo-emoji">${msg.photo.emoji||'📸'}</span> ${escapeHtml(msg.photo.caption||'')}`;
+                b.appendChild(pd);
+            }
+            return b;
+        }
+        function escapeHtml(s) { return s.replace(/[&<>]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[m]||m); }
+
+        // ---------- AI ----------
+        let aiPending = false;
+        async function aiCall(msgs, maxTokens=200, temp=0.9) {
+            if (!apiKey) throw new Error("No API key");
+            const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
+                method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
+                body: JSON.stringify({ model:'mistral-small-latest', messages:msgs, temperature:temp, max_tokens:maxTokens })
+            });
+            if (!res.ok) { const e = await res.text(); throw new Error(`API ${res.status}: ${e}`); }
+            const d = await res.json(); return d.choices[0].message.content.trim();
+        }
+        async function guardedAI(msgs, maxTokens=200, temp=0.9) {
+            if (aiPending) throw new Error("Busy");
+            aiPending = true;
+            try { return await aiCall(msgs, maxTokens, temp); } finally { aiPending = false; }
+        }
+
+        // ---------- COMBAT ----------
+        function getHeroAtkBonus() { return gameState.hero.class==='Warrior'?3:(gameState.hero.class==='Rogue'?2:0); }
+        function getHeroDmgDice() { return gameState.hero.class==='Warrior'?'1d8+2':(gameState.hero.class==='Rogue'?'1d6+3':'1d4'); }
+        function getHeroAC() { return gameState.hero.class==='Warrior'?16:(gameState.hero.class==='Rogue'?14:11); }
+
+        function startBattle(enemy) {
+            gameState.currentBattle = {
+                enemyId: enemy.id||uid(), enemyName:enemy.name, enemyImagePrompt:enemy.imagePrompt||(enemy.name+' monster'),
+                enemyHP:enemy.hp, enemyMaxHP:enemy.hp, enemyAC:enemy.ac, enemyAtkBonus:enemy.attackBonus,
+                enemyDmgDice:enemy.damageDice||'1d4', turn:'player', log:[], playerDefending:false
+            };
+            if (!gameState.combatReturnId && currentExploreId) gameState.combatReturnId = currentExploreId;
+            saveGameState(); switchToTab('battle'); refreshBattleUI();
+            showNotification(`⚔️ Battle vs ${enemy.name}!`);
+        }
+
+        function endBattle(victory) {
+            const battle = gameState.currentBattle; if (!battle) return;
+            if (victory) {
+                const xp = rollDice(10)+5, gold = rollDice(15)+5;
+                gameState.hero.xp += xp; gameState.hero.gold += gold;
+                battle.log.push(`Victory! +${xp} XP, +${gold} gold.`);
+                if (gameState.hero.xp >= gameState.hero.level*25) {
+                    gameState.hero.level++; gameState.hero.maxHp += 5; gameState.hero.hp = gameState.hero.maxHp;
+                    battle.log.push('LEVEL UP!');
+                }
+                // Remove the combat-triggering message from explore chat to avoid looping
+                const retId = gameState.combatReturnId;
+                if (retId && gameState.messages[retId]) {
+                    // Find the last message that contained %%COMBAT%% and remove it
+                    const msgs = gameState.messages[retId];
+                    for (let i = msgs.length-1; i >= 0; i--) {
+                        if (msgs[i].text.includes('%%COMBAT%%') || (msgs[i]._combatData)) {
+                            msgs.splice(i,1);
+                            break;
+                        }
+                    }
+                    // Add a clean closure message
+                    msgs.push({ id:uid(), text:`The ${battle.enemyName} lies defeated. The area is safe... for now.`, timestamp:Date.now(), fromMe:false, photo:null });
+                    saveGameState();
+                }
+            } else {
+                battle.log.push('You fled!');
+            }
+            gameState.currentBattle = null;
+            const returnId = gameState.combatReturnId;
+            gameState.combatReturnId = null;
+            saveGameState();
+            refreshBattleUI();
+            if (returnId) {
+                setTimeout(() => { switchToTab('explore'); openExplore(returnId, true); }, 400);
+            } else {
+                setTimeout(() => switchToTab('explore'), 400);
+            }
+        }
+
+        function playerAttack() {
+            if (!gameState.currentBattle || gameState.currentBattle.turn!=='player') return;
+            const b = gameState.currentBattle;
+            const roll = rollDice(20) + getHeroAtkBonus();
+            if (roll >= b.enemyAC) {
+                const dmg = parseDice(getHeroDmgDice());
+                b.enemyHP -= dmg; b.log.push(`You hit for ${dmg}!`);
+            } else b.log.push('Miss!');
+            if (b.enemyHP <= 0) { b.enemyHP=0; b.log.push(`${b.enemyName} defeated!`); saveGameState(); refreshBattleUI(); endBattle(true); return; }
+            b.turn='enemy'; saveGameState(); refreshBattleUI(); enemyTurn();
+        }
+        function playerDefend() {
+            if (!gameState.currentBattle || gameState.currentBattle.turn!=='player') return;
+            gameState.currentBattle.log.push('You defend! (+4 AC)');
+            gameState.currentBattle.playerDefending = true;
+            gameState.currentBattle.turn='enemy'; saveGameState(); refreshBattleUI(); enemyTurn();
+        }
+        function enemyTurn() {
+            if (!gameState.currentBattle) return;
+            const b = gameState.currentBattle;
+            setTimeout(() => {
+                if (!gameState.currentBattle || gameState.currentBattle!==b) return;
+                const roll = rollDice(20) + b.enemyAtkBonus;
+                const ac = getHeroAC() + (b.playerDefending?4:0);
+                if (roll >= ac) {
+                    const raw = parseDice(b.enemyDmgDice);
+                    const dmg = b.playerDefending ? Math.max(1,raw-2) : raw;
+                    gameState.hero.hp -= dmg;
+                    b.log.push(`${b.enemyName} hits for ${dmg}!`);
+                } else b.log.push(`${b.enemyName} misses!`);
+                b.playerDefending = false;
+                if (gameState.hero.hp <= 0) {
+                    gameState.hero.hp=0; b.log.push('💀 You died...'); saveGameState(); refreshBattleUI();
+                    gameState.currentBattle=null; gameState.combatReturnId=null; saveGameState();
+                    showNotification('💀 Died! Rest at inn.');
+                    setTimeout(()=>{ gameState.hero.hp=Math.ceil(gameState.hero.maxHp/2); saveGameState(); switchToTab('hero'); refreshUI(); }, 2000);
+                    return;
+                }
+                b.turn='player'; saveGameState(); refreshBattleUI();
+            }, 700);
+        }
+        function fleeBattle() {
+            if (!gameState.currentBattle) return;
+            gameState.currentBattle.log.push('Fleeing...');
+            if (Math.random()<0.55) { gameState.currentBattle.log.push('Escaped!'); saveGameState(); refreshBattleUI(); endBattle(false); }
+            else { gameState.currentBattle.log.push('Failed!'); gameState.currentBattle.turn='enemy'; saveGameState(); refreshBattleUI(); enemyTurn(); }
+        }
+
+        function refreshBattleUI() {
+            const b = gameState.currentBattle;
+            const no = document.getElementById('battleNoActive'), act = document.getElementById('battleActive');
+            if (!b) { if(no) no.style.display='block'; if(act) act.style.display='none'; return; }
+            if(no) no.style.display='none'; if(act) act.style.display='flex';
+            document.getElementById('battleEnemyName').textContent = b.enemyName;
+            const imgDiv = document.getElementById('battleEnemyImage');
+            const url = pixelArtUrl(b.enemyImagePrompt);
+            imgDiv.innerHTML = url ? `<img src="${url}" style="max-width:120px;max-height:120px;border:2px solid #33ff33;">` : '<span style="font-size:40px;">👾</span>';
+            const hpPct = Math.max(0,(b.enemyHP/b.enemyMaxHP)*100);
+            const bar = document.getElementById('battleEnemyHpBar'); bar.style.width=hpPct+'%'; bar.className='hp-fill'+(hpPct<30?' danger':'');
+            document.getElementById('battleEnemyHpText').textContent = `${Math.max(0,b.enemyHP)}/${b.enemyMaxHP}`;
+            document.getElementById('battleHeroHp').textContent = `${Math.max(0,gameState.hero.hp)}/${gameState.hero.maxHp}`;
+            const logDiv = document.getElementById('battleLog');
+            logDiv.innerHTML = b.log.slice(-6).map(l=>`<div>• ${l}</div>`).join('');
+            logDiv.scrollTop = logDiv.scrollHeight;
+            document.getElementById('statusHp').textContent = `${Math.max(0,gameState.hero.hp)}/${gameState.hero.maxHp}`;
+        }
+
+        // ---------- UI REFRESH ----------
+        function refreshUI() {
+            document.getElementById('heroNameDisplay').textContent = gameState.hero.name;
+            document.getElementById('statusHp').textContent = `${Math.max(0,gameState.hero.hp)}/${gameState.hero.maxHp}`;
+            document.getElementById('heroHp').textContent = `${Math.max(0,gameState.hero.hp)}/${gameState.hero.maxHp}`;
+            const heroBar = document.getElementById('heroHpBar');
+            if(heroBar) { const pct = Math.max(0,(gameState.hero.hp/gameState.hero.maxHp)*100); heroBar.style.width=pct+'%'; heroBar.className='hp-fill'+(pct<30?' danger':''); }
+            document.getElementById('heroLevel').textContent = gameState.hero.level;
+            document.getElementById('heroXp').textContent = gameState.hero.xp;
+            document.getElementById('heroGold').textContent = gameState.hero.gold;
+            const invEl = document.getElementById('heroInventory');
+            if (invEl) invEl.textContent = gameState.hero.inventory.length ? gameState.hero.inventory.join(', ') : '- Empty -';
+
+            if (document.getElementById('explorePanel').classList.contains('active')) {
+                if (document.getElementById('exploreChatView').style.display==='flex') renderExploreChat();
+                else renderExploreGrid();
+            }
+            if (document.getElementById('journalPanel').classList.contains('active')) renderQuests();
+            if (document.getElementById('partyPanel').classList.contains('active')) {
+                if (document.getElementById('partyChatView').style.display==='flex') renderPartyChat(); else renderPartyList();
+            }
+            if (document.getElementById('tavernPanel').classList.contains('active')) {
+                if (document.getElementById('tavernChatView').style.display==='flex') renderTavernChat(); else renderTavernList();
+            }
+            if (document.getElementById('heroPanel').classList.contains('active')) {
+                document.getElementById('heroNameInput').value = gameState.hero.name;
+                document.getElementById('heroClassInput').value = gameState.hero.class;
+                document.getElementById('heroBioInput').value = gameState.hero.bio;
+            }
+            if (document.getElementById('battlePanel').classList.contains('active')) refreshBattleUI();
+        }
+
+        function switchToTab(name) {
+            document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+            const tab = document.querySelector(`[data-tab="${name}"]`); if(tab) tab.classList.add('active');
+            document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+            const panel = document.getElementById(name+'Panel'); if(panel) panel.classList.add('active');
+            refreshUI();
+        }
+
+        // ---------- EXPLORE ----------
+        let currentExploreId = null;
+        function renderExploreGrid() {
+            document.getElementById('exploreGrid').innerHTML = gameState.locations.map(l=>`
+                <div class="location-card" onclick="openExplore('${l.id}')">
+                    <div style="font-size:24px;">${l.emoji}</div>
+                    <div style="font-size:6px; color:#33ff33;">${escapeHtml(l.name)}</div>
+                </div>`).join('');
+            document.getElementById('exploreGrid').style.display='grid';
+            document.getElementById('exploreChatView').style.display='none';
+        }
+        function openExplore(locId, skipIntro=false) {
+            const loc = gameState.locations.find(l=>l.id===locId); if(!loc) return;
+            currentExploreId = locId;
+            document.getElementById('exploreGrid').style.display='none';
+            document.getElementById('exploreChatView').style.display='flex';
+            document.getElementById('exploreChatName').textContent = loc.name;
+            if (!gameState.messages[locId]) {
+                gameState.messages[locId] = [];
+                gameState.messages[locId].push({ id:uid(), text:`You arrive at ${loc.name}.`, timestamp:Date.now(), fromMe:false, photo:null });
+                aiExploreIntro(loc);
+            } else if (!skipIntro) {
+                // already has messages, just render
+            }
+            renderExploreChat();
+        }
+        async function aiExploreIntro(loc) {
+            try {
+                const reply = await guardedAI([{role:'system',content:loc.prompt},{role:'user',content:'Begin the adventure. Include a %%PHOTO%%.'}], 180, 0.9);
+                const msg = createMessage(reply, false);
+                gameState.messages[loc.id].push(msg);
+                processMessageTags(msg, loc.id);
+                saveGameState(); renderExploreChat();
+            } catch(e) {
+                gameState.messages[loc.id].push({id:uid(), text:'[Silence...]', timestamp:Date.now(), fromMe:false, photo:null});
+                renderExploreChat();
+            }
+        }
+        function closeExploreChat() {
+            currentExploreId = null;
+            document.getElementById('exploreChatView').style.display='none';
+            document.getElementById('exploreGrid').style.display='grid';
+        }
+        function renderExploreChat() {
+            const container = document.getElementById('exploreChatMessages');
+            if (!currentExploreId) return;
+            const msgs = gameState.messages[currentExploreId] || [];
+            container.innerHTML = '';
+            msgs.forEach(m=>{
+                const row = document.createElement('div'); row.className = `message-row ${m.fromMe?'outgoing':'incoming'}`;
+                row.appendChild(renderBubble(m)); container.appendChild(row);
+            });
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function processMessageTags(msgObj, contextId) {
+            // COMBAT
+            if (msgObj._combatData) {
+                const parts = msgObj._combatData.split(',').map(s=>s.trim());
+                const enemy = { name:parts[0]||'Foe', ac:parseInt(parts[1])||12, hp:parseInt(parts[2])||10, attackBonus:parseInt(parts[3])||2, damageDice:parts[4]||'1d4', imagePrompt:(parts[0]||'monster')+' enemy', id:uid() };
+                gameState.combatReturnId = contextId; saveGameState();
+                setTimeout(()=>startBattle(enemy), 300);
+            } else if (msgObj.text.match(/combat|⚔️/i)) {
+                const enemy = { name:'Shadowy Figure', ac:12, hp:12, attackBonus:2, damageDice:'1d6', imagePrompt:'dark shadow monster', id:uid() };
+                gameState.combatReturnId = contextId; saveGameState();
+                setTimeout(()=>startBattle(enemy), 300);
+            }
+
+            // LOOT – forced update
+            let added = false;
+            const addItem = (item) => {
+                if (item && item.length>1 && !gameState.hero.inventory.includes(item)) {
+                    gameState.hero.inventory.push(item);
+                    added = true;
+                    document.getElementById('heroInventory').textContent = gameState.hero.inventory.join(', ');
+                }
+            };
+            if (msgObj._lootData) addItem(msgObj._lootData);
+            else {
+                const match = msgObj.text.match(/\b(?:found|gained|picked\s*up|looted|acquired|discovered|obtained|received|taken?|got)\s+(?:a |an |the )?["“]?([^"“”,.!?\n\r]+)["”]?/i);
+                if (match) addItem(match[1].replace(/[.,!?;:]+$/,''));
+            }
+            if (added) {
+                showNotification(`🧳 Acquired: ${gameState.hero.inventory.slice(-1)[0]}!`);
+                saveGameState();
+            }
+        }
+
+        async function sendExploreMessage() {
+            if (!currentExploreId) return;
+            const input = document.getElementById('exploreChatInput');
+            const text = input.value.trim(); if (!text) return;
+            input.value = '';
+            const loc = gameState.locations.find(l=>l.id===currentExploreId); if(!loc) return;
+            gameState.messages[currentExploreId].push({id:uid(), text, timestamp:Date.now(), fromMe:true, photo:null});
+            saveGameState(); renderExploreChat();
+            try {
+                const history = gameState.messages[currentExploreId].slice(-8).map(m=>({role:m.fromMe?'user':'assistant', content:m.text}));
+                const reply = await guardedAI([{role:'system',content:loc.prompt}, ...history], 200, 0.9);
+                const msg = createMessage(reply, false);
+                gameState.messages[currentExploreId].push(msg);
+                processMessageTags(msg, currentExploreId);
+                saveGameState(); renderExploreChat();
+            } catch(e) {
+                gameState.messages[currentExploreId].push({id:uid(), text:`[Error]`, timestamp:Date.now(), fromMe:false, photo:null});
+                renderExploreChat();
+            }
+        }
+
+        // ---------- JOURNAL ----------
+        function renderQuests() {
+            const list = document.getElementById('activeQuestsList');
+            if (gameState.quests.length===0) { list.innerHTML='<div style="font-size:6px;color:#228b22;">No active quests.</div>'; return; }
+            list.innerHTML = gameState.quests.map(q=>`<div class="quest-item"><div><div class="contact-name">${escapeHtml(q.name)}</div><div class="small">${escapeHtml(q.description)} (${q.reward}g)</div></div><button class="btn btn-danger" onclick="abandonQuest('${q.id}')">X</button></div>`).join('');
+        }
+        async function generateQuest() {
+            showNotification('Seeking...');
+            try {
+                const reply = await guardedAI([{role:'system',content:'Quest generator. Output JSON with name, description, reward, enemyHint.'},{role:'user',content:`Difficulty ${document.getElementById('questDifficulty').value}/3. Keyword: ${document.getElementById('questKeyword').value||'any'}`}],200,0.9);
+                let data; try{data=JSON.parse(reply);}catch(e){ const m=reply.match(/\{[\s\S]*\}/); if(m) data=JSON.parse(m[0]); else throw new Error('bad'); }
+                const quest = { id:uid(), name:data.name, description:data.description, reward:data.reward, enemyHint:data.enemyHint };
+                document.getElementById('questResults').innerHTML = `<div class="contact-item"><div><div class="contact-name">${escapeHtml(quest.name)}</div><div class="small">${escapeHtml(quest.description)} (${quest.reward}g)</div></div><button class="btn" id="acceptQuestBtn">ACCEPT</button></div>`;
+                document.getElementById('acceptQuestBtn').onclick = ()=>{
+                    gameState.quests.push(quest); updateGameState({});
+                    document.getElementById('questResults').innerHTML=''; showNotification('Quest accepted!');
+                };
+            } catch(e) { showNotification('Failed.'); }
+        }
+        function abandonQuest(qid) { gameState.quests = gameState.quests.filter(q=>q.id!==qid); updateGameState({}); }
+
+        // ---------- PARTY ----------
+        let currentPartyId = null;
+        function renderPartyList() {
+            document.getElementById('partyChatView').style.display='none';
+            document.getElementById('partyListContainer').style.display='block';
+            const container = document.getElementById('partyListContainer');
+            if (gameState.party.length===0) { container.innerHTML='<div style="padding:40px;text-align:center;font-size:7px;color:#228b22;">No companions.<br>Visit TAVERN.</div>'; return; }
+            container.innerHTML = gameState.party.map(m=>{
+                const last = (gameState.messages[m.id]||[]).slice(-1)[0];
+                return `<div class="contact-item"><div onclick="openPartyChat('${m.id}')"><div class="contact-name">${m.photo||'👤'} ${escapeHtml(m.name)}</div><div class="small">${last?last.text.substring(0,18):'...'}</div></div><button class="btn" onclick="openPartyChat('${m.id}')">TALK</button></div>`;
+            }).join('');
+        }
+        function openPartyChat(mid) {
+            const member = gameState.party.find(m=>m.id===mid); if(!member) return;
+            currentPartyId = mid;
+            document.getElementById('partyListContainer').style.display='none';
+            document.getElementById('partyChatView').style.display='flex';
+            document.getElementById('partyChatName').textContent = member.name;
+            if (!gameState.messages[mid]) gameState.messages[mid] = [];
+            if (gameState.messages[mid].length===0) {
+                gameState.messages[mid].push({id:uid(), text:`Greetings, ${gameState.hero.name}!`, timestamp:Date.now(), fromMe:false, photo:null});
+                saveGameState();
+            }
+            renderPartyChat();
+        }
+        function closePartyChat() { currentPartyId=null; document.getElementById('partyChatView').style.display='none'; document.getElementById('partyListContainer').style.display='block'; renderPartyList(); }
+        function renderPartyChat() {
+            const container = document.getElementById('partyChatMessages'); if(!currentPartyId) return;
+            container.innerHTML = ''; (gameState.messages[currentPartyId]||[]).forEach(m=>{
+                const row = document.createElement('div'); row.className=`message-row ${m.fromMe?'outgoing':'incoming'}`; row.appendChild(renderBubble(m)); container.appendChild(row);
+            });
+            container.scrollTop = container.scrollHeight;
+        }
+        async function sendPartyMessage() {
+            if (!currentPartyId) return;
+            const input = document.getElementById('partyChatInput'); const text = input.value.trim(); if(!text) return;
+            input.value=''; const member = gameState.party.find(m=>m.id===currentPartyId); if(!member) return;
+            gameState.messages[currentPartyId].push({id:uid(), text, timestamp:Date.now(), fromMe:true, photo:null});
+            saveGameState(); renderPartyChat();
+            try {
+                const reply = await guardedAI([{role:'system',content:member.prompt}, ...gameState.messages[currentPartyId].slice(-6).map(m=>({role:m.fromMe?'user':'assistant',content:m.text}))], 150, 0.9);
+                const msg = createMessage(reply, false);
+                gameState.messages[currentPartyId].push(msg); saveGameState(); renderPartyChat();
+            } catch(e) {}
+        }
+
+        // ---------- TAVERN ----------
+        let currentTavernId = null;
+        function renderTavernList() {
+            document.getElementById('tavernChatView').style.display='none';
+            document.getElementById('tavernListContainer').style.display='block';
+            const container = document.getElementById('tavernListContainer');
+            if (gameState.tavernMessages.length===0) { container.innerHTML='<div style="padding:40px;text-align:center;font-size:7px;color:#228b22;">The tavern is quiet.</div>'; return; }
+            container.innerHTML = '<div style="padding:6px 8px;font-size:6px;border-bottom:2px solid #33ff33;">📬 RUMOURS</div>'+ gameState.tavernMessages.map(msg=>`
+                <div class="contact-item"><div><div class="contact-name">${msg.photo||'👤'} ${escapeHtml(msg.name)}</div><div class="small">${escapeHtml(msg.text.substring(0,30))}...</div></div>
+                <div class="flex-row"><button class="btn" onclick="acceptTavern('${msg.id}')">TALK</button><button class="btn btn-danger" onclick="ignoreTavern('${msg.id}')">IGNORE</button></div></div>`).join('');
+        }
+        function acceptTavern(mid) {
+            const msg = gameState.tavernMessages.find(m=>m.id===mid); if(!msg) return;
+            const member = { id:msg.id, name:msg.name, photo:msg.photo||'👤', bio:msg.bio, prompt:msg.prompt||'Friendly adventurer.' };
+            gameState.party.push(member); gameState.messages[msg.id] = [{id:uid(), text:msg.text, timestamp:Date.now(), fromMe:false, photo:null}];
+            gameState.tavernMessages = gameState.tavernMessages.filter(m=>m.id!==mid);
+            updateGameState({}); showNotification(`${msg.name} joined!`);
+        }
+        function ignoreTavern(mid) { gameState.tavernMessages = gameState.tavernMessages.filter(m=>m.id!==mid); updateGameState({}); }
+        function openTavernChat(mid) {
+            const member = gameState.party.find(m=>m.id===mid)||{}; currentTavernId=mid;
+            document.getElementById('tavernListContainer').style.display='none';
+            document.getElementById('tavernChatView').style.display='flex';
+            document.getElementById('tavernChatName').textContent = member.name||'Stranger';
+            renderTavernChat();
+        }
+        function closeTavernChat() { currentTavernId=null; document.getElementById('tavernChatView').style.display='none'; document.getElementById('tavernListContainer').style.display='block'; renderTavernList(); }
+        function renderTavernChat() {
+            const container = document.getElementById('tavernChatMessages'); if(!currentTavernId) return;
+            container.innerHTML = ''; (gameState.messages[currentTavernId]||[]).forEach(m=>{
+                const row = document.createElement('div'); row.className=`message-row ${m.fromMe?'outgoing':'incoming'}`; row.appendChild(renderBubble(m)); container.appendChild(row);
+            });
+        }
+        async function sendTavernMessage() {
+            if (!currentTavernId) return;
+            const input = document.getElementById('tavernChatInput'); const text = input.value.trim(); if(!text) return;
+            input.value=''; const member = gameState.party.find(m=>m.id===currentTavernId); if(!member) return;
+            gameState.messages[currentTavernId].push({id:uid(), text, timestamp:Date.now(), fromMe:true, photo:null});
+            saveGameState(); renderTavernChat();
+            try {
+                const reply = await guardedAI([{role:'system',content:member.prompt}, ...gameState.messages[currentTavernId].slice(-6).map(m=>({role:m.fromMe?'user':'assistant',content:m.text}))],150,0.9);
+                gameState.messages[currentTavernId].push(createMessage(reply,false)); saveGameState(); renderTavernChat();
+            } catch(e) {}
+        }
+
+        async function tavernAuto() {
+            if (!apiKey) return;
+            try {
+                const reply = await guardedAI([{role:'system',content:'Tavern stranger JSON: name, photo, bio, prompt, text.'},{role:'user',content:'Generate a tavern encounter.'}],200,0.9);
+                let data; try{data=JSON.parse(reply);}catch(e){ const m=reply.match(/\{[\s\S]*\}/); if(m) data=JSON.parse(m[0]); else return; }
+                gameState.tavernMessages.push({ id:uid(), name:data.name, photo:data.photo, bio:data.bio, prompt:data.prompt, text:data.text });
+                saveGameState(); refreshUI(); showNotification('📬 Someone arrives!');
+            } catch(e) {}
+        }
+
+        // ---------- HERO ----------
+        function saveHero() {
+            gameState.hero.name = document.getElementById('heroNameInput').value.trim()||'Adventurer';
+            gameState.hero.class = document.getElementById('heroClassInput').value;
+            gameState.hero.bio = document.getElementById('heroBioInput').value.trim()||'';
+            updateGameState({}); showNotification('Hero saved!');
+        }
+        function restInn() {
+            if (gameState.hero.gold<5) { showNotification('Need 5 gold!'); return; }
+            gameState.hero.gold -= 5; gameState.hero.hp = gameState.hero.maxHp;
+            updateGameState({}); showNotification('Rested. HP full!');
+        }
+
+        // ---------- SEED ----------
+        function seed() {
+            if (gameState.gameStarted) return;
+            gameState.gameStarted = true;
+            gameState.tavernMessages = [
+                { id:uid(), name:'Thorn the Ranger', photo:'🏹', bio:'Northern archer', prompt:'Stoic ranger.', text:'Hail, traveler. I hear the Dark Forest stirs. I could use a companion.', timestamp:Date.now() },
+                { id:uid(), name:'Elara the Healer', photo:'🧪', bio:'Wandering cleric', prompt:'Gentle healer.', text:'Blessings! Might I join your party?', timestamp:Date.now() }
+            ];
+            saveGameState(); showNotification('🗡️ Welcome! Check the TAVERN.');
+        }
+
+        // ---------- BINDINGS ----------
+        document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>switchToTab(t.dataset.tab)));
+        document.getElementById('closeExploreChatBtn').addEventListener('click', closeExploreChat);
+        document.getElementById('exploreSendBtn').addEventListener('click', sendExploreMessage);
+        document.getElementById('exploreChatInput').addEventListener('keypress',e=>{if(e.key==='Enter')sendExploreMessage();});
+        document.getElementById('closePartyChatBtn').addEventListener('click', closePartyChat);
+        document.getElementById('partySendBtn').addEventListener('click', sendPartyMessage);
+        document.getElementById('partyChatInput').addEventListener('keypress',e=>{if(e.key==='Enter')sendPartyMessage();});
+        document.getElementById('closeTavernChatBtn').addEventListener('click', closeTavernChat);
+        document.getElementById('tavernSendBtn').addEventListener('click', sendTavernMessage);
+        document.getElementById('tavernChatInput').addEventListener('keypress',e=>{if(e.key==='Enter')sendTavernMessage();});
+        document.getElementById('battleAttackBtn').addEventListener('click', playerAttack);
+        document.getElementById('battleDefendBtn').addEventListener('click', playerDefend);
+        document.getElementById('battleFleeBtn').addEventListener('click', fleeBattle);
+        document.getElementById('battleItemBtn').addEventListener('click',()=>{ if(gameState.hero.inventory.length) showNotification(`Used ${gameState.hero.inventory[0]}!`); else showNotification('No items!'); });
+        document.getElementById('saveHeroBtn').addEventListener('click', saveHero);
+        document.getElementById('restInnBtn').addEventListener('click', restInn);
+        document.getElementById('generateQuestBtn').addEventListener('click', generateQuest);
+        document.getElementById('resetApiKeyBtn').addEventListener('click',()=>{ localStorage.removeItem('dungeon_api_key'); apiKey=''; openApiModal(); });
+
+        function openApiModal(){ document.getElementById('apiModal').style.display='flex'; }
+        function closeApiModal(){ document.getElementById('apiModal').style.display='none'; }
+        document.getElementById('saveApiKeyBtn').addEventListener('click',()=>{
+            const k = document.getElementById('apiKeyInput').value.trim();
+            if(k.length>10){ apiKey=k; localStorage.setItem('dungeon_api_key',apiKey); closeApiModal(); showNotification('Key saved!'); }
+        });
+        document.getElementById('closeApiModalBtn').addEventListener('click', closeApiModal);
+        window.addEventListener('click',e=>{ if(e.target===document.getElementById('apiModal')) closeApiModal(); });
+
+        window.openExplore = openExplore;
+        window.openPartyChat = openPartyChat;
+        window.openTavernChat = openTavernChat;
+        window.acceptTavern = acceptTavern;
+        window.ignoreTavern = ignoreTavern;
+        window.abandonQuest = abandonQuest;
+
+        setInterval(()=>{ if(apiKey && Math.random()<0.5) tavernAuto(); }, 50000);
+
+        // ---------- BOOT ----------
+        function boot() {
+            if (!apiKey) setTimeout(openApiModal, 600);
+            seed();
+            document.getElementById('heroNameDisplay').textContent = gameState.hero.name;
+            document.getElementById('statusHp').textContent = `${gameState.hero.hp}/${gameState.hero.maxHp}`;
+            refreshUI();
+        }
+        boot();
+    })();
+</script>
+</body>
+</html>
