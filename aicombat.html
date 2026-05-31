@@ -609,39 +609,39 @@
         }
 
         function startBattle(enemy) {
-            // Force clear any existing battle state
-            gameState.currentBattle = null;
-            
-            // Create fresh battle state
-            const freshBattle = {
-                enemyId: enemy.id || uid(),
-                enemyName: enemy.name || 'Unknown Enemy',
-                enemyImagePrompt: enemy.imagePrompt || (enemy.name + ' enemy pixel art'),
-                enemyHP: enemy.hp || 10,
-                enemyMaxHP: enemy.hp || 10,
-                enemyAC: enemy.ac || 12,
-                enemyAtkBonus: enemy.attackBonus || 2,
-                enemyDmgDice: enemy.damageDice || '1d4',
-                turn: 'player',
-                log: [],
-                playerDefending: false
-            };
-            
-            gameState.currentBattle = freshBattle;
-            
-            if (!gameState.combatReturnId && currentExploreId) {
-                gameState.combatReturnId = currentExploreId;
-            }
-            
-            saveGameState();
-            
-            // Force complete refresh of battle UI
-            setTimeout(() => {
-                switchToTab('battle');
-                refreshBattleUI();
-                showNotification(`⚔️ Battle vs ${enemy.name}!`);
-            }, 100);
-        }
+    // Force clear any existing battle state
+    gameState.currentBattle = null;
+    
+    // Create fresh battle state with correct enemy info
+    const freshBattle = {
+        enemyId: enemy.id || uid(),
+        enemyName: enemy.name || 'Unknown Enemy',
+        enemyImagePrompt: enemy.imagePrompt || (enemy.name + ' pixel art enemy dark fantasy game sprite'),
+        enemyHP: enemy.hp || 10,
+        enemyMaxHP: enemy.hp || 10,
+        enemyAC: enemy.ac || 12,
+        enemyAtkBonus: enemy.attackBonus || 2,
+        enemyDmgDice: enemy.damageDice || '1d4',
+        turn: 'player',
+        log: [`A ${enemy.name} appears! Prepare for battle!`],
+        playerDefending: false
+    };
+    
+    gameState.currentBattle = freshBattle;
+    
+    if (!gameState.combatReturnId && currentExploreId) {
+        gameState.combatReturnId = currentExploreId;
+    }
+    
+    saveGameState();
+    
+    // Force complete refresh of battle UI
+    setTimeout(() => {
+        switchToTab('battle');
+        refreshBattleUI();
+        showNotification(`⚔️ Battle vs ${enemy.name}!`);
+    }, 100);
+}
 
         function endBattle(victory) {
             const battle = gameState.currentBattle; 
@@ -1021,37 +1021,83 @@
         }
 
         function processMessageTags(msgObj, contextId) {
-            if (msgObj._combatData) {
-                const parts = msgObj._combatData.split(',').map(s => s.trim());
+    if (msgObj._combatData) {
+        const parts = msgObj._combatData.split(',').map(s => s.trim());
+        const enemyName = parts[0] || 'Unknown Enemy';
+        
+        const enemy = { 
+            name: enemyName, 
+            ac: parseInt(parts[1]) || 12, 
+            hp: parseInt(parts[2]) || 10, 
+            attackBonus: parseInt(parts[3]) || 2, 
+            damageDice: parts[4] || '1d4', 
+            imagePrompt: enemyName + ' pixel art enemy dark fantasy game sprite', 
+            id: uid() 
+        };
+        
+        gameState.combatReturnId = contextId; 
+        saveGameState();
+        setTimeout(() => startBattle(enemy), 300);
+    }
+    
+    // Also check for enemy mentions in the text that might indicate combat
+    if (!msgObj._combatData && msgObj.text) {
+        const combatIndicators = [
+            /(?:attacks|charges|leaps|rushes|emerges|appears|blocks your path|stands in your way|prepares to fight|draws (?:its|his|her) weapon)/i,
+            /(?:roll for initiative|combat (?:begins|starts)|battle (?:begins|starts)|prepare for battle)/i,
+            /(?:a|an|the) ([\w\s]+) (?:attacks|charges|leaps|rushes|emerges|appears)/i
+        ];
+        
+        for (const indicator of combatIndicators) {
+            const match = msgObj.text.match(indicator);
+            if (match) {
+                // Extract enemy name if possible
+                let enemyName = 'Hostile Creature';
+                if (match[1]) {
+                    enemyName = match[1].trim();
+                    enemyName = enemyName.charAt(0).toUpperCase() + enemyName.slice(1);
+                }
+                
+                // Look for specific enemy descriptions
+                const descMatch = msgObj.text.match(/(?:a|an) ([\w\s]+?)(?:\s(?:attacks|charges|leaps|rushes|emerges|appears|blocks|stands|prepares|lurks|waits))/i);
+                if (descMatch) {
+                    enemyName = descMatch[1].trim();
+                    enemyName = enemyName.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                }
+                
                 const enemy = { 
-                    name: parts[0] || 'Foe', 
-                    ac: parseInt(parts[1]) || 12, 
-                    hp: parseInt(parts[2]) || 10, 
-                    attackBonus: parseInt(parts[3]) || 2, 
-                    damageDice: parts[4] || '1d4', 
-                    imagePrompt: (parts[0] || 'monster') + ' enemy pixel art', 
+                    name: enemyName, 
+                    ac: 10 + Math.floor(Math.random() * 6), 
+                    hp: 8 + Math.floor(Math.random() * 17), 
+                    attackBonus: 1 + Math.floor(Math.random() * 4), 
+                    damageDice: '1d6', 
+                    imagePrompt: enemyName + ' pixel art enemy dark fantasy game sprite retro SNES', 
                     id: uid() 
                 };
+                
                 gameState.combatReturnId = contextId; 
                 saveGameState();
-                setTimeout(() => startBattle(enemy), 300);
-            }
-            
-            if (msgObj._lootData) {
-                processItemAcquisition(msgObj._lootData);
-            } else {
-                const lootPatterns = [
-                    /\b(?:found|gained|obtained|acquired|looted|discovered|received)\s+(?:a\s+)?(?:pair\s+of\s+)?["']?([\w\s-]{2,30})["']?/gi,
-                    /\b(?:pick(?:ed|s)?\s*up|take(?:s|n)?|grabb(?:ed|s)?|stole|snatched)\s+(?:a\s+)?(?:pair\s+of\s+)?["']?([\w\s-]{2,30})["']?/gi
-                ];
-                lootPatterns.forEach(pattern => {
-                    const matches = msgObj.text.matchAll(pattern);
-                    for (const match of matches) {
-                        processItemAcquisition(match[1]);
-                    }
-                });
+                setTimeout(() => startBattle(enemy), 500);
+                break;
             }
         }
+    }
+    
+    if (msgObj._lootData) {
+        processItemAcquisition(msgObj._lootData);
+    } else {
+        const lootPatterns = [
+            /\b(?:found|gained|obtained|acquired|looted|discovered|received)\s+(?:a\s+)?(?:pair\s+of\s+)?["']?([\w\s-]{2,30})["']?/gi,
+            /\b(?:pick(?:ed|s)?\s*up|take(?:s|n)?|grabb(?:ed|s)?|stole|snatched)\s+(?:a\s+)?(?:pair\s+of\s+)?["']?([\w\s-]{2,30})["']?/gi
+        ];
+        lootPatterns.forEach(pattern => {
+            const matches = msgObj.text.matchAll(pattern);
+            for (const match of matches) {
+                processItemAcquisition(match[1]);
+            }
+        });
+    }
+}
 
         async function sendExploreMessage() {
             if (!currentExploreId) return;
@@ -1074,18 +1120,102 @@
             renderExploreChat();
             
             // Check for combat keywords
-            const combatKeywords = ['attack', 'fight', 'strike', 'charge', 'kill', 'slay', 'engage', 'combat'];
-            if (combatKeywords.some(kw => text.toLowerCase().includes(kw))) {
-                const enemyNames = ['Goblin Warrior', 'Skeleton Knight', 'Dark Mage', 'Giant Spider', 'Orc Berserker'];
-                const enemy = { 
-                    name: enemyNames[Math.floor(Math.random() * enemyNames.length)], 
-                    ac: 12 + Math.floor(Math.random() * 4), 
-                    hp: 10 + Math.floor(Math.random() * 15), 
-                    attackBonus: 2 + Math.floor(Math.random() * 3), 
-                    damageDice: '1d6', 
-                    imagePrompt: enemyNames[Math.floor(Math.random() * enemyNames.length)] + ' pixel art enemy', 
-                    id: uid() 
-                };
+            // Check for combat keywords
+const combatKeywords = ['attack', 'fight', 'strike', 'charge', 'kill', 'slay', 'engage', 'combat'];
+if (combatKeywords.some(kw => text.toLowerCase().includes(kw))) {
+    // Try to extract enemy name from recent messages
+    const recentMessages = gameState.messages[currentExploreId] || [];
+    let enemyName = null;
+    let enemyDescription = null;
+    
+    // Look through recent messages for enemy mentions
+    for (let i = recentMessages.length - 1; i >= 0; i--) {
+        const msg = recentMessages[i];
+        if (!msg.fromMe) {  // Only check AI messages
+            const text = msg.text.toLowerCase();
+            
+            // Common enemy patterns
+            const enemyPatterns = [
+                /a (giant |huge |massive |angry |dark |shadow |skeleton |zombie |cursed |ancient |ferocious |enchanted )?(spider|goblin|orc|troll|dragon|skeleton|zombie|wolf|bear|slime|ghost|wraith|vampire|demon|elemental|golem|knight|warrior|mage|warlock|druid|bandit|cultist|beast|serpent|rat|bat|spider|scorpion|ogre|gargoyle|lich|wyvern|chimera|hydra|minotaur|cyclops|harpy|siren|naga|imp|fiend|abomination|horror|construct|guardian|sentinel)/gi,
+                /a (?:man|woman|figure|creature|monster|enemy|foe|adversary) (?:called|named|known as) ["']?(\w+(?:\s\w+)?)["']?/gi,
+                /the (\w+(?:\s\w+)?) (?:attacks|charges|leaps|rushes|emerges|appears|stands|blocks|lurks|waits)/gi,
+                /(\w+(?:\s\w+)?) (?:is|are) (?:blocking|guarding|standing|waiting|lurking|hiding|approaching|coming|charging|attacking)/gi
+            ];
+            
+            for (const pattern of enemyPatterns) {
+                const match = text.match(pattern);
+                if (match) {
+                    // Extract the full enemy description
+                    const fullMatch = match[0];
+                    if (pattern.toString().includes('giant |huge')) {
+                        // For the first pattern, capture the full description
+                        const descMatch = text.match(/(a (?:giant |huge |massive |angry |dark |shadow |skeleton |zombie |cursed |ancient |ferocious |enchanted )?\w+(?:\s\w+)?)/gi);
+                        if (descMatch) {
+                            // Find the one closest to our keyword
+                            for (const desc of descMatch) {
+                                if (combatKeywords.some(kw => text.indexOf(desc) < text.indexOf(kw) + 50)) {
+                                    enemyName = desc.replace(/^a /i, '').trim();
+                                    enemyName = enemyName.charAt(0).toUpperCase() + enemyName.slice(1);
+                                    enemyDescription = desc;
+                                    break;
+                                }
+                            }
+                            if (!enemyName) {
+                                enemyName = descMatch[descMatch.length - 1].replace(/^a /i, '').trim();
+                                enemyName = enemyName.charAt(0).toUpperCase() + enemyName.slice(1);
+                                enemyDescription = descMatch[descMatch.length - 1];
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    
+    // If no enemy found in recent messages, use player's input
+    if (!enemyName) {
+        const playerMention = text.match(/(?:attack|fight|strike|charge|kill|slay|engage|combat) (?:the |a |an )?(\w+(?:\s\w+)?)/i);
+        if (playerMention) {
+            enemyName = playerMention[1].charAt(0).toUpperCase() + playerMention[1].slice(1);
+            enemyDescription = playerMention[0];
+        } else {
+            // Default enemies based on location
+            const locationEnemies = {
+                'forest': ['Giant Spider', 'Goblin Scout', 'Forest Wolf'],
+                'cave': ['Crystal Spider', 'Cave Troll', 'Rock Golem'],
+                'tower': ['Haunted Armor', 'Dark Mage', 'Ghost Apparition'],
+                'ruins': ['Swamp Zombie', 'Ancient Guardian', 'Cursed Skeleton']
+            };
+            const locEnemies = locationEnemies[currentExploreId] || ['Mysterious Enemy', 'Shadowy Figure', 'Dark Creature'];
+            enemyName = locEnemies[Math.floor(Math.random() * locEnemies.length)];
+            enemyDescription = enemyName;
+        }
+    }
+    
+    const enemy = { 
+        name: enemyName, 
+        ac: 12 + Math.floor(Math.random() * 4), 
+        hp: 10 + Math.floor(Math.random() * 15), 
+        attackBonus: 2 + Math.floor(Math.random() * 3), 
+        damageDice: '1d6', 
+        imagePrompt: enemyDescription + ' pixel art enemy dark fantasy', 
+        id: uid() 
+    };
+    
+    gameState.messages[currentExploreId].push({ 
+        id: uid(), 
+        text: `You rush to attack! A ${enemyName} appears!`, 
+        timestamp: Date.now(), 
+        fromMe: false, 
+        photo: null 
+    });
+    saveGameState(); 
+    renderExploreChat();
+    gameState.combatReturnId = currentExploreId;
+    startBattle(enemy);
+    return;
+}
                 gameState.messages[currentExploreId].push({ 
                     id: uid(), 
                     text: `You rush to attack! A ${enemy.name} appears!`, 
@@ -1490,26 +1620,51 @@
             showNotification(sights[Math.floor(Math.random() * sights.length)]);
         });
         
-        document.getElementById('restBtn').addEventListener('click', () => {
-            if (Math.random() > 0.6) {
-                const heal = Math.min(gameState.hero.maxHp, gameState.hero.hp + 10) - gameState.hero.hp;
-                gameState.hero.hp = Math.min(gameState.hero.maxHp, gameState.hero.hp + 10);
-                showNotification(`Rested! +${heal} HP`);
-                saveGameState();
-                refreshUI();
-            } else {
-                const enemy = { 
-                    name: 'Ambushing Bandit', 
-                    ac: 10, 
-                    hp: 15, 
-                    attackBonus: 3, 
-                    damageDice: '1d6', 
-                    imagePrompt: 'bandit ambush pixel art', 
-                    id: uid() 
-                };
-                startBattle(enemy);
-            }
-        });
+        // For the rest button:
+document.getElementById('restBtn').addEventListener('click', () => {
+    if (Math.random() > 0.6) {
+        const heal = Math.min(gameState.hero.maxHp, gameState.hero.hp + 10) - gameState.hero.hp;
+        gameState.hero.hp = Math.min(gameState.hero.maxHp, gameState.hero.hp + 10);
+        showNotification(`Rested! +${heal} HP`);
+        saveGameState();
+        refreshUI();
+    } else {
+        const enemy = { 
+            name: 'Ambushing Bandit', 
+            ac: 10, 
+            hp: 15, 
+            attackBonus: 3, 
+            damageDice: '1d6', 
+            imagePrompt: 'bandit ambush pixel art dark fantasy enemy', 
+            id: uid() 
+        };
+        startBattle(enemy);
+    }
+});
+
+// For the provoke button:
+document.getElementById('provokeBtn').addEventListener('click', () => {
+    // Choose enemy based on current location
+    const locationEnemies = {
+        'forest': ['Provoked Bear', 'Angry Treant', 'Enraged Wolf'],
+        'cave': ['Provoked Troll', 'Angry Bat Swarm', 'Enraged Spider'],
+        'tower': ['Provoked Ghost', 'Angry Gargoyle', 'Enraged Armor'],
+        'ruins': ['Provoked Zombie', 'Angry Golem', 'Enraged Lizard']
+    };
+    const locEnemies = locationEnemies[currentExploreId] || ['Provoked Beast', 'Angry Troll', 'Enraged Ogre'];
+    const enemyName = locEnemies[Math.floor(Math.random() * locEnemies.length)];
+    
+    const enemy = { 
+        name: enemyName, 
+        ac: 14, 
+        hp: 20, 
+        attackBonus: 4, 
+        damageDice: '1d8', 
+        imagePrompt: enemyName + ' pixel art enemy dark fantasy game sprite', 
+        id: uid() 
+    };
+    startBattle(enemy);
+});
         
         document.getElementById('provokeBtn').addEventListener('click', () => {
             const enemyNames = ['Provoked Beast', 'Angry Troll', 'Enraged Ogre', 'Furious Dragon'];
