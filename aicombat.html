@@ -144,13 +144,6 @@
             background: #1a1a0a; border: 1px solid #ffff33; padding: 2px 4px; margin-top: 4px; 
             font-size: 5px; color: #ffff33;
         }
-        .new-enemy-flash {
-            animation: flash 0.5s ease-in-out 3;
-        }
-        @keyframes flash {
-            0%, 100% { border-color: #33ff33; }
-            50% { border-color: #ff5555; box-shadow: 0 0 15px #ff5555; }
-        }
     </style>
 </head>
 <body>
@@ -309,1410 +302,1302 @@
 </div>
 
 <script>
-    (function() {
-        // ---------- STORAGE ----------
-        let apiKey = localStorage.getItem('dungeon_api_key') || '';
-        let gameState = loadGameState();
-        function uid() { return Date.now() + '-' + Math.random().toString(36).substr(2, 8); }
-        function saveGameState() { 
-            // Don't save current battle to prevent stale state
-            const saveState = {...gameState};
-            delete saveState.currentBattle;
-            localStorage.setItem('dungeon_state', JSON.stringify(saveState)); 
-        }
-
-        function generateLocations() {
-            const heroInfo = `Level ${gameState.hero.level} ${gameState.hero.class} with ${gameState.party.length} companions`;
-            return [
-                { id:"forest", name:"Dark Forest", emoji:"🌲", prompt:`You are a dungeon master for a text adventure RPG set in a dark fantasy forest. Describe the scene in 2-3 vivid sentences. IMPORTANT: Always include %%PHOTO%%{imagePrompt:"dark fantasy forest scene"}%% at the start of your response to generate a pixel art image. End with combat (%%COMBAT%%{Name, AC, HP, AtkBonus, DamageDice}), treasure (%%LOOT%%{item name}), or "What do you do next?". Hero: ${heroInfo}.` },
-                { id:"cave", name:"Crystal Cave", emoji:"💎", prompt:`You are a dungeon master. Describe the crystal cave in 2-3 sentences. Always start with %%PHOTO%%{imagePrompt:"crystal cave interior"}%%. End with combat, treasure, or a choice. Hero: ${heroInfo}.` },
-                { id:"tower", name:"Abandoned Tower", emoji:"🏰", prompt:`You are a dungeon master. Describe the haunted tower in 2-3 sentences. Always start with %%PHOTO%%{imagePrompt:"abandoned tower interior"}%%. End with combat, treasure, or a choice. Hero: ${heroInfo}.` },
-                { id:"ruins", name:"Sunken Ruins", emoji:"🏛️", prompt:`You are a dungeon master. Describe the swamp ruins in 2-3 sentences. Always start with %%PHOTO%%{imagePrompt:"swamp ruins"}%%. End with combat, treasure, or a choice. Hero: ${heroInfo}.` }
-            ];
-        }
-
-        function loadGameState() {
-            const saved = localStorage.getItem('dungeon_state');
-            if (saved) {
-                try {
-                    const p = JSON.parse(saved);
-                    p.quests = p.quests || [];
-                    p.quests.forEach(q => { if (!q.progress) q.progress = { steps: 0, maxSteps: 3 }; });
-                    return {
-                        hero: p.hero || { name:'Adventurer', class:'Warrior', bio:'', hp:20, maxHp:20, level:1, xp:0, gold:10, inventory:[] },
-                        party: p.party || [],
-                        quests: p.quests,
-                        locations: p.locations || generateLocations(),
-                        messages: p.messages || {},
-                        currentBattle: null, // Always start fresh
-                        tavernMessages: p.tavernMessages || [],
-                        combatReturnId: null,
-                        gameStarted: p.gameStarted || false
-                    };
-                } catch(e) {}
-            }
-            return {
-                hero: { name:'Adventurer', class:'Warrior', bio:'', hp:20, maxHp:20, level:1, xp:0, gold:10, inventory:[] },
-                party: [], quests: [], locations: generateLocations(),
-                messages: {}, currentBattle: null, tavernMessages: [], combatReturnId: null, gameStarted: false
-            };
-        }
-
-        function updateGameState(changes) { 
-            Object.assign(gameState, changes); 
-            saveGameState(); 
-            refreshUI(); 
-        }
-
-        // ---------- NOTIFICATIONS ----------
-        let notifTimeout;
-        function showNotification(text, dur=3000) {
-            const bar = document.getElementById('notificationBar'); 
-            bar.textContent = text; 
-            bar.classList.add('show');
-            clearTimeout(notifTimeout); 
-            notifTimeout = setTimeout(() => bar.classList.remove('show'), dur);
-        }
-
-        // ---------- IMAGE HELPERS ----------
-        function sanitizeImagePrompt(p) {
-            if (!p) return 'pixel art scene';
-            let c = p.replace(/\b(cock|dick|pussy|fuck|naked|nude|sex|porn|penis|vagina|boobs|tits|asshole|shit|clit|cunt|whore|slut|orgasm|masturbat|blowjob|handjob|threesome|gangbang|bdsm|bondage|fetish|kink|erotic|xxx|hardcore|softcore|topless|bottomless|genital)\b/gi, '');
-            return c.replace(/\s{2,}/g,' ').trim() || 'pixel art scene';
-        }
-        
-        function pixelArtUrl(prompt) {
-            if (!prompt) prompt = 'dark fantasy scene';
-            const safe = sanitizeImagePrompt(prompt);
-            // Add random parameter to prevent caching
-            const cacheBuster = Date.now();
-            return `https://image.pollinations.ai/prompt/${encodeURIComponent('16-bit pixel art, retro SNES RPG, flat colors, ' + safe + ', dark background, game sprite style')}?width=400&height=300&nologo=true&seed=${cacheBuster}`;
-        }
-
-        // ---------- DICE ----------
-        function rollDice(sides) { return Math.floor(Math.random()*sides)+1; }
-        function parseDice(str) {
-            if (!str) return 4;
-            if (/^\d+$/.test(str)) return Math.max(1,parseInt(str));
-            const m = str.match(/(\d+)?d(\d+)(?:([+-])(\d+))?/i);
-            if (m) {
-                const cnt = Math.max(1,parseInt(m[1]||'1')), sides = Math.max(2,parseInt(m[2]));
-                let total = 0; for (let i=0;i<cnt;i++) total += rollDice(sides);
-                if (m[3]==='+') total += parseInt(m[4]||'0');
-                if (m[3]==='-') total -= parseInt(m[4]||'0');
-                return Math.max(1,total);
-            }
-            return 4;
-        }
-
-        // ---------- TAG PARSER ----------
-        function parseAllTags(text) {
-            let clean = text;
-            let combat=null, loot=null, photo=null;
-            
-            // Parse PHOTO tag
-            const photoMatch = clean.match(/%%PHOTO%%(\{[^}]+\})%%/);
-            if (photoMatch) {
-                try {
-                    photo = JSON.parse(photoMatch[1]);
-                } catch(e) {
-                    // If JSON parsing fails, use the content as imagePrompt
-                    photo = { imagePrompt: photoMatch[1].replace(/[{}]/g, '').trim() };
-                }
-                clean = clean.replace(photoMatch[0], '');
-            }
-            
-            // Parse COMBAT tag
-            const combatMatch = clean.match(/%%COMBAT%%\s*\{([^}]+)\}/);
-            if (combatMatch) { 
-                combat = combatMatch[1]; 
-                clean = clean.replace(combatMatch[0], ''); 
-            }
-            
-            // Parse LOOT tag
-            const lootMatch = clean.match(/%%LOOT%%\s*\{([^}]+)\}/);
-            if (lootMatch) { 
-                loot = lootMatch[1].trim(); 
-                clean = clean.replace(lootMatch[0], ''); 
-            }
-            
-            return { 
-                cleanText: clean.replace(/\s+/g,' ').trim(), 
-                combatData: combat, 
-                lootData: loot, 
-                photoData: photo 
-            };
-        }
-
-        function createMessage(text, fromMe) {
-            const p = parseAllTags(text);
-            const displayText = p.cleanText || (p.photoData ? "The narrator shows you a vision..." : "(Empty response)");
-            const msg = { 
-                id: uid(), 
-                text: displayText, 
-                timestamp: Date.now(), 
-                fromMe, 
-                photo: p.photoData || null 
-            };
-            msg._combatData = p.combatData;
-            msg._lootData = p.lootData;
-            return msg;
-        }
-
-        function renderBubble(msg) {
-            const b = document.createElement('div'); 
-            b.className = 'msg-bubble'; 
-            b.textContent = msg.text;
-            
-            if (msg.photo) {
-                const pd = document.createElement('div'); 
-                pd.className = 'photo-attachment';
-                
-                const imagePrompt = msg.photo.imagePrompt || 'dark fantasy scene';
-                const url = pixelArtUrl(imagePrompt);
-                
-                // Create image element
-                const img = document.createElement('img'); 
-                img.src = url; 
-                img.alt = 'Scene image';
-                img.style.maxHeight = '150px';
-                
-                // Handle image loading
-                img.onload = () => {
-                    pd.style.minHeight = 'auto';
-                };
-                
-                img.onerror = () => {
-                    pd.innerHTML = `<div class="photo-placeholder">${msg.photo.emoji || '🖼️'}</div>
-                                   <div style="font-size:5px; color:#228b22;">[Image unavailable]</div>`;
-                };
-                
-                pd.appendChild(img);
-                
-                // Add caption if available
-                if (msg.photo.caption) {
-                    const cap = document.createElement('div'); 
-                    cap.style.cssText = 'font-size:5px; margin-top:4px; color:#33ff33;';
-                    cap.textContent = msg.photo.caption;
-                    pd.appendChild(cap);
-                }
-                
-                b.appendChild(pd);
-            }
-            
-            return b;
-        }
-        
-        function escapeHtml(s) { 
-            if (!s) return '';
-            return s.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[m] || m); 
-        }
-
-        // ---------- AI ----------
-        let aiPending = false;
-        async function aiCall(msgs, maxTokens=250, temp=0.9) {
-            if (!apiKey) throw new Error("No API key");
-            const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
-                method:'POST', 
-                headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
-                body: JSON.stringify({ model:'mistral-small-latest', messages:msgs, temperature:temp, max_tokens:maxTokens })
-            });
-            if (!res.ok) { 
-                const e = await res.text(); 
-                throw new Error(`API ${res.status}: ${e.substring(0,100)}`); 
-            }
-            const d = await res.json(); 
-            return d.choices[0].message.content.trim();
-        }
-        
-        async function guardedAI(msgs, maxTokens=250, temp=0.9) {
-            if (aiPending) throw new Error("AI is busy");
-            aiPending = true;
-            try { 
-                return await aiCall(msgs, maxTokens, temp); 
-            } finally { 
-                aiPending = false; 
-            }
-        }
-
-        // ---------- INVENTORY SYSTEM ----------
-        function processItemAcquisition(itemName) {
-            if (!itemName || itemName.length < 2) return false;
-            const cleanedItem = itemName.replace(/[^a-zA-Z0-9\s-]/g, '').trim();
-            if (!cleanedItem || gameState.hero.inventory.includes(cleanedItem)) return false;
-            
-            gameState.hero.inventory.push(cleanedItem);
-            checkQuestProgress(null, false, cleanedItem);
-            saveGameState();
-            showNotification(`🧳 Found: ${cleanedItem}!`);
-            document.getElementById('heroInventory').textContent = gameState.hero.inventory.join(', ');
-            return true;
-        }
-
-        // ---------- QUEST SYSTEM ----------
-        function checkQuestProgress(locationId, enemyDefeated = false, itemAcquired = null) {
-            if (!gameState.quests.length) return;
-            
-            gameState.quests.forEach(quest => {
-                if (!quest.progress) quest.progress = { steps: 0, maxSteps: 3 };
-                
-                if (locationId && quest.enemyHint?.toLowerCase().includes(locationId.toLowerCase())) {
-                    quest.progress.steps++;
-                }
-                if (enemyDefeated) {
-                    quest.progress.steps++;
-                }
-                if (itemAcquired && quest.description?.toLowerCase().includes(itemAcquired.toLowerCase())) {
-                    quest.progress.steps++;
-                }
-                
-                if (quest.progress.steps >= quest.progress.maxSteps) {
-                    completeQuest(quest);
-                }
-            });
-            
-            gameState.quests = gameState.quests.filter(q => q.progress.steps < q.progress.maxSteps);
-            saveGameState();
-            if (document.getElementById('journalPanel').classList.contains('active')) {
-                renderQuests();
-            }
-        }
-
-        function completeQuest(quest) {
-            const reward = quest.reward || Math.floor(Math.random() * 30) + 10;
-            gameState.hero.gold += reward;
-            gameState.hero.xp += reward * 2;
-            showNotification(`✅ Quest completed! Earned ${reward}g and ${reward * 2} XP!`);
-            if (gameState.hero.xp >= gameState.hero.level * 25) {
-                gameState.hero.level++;
-                gameState.hero.maxHp += 5;
-                gameState.hero.hp = gameState.hero.maxHp;
-                showNotification('🎉 LEVEL UP!');
-            }
-        }
-
-        // ---------- PARTY BONUSES ----------
-        function getPartyBattleBonuses() {
-            return {
-                attackBonus: gameState.party.length * 1,
-                defenseBonus: Math.floor(gameState.party.length * 0.5),
-                specialAction: gameState.party.length >= 3
-            };
-        }
-
-        // ---------- COMBAT ----------
-        function getHeroAtkBonus() { return gameState.hero.class==='Warrior'?3:(gameState.hero.class==='Rogue'?2:0); }
-        function getHeroDmgDice() { return gameState.hero.class==='Warrior'?'1d8+2':(gameState.hero.class==='Rogue'?'1d6+3':'1d4'); }
-        function getHeroAC() { 
-            const base = gameState.hero.class==='Warrior'?16:(gameState.hero.class==='Rogue'?14:11);
-            return base + getPartyBattleBonuses().defenseBonus;
-        }
-
-        function startBattle(enemy) {
-    // Force clear any existing battle state
-    gameState.currentBattle = null;
+(function() {
+    // ---------- STORAGE ----------
+    let apiKey = localStorage.getItem('dungeon_api_key') || '';
+    let gameState = loadGameState();
     
-    // Create fresh battle state with correct enemy info
-    const freshBattle = {
-        enemyId: enemy.id || uid(),
-        enemyName: enemy.name || 'Unknown Enemy',
-        enemyImagePrompt: enemy.imagePrompt || (enemy.name + ' pixel art enemy dark fantasy game sprite'),
-        enemyHP: enemy.hp || 10,
-        enemyMaxHP: enemy.hp || 10,
-        enemyAC: enemy.ac || 12,
-        enemyAtkBonus: enemy.attackBonus || 2,
-        enemyDmgDice: enemy.damageDice || '1d4',
-        turn: 'player',
-        log: [`A ${enemy.name} appears! Prepare for battle!`],
-        playerDefending: false
-    };
+    function uid() { return Date.now() + '-' + Math.random().toString(36).substr(2, 8); }
     
-    gameState.currentBattle = freshBattle;
-    
-    if (!gameState.combatReturnId && currentExploreId) {
-        gameState.combatReturnId = currentExploreId;
+    function saveGameState() { 
+        const saveState = {...gameState};
+        delete saveState.currentBattle;
+        localStorage.setItem('dungeon_state', JSON.stringify(saveState)); 
     }
-    
-    saveGameState();
-    
-    // Force complete refresh of battle UI
-    setTimeout(() => {
-        switchToTab('battle');
-        refreshBattleUI();
-        showNotification(`⚔️ Battle vs ${enemy.name}!`);
-    }, 100);
-}
 
-        function endBattle(victory) {
-            const battle = gameState.currentBattle; 
-            if (!battle) return;
-            
-            const enemyName = battle.enemyName;
-            const returnId = gameState.combatReturnId;
-            
-            if (victory) {
-                const xp = rollDice(10) + 5;
-                const gold = rollDice(15) + 5;
-                gameState.hero.xp += xp; 
-                gameState.hero.gold += gold;
-                
-                if (gameState.hero.xp >= gameState.hero.level * 25) {
-                    gameState.hero.level++; 
-                    gameState.hero.maxHp += 5; 
-                    gameState.hero.hp = gameState.hero.maxHp;
-                }
-                
-                if (returnId && gameState.messages[returnId]) {
-                    gameState.messages[returnId].push({ 
-                        id: uid(), 
-                        text: `The ${enemyName} lies defeated. The area is safe...`, 
-                        timestamp: Date.now(), 
-                        fromMe: false, 
-                        photo: null 
-                    });
-                }
-                
-                checkQuestProgress(returnId, true);
-            }
-            
-            // Clear battle state completely
-            gameState.currentBattle = null;
-            gameState.combatReturnId = null;
-            saveGameState();
-            
-            // Reset battle UI
-            refreshBattleUI();
-            
-            // Return to explore after delay
-            setTimeout(() => { 
-                switchToTab('explore'); 
-                if (returnId) openExplore(returnId, true);
-            }, 500);
-        }
+    function generateLocations() {
+        const heroInfo = `Level ${gameState.hero.level} ${gameState.hero.class} with ${gameState.party.length} companions`;
+        return [
+            { id:"forest", name:"Dark Forest", emoji:"🌲", prompt:`You are a dungeon master for a text adventure RPG set in a dark fantasy forest. Describe the scene in 2-3 vivid sentences. IMPORTANT: Always include %%PHOTO%%{imagePrompt:"dark fantasy forest scene"}%% at the start of your response to generate a pixel art image. End with combat (%%COMBAT%%{Name, AC, HP, AtkBonus, DamageDice}), treasure (%%LOOT%%{item name}), or "What do you do next?". Hero: ${heroInfo}.` },
+            { id:"cave", name:"Crystal Cave", emoji:"💎", prompt:`You are a dungeon master. Describe the crystal cave in 2-3 sentences. Always start with %%PHOTO%%{imagePrompt:"crystal cave interior"}%%. End with combat, treasure, or a choice. Hero: ${heroInfo}.` },
+            { id:"tower", name:"Abandoned Tower", emoji:"🏰", prompt:`You are a dungeon master. Describe the haunted tower in 2-3 sentences. Always start with %%PHOTO%%{imagePrompt:"abandoned tower interior"}%%. End with combat, treasure, or a choice. Hero: ${heroInfo}.` },
+            { id:"ruins", name:"Sunken Ruins", emoji:"🏛️", prompt:`You are a dungeon master. Describe the swamp ruins in 2-3 sentences. Always start with %%PHOTO%%{imagePrompt:"swamp ruins"}%%. End with combat, treasure, or a choice. Hero: ${heroInfo}.` }
+        ];
+    }
 
-        function playerAttack() {
-            if (!gameState.currentBattle || gameState.currentBattle.turn !== 'player') return;
-            const b = gameState.currentBattle;
-            const partyBonuses = getPartyBattleBonuses();
-            const partyHelp = Math.random() < (gameState.party.length * 0.2);
-            
-            let message = '';
-            if (partyHelp && gameState.party.length > 0) {
-                const helper = gameState.party[Math.floor(Math.random() * gameState.party.length)];
-                const extraDamage = Math.floor(Math.random() * 4) + 1;
-                b.enemyHP -= extraDamage;
-                message = `${helper.name} assists for ${extraDamage}! `;
-            }
-            
-            const roll = rollDice(20) + getHeroAtkBonus() + partyBonuses.attackBonus;
-            if (roll >= b.enemyAC) {
-                const dmg = parseDice(getHeroDmgDice());
-                b.enemyHP -= dmg;
-                b.log.push(`${message}You hit for ${dmg}!`);
-            } else {
-                b.log.push(`${message}Miss!`);
-            }
-            
-            if (b.enemyHP <= 0) { 
-                b.enemyHP = 0; 
-                b.log.push(`${b.enemyName} defeated!`); 
-                saveGameState(); 
-                refreshBattleUI(); 
-                setTimeout(() => endBattle(true), 1000);
-                return; 
-            }
-            
-            b.turn = 'enemy'; 
-            saveGameState(); 
-            refreshBattleUI(); 
-            enemyTurn();
-        }
-        
-        function playerDefend() {
-            if (!gameState.currentBattle || gameState.currentBattle.turn !== 'player') return;
-            gameState.currentBattle.log.push('You defend! (+4 AC)');
-            gameState.currentBattle.playerDefending = true;
-            gameState.currentBattle.turn = 'enemy'; 
-            saveGameState(); 
-            refreshBattleUI(); 
-            enemyTurn();
-        }
-        
-        function enemyTurn() {
-            if (!gameState.currentBattle) return;
-            const b = gameState.currentBattle;
-            
-            setTimeout(() => {
-                if (!gameState.currentBattle || gameState.currentBattle !== b) return;
-                
-                const roll = rollDice(20) + b.enemyAtkBonus;
-                const ac = getHeroAC() + (b.playerDefending ? 4 : 0);
-                
-                if (roll >= ac) {
-                    const raw = parseDice(b.enemyDmgDice);
-                    const dmg = b.playerDefending ? Math.max(1, raw - 2) : raw;
-                    gameState.hero.hp -= dmg;
-                    b.log.push(`${b.enemyName} hits for ${dmg}!`);
-                } else {
-                    b.log.push(`${b.enemyName} misses!`);
-                }
-                
-                b.playerDefending = false;
-                
-                if (gameState.hero.hp <= 0) {
-                    gameState.hero.hp = 0; 
-                    b.log.push('💀 You died...'); 
-                    saveGameState(); 
-                    refreshBattleUI();
-                    gameState.currentBattle = null; 
-                    gameState.combatReturnId = null; 
-                    saveGameState();
-                    showNotification('💀 Died! Rest at inn.');
-                    setTimeout(() => { 
-                        gameState.hero.hp = Math.ceil(gameState.hero.maxHp / 2); 
-                        saveGameState(); 
-                        switchToTab('hero'); 
-                        refreshUI(); 
-                    }, 2000);
-                    return;
-                }
-                
-                b.turn = 'player'; 
-                saveGameState(); 
-                refreshBattleUI();
-            }, 700);
-        }
-        
-        function fleeBattle() {
-            if (!gameState.currentBattle) return;
-            gameState.currentBattle.log.push('Fleeing...');
-            
-            if (Math.random() < 0.55) { 
-                gameState.currentBattle.log.push('Escaped!'); 
-                saveGameState(); 
-                refreshBattleUI(); 
-                endBattle(false); 
-            } else { 
-                gameState.currentBattle.log.push('Failed!'); 
-                gameState.currentBattle.turn = 'enemy'; 
-                saveGameState(); 
-                refreshBattleUI(); 
-                enemyTurn(); 
-            }
-        }
-
-        function refreshBattleUI() {
-            const b = gameState.currentBattle;
-            const no = document.getElementById('battleNoActive');
-            const act = document.getElementById('battleActive');
-            
-            if (!b) { 
-                if (no) no.style.display = 'block'; 
-                if (act) act.style.display = 'none'; 
-                
-                // Clear enemy display when no battle
-                const imgDiv = document.getElementById('battleEnemyImage');
-                if (imgDiv) imgDiv.innerHTML = '';
-                const nameEl = document.getElementById('battleEnemyName');
-                if (nameEl) nameEl.textContent = '';
-                const bar = document.getElementById('battleEnemyHpBar');
-                if (bar) bar.style.width = '100%';
-                const hpText = document.getElementById('battleEnemyHpText');
-                if (hpText) hpText.textContent = '?/?';
-                
-                return; 
-            }
-            
-            if (no) no.style.display = 'none'; 
-            if (act) act.style.display = 'flex';
-            
-            // Update enemy info with fresh data
-            const nameEl = document.getElementById('battleEnemyName');
-            if (nameEl) {
-                nameEl.textContent = b.enemyName;
-                // Flash effect for new enemy
-                nameEl.classList.add('new-enemy-flash');
-                setTimeout(() => nameEl.classList.remove('new-enemy-flash'), 1500);
-            }
-            
-            // Update enemy image with cache-busting
-            const imgDiv = document.getElementById('battleEnemyImage');
-            if (imgDiv) {
-                const url = pixelArtUrl(b.enemyImagePrompt);
-                imgDiv.innerHTML = url ? 
-                    `<img src="${url}" style="max-width:120px;max-height:120px;border:2px solid #33ff33;" onerror="this.parentElement.innerHTML='<span style=font-size:40px;>👾</span>';">` : 
-                    '<span style="font-size:40px;">👾</span>';
-            }
-            
-            // Update HP bar
-            const hpPct = Math.max(0, (b.enemyHP / b.enemyMaxHP) * 100);
-            const bar = document.getElementById('battleEnemyHpBar');
-            if (bar) {
-                bar.style.width = hpPct + '%'; 
-                bar.className = 'hp-fill' + (hpPct < 30 ? ' danger' : '');
-            }
-            
-            // Update HP text
-            const hpText = document.getElementById('battleEnemyHpText');
-            if (hpText) {
-                hpText.textContent = `${Math.max(0, b.enemyHP)}/${b.enemyMaxHP}`;
-            }
-            
-            // Update hero HP
-            const heroHpEl = document.getElementById('battleHeroHp');
-            if (heroHpEl) {
-                heroHpEl.textContent = `${Math.max(0, gameState.hero.hp)}/${gameState.hero.maxHp}`;
-            }
-            
-            // Update party bonus
-            const partyBonuses = getPartyBattleBonuses();
-            const partyDisplay = document.getElementById('partyBonusDisplay');
-            if (partyDisplay) {
-                if (gameState.party.length > 0) {
-                    partyDisplay.style.display = 'block';
-                    partyDisplay.textContent = `Party bonus: +${partyBonuses.attackBonus} ATK, +${partyBonuses.defenseBonus} AC`;
-                } else {
-                    partyDisplay.style.display = 'none';
-                }
-            }
-            
-            // Update battle log
-            const logDiv = document.getElementById('battleLog');
-            if (logDiv) {
-                logDiv.innerHTML = b.log.slice(-6).map(l => `<div>• ${l}</div>`).join('');
-                logDiv.scrollTop = logDiv.scrollHeight;
-            }
-            
-            // Update status bar
-            document.getElementById('statusHp').textContent = `${Math.max(0, gameState.hero.hp)}/${gameState.hero.maxHp}`;
-        }
-
-        // ---------- UI REFRESH ----------
-        function refreshUI() {
-            document.getElementById('heroNameDisplay').textContent = gameState.hero.name;
-            document.getElementById('statusHp').textContent = `${Math.max(0, gameState.hero.hp)}/${gameState.hero.maxHp}`;
-            document.getElementById('heroHp').textContent = `${Math.max(0, gameState.hero.hp)}/${gameState.hero.maxHp}`;
-            const heroBar = document.getElementById('heroHpBar');
-            if (heroBar) { 
-                const pct = Math.max(0, (gameState.hero.hp / gameState.hero.maxHp) * 100); 
-                heroBar.style.width = pct + '%'; 
-                heroBar.className = 'hp-fill' + (pct < 30 ? ' danger' : ''); 
-            }
-            document.getElementById('heroLevel').textContent = gameState.hero.level;
-            document.getElementById('heroXp').textContent = gameState.hero.xp;
-            document.getElementById('heroGold').textContent = gameState.hero.gold;
-            document.getElementById('heroPartySize').textContent = `${gameState.party.length} members`;
-            const invEl = document.getElementById('heroInventory');
-            if (invEl) invEl.textContent = gameState.hero.inventory.length ? gameState.hero.inventory.join(', ') : '- Empty -';
-
-            if (document.getElementById('explorePanel').classList.contains('active')) {
-                if (document.getElementById('exploreChatView').style.display === 'flex') renderExploreChat();
-                else renderExploreGrid();
-            }
-            if (document.getElementById('journalPanel').classList.contains('active')) renderQuests();
-            if (document.getElementById('partyPanel').classList.contains('active')) {
-                if (document.getElementById('partyChatView').style.display === 'flex') renderPartyChat(); 
-                else renderPartyList();
-            }
-            if (document.getElementById('tavernPanel').classList.contains('active')) {
-                if (document.getElementById('tavernChatView').style.display === 'flex') renderTavernChat(); 
-                else renderTavernList();
-            }
-            if (document.getElementById('heroPanel').classList.contains('active')) {
-                document.getElementById('heroNameInput').value = gameState.hero.name;
-                document.getElementById('heroClassInput').value = gameState.hero.class;
-                document.getElementById('heroBioInput').value = gameState.hero.bio;
-            }
-            if (document.getElementById('battlePanel').classList.contains('active')) refreshBattleUI();
-        }
-
-        function switchToTab(name) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            const tab = document.querySelector(`[data-tab="${name}"]`); 
-            if (tab) tab.classList.add('active');
-            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-            const panel = document.getElementById(name + 'Panel'); 
-            if (panel) panel.classList.add('active');
-            refreshUI();
-        }
-
-        // ---------- EXPLORE ----------
-        let currentExploreId = null;
-        function renderExploreGrid() {
-            document.getElementById('exploreGrid').innerHTML = gameState.locations.map(l => `
-                <div class="location-card" onclick="openExplore('${l.id}')">
-                    <div style="font-size:24px;">${l.emoji}</div>
-                    <div style="font-size:6px; color:#33ff33;">${escapeHtml(l.name)}</div>
-                </div>`).join('');
-            document.getElementById('exploreGrid').style.display = 'grid';
-            document.getElementById('exploreChatView').style.display = 'none';
-            document.getElementById('exploreActionButtons').style.display = 'none';
-        }
-        
-        function openExplore(locId, skipIntro = false) {
-            const loc = gameState.locations.find(l => l.id === locId); 
-            if (!loc) return;
-            currentExploreId = locId;
-            document.getElementById('exploreGrid').style.display = 'none';
-            document.getElementById('exploreChatView').style.display = 'flex';
-            document.getElementById('exploreActionButtons').style.display = 'flex';
-            document.getElementById('exploreChatName').textContent = loc.name;
-            
-            if (!gameState.messages[locId]) {
-                gameState.messages[locId] = [];
-                if (!skipIntro) {
-                    gameState.messages[locId].push({ 
-                        id: uid(), 
-                        text: `You arrive at ${loc.name}.`, 
-                        timestamp: Date.now(), 
-                        fromMe: false, 
-                        photo: { imagePrompt: `${loc.name} dark fantasy scene` }
-                    });
-                    aiExploreIntro(loc);
-                }
-            }
-            checkQuestProgress(locId);
-            renderExploreChat();
-        }
-        
-        async function aiExploreIntro(loc) {
+    function loadGameState() {
+        const saved = localStorage.getItem('dungeon_state');
+        if (saved) {
             try {
-                const reply = await guardedAI([
-                    {role: 'system', content: loc.prompt},
-                    {role: 'user', content: 'Begin the adventure. Include specific encounters, treasures, or choices. Remember to include %%PHOTO%%{imagePrompt:"scene description"}%%'}
-                ], 250, 0.9);
-                
-                const msg = createMessage(reply, false);
-                gameState.messages[loc.id].push(msg);
-                processMessageTags(msg, loc.id);
-                saveGameState(); 
-                renderExploreChat();
-            } catch(e) {
-                gameState.messages[loc.id].push({
-                    id: uid(), 
-                    text: `[The narrator is silent... Error: ${e.message}]`, 
-                    timestamp: Date.now(), 
-                    fromMe: false, 
-                    photo: null
-                });
-                renderExploreChat();
-            }
-        }
-        
-        function closeExploreChat() {
-            currentExploreId = null;
-            document.getElementById('exploreChatView').style.display = 'none';
-            document.getElementById('exploreActionButtons').style.display = 'none';
-            document.getElementById('exploreGrid').style.display = 'grid';
-        }
-        
-        function renderExploreChat() {
-            const container = document.getElementById('exploreChatMessages');
-            if (!currentExploreId) return;
-            const msgs = gameState.messages[currentExploreId] || [];
-            container.innerHTML = '';
-            msgs.forEach(m => {
-                const row = document.createElement('div'); 
-                row.className = `message-row ${m.fromMe ? 'outgoing' : 'incoming'}`;
-                row.appendChild(renderBubble(m)); 
-                container.appendChild(row);
-            });
-            container.scrollTop = container.scrollHeight;
-        }
-
-        function processMessageTags(msgObj, contextId) {
-    if (msgObj._combatData) {
-        const parts = msgObj._combatData.split(',').map(s => s.trim());
-        const enemyName = parts[0] || 'Unknown Enemy';
-        
-        const enemy = { 
-            name: enemyName, 
-            ac: parseInt(parts[1]) || 12, 
-            hp: parseInt(parts[2]) || 10, 
-            attackBonus: parseInt(parts[3]) || 2, 
-            damageDice: parts[4] || '1d4', 
-            imagePrompt: enemyName + ' pixel art enemy dark fantasy game sprite', 
-            id: uid() 
-        };
-        
-        gameState.combatReturnId = contextId; 
-        saveGameState();
-        setTimeout(() => startBattle(enemy), 300);
-    }
-    
-    // Also check for enemy mentions in the text that might indicate combat
-    if (!msgObj._combatData && msgObj.text) {
-        const combatIndicators = [
-            /(?:attacks|charges|leaps|rushes|emerges|appears|blocks your path|stands in your way|prepares to fight|draws (?:its|his|her) weapon)/i,
-            /(?:roll for initiative|combat (?:begins|starts)|battle (?:begins|starts)|prepare for battle)/i,
-            /(?:a|an|the) ([\w\s]+) (?:attacks|charges|leaps|rushes|emerges|appears)/i
-        ];
-        
-        for (const indicator of combatIndicators) {
-            const match = msgObj.text.match(indicator);
-            if (match) {
-                // Extract enemy name if possible
-                let enemyName = 'Hostile Creature';
-                if (match[1]) {
-                    enemyName = match[1].trim();
-                    enemyName = enemyName.charAt(0).toUpperCase() + enemyName.slice(1);
-                }
-                
-                // Look for specific enemy descriptions
-                const descMatch = msgObj.text.match(/(?:a|an) ([\w\s]+?)(?:\s(?:attacks|charges|leaps|rushes|emerges|appears|blocks|stands|prepares|lurks|waits))/i);
-                if (descMatch) {
-                    enemyName = descMatch[1].trim();
-                    enemyName = enemyName.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-                }
-                
-                const enemy = { 
-                    name: enemyName, 
-                    ac: 10 + Math.floor(Math.random() * 6), 
-                    hp: 8 + Math.floor(Math.random() * 17), 
-                    attackBonus: 1 + Math.floor(Math.random() * 4), 
-                    damageDice: '1d6', 
-                    imagePrompt: enemyName + ' pixel art enemy dark fantasy game sprite retro SNES', 
-                    id: uid() 
+                const p = JSON.parse(saved);
+                p.quests = p.quests || [];
+                p.quests.forEach(q => { if (!q.progress) q.progress = { steps: 0, maxSteps: 3 }; });
+                return {
+                    hero: p.hero || { name:'Adventurer', class:'Warrior', bio:'', hp:20, maxHp:20, level:1, xp:0, gold:10, inventory:[] },
+                    party: p.party || [],
+                    quests: p.quests,
+                    locations: p.locations || generateLocations(),
+                    messages: p.messages || {},
+                    currentBattle: null,
+                    tavernMessages: p.tavernMessages || [],
+                    combatReturnId: null,
+                    gameStarted: p.gameStarted || false
                 };
-                
-                gameState.combatReturnId = contextId; 
-                saveGameState();
-                setTimeout(() => startBattle(enemy), 500);
-                break;
-            }
+            } catch(e) {}
         }
+        return {
+            hero: { name:'Adventurer', class:'Warrior', bio:'', hp:20, maxHp:20, level:1, xp:0, gold:10, inventory:[] },
+            party: [], quests: [], locations: generateLocations(),
+            messages: {}, currentBattle: null, tavernMessages: [], combatReturnId: null, gameStarted: false
+        };
+    }
+
+    function updateGameState(changes) { 
+        Object.assign(gameState, changes); 
+        saveGameState(); 
+        refreshUI(); 
+    }
+
+    // ---------- NOTIFICATIONS ----------
+    let notifTimeout;
+    function showNotification(text, dur=3000) {
+        const bar = document.getElementById('notificationBar'); 
+        bar.textContent = text; 
+        bar.classList.add('show');
+        clearTimeout(notifTimeout); 
+        notifTimeout = setTimeout(() => bar.classList.remove('show'), dur);
+    }
+
+    // ---------- IMAGE HELPERS ----------
+    function sanitizeImagePrompt(p) {
+        if (!p) return 'pixel art scene';
+        let c = p.replace(/\b(cock|dick|pussy|fuck|naked|nude|sex|porn|penis|vagina|boobs|tits|asshole|shit|clit|cunt|whore|slut|orgasm|masturbat|blowjob|handjob|threesome|gangbang|bdsm|bondage|fetish|kink|erotic|xxx|hardcore|softcore|topless|bottomless|genital)\b/gi, '');
+        return c.replace(/\s{2,}/g,' ').trim() || 'pixel art scene';
     }
     
-    if (msgObj._lootData) {
-        processItemAcquisition(msgObj._lootData);
-    } else {
-        const lootPatterns = [
-            /\b(?:found|gained|obtained|acquired|looted|discovered|received)\s+(?:a\s+)?(?:pair\s+of\s+)?["']?([\w\s-]{2,30})["']?/gi,
-            /\b(?:pick(?:ed|s)?\s*up|take(?:s|n)?|grabb(?:ed|s)?|stole|snatched)\s+(?:a\s+)?(?:pair\s+of\s+)?["']?([\w\s-]{2,30})["']?/gi
-        ];
-        lootPatterns.forEach(pattern => {
-            const matches = msgObj.text.matchAll(pattern);
-            for (const match of matches) {
-                processItemAcquisition(match[1]);
+    function pixelArtUrl(prompt) {
+        if (!prompt) prompt = 'dark fantasy scene';
+        const safe = sanitizeImagePrompt(prompt);
+        const cacheBuster = Date.now();
+        return `https://image.pollinations.ai/prompt/${encodeURIComponent('16-bit pixel art, retro SNES RPG, flat colors, ' + safe + ', dark background, game sprite style')}?width=400&height=300&nologo=true&seed=${cacheBuster}`;
+    }
+
+    // ---------- DICE ----------
+    function rollDice(sides) { return Math.floor(Math.random()*sides)+1; }
+    function parseDice(str) {
+        if (!str) return 4;
+        if (/^\d+$/.test(str)) return Math.max(1,parseInt(str));
+        const m = str.match(/(\d+)?d(\d+)(?:([+-])(\d+))?/i);
+        if (m) {
+            const cnt = Math.max(1,parseInt(m[1]||'1')), sides = Math.max(2,parseInt(m[2]));
+            let total = 0; for (let i=0;i<cnt;i++) total += rollDice(sides);
+            if (m[3]==='+') total += parseInt(m[4]||'0');
+            if (m[3]==='-') total -= parseInt(m[4]||'0');
+            return Math.max(1,total);
+        }
+        return 4;
+    }
+
+    // ---------- TAG PARSER ----------
+    function parseAllTags(text) {
+        let clean = text;
+        let combat=null, loot=null, photo=null;
+        
+        const photoMatch = clean.match(/%%PHOTO%%(\{[^}]+\})%%/);
+        if (photoMatch) {
+            try {
+                photo = JSON.parse(photoMatch[1]);
+            } catch(e) {
+                photo = { imagePrompt: photoMatch[1].replace(/[{}]/g, '').trim() };
+            }
+            clean = clean.replace(photoMatch[0], '');
+        }
+        
+        const combatMatch = clean.match(/%%COMBAT%%\s*\{([^}]+)\}/);
+        if (combatMatch) { 
+            combat = combatMatch[1]; 
+            clean = clean.replace(combatMatch[0], ''); 
+        }
+        
+        const lootMatch = clean.match(/%%LOOT%%\s*\{([^}]+)\}/);
+        if (lootMatch) { 
+            loot = lootMatch[1].trim(); 
+            clean = clean.replace(lootMatch[0], ''); 
+        }
+        
+        return { 
+            cleanText: clean.replace(/\s+/g,' ').trim(), 
+            combatData: combat, 
+            lootData: loot, 
+            photoData: photo 
+        };
+    }
+
+    function createMessage(text, fromMe) {
+        const p = parseAllTags(text);
+        const displayText = p.cleanText || (p.photoData ? "The narrator shows you a vision..." : "(Empty response)");
+        const msg = { 
+            id: uid(), 
+            text: displayText, 
+            timestamp: Date.now(), 
+            fromMe, 
+            photo: p.photoData || null 
+        };
+        msg._combatData = p.combatData;
+        msg._lootData = p.lootData;
+        return msg;
+    }
+
+    function renderBubble(msg) {
+    const b = document.createElement('div'); 
+    b.className = 'msg-bubble'; 
+    b.textContent = msg.text;
+    
+    if (msg.photo) {
+        const pd = document.createElement('div'); 
+        pd.className = 'photo-attachment';
+        
+        const imagePrompt = msg.photo.imagePrompt || 'dark fantasy scene';
+        const url = pixelArtUrl(imagePrompt);
+        
+        if (url) {
+            const img = document.createElement('img'); 
+            img.src = url; 
+            img.alt = 'Scene image';
+            img.style.maxHeight = '150px';
+            
+            img.onerror = function() {
+                pd.innerHTML = '<div class="photo-placeholder">' + (msg.photo.emoji || '🖼️') + '</div>' +
+                               '<div style="font-size:5px; color:#228b22;">[Image unavailable]</div>';
+            };
+            
+            pd.appendChild(img);
+        } else {
+            pd.innerHTML = '<div class="photo-placeholder">' + (msg.photo.emoji || '🖼️') + '</div>' +
+                           '<div style="font-size:5px; color:#228b22;">[No image URL]</div>';
+        }
+        
+        if (msg.photo.caption) {
+            const cap = document.createElement('div'); 
+            cap.style.cssText = 'font-size:5px; margin-top:4px; color:#33ff33;';
+            cap.textContent = msg.photo.caption;
+            pd.appendChild(cap);
+        }
+        
+        b.appendChild(pd);
+    }
+    
+    return b;
+}
+    
+    function escapeHtml(s) { 
+        if (!s) return '';
+        return s.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[m] || m); 
+    }
+
+    // ---------- AI ----------
+    let aiPending = false;
+    async function aiCall(msgs, maxTokens=250, temp=0.9) {
+        if (!apiKey) throw new Error("No API key");
+        const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
+            method:'POST', 
+            headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
+            body: JSON.stringify({ model:'mistral-small-latest', messages:msgs, temperature:temp, max_tokens:maxTokens })
+        });
+        if (!res.ok) { 
+            const e = await res.text(); 
+            throw new Error(`API ${res.status}: ${e.substring(0,100)}`); 
+        }
+        const d = await res.json(); 
+        return d.choices[0].message.content.trim();
+    }
+    
+    async function guardedAI(msgs, maxTokens=250, temp=0.9) {
+        if (aiPending) throw new Error("AI is busy");
+        aiPending = true;
+        try { 
+            return await aiCall(msgs, maxTokens, temp); 
+        } finally { 
+            aiPending = false; 
+        }
+    }
+
+    // ---------- INVENTORY SYSTEM ----------
+    function processItemAcquisition(itemName) {
+        if (!itemName || itemName.length < 2) return false;
+        const cleanedItem = itemName.replace(/[^a-zA-Z0-9\s-]/g, '').trim();
+        if (!cleanedItem || gameState.hero.inventory.includes(cleanedItem)) return false;
+        
+        gameState.hero.inventory.push(cleanedItem);
+        checkQuestProgress(null, false, cleanedItem);
+        saveGameState();
+        showNotification(`🧳 Found: ${cleanedItem}!`);
+        document.getElementById('heroInventory').textContent = gameState.hero.inventory.join(', ');
+        return true;
+    }
+
+    // ---------- QUEST SYSTEM ----------
+    function checkQuestProgress(locationId, enemyDefeated = false, itemAcquired = null) {
+        if (!gameState.quests.length) return;
+        
+        gameState.quests.forEach(quest => {
+            if (!quest.progress) quest.progress = { steps: 0, maxSteps: 3 };
+            
+            if (locationId && quest.enemyHint?.toLowerCase().includes(locationId.toLowerCase())) {
+                quest.progress.steps++;
+            }
+            if (enemyDefeated) {
+                quest.progress.steps++;
+            }
+            if (itemAcquired && quest.description?.toLowerCase().includes(itemAcquired.toLowerCase())) {
+                quest.progress.steps++;
+            }
+            
+            if (quest.progress.steps >= quest.progress.maxSteps) {
+                completeQuest(quest);
             }
         });
+        
+        gameState.quests = gameState.quests.filter(q => q.progress.steps < q.progress.maxSteps);
+        saveGameState();
+        if (document.getElementById('journalPanel').classList.contains('active')) {
+            renderQuests();
+        }
     }
-}
 
-        async function sendExploreMessage() {
-            if (!currentExploreId) return;
-            const input = document.getElementById('exploreChatInput');
-            const text = input.value.trim(); 
-            if (!text) return;
-            input.value = '';
+    function completeQuest(quest) {
+        const reward = quest.reward || Math.floor(Math.random() * 30) + 10;
+        gameState.hero.gold += reward;
+        gameState.hero.xp += reward * 2;
+        showNotification(`✅ Quest completed! Earned ${reward}g and ${reward * 2} XP!`);
+        if (gameState.hero.xp >= gameState.hero.level * 25) {
+            gameState.hero.level++;
+            gameState.hero.maxHp += 5;
+            gameState.hero.hp = gameState.hero.maxHp;
+            showNotification('🎉 LEVEL UP!');
+        }
+    }
 
-            const loc = gameState.locations.find(l => l.id === currentExploreId); 
-            if (!loc) return;
+    // ---------- PARTY BONUSES ----------
+    function getPartyBattleBonuses() {
+        return {
+            attackBonus: gameState.party.length * 1,
+            defenseBonus: Math.floor(gameState.party.length * 0.5),
+            specialAction: gameState.party.length >= 3
+        };
+    }
+
+    // ---------- COMBAT ----------
+    function getHeroAtkBonus() { return gameState.hero.class==='Warrior'?3:(gameState.hero.class==='Rogue'?2:0); }
+    function getHeroDmgDice() { return gameState.hero.class==='Warrior'?'1d8+2':(gameState.hero.class==='Rogue'?'1d6+3':'1d4'); }
+    function getHeroAC() { 
+        const base = gameState.hero.class==='Warrior'?16:(gameState.hero.class==='Rogue'?14:11);
+        return base + getPartyBattleBonuses().defenseBonus;
+    }
+
+    function startBattle(enemy) {
+        // Force clear any existing battle state
+        gameState.currentBattle = null;
+        
+        // Create fresh battle state with correct enemy info
+        const freshBattle = {
+            enemyId: enemy.id || uid(),
+            enemyName: enemy.name || 'Unknown Enemy',
+            enemyImagePrompt: enemy.imagePrompt || (enemy.name + ' pixel art enemy dark fantasy game sprite'),
+            enemyHP: enemy.hp || 10,
+            enemyMaxHP: enemy.hp || 10,
+            enemyAC: enemy.ac || 12,
+            enemyAtkBonus: enemy.attackBonus || 2,
+            enemyDmgDice: enemy.damageDice || '1d4',
+            turn: 'player',
+            log: [`A ${enemy.name} appears! Prepare for battle!`],
+            playerDefending: false
+        };
+        
+        gameState.currentBattle = freshBattle;
+        
+        if (!gameState.combatReturnId && currentExploreId) {
+            gameState.combatReturnId = currentExploreId;
+        }
+        
+        saveGameState();
+        
+        setTimeout(() => {
+            switchToTab('battle');
+            refreshBattleUI();
+            showNotification(`⚔️ Battle vs ${enemy.name}!`);
+        }, 100);
+    }
+
+    function endBattle(victory) {
+        const battle = gameState.currentBattle; 
+        if (!battle) return;
+        
+        const enemyName = battle.enemyName;
+        const returnId = gameState.combatReturnId;
+        
+        if (victory) {
+            const xp = rollDice(10) + 5;
+            const gold = rollDice(15) + 5;
+            gameState.hero.xp += xp; 
+            gameState.hero.gold += gold;
             
-            gameState.messages[currentExploreId].push({
-                id: uid(), 
-                text, 
-                timestamp: Date.now(), 
-                fromMe: true, 
-                photo: null
-            });
-            saveGameState(); 
-            renderExploreChat();
-            
-            // Check for combat keywords
-            // Check for combat keywords
-const combatKeywords = ['attack', 'fight', 'strike', 'charge', 'kill', 'slay', 'engage', 'combat'];
-if (combatKeywords.some(kw => text.toLowerCase().includes(kw))) {
-    // Try to extract enemy name from recent messages
-    const recentMessages = gameState.messages[currentExploreId] || [];
-    let enemyName = null;
-    let enemyDescription = null;
-    
-    // Look through recent messages for enemy mentions
-    for (let i = recentMessages.length - 1; i >= 0; i--) {
-        const msg = recentMessages[i];
-        if (!msg.fromMe) {  // Only check AI messages
-            const text = msg.text.toLowerCase();
-            
-            // Common enemy patterns
-            const enemyPatterns = [
-                /a (giant |huge |massive |angry |dark |shadow |skeleton |zombie |cursed |ancient |ferocious |enchanted )?(spider|goblin|orc|troll|dragon|skeleton|zombie|wolf|bear|slime|ghost|wraith|vampire|demon|elemental|golem|knight|warrior|mage|warlock|druid|bandit|cultist|beast|serpent|rat|bat|spider|scorpion|ogre|gargoyle|lich|wyvern|chimera|hydra|minotaur|cyclops|harpy|siren|naga|imp|fiend|abomination|horror|construct|guardian|sentinel)/gi,
-                /a (?:man|woman|figure|creature|monster|enemy|foe|adversary) (?:called|named|known as) ["']?(\w+(?:\s\w+)?)["']?/gi,
-                /the (\w+(?:\s\w+)?) (?:attacks|charges|leaps|rushes|emerges|appears|stands|blocks|lurks|waits)/gi,
-                /(\w+(?:\s\w+)?) (?:is|are) (?:blocking|guarding|standing|waiting|lurking|hiding|approaching|coming|charging|attacking)/gi
-            ];
-            
-            for (const pattern of enemyPatterns) {
-                const match = text.match(pattern);
-                if (match) {
-                    // Extract the full enemy description
-                    const fullMatch = match[0];
-                    if (pattern.toString().includes('giant |huge')) {
-                        // For the first pattern, capture the full description
-                        const descMatch = text.match(/(a (?:giant |huge |massive |angry |dark |shadow |skeleton |zombie |cursed |ancient |ferocious |enchanted )?\w+(?:\s\w+)?)/gi);
-                        if (descMatch) {
-                            // Find the one closest to our keyword
-                            for (const desc of descMatch) {
-                                if (combatKeywords.some(kw => text.indexOf(desc) < text.indexOf(kw) + 50)) {
-                                    enemyName = desc.replace(/^a /i, '').trim();
-                                    enemyName = enemyName.charAt(0).toUpperCase() + enemyName.slice(1);
-                                    enemyDescription = desc;
-                                    break;
-                                }
-                            }
-                            if (!enemyName) {
-                                enemyName = descMatch[descMatch.length - 1].replace(/^a /i, '').trim();
-                                enemyName = enemyName.charAt(0).toUpperCase() + enemyName.slice(1);
-                                enemyDescription = descMatch[descMatch.length - 1];
-                            }
-                        }
-                    }
-                    break;
-                }
+            if (gameState.hero.xp >= gameState.hero.level * 25) {
+                gameState.hero.level++; 
+                gameState.hero.maxHp += 5; 
+                gameState.hero.hp = gameState.hero.maxHp;
             }
-        }
-    }
-    
-    // If no enemy found in recent messages, use player's input
-    if (!enemyName) {
-        const playerMention = text.match(/(?:attack|fight|strike|charge|kill|slay|engage|combat) (?:the |a |an )?(\w+(?:\s\w+)?)/i);
-        if (playerMention) {
-            enemyName = playerMention[1].charAt(0).toUpperCase() + playerMention[1].slice(1);
-            enemyDescription = playerMention[0];
-        } else {
-            // Default enemies based on location
-            const locationEnemies = {
-                'forest': ['Giant Spider', 'Goblin Scout', 'Forest Wolf'],
-                'cave': ['Crystal Spider', 'Cave Troll', 'Rock Golem'],
-                'tower': ['Haunted Armor', 'Dark Mage', 'Ghost Apparition'],
-                'ruins': ['Swamp Zombie', 'Ancient Guardian', 'Cursed Skeleton']
-            };
-            const locEnemies = locationEnemies[currentExploreId] || ['Mysterious Enemy', 'Shadowy Figure', 'Dark Creature'];
-            enemyName = locEnemies[Math.floor(Math.random() * locEnemies.length)];
-            enemyDescription = enemyName;
-        }
-    }
-    
-    const enemy = { 
-        name: enemyName, 
-        ac: 12 + Math.floor(Math.random() * 4), 
-        hp: 10 + Math.floor(Math.random() * 15), 
-        attackBonus: 2 + Math.floor(Math.random() * 3), 
-        damageDice: '1d6', 
-        imagePrompt: enemyDescription + ' pixel art enemy dark fantasy', 
-        id: uid() 
-    };
-    
-    gameState.messages[currentExploreId].push({ 
-        id: uid(), 
-        text: `You rush to attack! A ${enemyName} appears!`, 
-        timestamp: Date.now(), 
-        fromMe: false, 
-        photo: null 
-    });
-    saveGameState(); 
-    renderExploreChat();
-    gameState.combatReturnId = currentExploreId;
-    startBattle(enemy);
-    return;
-}
-                gameState.messages[currentExploreId].push({ 
+            
+            if (returnId && gameState.messages[returnId]) {
+                gameState.messages[returnId].push({ 
                     id: uid(), 
-                    text: `You rush to attack! A ${enemy.name} appears!`, 
+                    text: `The ${enemyName} lies defeated. The area is safe...`, 
                     timestamp: Date.now(), 
                     fromMe: false, 
                     photo: null 
                 });
+            }
+            
+            checkQuestProgress(returnId, true);
+        }
+        
+        gameState.currentBattle = null;
+        gameState.combatReturnId = null;
+        saveGameState();
+        
+        refreshBattleUI();
+        
+        setTimeout(() => { 
+            switchToTab('explore'); 
+            if (returnId) openExplore(returnId, true);
+        }, 500);
+    }
+
+    function playerAttack() {
+        if (!gameState.currentBattle || gameState.currentBattle.turn !== 'player') return;
+        const b = gameState.currentBattle;
+        const partyBonuses = getPartyBattleBonuses();
+        const partyHelp = Math.random() < (gameState.party.length * 0.2);
+        
+        let message = '';
+        if (partyHelp && gameState.party.length > 0) {
+            const helper = gameState.party[Math.floor(Math.random() * gameState.party.length)];
+            const extraDamage = Math.floor(Math.random() * 4) + 1;
+            b.enemyHP -= extraDamage;
+            message = `${helper.name} assists for ${extraDamage}! `;
+        }
+        
+        const roll = rollDice(20) + getHeroAtkBonus() + partyBonuses.attackBonus;
+        if (roll >= b.enemyAC) {
+            const dmg = parseDice(getHeroDmgDice());
+            b.enemyHP -= dmg;
+            b.log.push(`${message}You hit for ${dmg}!`);
+        } else {
+            b.log.push(`${message}Miss!`);
+        }
+        
+        if (b.enemyHP <= 0) { 
+            b.enemyHP = 0; 
+            b.log.push(`${b.enemyName} defeated!`); 
+            saveGameState(); 
+            refreshBattleUI(); 
+            setTimeout(() => endBattle(true), 1000);
+            return; 
+        }
+        
+        b.turn = 'enemy'; 
+        saveGameState(); 
+        refreshBattleUI(); 
+        enemyTurn();
+    }
+    
+    function playerDefend() {
+        if (!gameState.currentBattle || gameState.currentBattle.turn !== 'player') return;
+        gameState.currentBattle.log.push('You defend! (+4 AC)');
+        gameState.currentBattle.playerDefending = true;
+        gameState.currentBattle.turn = 'enemy'; 
+        saveGameState(); 
+        refreshBattleUI(); 
+        enemyTurn();
+    }
+    
+    function enemyTurn() {
+        if (!gameState.currentBattle) return;
+        const b = gameState.currentBattle;
+        
+        setTimeout(() => {
+            if (!gameState.currentBattle || gameState.currentBattle !== b) return;
+            
+            const roll = rollDice(20) + b.enemyAtkBonus;
+            const ac = getHeroAC() + (b.playerDefending ? 4 : 0);
+            
+            if (roll >= ac) {
+                const raw = parseDice(b.enemyDmgDice);
+                const dmg = b.playerDefending ? Math.max(1, raw - 2) : raw;
+                gameState.hero.hp -= dmg;
+                b.log.push(`${b.enemyName} hits for ${dmg}!`);
+            } else {
+                b.log.push(`${b.enemyName} misses!`);
+            }
+            
+            b.playerDefending = false;
+            
+            if (gameState.hero.hp <= 0) {
+                gameState.hero.hp = 0; 
+                b.log.push('💀 You died...'); 
                 saveGameState(); 
-                renderExploreChat();
-                gameState.combatReturnId = currentExploreId;
-                startBattle(enemy);
+                refreshBattleUI();
+                gameState.currentBattle = null; 
+                gameState.combatReturnId = null; 
+                saveGameState();
+                showNotification('💀 Died! Rest at inn.');
+                setTimeout(() => { 
+                    gameState.hero.hp = Math.ceil(gameState.hero.maxHp / 2); 
+                    saveGameState(); 
+                    switchToTab('hero'); 
+                    refreshUI(); 
+                }, 2000);
                 return;
             }
             
-            try {
-                const history = gameState.messages[currentExploreId]
-                    .slice(-8)
-                    .map(m => ({role: m.fromMe ? 'user' : 'assistant', content: m.text}));
-                
-                const reply = await guardedAI([
-                    {role: 'system', content: loc.prompt},
-                    ...history
-                ], 250, 0.9);
-                
-                const msg = createMessage(reply, false);
-                gameState.messages[currentExploreId].push(msg);
-                processMessageTags(msg, currentExploreId);
-                saveGameState(); 
-                renderExploreChat();
-            } catch(e) {
-                gameState.messages[currentExploreId].push({
+            b.turn = 'player'; 
+            saveGameState(); 
+            refreshBattleUI();
+        }, 700);
+    }
+    
+    function fleeBattle() {
+        if (!gameState.currentBattle) return;
+        gameState.currentBattle.log.push('Fleeing...');
+        
+        if (Math.random() < 0.55) { 
+            gameState.currentBattle.log.push('Escaped!'); 
+            saveGameState(); 
+            refreshBattleUI(); 
+            endBattle(false); 
+        } else { 
+            gameState.currentBattle.log.push('Failed!'); 
+            gameState.currentBattle.turn = 'enemy'; 
+            saveGameState(); 
+            refreshBattleUI(); 
+            enemyTurn(); 
+        }
+    }
+
+    function refreshBattleUI() {
+    const b = gameState.currentBattle;
+    const no = document.getElementById('battleNoActive');
+    const act = document.getElementById('battleActive');
+    
+    if (!b) { 
+        if (no) no.style.display = 'block'; 
+        if (act) act.style.display = 'none'; 
+        return; 
+    }
+    
+    if (no) no.style.display = 'none'; 
+    if (act) act.style.display = 'flex';
+    
+    // Update enemy name
+    document.getElementById('battleEnemyName').textContent = b.enemyName;
+    
+    // Update enemy image - FIXED: Properly handle image with error fallback
+    const imgDiv = document.getElementById('battleEnemyImage');
+    const url = pixelArtUrl(b.enemyImagePrompt);
+    
+    // Clear existing content
+    imgDiv.innerHTML = '';
+    
+    if (url) {
+        const img = document.createElement('img');
+        img.src = url;
+        img.style.cssText = 'max-width:120px;max-height:120px;border:2px solid #33ff33;';
+        img.alt = b.enemyName;
+        
+        // Handle image load error
+        img.onerror = function() {
+            imgDiv.innerHTML = '<span style="font-size:40px;">👾</span>';
+        };
+        
+        // Only show emoji if image fails to load after 3 seconds
+        const timeout = setTimeout(function() {
+            if (img.naturalWidth === 0) {
+                imgDiv.innerHTML = '<span style="font-size:40px;">👾</span>';
+            }
+        }, 3000);
+        
+        img.onload = function() {
+            clearTimeout(timeout);
+        };
+        
+        imgDiv.appendChild(img);
+    } else {
+        imgDiv.innerHTML = '<span style="font-size:40px;">👾</span>';
+    }
+    
+    // Update HP bar
+    const hpPct = Math.max(0, (b.enemyHP / b.enemyMaxHP) * 100);
+    const bar = document.getElementById('battleEnemyHpBar');
+    bar.style.width = hpPct + '%'; 
+    bar.className = 'hp-fill' + (hpPct < 30 ? ' danger' : '');
+    
+    // Update HP text
+    document.getElementById('battleEnemyHpText').textContent = `${Math.max(0, b.enemyHP)}/${b.enemyMaxHP}`;
+    
+    // Update hero HP
+    document.getElementById('battleHeroHp').textContent = `${Math.max(0, gameState.hero.hp)}/${gameState.hero.maxHp}`;
+    
+    // Update party bonus display
+    const partyBonuses = getPartyBattleBonuses();
+    const partyDisplay = document.getElementById('partyBonusDisplay');
+    if (gameState.party.length > 0) {
+        partyDisplay.style.display = 'block';
+        partyDisplay.textContent = `Party bonus: +${partyBonuses.attackBonus} ATK, +${partyBonuses.defenseBonus} AC`;
+    } else {
+        partyDisplay.style.display = 'none';
+    }
+    
+    // Update battle log
+    const logDiv = document.getElementById('battleLog');
+    logDiv.innerHTML = b.log.slice(-6).map(function(l) { return '<div>• ' + l + '</div>'; }).join('');
+    logDiv.scrollTop = logDiv.scrollHeight;
+    
+    // Update status bar HP
+    document.getElementById('statusHp').textContent = `${Math.max(0, gameState.hero.hp)}/${gameState.hero.maxHp}`;
+}
+
+    // ---------- UI REFRESH ----------
+    function refreshUI() {
+        document.getElementById('heroNameDisplay').textContent = gameState.hero.name;
+        document.getElementById('statusHp').textContent = `${Math.max(0, gameState.hero.hp)}/${gameState.hero.maxHp}`;
+        document.getElementById('heroHp').textContent = `${Math.max(0, gameState.hero.hp)}/${gameState.hero.maxHp}`;
+        const heroBar = document.getElementById('heroHpBar');
+        if (heroBar) { 
+            const pct = Math.max(0, (gameState.hero.hp / gameState.hero.maxHp) * 100); 
+            heroBar.style.width = pct + '%'; 
+            heroBar.className = 'hp-fill' + (pct < 30 ? ' danger' : ''); 
+        }
+        document.getElementById('heroLevel').textContent = gameState.hero.level;
+        document.getElementById('heroXp').textContent = gameState.hero.xp;
+        document.getElementById('heroGold').textContent = gameState.hero.gold;
+        document.getElementById('heroPartySize').textContent = `${gameState.party.length} members`;
+        const invEl = document.getElementById('heroInventory');
+        if (invEl) invEl.textContent = gameState.hero.inventory.length ? gameState.hero.inventory.join(', ') : '- Empty -';
+
+        if (document.getElementById('explorePanel').classList.contains('active')) {
+            if (document.getElementById('exploreChatView').style.display === 'flex') renderExploreChat();
+            else renderExploreGrid();
+        }
+        if (document.getElementById('journalPanel').classList.contains('active')) renderQuests();
+        if (document.getElementById('partyPanel').classList.contains('active')) {
+            if (document.getElementById('partyChatView').style.display === 'flex') renderPartyChat(); 
+            else renderPartyList();
+        }
+        if (document.getElementById('tavernPanel').classList.contains('active')) {
+            if (document.getElementById('tavernChatView').style.display === 'flex') renderTavernChat(); 
+            else renderTavernList();
+        }
+        if (document.getElementById('heroPanel').classList.contains('active')) {
+            document.getElementById('heroNameInput').value = gameState.hero.name;
+            document.getElementById('heroClassInput').value = gameState.hero.class;
+            document.getElementById('heroBioInput').value = gameState.hero.bio;
+        }
+        if (document.getElementById('battlePanel').classList.contains('active')) refreshBattleUI();
+    }
+
+    function switchToTab(name) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        const tab = document.querySelector(`[data-tab="${name}"]`); 
+        if (tab) tab.classList.add('active');
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        const panel = document.getElementById(name + 'Panel'); 
+        if (panel) panel.classList.add('active');
+        refreshUI();
+    }
+
+    // ---------- EXPLORE ----------
+    let currentExploreId = null;
+    
+    function renderExploreGrid() {
+        document.getElementById('exploreGrid').innerHTML = gameState.locations.map(l => `
+            <div class="location-card" onclick="openExplore('${l.id}')">
+                <div style="font-size:24px;">${l.emoji}</div>
+                <div style="font-size:6px; color:#33ff33;">${escapeHtml(l.name)}</div>
+            </div>`).join('');
+        document.getElementById('exploreGrid').style.display = 'grid';
+        document.getElementById('exploreChatView').style.display = 'none';
+        document.getElementById('exploreActionButtons').style.display = 'none';
+    }
+    
+    function openExplore(locId, skipIntro = false) {
+        const loc = gameState.locations.find(l => l.id === locId); 
+        if (!loc) return;
+        currentExploreId = locId;
+        document.getElementById('exploreGrid').style.display = 'none';
+        document.getElementById('exploreChatView').style.display = 'flex';
+        document.getElementById('exploreActionButtons').style.display = 'flex';
+        document.getElementById('exploreChatName').textContent = loc.name;
+        
+        if (!gameState.messages[locId]) {
+            gameState.messages[locId] = [];
+            if (!skipIntro) {
+                gameState.messages[locId].push({ 
                     id: uid(), 
-                    text: `[Error: ${e.message}]`, 
+                    text: `You arrive at ${loc.name}.`, 
                     timestamp: Date.now(), 
                     fromMe: false, 
-                    photo: null
+                    photo: { imagePrompt: `${loc.name} dark fantasy scene` }
                 });
-                renderExploreChat();
+                aiExploreIntro(loc);
             }
         }
-
-        // ---------- JOURNAL ----------
-        function renderQuests() {
-            const list = document.getElementById('activeQuestsList');
-            if (gameState.quests.length === 0) { 
-                list.innerHTML = '<div style="font-size:6px;color:#228b22;">No active quests.</div>'; 
-                return; 
-            }
-            list.innerHTML = gameState.quests.map(q => {
-                const progress = q.progress || { steps: 0, maxSteps: 3 };
-                const pct = Math.round((progress.steps / progress.maxSteps) * 100);
-                return `<div class="quest-item">
-                    <div>
-                        <div class="contact-name">${escapeHtml(q.name)}</div>
-                        <div class="small">${escapeHtml(q.description)} (${q.reward}g)</div>
-                        <div class="quest-progress">Progress: ${progress.steps}/${progress.maxSteps} (${pct}%)</div>
-                    </div>
-                    <button class="btn btn-danger" onclick="abandonQuest('${q.id}')">X</button>
-                </div>`;
-            }).join('');
-        }
-        
-        async function generateQuest() {
-            showNotification('Seeking quests...');
-            try {
-                const reply = await guardedAI([
-                    {role: 'system', content: 'Quest generator for RPG. Output valid JSON with name, description, reward (number), enemyHint.'},
-                    {role: 'user', content: `Difficulty ${document.getElementById('questDifficulty').value}/3. Keyword: ${document.getElementById('questKeyword').value || 'any'}`}
-                ], 200, 0.9);
-                
-                let data;
-                try {
-                    data = JSON.parse(reply);
-                } catch(e) { 
-                    const m = reply.match(/\{[\s\S]*\}/); 
-                    if (m) data = JSON.parse(m[0]); 
-                    else throw new Error('Could not parse quest data'); 
-                }
-                
-                const quest = { 
-                    id: uid(), 
-                    name: data.name || 'Mysterious Quest', 
-                    description: data.description || 'Complete this quest', 
-                    reward: data.reward || 20, 
-                    enemyHint: data.enemyHint || 'forest', 
-                    progress: { steps: 0, maxSteps: 3 } 
-                };
-                
-                document.getElementById('questResults').innerHTML = `
-                    <div class="contact-item">
-                        <div>
-                            <div class="contact-name">${escapeHtml(quest.name)}</div>
-                            <div class="small">${escapeHtml(quest.description)} (${quest.reward}g)</div>
-                        </div>
-                        <button class="btn" id="acceptQuestBtn">ACCEPT</button>
-                    </div>`;
-                
-                document.getElementById('acceptQuestBtn').onclick = () => {
-                    gameState.quests.push(quest); 
-                    updateGameState({});
-                    document.getElementById('questResults').innerHTML = ''; 
-                    showNotification('Quest accepted!');
-                };
-            } catch(e) { 
-                showNotification('Failed to generate quest.'); 
-            }
-        }
-        
-        function abandonQuest(qid) { 
-            gameState.quests = gameState.quests.filter(q => q.id !== qid); 
-            updateGameState({}); 
-        }
-
-        // ---------- PARTY ----------
-        let currentPartyId = null;
-        function renderPartyList() {
-            document.getElementById('partyChatView').style.display = 'none';
-            document.getElementById('partyListContainer').style.display = 'block';
-            const container = document.getElementById('partyListContainer');
-            if (gameState.party.length === 0) { 
-                container.innerHTML = '<div style="padding:40px;text-align:center;font-size:7px;color:#228b22;">No companions.<br>Visit TAVERN.<br><br>Party members help in battle!</div>'; 
-                return; 
-            }
-            container.innerHTML = gameState.party.map(m => {
-                const last = (gameState.messages[m.id] || []).slice(-1)[0];
-                return `<div class="contact-item">
-                    <div onclick="openPartyChat('${m.id}')">
-                        <div class="contact-name">${m.photo || '👤'} ${escapeHtml(m.name)}</div>
-                        <div class="small">${last ? last.text.substring(0, 18) : '...'}</div>
-                    </div>
-                    <button class="btn" onclick="openPartyChat('${m.id}')">TALK</button>
-                </div>`;
-            }).join('');
-        }
-        
-        function openPartyChat(mid) {
-            const member = gameState.party.find(m => m.id === mid); 
-            if (!member) return;
-            currentPartyId = mid;
-            document.getElementById('partyListContainer').style.display = 'none';
-            document.getElementById('partyChatView').style.display = 'flex';
-            document.getElementById('partyChatName').textContent = member.name;
-            if (!gameState.messages[mid]) gameState.messages[mid] = [];
-            if (gameState.messages[mid].length === 0) {
-                gameState.messages[mid].push({
-                    id: uid(), 
-                    text: `Greetings, ${gameState.hero.name}! I'll help you in battle.`, 
-                    timestamp: Date.now(), 
-                    fromMe: false, 
-                    photo: null
-                });
-                saveGameState();
-            }
-            renderPartyChat();
-        }
-        
-        function closePartyChat() { 
-            currentPartyId = null; 
-            document.getElementById('partyChatView').style.display = 'none'; 
-            document.getElementById('partyListContainer').style.display = 'block'; 
-            renderPartyList(); 
-        }
-        
-        function renderPartyChat() {
-            const container = document.getElementById('partyChatMessages'); 
-            if (!currentPartyId) return;
-            container.innerHTML = ''; 
-            (gameState.messages[currentPartyId] || []).forEach(m => {
-                const row = document.createElement('div'); 
-                row.className = `message-row ${m.fromMe ? 'outgoing' : 'incoming'}`; 
-                row.appendChild(renderBubble(m)); 
-                container.appendChild(row);
-            });
-            container.scrollTop = container.scrollHeight;
-        }
-        
-        async function sendPartyMessage() {
-            if (!currentPartyId) return;
-            const input = document.getElementById('partyChatInput'); 
-            const text = input.value.trim(); 
-            if (!text) return;
-            input.value = ''; 
-            const member = gameState.party.find(m => m.id === currentPartyId); 
-            if (!member) return;
-            gameState.messages[currentPartyId].push({
+        checkQuestProgress(locId);
+        renderExploreChat();
+    }
+    
+    async function aiExploreIntro(loc) {
+        try {
+            const reply = await guardedAI([
+                {role: 'system', content: loc.prompt},
+                {role: 'user', content: 'Begin the adventure. Include specific encounters, treasures, or choices. Remember to include %%PHOTO%%{imagePrompt:"scene description"}%%'}
+            ], 250, 0.9);
+            
+            const msg = createMessage(reply, false);
+            gameState.messages[loc.id].push(msg);
+            processMessageTags(msg, loc.id);
+            saveGameState(); 
+            renderExploreChat();
+        } catch(e) {
+            gameState.messages[loc.id].push({
                 id: uid(), 
-                text, 
+                text: `[The narrator is silent...]`, 
                 timestamp: Date.now(), 
-                fromMe: true, 
+                fromMe: false, 
                 photo: null
             });
-            saveGameState(); 
-            renderPartyChat();
-            try {
-                const reply = await guardedAI([
-                    {role: 'system', content: member.prompt},
-                    ...gameState.messages[currentPartyId].slice(-6).map(m => ({role: m.fromMe ? 'user' : 'assistant', content: m.text}))
-                ], 150, 0.9);
-                const msg = createMessage(reply, false);
-                gameState.messages[currentPartyId].push(msg); 
-                saveGameState(); 
-                renderPartyChat();
-            } catch(e) {}
+            renderExploreChat();
         }
+    }
+    
+    function closeExploreChat() {
+        currentExploreId = null;
+        document.getElementById('exploreChatView').style.display = 'none';
+        document.getElementById('exploreActionButtons').style.display = 'none';
+        document.getElementById('exploreGrid').style.display = 'grid';
+    }
+    
+    function renderExploreChat() {
+        const container = document.getElementById('exploreChatMessages');
+        if (!currentExploreId) return;
+        const msgs = gameState.messages[currentExploreId] || [];
+        container.innerHTML = '';
+        msgs.forEach(m => {
+            const row = document.createElement('div'); 
+            row.className = `message-row ${m.fromMe ? 'outgoing' : 'incoming'}`;
+            row.appendChild(renderBubble(m)); 
+            container.appendChild(row);
+        });
+        container.scrollTop = container.scrollHeight;
+    }
 
-        async function partyConversationHints() {
-            if (!currentPartyId || Math.random() > 0.3) return;
-            const member = gameState.party.find(m => m.id === currentPartyId);
-            if (!member) return;
-            const hints = [
-                `I sense danger in the ${gameState.locations[Math.floor(Math.random() * gameState.locations.length)].name}...`,
-                'We should stock up on supplies before heading out.',
-                'My skills could be useful against certain enemies.',
-                'I\'ve heard rumors of treasure nearby...'
+    function extractEnemyFromAI(response) {
+        // Try to find enemy mentions in the AI response
+        const enemyPatterns = [
+            /a (giant |huge |massive |angry |dark |shadow |skeleton |zombie |cursed |ancient |ferocious |enchanted )?(\w+(?:\s\w+)?)/i,
+            /the (\w+(?:\s\w+)?) (?:attacks|charges|leaps|rushes|emerges|appears|stands|blocks|lurks|waits)/i
+        ];
+        
+        for (const pattern of enemyPatterns) {
+            const match = response.match(pattern);
+            if (match) {
+                let enemyName = match[0].replace(/^(a |the )/i, '').trim();
+                enemyName = enemyName.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                return enemyName;
+            }
+        }
+        
+        // Default enemies based on location
+        const locationEnemies = {
+            'forest': ['Giant Spider', 'Goblin Scout', 'Forest Wolf'],
+            'cave': ['Crystal Spider', 'Cave Troll', 'Rock Golem'],
+            'tower': ['Haunted Armor', 'Dark Mage', 'Ghost Apparition'],
+            'ruins': ['Swamp Zombie', 'Ancient Guardian', 'Cursed Skeleton']
+        };
+        const locEnemies = locationEnemies[currentExploreId] || ['Mysterious Enemy', 'Shadowy Figure'];
+        return locEnemies[Math.floor(Math.random() * locEnemies.length)];
+    }
+
+    function processMessageTags(msgObj, contextId) {
+        if (msgObj._combatData) {
+            const parts = msgObj._combatData.split(',').map(s => s.trim());
+            const enemyName = parts[0] || extractEnemyFromAI(msgObj.text);
+            
+            const enemy = { 
+                name: enemyName, 
+                ac: parseInt(parts[1]) || 12, 
+                hp: parseInt(parts[2]) || 10, 
+                attackBonus: parseInt(parts[3]) || 2, 
+                damageDice: parts[4] || '1d4', 
+                imagePrompt: enemyName + ' pixel art enemy dark fantasy game sprite', 
+                id: uid() 
+            };
+            
+            gameState.combatReturnId = contextId; 
+            saveGameState();
+            setTimeout(() => startBattle(enemy), 300);
+        }
+        
+        if (msgObj._lootData) {
+            processItemAcquisition(msgObj._lootData);
+        } else {
+            const lootPatterns = [
+                /\b(?:found|gained|obtained|acquired|looted|discovered|received)\s+(?:a\s+)?(?:pair\s+of\s+)?["']?([\w\s-]{2,30})["']?/gi,
+                /\b(?:pick(?:ed|s)?\s*up|take(?:s|n)?|grabb(?:ed|s)?|stole|snatched)\s+(?:a\s+)?(?:pair\s+of\s+)?["']?([\w\s-]{2,30})["']?/gi
             ];
-            gameState.messages[currentPartyId].push({ 
+            lootPatterns.forEach(pattern => {
+                const matches = msgObj.text.matchAll(pattern);
+                for (const match of matches) {
+                    processItemAcquisition(match[1]);
+                }
+            });
+        }
+    }
+
+    async function sendExploreMessage() {
+        if (!currentExploreId) return;
+        const input = document.getElementById('exploreChatInput');
+        const text = input.value.trim(); 
+        if (!text) return;
+        input.value = '';
+
+        const loc = gameState.locations.find(l => l.id === currentExploreId); 
+        if (!loc) return;
+        
+        gameState.messages[currentExploreId].push({
+            id: uid(), 
+            text, 
+            timestamp: Date.now(), 
+            fromMe: true, 
+            photo: null
+        });
+        saveGameState(); 
+        renderExploreChat();
+        
+        // Check for combat keywords
+        const combatKeywords = ['attack', 'fight', 'strike', 'charge', 'kill', 'slay', 'engage', 'combat'];
+        if (combatKeywords.some(kw => text.toLowerCase().includes(kw))) {
+            // Extract enemy name from player input
+            const playerMatch = text.match(/(?:attack|fight|strike|charge|kill|slay|engage|combat) (?:the |a |an )?(\w+(?:\s\w+)?)/i);
+            let enemyName = null;
+            
+            if (playerMatch) {
+                enemyName = playerMatch[1].charAt(0).toUpperCase() + playerMatch[1].slice(1);
+            } else {
+                // Look in recent AI messages for enemy mentions
+                const recentMessages = gameState.messages[currentExploreId] || [];
+                for (let i = recentMessages.length - 1; i >= 0; i--) {
+                    const msg = recentMessages[i];
+                    if (!msg.fromMe) {
+                        enemyName = extractEnemyFromAI(msg.text);
+                        if (enemyName) break;
+                    }
+                }
+            }
+            
+            if (!enemyName) {
+                enemyName = extractEnemyFromAI('');
+            }
+            
+            const enemy = { 
+                name: enemyName, 
+                ac: 12 + Math.floor(Math.random() * 4), 
+                hp: 10 + Math.floor(Math.random() * 15), 
+                attackBonus: 2 + Math.floor(Math.random() * 3), 
+                damageDice: '1d6', 
+                imagePrompt: enemyName + ' pixel art enemy dark fantasy game sprite', 
+                id: uid() 
+            };
+            
+            gameState.messages[currentExploreId].push({ 
                 id: uid(), 
-                text: hints[Math.floor(Math.random() * hints.length)], 
+                text: `You rush to attack! A ${enemyName} appears!`, 
                 timestamp: Date.now(), 
                 fromMe: false, 
                 photo: null 
             });
-            saveGameState();
-            if (document.getElementById('partyPanel').classList.contains('active')) renderPartyChat();
-        }
-
-        // ---------- TAVERN ----------
-        function renderTavernList() {
-            document.getElementById('tavernChatView').style.display = 'none';
-            document.getElementById('tavernListContainer').style.display = 'block';
-            const container = document.getElementById('tavernListContainer');
-            if (gameState.tavernMessages.length === 0) { 
-                container.innerHTML = '<div style="padding:40px;text-align:center;font-size:7px;color:#228b22;">The tavern is quiet.<br>Recruit party members here!</div>'; 
-                return; 
-            }
-            container.innerHTML = '<div style="padding:6px 8px;font-size:6px;border-bottom:2px solid #33ff33;">📬 RUMOURS</div>' + 
-                gameState.tavernMessages.map(msg => `
-                <div class="contact-item">
-                    <div>
-                        <div class="contact-name">${msg.photo || '👤'} ${escapeHtml(msg.name)}</div>
-                        <div class="small">${escapeHtml(msg.text.substring(0, 30))}...</div>
-                    </div>
-                    <div class="flex-row">
-                        <button class="btn" onclick="acceptTavern('${msg.id}')">RECRUIT</button>
-                        <button class="btn btn-danger" onclick="ignoreTavern('${msg.id}')">IGNORE</button>
-                    </div>
-                </div>`).join('');
+            saveGameState(); 
+            renderExploreChat();
+            gameState.combatReturnId = currentExploreId;
+            startBattle(enemy);
+            return;
         }
         
-        function acceptTavern(mid) {
-            const msg = gameState.tavernMessages.find(m => m.id === mid); 
-            if (!msg) return;
-            const member = { 
-                id: msg.id, 
-                name: msg.name, 
-                photo: msg.photo || '👤', 
-                bio: msg.bio, 
-                prompt: msg.prompt || 'Friendly adventurer who helps in combat.' 
-            };
-            gameState.party.push(member); 
-            gameState.messages[msg.id] = [{
+        try {
+            const history = gameState.messages[currentExploreId]
+                .slice(-8)
+                .map(m => ({role: m.fromMe ? 'user' : 'assistant', content: m.text}));
+            
+            const reply = await guardedAI([
+                {role: 'system', content: loc.prompt},
+                ...history
+            ], 250, 0.9);
+            
+            const msg = createMessage(reply, false);
+            gameState.messages[currentExploreId].push(msg);
+            processMessageTags(msg, currentExploreId);
+            saveGameState(); 
+            renderExploreChat();
+        } catch(e) {
+            gameState.messages[currentExploreId].push({
                 id: uid(), 
-                text: `${msg.text} I'll join your party and help in battles!`, 
+                text: `[Error: ${e.message}]`, 
                 timestamp: Date.now(), 
                 fromMe: false, 
                 photo: null
-            }];
-            gameState.tavernMessages = gameState.tavernMessages.filter(m => m.id !== mid);
-            updateGameState({}); 
-            showNotification(`${msg.name} joined! +Party bonus!`);
+            });
+            renderExploreChat();
         }
-        
-        function ignoreTavern(mid) { 
-            gameState.tavernMessages = gameState.tavernMessages.filter(m => m.id !== mid); 
-            updateGameState({}); 
-        }
-        
-        async function tavernAuto() {
-            if (!apiKey) return;
-            try {
-                const reply = await guardedAI([
-                    {role: 'system', content: 'Tavern stranger JSON: name, photo (emoji), bio, prompt (personality), text (opening line).'},
-                    {role: 'user', content: 'Generate a tavern encounter with someone looking to join an adventuring party.'}
-                ], 200, 0.9);
-                
-                let data;
-                try {
-                    data = JSON.parse(reply);
-                } catch(e) { 
-                    const m = reply.match(/\{[\s\S]*\}/); 
-                    if (m) data = JSON.parse(m[0]); 
-                    else return; 
-                }
-                
-                gameState.tavernMessages.push({ 
-                    id: uid(), 
-                    name: data.name || 'Mysterious Stranger', 
-                    photo: data.photo || '👤', 
-                    bio: data.bio || '', 
-                    prompt: data.prompt || '', 
-                    text: data.text || 'Hello!' 
-                });
-                saveGameState(); 
-                refreshUI(); 
-                showNotification('📬 Someone arrives!');
-            } catch(e) {}
-        }
-
-        // ---------- HERO ----------
-        function saveHero() {
-            gameState.hero.name = document.getElementById('heroNameInput').value.trim() || 'Adventurer';
-            gameState.hero.class = document.getElementById('heroClassInput').value;
-            gameState.hero.bio = document.getElementById('heroBioInput').value.trim() || '';
-            updateGameState({}); 
-            showNotification('Hero saved!');
-        }
-        
-        function restInn() {
-            if (gameState.hero.gold < 5) { 
-                showNotification('Need 5 gold!'); 
-                return; 
-            }
-            gameState.hero.gold -= 5; 
-            gameState.hero.hp = gameState.hero.maxHp;
-            updateGameState({}); 
-            showNotification('Rested. HP full!');
-        }
-
-        // ---------- SEED ----------
-        function seed() {
-            if (gameState.gameStarted) return;
-            gameState.gameStarted = true;
-            gameState.tavernMessages = [
-                { 
-                    id: uid(), 
-                    name: 'Thorn the Ranger', 
-                    photo: '🏹', 
-                    bio: 'Northern archer, skilled in combat', 
-                    prompt: 'Stoic ranger who provides +1 attack in battle.', 
-                    text: 'Hail, traveler. I hear the Dark Forest stirs. I could use a companion and I\'ll help you fight!', 
-                    timestamp: Date.now() 
-                },
-                { 
-                    id: uid(), 
-                    name: 'Elara the Healer', 
-                    photo: '🧪', 
-                    bio: 'Wandering cleric with healing abilities', 
-                    prompt: 'Gentle healer who occasionally heals during battle.', 
-                    text: 'Blessings! Might I join your party? My healing magic will aid us!', 
-                    timestamp: Date.now() 
-                }
-            ];
-            saveGameState(); 
-            showNotification('🗡️ Welcome! Check the TAVERN for allies.');
-        }
-
-        // ---------- BINDINGS ----------
-        document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchToTab(t.dataset.tab)));
-        document.getElementById('closeExploreChatBtn').addEventListener('click', closeExploreChat);
-        document.getElementById('exploreSendBtn').addEventListener('click', sendExploreMessage);
-        document.getElementById('exploreChatInput').addEventListener('keypress', e => { if(e.key === 'Enter') sendExploreMessage(); });
-        document.getElementById('closePartyChatBtn').addEventListener('click', closePartyChat);
-        document.getElementById('partySendBtn').addEventListener('click', sendPartyMessage);
-        document.getElementById('partyChatInput').addEventListener('keypress', e => { if(e.key === 'Enter') sendPartyMessage(); });
-        document.getElementById('battleAttackBtn').addEventListener('click', playerAttack);
-        document.getElementById('battleDefendBtn').addEventListener('click', playerDefend);
-        document.getElementById('battleFleeBtn').addEventListener('click', fleeBattle);
-        document.getElementById('battleItemBtn').addEventListener('click', () => { 
-            if (gameState.hero.inventory.length) {
-                const item = gameState.hero.inventory.shift();
-                const healAmount = Math.floor(Math.random() * 8) + 3;
-                gameState.hero.hp = Math.min(gameState.hero.maxHp, gameState.hero.hp + healAmount);
-                showNotification(`Used ${item}! Healed ${healAmount} HP.`);
-                saveGameState();
-                refreshBattleUI();
-            } else {
-                showNotification('No items!');
-            }
-        });
-        document.getElementById('saveHeroBtn').addEventListener('click', saveHero);
-        document.getElementById('restInnBtn').addEventListener('click', restInn);
-        document.getElementById('generateQuestBtn').addEventListener('click', generateQuest);
-        document.getElementById('resetApiKeyBtn').addEventListener('click', () => { 
-            localStorage.removeItem('dungeon_api_key'); 
-            apiKey = ''; 
-            openApiModal(); 
-        });
-
-        // Explore action buttons
-        document.getElementById('searchBtn').addEventListener('click', () => {
-            if (Math.random() > 0.5) {
-                const treasures = ['Health Potion', 'Rusty Sword', 'Gold Coins', 'Ancient Scroll', 'Iron Shield', 'Magic Ring'];
-                const found = treasures[Math.floor(Math.random() * treasures.length)];
-                processItemAcquisition(found);
-            } else {
-                showNotification('Found nothing...');
-            }
-        });
-        
-        document.getElementById('scoutBtn').addEventListener('click', () => {
-            const sights = ['Enemy tracks!', 'A hidden path...', 'Treasure nearby?', 'Safe to proceed', 'Danger ahead!'];
-            showNotification(sights[Math.floor(Math.random() * sights.length)]);
-        });
-        
-        // For the rest button:
-document.getElementById('restBtn').addEventListener('click', () => {
-    if (Math.random() > 0.6) {
-        const heal = Math.min(gameState.hero.maxHp, gameState.hero.hp + 10) - gameState.hero.hp;
-        gameState.hero.hp = Math.min(gameState.hero.maxHp, gameState.hero.hp + 10);
-        showNotification(`Rested! +${heal} HP`);
-        saveGameState();
-        refreshUI();
-    } else {
-        const enemy = { 
-            name: 'Ambushing Bandit', 
-            ac: 10, 
-            hp: 15, 
-            attackBonus: 3, 
-            damageDice: '1d6', 
-            imagePrompt: 'bandit ambush pixel art dark fantasy enemy', 
-            id: uid() 
-        };
-        startBattle(enemy);
     }
-});
 
-// For the provoke button:
-document.getElementById('provokeBtn').addEventListener('click', () => {
-    // Choose enemy based on current location
-    const locationEnemies = {
-        'forest': ['Provoked Bear', 'Angry Treant', 'Enraged Wolf'],
-        'cave': ['Provoked Troll', 'Angry Bat Swarm', 'Enraged Spider'],
-        'tower': ['Provoked Ghost', 'Angry Gargoyle', 'Enraged Armor'],
-        'ruins': ['Provoked Zombie', 'Angry Golem', 'Enraged Lizard']
-    };
-    const locEnemies = locationEnemies[currentExploreId] || ['Provoked Beast', 'Angry Troll', 'Enraged Ogre'];
-    const enemyName = locEnemies[Math.floor(Math.random() * locEnemies.length)];
+    // ---------- JOURNAL ----------
+    function renderQuests() {
+        const list = document.getElementById('activeQuestsList');
+        if (gameState.quests.length === 0) { 
+            list.innerHTML = '<div style="font-size:6px;color:#228b22;">No active quests.</div>'; 
+            return; 
+        }
+        list.innerHTML = gameState.quests.map(q => {
+            const progress = q.progress || { steps: 0, maxSteps: 3 };
+            const pct = Math.round((progress.steps / progress.maxSteps) * 100);
+            return `<div class="quest-item">
+                <div>
+                    <div class="contact-name">${escapeHtml(q.name)}</div>
+                    <div class="small">${escapeHtml(q.description)} (${q.reward}g)</div>
+                    <div class="quest-progress">Progress: ${progress.steps}/${progress.maxSteps} (${pct}%)</div>
+                </div>
+                <button class="btn btn-danger" onclick="abandonQuest('${q.id}')">X</button>
+            </div>`;
+        }).join('');
+    }
     
-    const enemy = { 
-        name: enemyName, 
-        ac: 14, 
-        hp: 20, 
-        attackBonus: 4, 
-        damageDice: '1d8', 
-        imagePrompt: enemyName + ' pixel art enemy dark fantasy game sprite', 
-        id: uid() 
-    };
-    startBattle(enemy);
-});
-        
-        document.getElementById('provokeBtn').addEventListener('click', () => {
-            const enemyNames = ['Provoked Beast', 'Angry Troll', 'Enraged Ogre', 'Furious Dragon'];
+    async function generateQuest() {
+        showNotification('Seeking quests...');
+        try {
+            const reply = await guardedAI([
+                {role: 'system', content: 'Quest generator for RPG. Output valid JSON with name, description, reward (number), enemyHint.'},
+                {role: 'user', content: `Difficulty ${document.getElementById('questDifficulty').value}/3. Keyword: ${document.getElementById('questKeyword').value || 'any'}`}
+            ], 200, 0.9);
+            
+            let data;
+            try {
+                data = JSON.parse(reply);
+            } catch(e) { 
+                const m = reply.match(/\{[\s\S]*\}/); 
+                if (m) data = JSON.parse(m[0]); 
+                else throw new Error('Could not parse quest data'); 
+            }
+            
+            const quest = { 
+                id: uid(), 
+                name: data.name || 'Mysterious Quest', 
+                description: data.description || 'Complete this quest', 
+                reward: data.reward || 20, 
+                enemyHint: data.enemyHint || 'forest', 
+                progress: { steps: 0, maxSteps: 3 } 
+            };
+            
+            document.getElementById('questResults').innerHTML = `
+                <div class="contact-item">
+                    <div>
+                        <div class="contact-name">${escapeHtml(quest.name)}</div>
+                        <div class="small">${escapeHtml(quest.description)} (${quest.reward}g)</div>
+                    </div>
+                    <button class="btn" id="acceptQuestBtn">ACCEPT</button>
+                </div>`;
+            
+            document.getElementById('acceptQuestBtn').onclick = () => {
+                gameState.quests.push(quest); 
+                updateGameState({});
+                document.getElementById('questResults').innerHTML = ''; 
+                showNotification('Quest accepted!');
+            };
+        } catch(e) { 
+            showNotification('Failed to generate quest.'); 
+        }
+    }
+    
+    function abandonQuest(qid) { 
+        gameState.quests = gameState.quests.filter(q => q.id !== qid); 
+        updateGameState({}); 
+    }
+
+    // ---------- PARTY ----------
+    let currentPartyId = null;
+    function renderPartyList() {
+        document.getElementById('partyChatView').style.display = 'none';
+        document.getElementById('partyListContainer').style.display = 'block';
+        const container = document.getElementById('partyListContainer');
+        if (gameState.party.length === 0) { 
+            container.innerHTML = '<div style="padding:40px;text-align:center;font-size:7px;color:#228b22;">No companions.<br>Visit TAVERN.<br><br>Party members help in battle!</div>'; 
+            return; 
+        }
+        container.innerHTML = gameState.party.map(m => {
+            const last = (gameState.messages[m.id] || []).slice(-1)[0];
+            return `<div class="contact-item">
+                <div onclick="openPartyChat('${m.id}')">
+                    <div class="contact-name">${m.photo || '👤'} ${escapeHtml(m.name)}</div>
+                    <div class="small">${last ? last.text.substring(0, 18) : '...'}</div>
+                </div>
+                <button class="btn" onclick="openPartyChat('${m.id}')">TALK</button>
+            </div>`;
+        }).join('');
+    }
+    
+    function openPartyChat(mid) {
+        const member = gameState.party.find(m => m.id === mid); 
+        if (!member) return;
+        currentPartyId = mid;
+        document.getElementById('partyListContainer').style.display = 'none';
+        document.getElementById('partyChatView').style.display = 'flex';
+        document.getElementById('partyChatName').textContent = member.name;
+        if (!gameState.messages[mid]) gameState.messages[mid] = [];
+        if (gameState.messages[mid].length === 0) {
+            gameState.messages[mid].push({
+                id: uid(), 
+                text: `Greetings, ${gameState.hero.name}! I'll help you in battle.`, 
+                timestamp: Date.now(), 
+                fromMe: false, 
+                photo: null
+            });
+            saveGameState();
+        }
+        renderPartyChat();
+    }
+    
+    function closePartyChat() { 
+        currentPartyId = null; 
+        document.getElementById('partyChatView').style.display = 'none'; 
+        document.getElementById('partyListContainer').style.display = 'block'; 
+        renderPartyList(); 
+    }
+    
+    function renderPartyChat() {
+        const container = document.getElementById('partyChatMessages'); 
+        if (!currentPartyId) return;
+        container.innerHTML = ''; 
+        (gameState.messages[currentPartyId] || []).forEach(m => {
+            const row = document.createElement('div'); 
+            row.className = `message-row ${m.fromMe ? 'outgoing' : 'incoming'}`; 
+            row.appendChild(renderBubble(m)); 
+            container.appendChild(row);
+        });
+        container.scrollTop = container.scrollHeight;
+    }
+    
+    async function sendPartyMessage() {
+        if (!currentPartyId) return;
+        const input = document.getElementById('partyChatInput'); 
+        const text = input.value.trim(); 
+        if (!text) return;
+        input.value = ''; 
+        const member = gameState.party.find(m => m.id === currentPartyId); 
+        if (!member) return;
+        gameState.messages[currentPartyId].push({
+            id: uid(), 
+            text, 
+            timestamp: Date.now(), 
+            fromMe: true, 
+            photo: null
+        });
+        saveGameState(); 
+        renderPartyChat();
+        try {
+            const reply = await guardedAI([
+                {role: 'system', content: member.prompt},
+                ...gameState.messages[currentPartyId].slice(-6).map(m => ({role: m.fromMe ? 'user' : 'assistant', content: m.text}))
+            ], 150, 0.9);
+            const msg = createMessage(reply, false);
+            gameState.messages[currentPartyId].push(msg); 
+            saveGameState(); 
+            renderPartyChat();
+        } catch(e) {}
+    }
+
+    async function partyConversationHints() {
+        if (!currentPartyId || Math.random() > 0.3) return;
+        const member = gameState.party.find(m => m.id === currentPartyId);
+        if (!member) return;
+        const hints = [
+            `I sense danger in the ${gameState.locations[Math.floor(Math.random() * gameState.locations.length)].name}...`,
+            'We should stock up on supplies before heading out.',
+            'My skills could be useful against certain enemies.',
+            'I\'ve heard rumors of treasure nearby...'
+        ];
+        gameState.messages[currentPartyId].push({ 
+            id: uid(), 
+            text: hints[Math.floor(Math.random() * hints.length)], 
+            timestamp: Date.now(), 
+            fromMe: false, 
+            photo: null 
+        });
+        saveGameState();
+        if (document.getElementById('partyPanel').classList.contains('active')) renderPartyChat();
+    }
+
+    // ---------- TAVERN ----------
+    function renderTavernList() {
+        document.getElementById('tavernChatView').style.display = 'none';
+        document.getElementById('tavernListContainer').style.display = 'block';
+        const container = document.getElementById('tavernListContainer');
+        if (gameState.tavernMessages.length === 0) { 
+            container.innerHTML = '<div style="padding:40px;text-align:center;font-size:7px;color:#228b22;">The tavern is quiet.<br>Recruit party members here!</div>'; 
+            return; 
+        }
+        container.innerHTML = '<div style="padding:6px 8px;font-size:6px;border-bottom:2px solid #33ff33;">📬 RUMOURS</div>' + 
+            gameState.tavernMessages.map(msg => `
+            <div class="contact-item">
+                <div>
+                    <div class="contact-name">${msg.photo || '👤'} ${escapeHtml(msg.name)}</div>
+                    <div class="small">${escapeHtml(msg.text.substring(0, 30))}...</div>
+                </div>
+                <div class="flex-row">
+                    <button class="btn" onclick="acceptTavern('${msg.id}')">RECRUIT</button>
+                    <button class="btn btn-danger" onclick="ignoreTavern('${msg.id}')">IGNORE</button>
+                </div>
+            </div>`).join('');
+    }
+    
+    function acceptTavern(mid) {
+        const msg = gameState.tavernMessages.find(m => m.id === mid); 
+        if (!msg) return;
+        const member = { 
+            id: msg.id, 
+            name: msg.name, 
+            photo: msg.photo || '👤', 
+            bio: msg.bio, 
+            prompt: msg.prompt || 'Friendly adventurer who helps in combat.' 
+        };
+        gameState.party.push(member); 
+        gameState.messages[msg.id] = [{
+            id: uid(), 
+            text: `${msg.text} I'll join your party and help in battles!`, 
+            timestamp: Date.now(), 
+            fromMe: false, 
+            photo: null
+        }];
+        gameState.tavernMessages = gameState.tavernMessages.filter(m => m.id !== mid);
+        updateGameState({}); 
+        showNotification(`${msg.name} joined! +Party bonus!`);
+    }
+    
+    function ignoreTavern(mid) { 
+        gameState.tavernMessages = gameState.tavernMessages.filter(m => m.id !== mid); 
+        updateGameState({}); 
+    }
+    
+    async function tavernAuto() {
+        if (!apiKey) return;
+        try {
+            const reply = await guardedAI([
+                {role: 'system', content: 'Tavern stranger JSON: name, photo (emoji), bio, prompt (personality), text (opening line).'},
+                {role: 'user', content: 'Generate a tavern encounter with someone looking to join an adventuring party.'}
+            ], 200, 0.9);
+            
+            let data;
+            try {
+                data = JSON.parse(reply);
+            } catch(e) { 
+                const m = reply.match(/\{[\s\S]*\}/); 
+                if (m) data = JSON.parse(m[0]); 
+                else return; 
+            }
+            
+            gameState.tavernMessages.push({ 
+                id: uid(), 
+                name: data.name || 'Mysterious Stranger', 
+                photo: data.photo || '👤', 
+                bio: data.bio || '', 
+                prompt: data.prompt || '', 
+                text: data.text || 'Hello!' 
+            });
+            saveGameState(); 
+            refreshUI(); 
+            showNotification('📬 Someone arrives!');
+        } catch(e) {}
+    }
+
+    // ---------- HERO ----------
+    function saveHero() {
+        gameState.hero.name = document.getElementById('heroNameInput').value.trim() || 'Adventurer';
+        gameState.hero.class = document.getElementById('heroClassInput').value;
+        gameState.hero.bio = document.getElementById('heroBioInput').value.trim() || '';
+        updateGameState({}); 
+        showNotification('Hero saved!');
+    }
+    
+    function restInn() {
+        if (gameState.hero.gold < 5) { 
+            showNotification('Need 5 gold!'); 
+            return; 
+        }
+        gameState.hero.gold -= 5; 
+        gameState.hero.hp = gameState.hero.maxHp;
+        updateGameState({}); 
+        showNotification('Rested. HP full!');
+    }
+
+    // ---------- SEED ----------
+    function seed() {
+        if (gameState.gameStarted) return;
+        gameState.gameStarted = true;
+        gameState.tavernMessages = [
+            { 
+                id: uid(), 
+                name: 'Thorn the Ranger', 
+                photo: '🏹', 
+                bio: 'Northern archer, skilled in combat', 
+                prompt: 'Stoic ranger who provides +1 attack in battle.', 
+                text: 'Hail, traveler. I hear the Dark Forest stirs. I could use a companion and I\'ll help you fight!', 
+                timestamp: Date.now() 
+            },
+            { 
+                id: uid(), 
+                name: 'Elara the Healer', 
+                photo: '🧪', 
+                bio: 'Wandering cleric with healing abilities', 
+                prompt: 'Gentle healer who occasionally heals during battle.', 
+                text: 'Blessings! Might I join your party? My healing magic will aid us!', 
+                timestamp: Date.now() 
+            }
+        ];
+        saveGameState(); 
+        showNotification('🗡️ Welcome! Check the TAVERN for allies.');
+    }
+
+    // ---------- BINDINGS ----------
+    document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchToTab(t.dataset.tab)));
+    document.getElementById('closeExploreChatBtn').addEventListener('click', closeExploreChat);
+    document.getElementById('exploreSendBtn').addEventListener('click', sendExploreMessage);
+    document.getElementById('exploreChatInput').addEventListener('keypress', e => { if(e.key === 'Enter') sendExploreMessage(); });
+    document.getElementById('closePartyChatBtn').addEventListener('click', closePartyChat);
+    document.getElementById('partySendBtn').addEventListener('click', sendPartyMessage);
+    document.getElementById('partyChatInput').addEventListener('keypress', e => { if(e.key === 'Enter') sendPartyMessage(); });
+    document.getElementById('battleAttackBtn').addEventListener('click', playerAttack);
+    document.getElementById('battleDefendBtn').addEventListener('click', playerDefend);
+    document.getElementById('battleFleeBtn').addEventListener('click', fleeBattle);
+    document.getElementById('battleItemBtn').addEventListener('click', () => { 
+        if (gameState.hero.inventory.length) {
+            const item = gameState.hero.inventory.shift();
+            const healAmount = Math.floor(Math.random() * 8) + 3;
+            gameState.hero.hp = Math.min(gameState.hero.maxHp, gameState.hero.hp + healAmount);
+            showNotification(`Used ${item}! Healed ${healAmount} HP.`);
+            saveGameState();
+            refreshBattleUI();
+        } else {
+            showNotification('No items!');
+        }
+    });
+    document.getElementById('saveHeroBtn').addEventListener('click', saveHero);
+    document.getElementById('restInnBtn').addEventListener('click', restInn);
+    document.getElementById('generateQuestBtn').addEventListener('click', generateQuest);
+    document.getElementById('resetApiKeyBtn').addEventListener('click', () => { 
+        localStorage.removeItem('dungeon_api_key'); 
+        apiKey = ''; 
+        openApiModal(); 
+    });
+
+    // Explore action buttons
+    document.getElementById('searchBtn').addEventListener('click', () => {
+        if (Math.random() > 0.5) {
+            const treasures = ['Health Potion', 'Rusty Sword', 'Gold Coins', 'Ancient Scroll', 'Iron Shield', 'Magic Ring'];
+            const found = treasures[Math.floor(Math.random() * treasures.length)];
+            processItemAcquisition(found);
+        } else {
+            showNotification('Found nothing...');
+        }
+    });
+    
+    document.getElementById('scoutBtn').addEventListener('click', () => {
+        const sights = ['Enemy tracks!', 'A hidden path...', 'Treasure nearby?', 'Safe to proceed', 'Danger ahead!'];
+        showNotification(sights[Math.floor(Math.random() * sights.length)]);
+    });
+    
+    document.getElementById('restBtn').addEventListener('click', () => {
+        if (Math.random() > 0.6) {
+            const heal = Math.min(gameState.hero.maxHp, gameState.hero.hp + 10) - gameState.hero.hp;
+            gameState.hero.hp = Math.min(gameState.hero.maxHp, gameState.hero.hp + 10);
+            showNotification(`Rested! +${heal} HP`);
+            saveGameState();
+            refreshUI();
+        } else {
             const enemy = { 
-                name: enemyNames[Math.floor(Math.random() * enemyNames.length)], 
-                ac: 14, 
-                hp: 20, 
-                attackBonus: 4, 
-                damageDice: '1d8', 
-                imagePrompt: enemyNames[Math.floor(Math.random() * enemyNames.length)] + ' pixel art', 
+                name: 'Ambushing Bandit', 
+                ac: 10, 
+                hp: 15, 
+                attackBonus: 3, 
+                damageDice: '1d6', 
+                imagePrompt: 'bandit ambush pixel art dark fantasy enemy', 
                 id: uid() 
             };
             startBattle(enemy);
-        });
-
-        function openApiModal() { document.getElementById('apiModal').style.display = 'flex'; }
-        function closeApiModal() { document.getElementById('apiModal').style.display = 'none'; }
-        document.getElementById('saveApiKeyBtn').addEventListener('click', () => {
-            const k = document.getElementById('apiKeyInput').value.trim();
-            if (k.length > 10) { 
-                apiKey = k; 
-                localStorage.setItem('dungeon_api_key', apiKey); 
-                closeApiModal(); 
-                showNotification('Key saved!'); 
-            }
-        });
-        document.getElementById('closeApiModalBtn').addEventListener('click', closeApiModal);
-        window.addEventListener('click', e => { if(e.target === document.getElementById('apiModal')) closeApiModal(); });
-
-        window.openExplore = openExplore;
-        window.openPartyChat = openPartyChat;
-        window.acceptTavern = acceptTavern;
-        window.ignoreTavern = ignoreTavern;
-        window.abandonQuest = abandonQuest;
-
-        setInterval(() => { if(apiKey && Math.random() < 0.5) tavernAuto(); }, 50000);
-        setInterval(partyConversationHints, 45000);
-
-        // ---------- BOOT ----------
-        function boot() {
-            if (!apiKey) setTimeout(openApiModal, 600);
-            seed();
-            document.getElementById('heroNameDisplay').textContent = gameState.hero.name;
-            document.getElementById('statusHp').textContent = `${gameState.hero.hp}/${gameState.hero.maxHp}`;
-            refreshUI();
         }
-        boot();
-    })();
+    });
+    
+    document.getElementById('provokeBtn').addEventListener('click', () => {
+        const locationEnemies = {
+            'forest': ['Provoked Bear', 'Angry Treant', 'Enraged Wolf'],
+            'cave': ['Provoked Troll', 'Angry Bat Swarm', 'Enraged Spider'],
+            'tower': ['Provoked Ghost', 'Angry Gargoyle', 'Enraged Armor'],
+            'ruins': ['Provoked Zombie', 'Angry Golem', 'Enraged Lizard']
+        };
+        const locEnemies = locationEnemies[currentExploreId] || ['Provoked Beast', 'Angry Troll', 'Enraged Ogre'];
+        const enemyName = locEnemies[Math.floor(Math.random() * locEnemies.length)];
+        
+        const enemy = { 
+            name: enemyName, 
+            ac: 14, 
+            hp: 20, 
+            attackBonus: 4, 
+            damageDice: '1d8', 
+            imagePrompt: enemyName + ' pixel art enemy dark fantasy game sprite', 
+            id: uid() 
+        };
+        startBattle(enemy);
+    });
+
+    function openApiModal() { document.getElementById('apiModal').style.display = 'flex'; }
+    function closeApiModal() { document.getElementById('apiModal').style.display = 'none'; }
+    document.getElementById('saveApiKeyBtn').addEventListener('click', () => {
+        const k = document.getElementById('apiKeyInput').value.trim();
+        if (k.length > 10) { 
+            apiKey = k; 
+            localStorage.setItem('dungeon_api_key', apiKey); 
+            closeApiModal(); 
+            showNotification('Key saved!'); 
+        }
+    });
+    document.getElementById('closeApiModalBtn').addEventListener('click', closeApiModal);
+    window.addEventListener('click', e => { if(e.target === document.getElementById('apiModal')) closeApiModal(); });
+
+    window.openExplore = openExplore;
+    window.openPartyChat = openPartyChat;
+    window.acceptTavern = acceptTavern;
+    window.ignoreTavern = ignoreTavern;
+    window.abandonQuest = abandonQuest;
+
+    setInterval(() => { if(apiKey && Math.random() < 0.5) tavernAuto(); }, 50000);
+    setInterval(partyConversationHints, 45000);
+
+    // ---------- BOOT ----------
+    function boot() {
+        if (!apiKey) setTimeout(openApiModal, 600);
+        seed();
+        document.getElementById('heroNameDisplay').textContent = gameState.hero.name;
+        document.getElementById('statusHp').textContent = `${gameState.hero.hp}/${gameState.hero.maxHp}`;
+        refreshUI();
+    }
+    boot();
+})();
 </script>
 </body>
 </html>
