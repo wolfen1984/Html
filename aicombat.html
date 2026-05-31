@@ -444,19 +444,17 @@
                     gameState.hero.level++; gameState.hero.maxHp += 5; gameState.hero.hp = gameState.hero.maxHp;
                     battle.log.push('LEVEL UP!');
                 }
-                // Remove the combat-triggering message from explore chat to avoid looping
+                // Remove the combat-triggering message from explore chat
                 const retId = gameState.combatReturnId;
                 if (retId && gameState.messages[retId]) {
-                    // Find the last message that contained %%COMBAT%% and remove it
                     const msgs = gameState.messages[retId];
                     for (let i = msgs.length-1; i >= 0; i--) {
-                        if (msgs[i].text.includes('%%COMBAT%%') || (msgs[i]._combatData)) {
+                        if (msgs[i].text.includes('%%COMBAT%%') || msgs[i]._combatData) {
                             msgs.splice(i,1);
                             break;
                         }
                     }
-                    // Add a clean closure message
-                    msgs.push({ id:uid(), text:`The ${battle.enemyName} lies defeated. The area is safe... for now.`, timestamp:Date.now(), fromMe:false, photo:null });
+                    msgs.push({ id:uid(), text:`The ${battle.enemyName} lies defeated. The area is safe...`, timestamp:Date.now(), fromMe:false, photo:null });
                     saveGameState();
                 }
             } else {
@@ -602,8 +600,6 @@
                 gameState.messages[locId] = [];
                 gameState.messages[locId].push({ id:uid(), text:`You arrive at ${loc.name}.`, timestamp:Date.now(), fromMe:false, photo:null });
                 aiExploreIntro(loc);
-            } else if (!skipIntro) {
-                // already has messages, just render
             }
             renderExploreChat();
         }
@@ -615,7 +611,7 @@
                 processMessageTags(msg, loc.id);
                 saveGameState(); renderExploreChat();
             } catch(e) {
-                gameState.messages[loc.id].push({id:uid(), text:'[Silence...]', timestamp:Date.now(), fromMe:false, photo:null});
+                gameState.messages[loc.id].push({id:uid(), text:'[The narrator is silent...]', timestamp:Date.now(), fromMe:false, photo:null});
                 renderExploreChat();
             }
         }
@@ -637,7 +633,6 @@
         }
 
         function processMessageTags(msgObj, contextId) {
-            // COMBAT
             if (msgObj._combatData) {
                 const parts = msgObj._combatData.split(',').map(s=>s.trim());
                 const enemy = { name:parts[0]||'Foe', ac:parseInt(parts[1])||12, hp:parseInt(parts[2])||10, attackBonus:parseInt(parts[3])||2, damageDice:parts[4]||'1d4', imagePrompt:(parts[0]||'monster')+' enemy', id:uid() };
@@ -649,7 +644,6 @@
                 setTimeout(()=>startBattle(enemy), 300);
             }
 
-            // LOOT – forced update
             let added = false;
             const addItem = (item) => {
                 if (item && item.length>1 && !gameState.hero.inventory.includes(item)) {
@@ -669,11 +663,51 @@
             }
         }
 
+        // ---------- DIRECT COMBAT COMMANDS ----------
+        function handleExploreInput(text) {
+            const lower = text.toLowerCase().trim();
+            const combatKeywords = ['attack', 'fight', 'strike', 'charge', 'battle', 'kill', 'slay', 'engage', 'combat'];
+            if (combatKeywords.some(kw => lower.includes(kw))) {
+                // Immediately trigger a random appropriate enemy based on location
+                const loc = gameState.locations.find(l => l.id === currentExploreId);
+                let enemyName = 'Ambushing Foe', imagePrompt = 'monster';
+                if (loc) {
+                    if (loc.id === 'forest') { enemyName = 'Goblin Scout'; imagePrompt = 'goblin warrior'; }
+                    else if (loc.id === 'cave') { enemyName = 'Crystal Spider'; imagePrompt = 'giant spider'; }
+                    else if (loc.id === 'tower') { enemyName = 'Haunted Armor'; imagePrompt = 'animated armor'; }
+                    else if (loc.id === 'ruins') { enemyName = 'Swamp Zombie'; imagePrompt = 'zombie'; }
+                }
+                const enemy = {
+                    name: enemyName,
+                    ac: 12 + Math.floor(Math.random()*4),
+                    hp: 8 + Math.floor(Math.random()*8),
+                    attackBonus: 2 + Math.floor(Math.random()*3),
+                    damageDice: '1d6',
+                    imagePrompt: imagePrompt,
+                    id: uid()
+                };
+                // Add user message to chat
+                gameState.messages[currentExploreId].push({ id:uid(), text: text, timestamp:Date.now(), fromMe:true, photo:null });
+                // Add narrator response
+                gameState.messages[currentExploreId].push({ id:uid(), text: `You rush to attack! A ${enemy.name} appears!`, timestamp:Date.now(), fromMe:false, photo:null });
+                saveGameState();
+                renderExploreChat();
+                gameState.combatReturnId = currentExploreId;
+                startBattle(enemy);
+                return true;
+            }
+            return false;
+        }
+
         async function sendExploreMessage() {
             if (!currentExploreId) return;
             const input = document.getElementById('exploreChatInput');
             const text = input.value.trim(); if (!text) return;
             input.value = '';
+
+            // Direct combat handling
+            if (handleExploreInput(text)) return;
+
             const loc = gameState.locations.find(l=>l.id===currentExploreId); if(!loc) return;
             gameState.messages[currentExploreId].push({id:uid(), text, timestamp:Date.now(), fromMe:true, photo:null});
             saveGameState(); renderExploreChat();
@@ -685,7 +719,7 @@
                 processMessageTags(msg, currentExploreId);
                 saveGameState(); renderExploreChat();
             } catch(e) {
-                gameState.messages[currentExploreId].push({id:uid(), text:`[Error]`, timestamp:Date.now(), fromMe:false, photo:null});
+                gameState.messages[currentExploreId].push({id:uid(), text:`[Error: ${e.message}]`, timestamp:Date.now(), fromMe:false, photo:null});
                 renderExploreChat();
             }
         }
