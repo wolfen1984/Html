@@ -6224,6 +6224,19 @@ function stopAll() { isPlaying = false; currentTrackId = null; playLed.classList
 
 async function playTrack(trackId) { stopAll(); await initAudio(); const track = tracks.find(t => t.id === trackId); if (!track) return; if (audioCtx.state === 'suspended') await audioCtx.resume(); isPlaying = true; currentTrackId = trackId; playLed.classList.add('active'); statusText.textContent = `▶ ${track.name}`; document.querySelectorAll('.play-btn').forEach(b => b.classList.remove('playing')); document.querySelector(`.play-btn[data-track-id="${trackId}"]`).classList.add('playing'); startLookaheadScheduler(track, audioCtx, graphNodes.gtrIn, graphNodes.bassIn, graphNodes.drumIn); vizInterval = setInterval(() => { if (!isPlaying) return; const t = Date.now() / 300; barsArr.forEach((b, i) => b.style.height = Math.min(60, 16 + Math.sin(t + i) * 32) + 'px'); }, 70); }
 
+function preRenderDrums(track, duration, sampleRate, outputNode) {
+    // 1) Use a tiny offline context to collect drum hits
+    const ctx = new OfflineAudioContext(2, sampleRate * duration, sampleRate);
+    const drumIn = ctx.createGain(); // dummy input for drum scheduler
+    drumIn.connect(ctx.destination);
+    const stepDur = 60 / track.bpm / 4;
+    const sched = createDrumSchedulers(ctx, drumIn);
+    for (let step = 0; step < track.totalSteps; step++) {
+        track.drumPattern(step, step * stepDur, sched);
+    }
+    return ctx.startRendering();
+}
+
 async function exportTrackToMP3(trackId) {
     const track = tracks.find(t => t.id === trackId);
     if (!track) return;
@@ -6236,28 +6249,33 @@ async function exportTrackToMP3(trackId) {
     percSpan.textContent = '0%';
 
     const p = getParams();
-    const sampleRate = 44100,
-        loops = 2,
-        loopDur = track.totalSteps * (60 / track.bpm / 4),
-        totalDur = loopDur * loops + 4.0;
+    const sampleRate = 44100,        
+      loops = 1,                 // one pass only
+      loopDur = track.totalSteps * (60 / track.bpm / 4),
+      totalDur = loopDur;        // no extra silence
     const offlineCtx = new OfflineAudioContext(2, sampleRate * totalDur, sampleRate);
     const nodes = buildAudioGraph(offlineCtx, p);
     nodes.master.connect(offlineCtx.destination);
 
     for (let loop = 0; loop < loops; loop++) {
-        const start = loop * loopDur + 0.1;
-        const stepDur = 60 / track.bpm / 4;
-        const sched = createDrumSchedulers(offlineCtx, nodes.drumIn);
-        track.leadSeq().forEach(([step, note, durSteps, vel]) => {
-            if (freq[note]) scheduleNote(offlineCtx, start + step * stepDur, freq[note], durSteps * stepDur, vel * 0.45, -0.3, nodes.gtrIn);
-        });
-        track.bassSeq().forEach(([step, note, durSteps, vel]) => {
-            if (freq[note]) scheduleNote(offlineCtx, start + step * stepDur, freq[note], durSteps * stepDur, vel * 0.58, 0.2, nodes.bassIn);
-        });
-        for (let step = 0; step < track.totalSteps; step++) {
-            track.drumPattern(step, start + step * stepDur, sched);
-        }
-    }
+    const start = loop * loopDur + 0.1;
+    const stepDur = 60 / track.bpm / 4;
+
+    // Lead & bass (unchanged)
+    track.leadSeq().forEach(([step, note, durSteps, vel]) => {
+        if (freq[note]) scheduleNote(offlineCtx, start + step * stepDur, freq[note], durSteps * stepDur, vel * 0.45, -0.3, nodes.gtrIn);
+    });
+    track.bassSeq().forEach(([step, note, durSteps, vel]) => {
+        if (freq[note]) scheduleNote(offlineCtx, start + step * stepDur, freq[note], durSteps * stepDur, vel * 0.58, 0.2, nodes.bassIn);
+    });
+
+    // Pre‑rendered drums (replaces the step loop)
+    const drumBuffer = await preRenderDrums(track, loopDur, sampleRate, nodes.drumIn);
+    const drumSource = offlineCtx.createBufferSource();
+    drumSource.buffer = drumBuffer;
+    drumSource.connect(nodes.drumIn);
+    drumSource.start(start);
+}
 
     const buffer = await offlineCtx.startRendering();
     progBar.style.width = '40%';
