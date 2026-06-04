@@ -454,9 +454,7 @@ function generateFallbackGuest(source = 'random') {
 // MAIN GUEST GENERATION (with lock + AI / fallback)
 // ------------------------------------------------------------
 async function generateGuest(source = 'random') {
-    if (guestGenerationInProgress) {
-        throw new Error('Guest generation already in progress');
-    }
+    if (guestGenerationInProgress) throw new Error('Guest generation already in progress');
     guestGenerationInProgress = true;
 
     try {
@@ -464,51 +462,50 @@ async function generateGuest(source = 'random') {
             ? 'This person was picked up hitchhiking at night, vulnerable.'
             : 'Arrived at a remote motel.';
 
+        // Force a single-line JSON response
         const reply = await guardedAIRequest([
             {
                 role: 'user',
-                content: `Create a guest profile for a 1979 roadside motel. Return ONLY a JSON object (no extra text, no markdown). Use these exact keys: name, appearance, reason, personality, prompt.
-Example:
-{
-  "name": "Harold Keene",
-  "appearance": "Tall man, rumpled suit",
-  "reason": "Car broke down on the highway",
-  "personality": "Weary, drinks too much",
-  "prompt": "You are Harold, a salesman with a dark secret. Keep replies short."
-}
-Now generate a NEW guest. Context: ${sourceContext}. Make it interesting with a hint of mystery.`
+                content: `Create a guest profile for a 1979 roadside motel. You MUST reply with ONLY a single-line JSON object (no line breaks, no markdown, no extra text). Use these exact keys: name, appearance, reason, personality, prompt. Example: {"name":"Harold Keene","appearance":"Tall man, rumpled suit","reason":"Car broke down on the highway","personality":"Weary, drinks too much","prompt":"You are Harold, a salesman with a dark secret. Keep replies short."} Now generate a NEW guest. Context: ${sourceContext}. Make it interesting with a hint of mystery.`
             }
         ], 350, 0.9);
 
-        // 🔍 DIAGNOSTIC – check the console to see what the AI returned
         console.log('=== RAW AI REPLY ===');
         console.log(reply);
         console.log('====================');
 
-        // ───── AGGRESSIVE JSON EXTRACTION ─────
         let data;
         const jsonStart = reply.indexOf('{');
         const jsonEnd = reply.lastIndexOf('}');
         if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-            const jsonString = reply.substring(jsonStart, jsonEnd + 1)
-                                  .replace(/```json|```/g, '')  // remove markdown
+            let jsonString = reply.substring(jsonStart, jsonEnd + 1)
+                                  .replace(/```json|```/g, '')
                                   .trim();
+
+            // Attempt direct parse
             try {
                 data = JSON.parse(jsonString);
-            } catch (e) {
-                console.warn('Failed to parse extracted JSON:', jsonString);
-                throw new Error('Cannot parse AI JSON output');
+            } catch (e1) {
+                // Sanitize: escape illegal newlines/tabs inside strings
+                const sanitized = jsonString.replace(/"((?:[^"\\]|\\.)*)"/g, (match, group) => {
+                    const escaped = group.replace(/\n/g, '\\n').replace(/\t/g, '\\t');
+                    return `"${escaped}"`;
+                });
+                try {
+                    data = JSON.parse(sanitized);
+                } catch (e2) {
+                    console.warn('Failed to parse even after sanitizing:', sanitized);
+                    throw new Error('Cannot parse AI JSON output');
+                }
             }
         } else {
             throw new Error('No JSON braces found in AI response');
         }
 
-        // Validate fields
         if (!data.name || !data.appearance || !data.reason || !data.personality || !data.prompt) {
             throw new Error('AI response missing required fields');
         }
 
-        // Success
         return {
             id: uid(),
             name: data.name,
@@ -527,8 +524,7 @@ Now generate a NEW guest. Context: ${sourceContext}. Make it interesting with a 
     } finally {
         guestGenerationInProgress = false;
     }
-}
-    // ───────────── Desk ─────────────
+}    // ───────────── Desk ─────────────
     function placeGuestAtDesk(guest) {
         gameState.deskGuest = guest;
         saveGameState();
