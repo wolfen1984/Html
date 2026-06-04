@@ -383,40 +383,76 @@
     }
 
     // ───────────── Guest Generation ─────────────
-    async function generateGuest(source='random') {
-        const sourceContext = source==='hitchhiker' ? 'This person was picked up hitchhiking at night, vulnerable, broke and down on your luck. A drunk or a drug addict or a hooker, or a homeless person.' : 'Arrived at a remote motel.';
+    async function generateGuest(source = 'random') {
+    const sourceContext = source === 'hitchhiker' 
+        ? 'This person was picked up hitchhiking at night, vulnerable.' 
+        : 'Arrived at a remote motel.';
+
+    // Strict prompt that demands JSON only, with an example
+    const prompt = `Create a guest profile for a 1979 roadside motel. Return ONLY a JSON object (no extra text, no markdown). Use these exact keys: name, appearance, reason, personality, prompt.
+Example:
+{
+  "name": "Harold Keene",
+  "appearance": "Tall man, rumpled suit",
+  "reason": "Car broke down on the highway",
+  "personality": "Weary, drinks too much",
+  "prompt": "You are Harold, a salesman with a dark secret. Keep replies short."
+}
+Now generate a NEW guest. Context: ${sourceContext}. Make it interesting with a hint of mystery.`;
+
+    try {
+        const reply = await guardedAIRequest([
+            { role: 'user', content: prompt }
+        ], 350, 0.9);
+
+        // Try to extract JSON from the reply
+        let data;
         try {
-            const reply = await guardedAIRequest([
-                { role:'system', content:'Generate guest profile JSON: name, appearance, reason, personality, prompt (2-3 sentences).' },
-                { role:'user', content:`Context: ${sourceContext}. Make them interesting with dark secrets or hidden past or into trying different things.` }
-            ], 300, 0.9);
-            let data;
-            try { data = JSON.parse(reply); } catch(e) {
-                const match = reply.match(/\{[\s\S]*\}/);
-                if (match) data = JSON.parse(match[0]);
-                else throw new Error('Parse failed');
+            // First attempt: direct parse
+            data = JSON.parse(reply.trim());
+        } catch (e) {
+            // Second attempt: find first { and last }
+            const match = reply.match(/\{[\s\S]*\}/);
+            if (match) {
+                try {
+                    data = JSON.parse(match[0]);
+                } catch (e2) {
+                    // Third attempt: remove any surrounding backticks or markdown
+                    const cleaned = match[0].replace(/```json|```/g, '').trim();
+                    try {
+                        data = JSON.parse(cleaned);
+                    } catch (e3) {
+                        throw new Error('Cannot parse AI JSON output');
+                    }
+                }
+            } else {
+                throw new Error('No JSON found in AI response');
             }
-            return {
-                id: uid(),
-                name: data.name || 'Unknown Traveler',
-                appearance: data.appearance || '',
-                reason: data.reason || '',
-                personality: data.personality || '',
-                prompt: (data.prompt || '') + SYSTEM_INSTRUCTION,
-                roomNumber: null,
-                alive: true,
-                recruited: false,
-                source
-            };
-        } catch(e) {
-            const fallbacks = [
-                { name:'Mary Colwood', appearance:'Nervous woman, clutching suitcase', reason:'Car broke down', personality:'Anxious', prompt:'You are Mary, on the run.'+SYSTEM_INSTRUCTION },
-                { name:'Harold Keene', appearance:'Tall man, rumpled suit', reason:'Salesman needs rest', personality:'Tired, drinks', prompt:'You are Harold, salesman with dark past.'+SYSTEM_INSTRUCTION }
-            ];
-            const f = fallbacks[Math.floor(Math.random()*fallbacks.length)];
-            return { id:uid(), ...f, roomNumber:null, alive:true, recruited:false, source };
         }
+
+        // Validate required fields
+        if (!data.name || !data.appearance || !data.reason || !data.personality || !data.prompt) {
+            throw new Error('Missing fields in AI guest data');
+        }
+
+        // Success – build guest
+        return {
+            id: uid(),
+            name: data.name,
+            appearance: data.appearance,
+            reason: data.reason,
+            personality: data.personality,
+            prompt: data.prompt + SYSTEM_INSTRUCTION,
+            roomNumber: null,
+            alive: true,
+            recruited: false,
+            source
+        };
+    } catch (e) {
+        console.warn('AI guest generation failed, using smart fallback:', e.message);
+        return generateFallbackGuest(source);
     }
+}
 
     // ───────────── Desk ─────────────
     function placeGuestAtDesk(guest) {
