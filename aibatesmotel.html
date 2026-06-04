@@ -355,6 +355,7 @@
     // ───────────── AI (Mistral) ─────────────
     const SYSTEM_INSTRUCTION = " IMPORTANT: You are a real human character in 1979 at a remote roadside motel. Never break character or mention being an AI. Keep replies short (1-3 sentences). Atmosphere slightly unsettling. Keep it creepy";
     let isAIRequestPending = false;
+let guestGenerationInProgress = false;
     async function aiRequest(messages, maxTokens=200, temp=0.85) {
         if (!apiKey) throw new Error("No API key");
         const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
@@ -383,13 +384,98 @@
     }
 
     // ───────────── Guest Generation ─────────────
-    async function generateGuest(source = 'random') {
-    const sourceContext = source === 'hitchhiker' 
-        ? 'This person was picked up hitchhiking at night, vulnerable.' 
-        : 'Arrived at a remote motel.';
+    // ------------------------------------------------------------
+// LOCK – prevents two simultaneous guest generations
+// ------------------------------------------------------------
+let guestGenerationInProgress = false;
 
-    // Strict prompt that demands JSON only, with an example
-    const prompt = `Create a guest profile for a 1979 roadside motel. Return ONLY a JSON object (no extra text, no markdown). Use these exact keys: name, appearance, reason, personality, prompt.
+// ------------------------------------------------------------
+// FALLBACK GUEST GENERATOR (no AI needed)
+// ------------------------------------------------------------
+function generateFallbackGuest(source = 'random') {
+    const firstNames = ['Alice','Bob','Clara','Dennis','Ethel','Frank','Gloria','Hank','Irene','Jake',
+        'Karen','Leo','Mona','Norman','Opal','Paul','Queenie','Ralph','Sally','Tom','Ursula','Vince',
+        'Wendy','Xavier','Yvonne','Zack'];
+    const lastNames = ['Cole','Dunn','Faye','Grey','Hart','Knox','Lane','Marsh','Nash','Orr','Pike',
+        'Quinn','Reed','Shaw','Tate','Voss','Ward','York'];
+    const appearances = [
+        'rumpled suit, tired eyes',
+        'leather jacket, cigarette behind ear',
+        'floral dress, clutching a purse',
+        'raincoat dripping water',
+        'denim overalls, heavy boots',
+        'aviator sunglasses, silk scarf',
+        'military uniform, medals missing',
+        'evening gown, smeared makeup',
+        'fishing vest, camera around neck',
+        'business suit, briefcase handcuffed to wrist'
+    ];
+    const reasons = [
+        'Car broke down on the highway.',
+        'Missed the last bus out of town.',
+        'Fell asleep driving and pulled off the road.',
+        'Wife kicked me out – need a place.',
+        'Looking for a quiet place to write.',
+        'Heard this place is safe… is it safe?',
+        'Just passing through, got a bad feeling out there.',
+        'Need a room for the night, no questions asked.',
+        'Traveling salesman – nothing open for miles.',
+        'My companion vanished. I’m stranded.'
+    ];
+    const personalities = [
+        'Anxious',
+        'Weary but watchful',
+        'Too friendly',
+        'Stoic and silent',
+        'Jittery',
+        'Boastful, likely lying',
+        'Sad, distant',
+        'Nervous laughter',
+        'Calm, almost too calm',
+        'Defensive'
+    ];
+
+    const rand = arr => arr[Math.floor(Math.random() * arr.length)];
+    const name = `${rand(firstNames)} ${rand(lastNames)}`;
+    const appearance = rand(appearances);
+    const reason = rand(reasons);
+    const personality = rand(personalities);
+    const prompt = `You are ${name}, ${personality}. ${reason} You are at a remote motel in 1979. Keep answers short, slightly unsettling.` + SYSTEM_INSTRUCTION;
+
+    return {
+        id: uid(),
+        name,
+        appearance,
+        reason,
+        personality,
+        prompt,
+        roomNumber: null,
+        alive: true,
+        recruited: false,
+        source
+    };
+}
+
+// ------------------------------------------------------------
+// MAIN GUEST GENERATION (with lock + AI / fallback)
+// ------------------------------------------------------------
+async function generateGuest(source = 'random') {
+    // If already generating, throw (callers should catch or ignore)
+    if (guestGenerationInProgress) {
+        throw new Error('Guest generation already in progress');
+    }
+    guestGenerationInProgress = true;
+
+    try {
+        const sourceContext = source === 'hitchhiker'
+            ? 'This person was picked up hitchhiking at night, vulnerable.'
+            : 'Arrived at a remote motel.';
+
+        // Ask the AI for a strict JSON profile
+        const reply = await guardedAIRequest([
+            {
+                role: 'user',
+                content: `Create a guest profile for a 1979 roadside motel. Return ONLY a JSON object (no extra text, no markdown). Use these exact keys: name, appearance, reason, personality, prompt.
 Example:
 {
   "name": "Harold Keene",
@@ -398,26 +484,22 @@ Example:
   "personality": "Weary, drinks too much",
   "prompt": "You are Harold, a salesman with a dark secret. Keep replies short."
 }
-Now generate a NEW guest. Context: ${sourceContext}. Make it interesting with a hint of mystery.`;
-
-    try {
-        const reply = await guardedAIRequest([
-            { role: 'user', content: prompt }
+Now generate a NEW guest. Context: ${sourceContext}. Make it interesting with a hint of mystery.`
+            }
         ], 350, 0.9);
 
-        // Try to extract JSON from the reply
+        // ── Parse the JSON with multiple attempts ──
         let data;
         try {
-            // First attempt: direct parse
             data = JSON.parse(reply.trim());
-        } catch (e) {
-            // Second attempt: find first { and last }
+        } catch (e1) {
+            // Try to extract the first JSON object from the response
             const match = reply.match(/\{[\s\S]*\}/);
             if (match) {
                 try {
                     data = JSON.parse(match[0]);
                 } catch (e2) {
-                    // Third attempt: remove any surrounding backticks or markdown
+                    // If it had markdown backticks, strip them
                     const cleaned = match[0].replace(/```json|```/g, '').trim();
                     try {
                         data = JSON.parse(cleaned);
@@ -426,16 +508,16 @@ Now generate a NEW guest. Context: ${sourceContext}. Make it interesting with a 
                     }
                 }
             } else {
-                throw new Error('No JSON found in AI response');
+                throw new Error('No JSON object found in AI response');
             }
         }
 
-        // Validate required fields
+        // Ensure all fields exist
         if (!data.name || !data.appearance || !data.reason || !data.personality || !data.prompt) {
-            throw new Error('Missing fields in AI guest data');
+            throw new Error('AI response missing one or more required fields');
         }
 
-        // Success – build guest
+        // ── Success: build guest from AI data ──
         return {
             id: uid(),
             name: data.name,
@@ -448,9 +530,13 @@ Now generate a NEW guest. Context: ${sourceContext}. Make it interesting with a 
             recruited: false,
             source
         };
-    } catch (e) {
-        console.warn('AI guest generation failed, using smart fallback:', e.message);
+    } catch (error) {
+        console.warn('AI guest generation failed, using fallback:', error.message);
+        // If AI fails (network, parsing, etc.), use the varied fallback
         return generateFallbackGuest(source);
+    } finally {
+        // Always release the lock
+        guestGenerationInProgress = false;
     }
 }
 
@@ -914,12 +1000,14 @@ Now generate a NEW guest. Context: ${sourceContext}. Make it interesting with a 
     window.snapRoomPhoto = snapRoomPhoto;
 
     // ───────────── Game loop ─────────────
-    setInterval(()=>{
-        if(!apiKey || gameState.deskGuest) return;
-        if(Math.random()<0.25 && gameState.rooms.some(r=>!r.occupied)) {
-            generateGuest('random').then(g=>{ if(!gameState.deskGuest) placeGuestAtDesk(g); }).catch(()=>{});
-        }
-    }, 70000);
+    setInterval(() => {
+    if (!apiKey || gameState.deskGuest || guestGenerationInProgress) return;
+    if (Math.random() < 0.25 && gameState.rooms.some(r => !r.occupied)) {
+        generateGuest('random')
+            .then(g => { if (!gameState.deskGuest) placeGuestAtDesk(g); })
+            .catch(() => {});   // silently ignore (lock throws or other errors)
+    }
+}, 70000);
     setInterval(()=>{
         gameState.time = advanceTime(8);
         saveGameState();
