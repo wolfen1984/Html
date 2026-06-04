@@ -454,7 +454,6 @@ function generateFallbackGuest(source = 'random') {
 // MAIN GUEST GENERATION (with lock + AI / fallback)
 // ------------------------------------------------------------
 async function generateGuest(source = 'random') {
-    // If already generating, throw (callers should catch or ignore)
     if (guestGenerationInProgress) {
         throw new Error('Guest generation already in progress');
     }
@@ -465,7 +464,6 @@ async function generateGuest(source = 'random') {
             ? 'This person was picked up hitchhiking at night, vulnerable.'
             : 'Arrived at a remote motel.';
 
-        // Ask the AI for a strict JSON profile
         const reply = await guardedAIRequest([
             {
                 role: 'user',
@@ -482,36 +480,35 @@ Now generate a NEW guest. Context: ${sourceContext}. Make it interesting with a 
             }
         ], 350, 0.9);
 
-        // ── Parse the JSON with multiple attempts ──
+        // 🔍 DIAGNOSTIC – check the console to see what the AI returned
+        console.log('=== RAW AI REPLY ===');
+        console.log(reply);
+        console.log('====================');
+
+        // ───── AGGRESSIVE JSON EXTRACTION ─────
         let data;
-        try {
-            data = JSON.parse(reply.trim());
-        } catch (e1) {
-            // Try to extract the first JSON object from the response
-            const match = reply.match(/\{[\s\S]*\}/);
-            if (match) {
-                try {
-                    data = JSON.parse(match[0]);
-                } catch (e2) {
-                    // If it had markdown backticks, strip them
-                    const cleaned = match[0].replace(/```json|```/g, '').trim();
-                    try {
-                        data = JSON.parse(cleaned);
-                    } catch (e3) {
-                        throw new Error('Cannot parse AI JSON output');
-                    }
-                }
-            } else {
-                throw new Error('No JSON object found in AI response');
+        const jsonStart = reply.indexOf('{');
+        const jsonEnd = reply.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+            const jsonString = reply.substring(jsonStart, jsonEnd + 1)
+                                  .replace(/```json|```/g, '')  // remove markdown
+                                  .trim();
+            try {
+                data = JSON.parse(jsonString);
+            } catch (e) {
+                console.warn('Failed to parse extracted JSON:', jsonString);
+                throw new Error('Cannot parse AI JSON output');
             }
+        } else {
+            throw new Error('No JSON braces found in AI response');
         }
 
-        // Ensure all fields exist
+        // Validate fields
         if (!data.name || !data.appearance || !data.reason || !data.personality || !data.prompt) {
-            throw new Error('AI response missing one or more required fields');
+            throw new Error('AI response missing required fields');
         }
 
-        // ── Success: build guest from AI data ──
+        // Success
         return {
             id: uid(),
             name: data.name,
@@ -526,14 +523,11 @@ Now generate a NEW guest. Context: ${sourceContext}. Make it interesting with a 
         };
     } catch (error) {
         console.warn('AI guest generation failed, using fallback:', error.message);
-        // If AI fails (network, parsing, etc.), use the varied fallback
         return generateFallbackGuest(source);
     } finally {
-        // Always release the lock
         guestGenerationInProgress = false;
     }
 }
-
     // ───────────── Desk ─────────────
     function placeGuestAtDesk(guest) {
         gameState.deskGuest = guest;
