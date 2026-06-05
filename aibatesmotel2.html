@@ -384,10 +384,79 @@ let guestGenerationInProgress = false;
     }
 
 // ------------------------------------------------------------
+// FALLBACK GUEST GENERATOR (no AI needed)
+// ------------------------------------------------------------
+function generateFallbackGuest(source = 'random') {
+    const firstNames = ['Alice','Bob','Clara','Dennis','Ethel','Frank','Gloria','Hank','Irene','Jake',
+        'Karen','Leo','Mona','Norman','Opal','Paul','Queenie','Ralph','Sally','Tom','Ursula','Vince',
+        'Wendy','Xavier','Yvonne','Zack'];
+    const lastNames = ['Cole','Dunn','Faye','Grey','Hart','Knox','Lane','Marsh','Nash','Orr','Pike',
+        'Quinn','Reed','Shaw','Tate','Voss','Ward','York'];
+    const appearances = [
+        'rumpled suit, tired eyes',
+        'leather jacket, cigarette behind ear',
+        'floral dress, clutching a purse',
+        'raincoat dripping water',
+        'denim overalls, heavy boots',
+        'aviator sunglasses, silk scarf',
+        'military uniform, medals missing',
+        'evening gown, smeared makeup',
+        'fishing vest, camera around neck',
+        'business suit, briefcase handcuffed to wrist'
+    ];
+    const reasons = [
+        'Car broke down on the highway.',
+        'Missed the last bus out of town.',
+        'Fell asleep driving and pulled off the road.',
+        'Wife kicked me out – need a place.',
+        'Looking for a quiet place to write.',
+        'Heard this place is safe… is it safe?',
+        'Just passing through, got a bad feeling out there.',
+        'Need a room for the night, no questions asked.',
+        'Traveling salesman – nothing open for miles.',
+        'My companion vanished. I’m stranded.'
+    ];
+    const personalities = [
+        'Anxious',
+        'Weary but watchful',
+        'Too friendly',
+        'Stoic and silent',
+        'Jittery',
+        'Boastful, likely lying',
+        'Sad, distant',
+        'Nervous laughter',
+        'Calm, almost too calm',
+        'Defensive'
+    ];
+
+    const rand = arr => arr[Math.floor(Math.random() * arr.length)];
+    const name = `${rand(firstNames)} ${rand(lastNames)}`;
+    const appearance = rand(appearances);
+    const reason = rand(reasons);
+    const personality = rand(personalities);
+    const prompt = `You are ${name}, ${personality}. ${reason} You are at a remote motel in 1979. Keep answers short, slightly unsettling.` + SYSTEM_INSTRUCTION;
+
+    return {
+        id: uid(),
+        name,
+        appearance,
+        reason,
+        personality,
+        prompt,
+        roomNumber: null,
+        alive: true,
+        recruited: false,
+        source
+    };
+}
+
+// ------------------------------------------------------------
 // MAIN GUEST GENERATION (with lock + AI / fallback)
 // ------------------------------------------------------------
 async function generateGuest(source = 'random') {
-    if (guestGenerationInProgress) throw new Error('Guest generation already in progress');
+    if (guestGenerationInProgress) {
+        throw new Error('Guest generation already in progress');
+    }
     guestGenerationInProgress = true;
 
     try {
@@ -395,61 +464,51 @@ async function generateGuest(source = 'random') {
             ? 'This person was picked up hitchhiking at night, vulnerable.'
             : 'Arrived at a remote motel.';
 
-        // Force a single-line JSON response
         const reply = await guardedAIRequest([
             {
                 role: 'user',
-                content: `You are a creative assistant. Generate a guest profile for a 1979 roadside motel. The character is a GUEST staying at the motel, NOT the owner, manager, or any staff. They are just passing through.
-
-You MUST reply with ONLY a single-line JSON object (no line breaks, no markdown, no extra text). Use these exact keys: name, appearance, reason, personality, prompt.
-
-IMPORTANT: 
-- Invent a completely original first and last name.
-- The "prompt" must describe the character as a guest/traveller, never as staff.
-- The prompt must include "You are a guest at a remote motel" or similar.
-
-Example: {"name":"Dolores Marsh","appearance":"short woman with a fox-fur stole","reason":"Fled a dinner party","personality":"haughty, hiding something","prompt":"You are a guest at a remote motel. You are Dolores, a socialite on the run. Keep replies short."}
-
-Now generate a NEW guest. Context: ${sourceContext}. Make it unusual and slightly unsettling.`
+                content: `Create a guest profile for a 1979 roadside motel. Return ONLY a JSON object (no extra text, no markdown). Use these exact keys: name, appearance, reason, personality, prompt.
+Example:
+{
+  "name": "Harold Keene",
+  "appearance": "Tall man, rumpled suit",
+  "reason": "Car broke down on the highway",
+  "personality": "Weary, drinks too much",
+  "prompt": "You are Harold, a salesman with a dark secret. Keep replies short."
+}
+Now generate a NEW guest. Context: ${sourceContext}. Make it interesting with a hint of mystery.`
             }
         ], 350, 0.9);
 
+        // 🔍 DIAGNOSTIC – check the console to see what the AI returned
         console.log('=== RAW AI REPLY ===');
         console.log(reply);
         console.log('====================');
 
+        // ───── AGGRESSIVE JSON EXTRACTION ─────
         let data;
         const jsonStart = reply.indexOf('{');
         const jsonEnd = reply.lastIndexOf('}');
         if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-            let jsonString = reply.substring(jsonStart, jsonEnd + 1)
-                                  .replace(/```json|```/g, '')
+            const jsonString = reply.substring(jsonStart, jsonEnd + 1)
+                                  .replace(/```json|```/g, '')  // remove markdown
                                   .trim();
-
-            // Attempt direct parse
             try {
                 data = JSON.parse(jsonString);
-            } catch (e1) {
-                // Sanitize: escape illegal newlines/tabs inside strings
-                const sanitized = jsonString.replace(/"((?:[^"\\]|\\.)*)"/g, (match, group) => {
-                    const escaped = group.replace(/\n/g, '\\n').replace(/\t/g, '\\t');
-                    return `"${escaped}"`;
-                });
-                try {
-                    data = JSON.parse(sanitized);
-                } catch (e2) {
-                    console.warn('Failed to parse even after sanitizing:', sanitized);
-                    throw new Error('Cannot parse AI JSON output');
-                }
+            } catch (e) {
+                console.warn('Failed to parse extracted JSON:', jsonString);
+                throw new Error('Cannot parse AI JSON output');
             }
         } else {
             throw new Error('No JSON braces found in AI response');
         }
 
+        // Validate fields
         if (!data.name || !data.appearance || !data.reason || !data.personality || !data.prompt) {
             throw new Error('AI response missing required fields');
         }
 
+        // Success
         return {
             id: uid(),
             name: data.name,
@@ -468,7 +527,8 @@ Now generate a NEW guest. Context: ${sourceContext}. Make it unusual and slightl
     } finally {
         guestGenerationInProgress = false;
     }
-}    // ───────────── Desk ─────────────
+}
+    // ───────────── Desk ─────────────
     function placeGuestAtDesk(guest) {
         gameState.deskGuest = guest;
         saveGameState();
