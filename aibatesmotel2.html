@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>SHADOW PINE MOTEL · 1979</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Press Start 2P', monospace;
+            padding: 12px;
+        }
+        .monitor {
+            max-width: 540px; width: 100%; height: 88vh;
+            background: #0a0f0a; border: 5px solid #1a3a1a; border-radius: 12px;
+            box-shadow: 0 0 30px #00ff4133, 0 0 60px #00ff4111, inset 0 0 20px #000;
+            display: flex; flex-direction: column; overflow: hidden;
+            position: relative; z-index: 1;
+        }
+        .monitor::after {
+            content: ''; position: absolute; inset:0;
+            background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.4));
+            pointer-events: none; z-index: 998; border-radius: 8px;
+        }
+        .status-bar {
+            padding:8px 14px; background:#050a05; border-bottom:2px solid #1a4a1a;
+            display:flex; justify-content:space-between; font-size:9px; color:#33ff55;
+            text-shadow:0 0 8px #00ff41; position:relative; z-index:997;
+        }
+        .notification-bar {
+            position:absolute; top:44px; left:10px; right:10px; background:#0a0f0a;
+            border:2px solid #ff4444; color:#ff6666; font-size:7px; padding:8px 10px;
+            text-align:center; z-index:1001; opacity:0; pointer-events:none;
+            transition:0.3s; text-shadow:0 0 6px #f00;
+        }
+        .notification-bar.show { opacity:1; pointer-events:auto; }
+        .notification-bar.info { border-color:#33ff55; color:#33ff55; text-shadow:0 0 6px #0f0; }
+        .tabs { display:flex; background:#050a05; border-bottom:2px solid #1a4a1a; z-index:997; }
+        .tab {
+            flex:1; text-align:center; padding:8px 3px; font-size:7px; color:#1a5a1a;
+            cursor:pointer; background:#080f08; border:1px solid #1a3a1a;
+            border-bottom:none; margin-right:1px; white-space:nowrap;
+        }
+        .tab.active { color:#33ff55; background:#0a0f0a; text-shadow:0 0 10px #0f0; border-color:#33ff55; }
+        .panel {
+            flex:1; overflow-y:auto; display:none; background:#0a0f0a;
+            flex-direction:column; position:relative; z-index:997;
+        }
+        .panel.active { display:flex; }
+        .section-title {
+            padding:10px 12px; font-size:8px; border-bottom:1px solid #1a4a1a;
+            color:#55ff77; text-shadow:0 0 6px #0f0; background:#080d08;
+        }
+        .room-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; padding:12px; }
+        .room-card {
+            background:#080d08; border:2px solid #1a3a1a; padding:10px 8px;
+            text-align:center; cursor:pointer; font-size:7px; min-height:80px;
+            display:flex; flex-direction:column; justify-content:center; align-items:center;
+            gap:4px;
+        }
+        .room-card.occupied { border-color:#ff4444; background:#0f0808; }
+        .room-card.special { border-style:dashed; border-color:#8844ff; }
+        .room-number { font-size:14px; font-weight:bold; color:#33ff55; text-shadow:0 0 8px #0f0; }
+        .room-occupant { font-size:6px; color:#ff8888; text-shadow:0 0 4px #f00; }
+        .room-empty { font-size:6px; color:#1a4a1a; }
+        .guest-list { padding:8px; display:flex; flex-direction:column; gap:6px; }
+        .guest-item {
+            background:#080d08; border:1px solid #1a3a1a; padding:10px;
+            display:flex; justify-content:space-between; align-items:center;
+            font-size:7px; gap:8px; flex-wrap:wrap;
+        }
+        .guest-info { flex:1; min-width:120px; }
+        .guest-name { color:#33ff55; text-shadow:0 0 4px #0f0; font-size:8px; }
+        .guest-detail { color:#1a6a1a; font-size:6px; margin-top:2px; }
+        .btn {
+            background:#080f08; border:2px solid #1a4a1a; padding:5px 10px;
+            color:#33ff55; cursor:pointer; font-family:'Press Start 2P',monospace;
+            font-size:6px; text-transform:uppercase; letter-spacing:1px;
+            transition:border-color 0.2s; white-space:nowrap;
+        }
+        .btn:hover { border-color:#33ff55; text-shadow:0 0 6px #0f0; }
+        .btn-danger { border-color:#4a1a1a; color:#ff4444; }
+        .btn-danger:hover { border-color:#ff4444; text-shadow:0 0 6px #f00; }
+        .btn-special { border-color:#4a1a8a; color:#9944ff; }
+        .btn-special:hover { border-color:#8844ff; text-shadow:0 0 6px #84f; }
+        .btn-small { padding:3px 6px; font-size:5px; }
+        .flex-row { display:flex; gap:4px; flex-wrap:wrap; align-items:center; }
+        .messages-area { flex:1; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:8px; min-height:150px; }
+        .message-row { display:flex; max-width:88%; }
+        .incoming { align-self:flex-start; }
+        .outgoing { align-self:flex-end; }
+        .msg-bubble {
+            padding:6px 10px; font-size:7px; line-height:1.7; word-wrap:break-word;
+            background:#080d08; border:1px solid #1a4a1a; color:#33ff55;
+        }
+        .incoming .msg-bubble { border-left:3px solid #33ff55; }
+        .outgoing .msg-bubble { border-right:3px solid #8844ff; background:#0a080f; }
+        .input-area { padding:8px; background:#050a05; border-top:1px solid #1a4a1a; display:flex; gap:4px; }
+        .chat-input {
+            flex:1; background:#080d08; border:2px solid #1a4a1a; padding:6px 10px;
+            color:#33ff55; font-family:'Press Start 2P',monospace; font-size:7px;
+            outline:none; caret-color:#33ff55;
+        }
+        .chat-input:focus { border-color:#33ff55; box-shadow:0 0 8px #00ff4122; }
+        .send-btn {
+            background:#080d08; border:2px solid #1a4a1a; width:38px; height:34px;
+            display:flex; align-items:center; justify-content:center; color:#33ff55;
+            cursor:pointer; font-size:14px; font-family:'Press Start 2P',monospace;
+        }
+        .back-btn { background:none; border:none; color:#33ff55; font-size:16px; cursor:pointer; width:30px; }
+        .chat-header {
+            padding:8px 10px; background:#050a05; border-bottom:1px solid #1a4a1a;
+            display:flex; align-items:center; gap:8px; font-size:7px; text-transform:uppercase;
+        }
+        .event-log { padding:10px; font-size:6px; line-height:1.8; color:#1a6a1a; }
+        .event { margin-bottom:4px; padding:3px 0; border-bottom:1px dotted #1a2a1a; }
+        .event.ominous { color:#ff6644; text-shadow:0 0 3px #f00; }
+        .helper-panel { padding:12px; display:flex; flex-direction:column; gap:10px; }
+        .footer {
+            text-align:center; font-size:6px; color:#1a4a1a; padding:6px;
+            background:#050a05; border-top:1px solid #1a3a1a;
+            display:flex; justify-content:space-between; align-items:center; letter-spacing:2px;
+            position:relative; z-index:997;
+        }
+        .reset-api { background:none; border:none; color:#ff5555; font-size:6px; cursor:pointer; text-decoration:underline; }
+        .modal {
+            display:none; position:fixed; z-index:2000; left:0; top:0; width:100%; height:100%;
+            background:rgba(0,0,0,0.95); align-items:center; justify-content:center;
+        }
+        .modal-content {
+            background:#0a0f0a; border:4px solid #33ff55; width:340px; padding:20px;
+            text-align:center; font-family:'Press Start 2P',monospace; font-size:8px;
+            box-shadow:0 0 30px #00ff4133;
+        }
+        .modal-content input {
+            width:100%; padding:8px; margin:12px 0; background:#080d08;
+            border:2px solid #1a4a1a; color:#33ff55; font-family:'Press Start 2P',monospace; font-size:8px;
+        }
+        .modal-btn {
+            background:#080d08; border:2px solid #33ff55; padding:6px 14px; color:#33ff55;
+            cursor:pointer; font-family:'Press Start 2P',monospace; font-size:7px; margin:4px; text-transform:uppercase;
+        }
+        .api-note { font-size:5px; color:#1a5a1a; margin-top:8px; }
+        .photo-display {
+            padding:12px; text-align:center; background:#050a05;
+            border:1px solid #1a3a1a; margin:8px 0;
+        }
+        .photo-display img {
+            max-width:100%; height:auto; border:2px solid #1a4a1a;
+        }
+        .photo-fallback {
+            font-size:13px; color:#33ff55; text-shadow:0 0 10px #0f0;
+            background:#080d08; padding:16px; border:2px dashed #1a4a1a;
+            margin:8px 0; text-align:left;
+        }
+        .no-guests { padding:30px; text-align:center; font-size:7px; color:#1a4a1a; }
+        select {
+            background:#080d08; border:2px solid #1a4a1a; color:#33ff55;
+            font-family:'Press Start 2P',monospace; font-size:6px; padding:4px 8px; max-width:140px;
+        }
+    </style>
+</head>
+<body>
+<div class="monitor">
+    <div class="status-bar">
+        <span id="motelNameDisplay">SHADOW PINE MOTEL</span>
+        <span id="timeDisplay">🌙 23:15</span>
+    </div>
+    <div class="notification-bar" id="notificationBar"></div>
+    <div class="tabs" id="tabBar">
+        <div class="tab active" data-tab="desk">[DESK]</div>
+        <div class="tab" data-tab="rooms">[ROOMS]</div>
+        <div class="tab" data-tab="guests">[GUESTS]</div>
+        <div class="tab" data-tab="watch">[PHOTO]</div>
+        <div class="tab" data-tab="helper">[HELPER]</div>
+        <div class="tab" data-tab="log">[LOG]</div>
+    </div>
+
+    <!-- DESK -->
+    <div id="deskPanel" class="panel active">
+        <div class="section-title">🛎️ FRONT DESK</div>
+        <div id="deskContent" style="padding:12px; flex:1;">
+            <div class="no-guests" id="deskEmpty">NO ONE AT THE DESK...</div>
+            <div id="deskGuestCard" style="display:none;">
+                <div class="guest-item" style="flex-direction:column; align-items:flex-start; gap:8px;">
+                    <div><span class="guest-name" id="deskGuestName"></span></div>
+                    <div class="guest-detail" id="deskGuestDesc"></div>
+                    <div class="guest-detail" style="color:#ff9944;" id="deskGuestReason"></div>
+                    <div class="flex-row" style="gap:6px;">
+                        <select id="roomSelect"></select>
+                        <button class="btn" id="checkInBtn">🔑 CHECK IN</button>
+                        <button class="btn btn-danger" id="turnAwayBtn">🚫 TURN AWAY</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ROOMS -->
+    <div id="roomsPanel" class="panel">
+        <div class="section-title">🚪 MOTEL ROOMS</div>
+        <div class="room-grid" id="roomGrid"></div>
+        <div id="roomDetailView" style="display:none; flex-direction:column; height:100%;">
+            <div class="chat-header">
+                <button class="back-btn" id="closeRoomDetailBtn">←</button>
+                <span id="roomDetailTitle">ROOM</span>
+            </div>
+            <div class="messages-area" id="roomDetailMessages"></div>
+            <div class="flex-row" style="padding:8px; gap:4px; flex-wrap:wrap; border-top:1px solid #1a4a1a;">
+                <button class="btn" id="spyRoomBtn">👁️ SPY</button>
+                <button class="btn" id="knockRoomBtn">✊ KNOCK</button>
+                <button class="btn btn-danger btn-small" id="clearRoomBtn">🩸 CLEAR</button>
+                <button class="btn btn-special btn-small" id="recruitRoomBtn">🔗 RECRUIT</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GUESTS -->
+    <div id="guestsPanel" class="panel">
+        <div class="section-title">👥 REGISTERED GUESTS</div>
+        <div class="guest-list" id="guestListContainer"></div>
+        <div id="guestChatView" style="display:none; flex-direction:column; height:100%;">
+            <div class="chat-header">
+                <button class="back-btn" id="closeGuestChatBtn">←</button>
+                <span id="guestChatName"></span>
+            </div>
+            <div class="messages-area" id="guestChatMessages"></div>
+            <div class="input-area">
+                <span style="font-size:10px;color:#33ff55;line-height:34px;">&gt;</span>
+                <input type="text" class="chat-input" id="guestChatInput" placeholder="SPEAK TO GUEST_">
+                <button class="send-btn" id="guestSendBtn">↩</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PHOTO SURVEILLANCE -->
+    <div id="watchPanel" class="panel">
+        <div class="section-title">📷 PHOTO SURVEILLANCE</div>
+        <div style="padding:10px; font-size:6px; color:#1a5a1a;">SELECT A ROOM TO SNAPSHOT:</div>
+        <div class="guest-list" id="watchListContainer"></div>
+        <div id="watchResult" style="padding:10px; display:none;"></div>
+    </div>
+
+    <!-- HELPER -->
+    <div id="helperPanel" class="panel">
+        <div class="section-title">🔧 HELPER</div>
+        <div class="helper-panel" id="helperContent">
+            <div class="no-guests" id="noHelperMsg">NO HELPER RECRUITED.</div>
+            <div id="helperInfo" style="display:none;">
+                <div class="guest-item" style="flex-direction:column; align-items:flex-start; gap:6px;">
+                    <span class="guest-name" id="helperName"></span>
+                    <span class="guest-detail" id="helperDesc"></span>
+                    <span style="font-size:6px;color:#ff9944;" id="helperLoyalty"></span>
+                </div>
+                <button class="btn btn-special" id="sendHelperBtn">🚗 SEND TO FIND HITCHHIKERS</button>
+                <span style="font-size:5px;color:#1a5a1a;" id="helperStatus"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- LOG -->
+    <div id="logPanel" class="panel">
+        <div class="section-title">📜 MOTEL LOG</div>
+        <div class="event-log" id="eventLog"></div>
+    </div>
+
+    <div class="footer">
+        <span>SHADOW PINE · 1979</span>
+        <button id="resetApiKeyBtn" class="reset-api">🔑 RESET KEY</button>
+    </div>
+</div>
+
+<!-- API Modal -->
+<div id="apiModal" class="modal">
+    <div class="modal-content">
+        <h2 style="font-size:10px; margin-bottom:12px;">🔑 ENTER MISTRAL KEY</h2>
+        <p style="font-size:6px;">GET YOURS AT CONSOLE.MISTRAL.AI</p>
+        <input type="password" id="apiKeyInput" placeholder="YOUR KEY_">
+        <div style="margin-top:12px;">
+            <button class="modal-btn" id="saveApiKeyBtn">SAVE</button>
+            <button class="modal-btn" id="closeApiModalBtn">CANCEL</button>
+        </div>
+        <div class="api-note">FREE TIER · NO CREDIT CARD</div>
+    </div>
+</div>
+
+<script>
+(function() {
+    // ───────────── API & Storage ─────────────
+    let apiKey = localStorage.getItem('shadow_pine_api_key') || '';
+    let gameState = loadGameState();
+
+    function uid() { return Date.now() + '-' + Math.random().toString(36).substr(2, 8); }
+    function saveGameState() { localStorage.setItem('shadow_pine_state', JSON.stringify(gameState)); }
+    function loadGameState() {
+        const saved = localStorage.getItem('shadow_pine_state');
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                return {
+                    motelName: parsed.motelName || 'SHADOW PINE MOTEL',
+                    rooms: parsed.rooms || createInitialRooms(),
+                    guests: parsed.guests || [],
+                    helper: parsed.helper || null,
+                    events: parsed.events || [],
+                    time: parsed.time || '23:15',
+                    deskGuest: parsed.deskGuest || null,
+                    helperOutUntil: parsed.helperOutUntil || null,
+                    messages: parsed.messages || {}
+                };
+            } catch(e) {}
+        }
+        return {
+            motelName: 'SHADOW PINE MOTEL',
+            rooms: createInitialRooms(),
+            guests: [],
+            helper: null,
+            events: [{ text: 'Motel opened. Waiting for guests...', ominous: false, time: '23:00' }],
+            time: '23:15',
+            deskGuest: null,
+            helperOutUntil: null,
+            messages: {}
+        };
+    }
+    function createInitialRooms() {
+        return [
+            { number:1, occupied:false, guestId:null, special:false, desc:'Ground floor, near office' },
+            { number:2, occupied:false, guestId:null, special:false, desc:'Ground floor, garden view' },
+            { number:3, occupied:false, guestId:null, special:false, desc:'Ground floor, quiet corner' },
+            { number:4, occupied:false, guestId:null, special:false, desc:'Upper floor, balcony' },
+            { number:5, occupied:false, guestId:null, special:false, desc:'Upper floor, highway view' },
+            { number:6, occupied:false, guestId:null, special:true, desc:'Basement room, very private' }
+        ];
+    }
+    function updateGameState(changes) { Object.assign(gameState, changes); saveGameState(); refreshUI(); }
+
+    // ───────────── Notifications ─────────────
+    let notificationTimeout;
+    function showNotification(text, duration=3500, isInfo=false) {
+        const bar = document.getElementById('notificationBar');
+        bar.textContent = text;
+        bar.classList.remove('info');
+        if (isInfo) bar.classList.add('info');
+        bar.classList.add('show');
+        clearTimeout(notificationTimeout);
+        notificationTimeout = setTimeout(() => bar.classList.remove('show'), duration);
+    }
+
+    // ───────────── AI (Mistral) ─────────────
+    const SYSTEM_INSTRUCTION = " IMPORTANT: You are a real human character in 1979 at a remote roadside motel. Never break character or mention being an AI. Keep replies short (1-3 sentences). Atmosphere slightly unsettling. Keep it creepy";
+    let isAIRequestPending = false;
+let guestGenerationInProgress = false;
+    async function aiRequest(messages, maxTokens=200, temp=0.85) {
+        if (!apiKey) throw new Error("No API key");
+        const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+            method:'POST',
+            headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${apiKey}` },
+            body: JSON.stringify({ model:'mistral-small-latest', messages, temperature:temp, max_tokens:maxTokens })
+        });
+        if (!response.ok) throw new Error(`API error ${response.status}`);
+        const data = await response.json();
+        return data.choices[0].message.content.trim();
+    }
+    async function guardedAIRequest(messages, maxTokens=200, temp=0.85) {
+        if (isAIRequestPending) throw new Error("Request already in progress");
+        isAIRequestPending = true;
+        try { return await aiRequest(messages, maxTokens, temp); }
+        finally { isAIRequestPending = false; }
+    }
+
+    // ───────────── Time ─────────────
+    function advanceTime(minutes) {
+        let [h,m] = gameState.time.split(':').map(Number);
+        m += minutes;
+        while(m>=60){ m-=60; h++; }
+        if(h>=24) h-=24;
+        return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+    }
+
+// ------------------------------------------------------------
+// MAIN GUEST GENERATION (with lock + AI / fallback)
+// ------------------------------------------------------------
+async function generateGuest(source = 'random') {
+    if (guestGenerationInProgress) throw new Error('Guest generation already in progress');
+    guestGenerationInProgress = true;
+
+    try {
+        const sourceContext = source === 'hitchhiker'
+            ? 'This person was picked up hitchhiking at night, vulnerable.'
+            : 'Arrived at a remote motel.';
+
+        // Force a single-line JSON response
+        const reply = await guardedAIRequest([
+            {
+                role: 'user',
+                content: `You are a creative assistant. Generate a guest profile for a 1979 roadside motel. The character is a GUEST staying at the motel, NOT the owner, manager, or any staff. They are just passing through.
+
+You MUST reply with ONLY a single-line JSON object (no line breaks, no markdown, no extra text). Use these exact keys: name, appearance, reason, personality, prompt.
+
+IMPORTANT: 
+- Invent a completely original first and last name.
+- The "prompt" must describe the character as a guest/traveller, never as staff.
+- The prompt must include "You are a guest at a remote motel" or similar.
+
+Example: {"name":"Dolores Marsh","appearance":"short woman with a fox-fur stole","reason":"Fled a dinner party","personality":"haughty, hiding something","prompt":"You are a guest at a remote motel. You are Dolores, a socialite on the run. Keep replies short."}
+
+Now generate a NEW guest. Context: ${sourceContext}. Make it unusual and slightly unsettling.`
+            }
+        ], 350, 0.9);
+
+        console.log('=== RAW AI REPLY ===');
+        console.log(reply);
+        console.log('====================');
+
+        let data;
+        const jsonStart = reply.indexOf('{');
+        const jsonEnd = reply.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+            let jsonString = reply.substring(jsonStart, jsonEnd + 1)
+                                  .replace(/```json|```/g, '')
+                                  .trim();
+
+            // Attempt direct parse
+            try {
+                data = JSON.parse(jsonString);
+            } catch (e1) {
+                // Sanitize: escape illegal newlines/tabs inside strings
+                const sanitized = jsonString.replace(/"((?:[^"\\]|\\.)*)"/g, (match, group) => {
+                    const escaped = group.replace(/\n/g, '\\n').replace(/\t/g, '\\t');
+                    return `"${escaped}"`;
+                });
+                try {
+                    data = JSON.parse(sanitized);
+                } catch (e2) {
+                    console.warn('Failed to parse even after sanitizing:', sanitized);
+                    throw new Error('Cannot parse AI JSON output');
+                }
+            }
+        } else {
+            throw new Error('No JSON braces found in AI response');
+        }
+
+        if (!data.name || !data.appearance || !data.reason || !data.personality || !data.prompt) {
+            throw new Error('AI response missing required fields');
+        }
+
+        return {
+            id: uid(),
+            name: data.name,
+            appearance: data.appearance,
+            reason: data.reason,
+            personality: data.personality,
+            prompt: data.prompt + SYSTEM_INSTRUCTION,
+            roomNumber: null,
+            alive: true,
+            recruited: false,
+            source
+        };
+    } catch (error) {
+        console.warn('AI guest generation failed, using fallback:', error.message);
+        return generateFallbackGuest(source);
+    } finally {
+        guestGenerationInProgress = false;
+    }
+}    // ───────────── Desk ─────────────
+    function placeGuestAtDesk(guest) {
+        gameState.deskGuest = guest;
+        saveGameState();
+        refreshDeskPanel();
+        showNotification(`🔔 ${guest.name} has arrived.`, 4000, true);
+        addEvent(`${guest.name} arrived. ${guest.reason}`, false);
+    }
+    function checkInGuest() {
+        if (!gameState.deskGuest) return;
+        const roomNum = parseInt(document.getElementById('roomSelect').value);
+        const room = gameState.rooms.find(r=>r.number===roomNum);
+        if (!room || room.occupied) { showNotification('Room occupied!'); return; }
+        const guest = gameState.deskGuest;
+        guest.roomNumber = roomNum;
+        room.occupied = true; room.guestId = guest.id;
+        gameState.guests.push(guest);
+        if(!gameState.messages[guest.id]) gameState.messages[guest.id] = [];
+        gameState.deskGuest = null;
+        updateGameState({});
+        showNotification(`${guest.name} checked into Room ${roomNum}.`, 3000, true);
+        addEvent(`${guest.name} checked into Room ${roomNum}.`, false);
+        refreshAllPanels();
+    }
+    function turnAwayGuest() {
+        if (!gameState.deskGuest) return;
+        addEvent(`${gameState.deskGuest.name} turned away.`, false);
+        gameState.deskGuest = null;
+        updateGameState({});
+        showNotification('Guest turned away.');
+        refreshAllPanels();
+    }
+    function refreshDeskPanel() {
+        const deskEmpty = document.getElementById('deskEmpty');
+        const deskCard = document.getElementById('deskGuestCard');
+        const roomSelect = document.getElementById('roomSelect');
+        if (!gameState.deskGuest) {
+            deskEmpty.style.display='block'; deskCard.style.display='none';
+        } else {
+            deskEmpty.style.display='none'; deskCard.style.display='block';
+            const g = gameState.deskGuest;
+            document.getElementById('deskGuestName').textContent = g.name;
+            document.getElementById('deskGuestDesc').textContent = g.appearance;
+            document.getElementById('deskGuestReason').textContent = '💬 "'+g.reason+'"';
+            roomSelect.innerHTML = gameState.rooms.filter(r=>!r.occupied)
+                .map(r=>`<option value="${r.number}">Room ${r.number}${r.special?' [PVT]':''} - ${r.desc}</option>`).join('');
+            document.getElementById('checkInBtn').disabled = gameState.rooms.every(r=>r.occupied);
+        }
+    }
+
+    // ───────────── Rooms ─────────────
+    let currentRoomView = null;
+    function renderRoomGrid() {
+        const grid = document.getElementById('roomGrid');
+        document.getElementById('roomDetailView').style.display='none';
+        grid.style.display='grid';
+        grid.innerHTML = gameState.rooms.map(room => {
+            const guest = room.occupied ? gameState.guests.find(g=>g.id===room.guestId && g.alive) : null;
+            return `
+            <div class="room-card ${room.occupied?'occupied':''} ${room.special?'special':''}" onclick="openRoomDetail(${room.number})">
+                <div class="room-number">${room.number}</div>
+                ${room.special?'<span style="font-size:5px;color:#8844ff;">[BASEMENT]</span>':''}
+                ${guest ? `<span class="room-occupant">${guest.name}</span>` : '<span class="room-empty">EMPTY</span>'}
+                <span style="font-size:5px;color:#1a4a1a;">${room.desc}</span>
+            </div>`;
+        }).join('');
+    }
+    function openRoomDetail(roomNum) {
+        currentRoomView = roomNum;
+        const room = gameState.rooms.find(r=>r.number===roomNum);
+        if(!room) return;
+        document.getElementById('roomGrid').style.display='none';
+        const detailView = document.getElementById('roomDetailView');
+        detailView.style.display='flex';
+        document.getElementById('roomDetailTitle').textContent = `ROOM ${roomNum}${room.special?' [BASEMENT]':''}`;
+        const guest = room.occupied ? gameState.guests.find(g=>g.id===room.guestId && g.alive) : null;
+        const msgContainer = document.getElementById('roomDetailMessages');
+        if (guest && gameState.messages[guest.id]) {
+            msgContainer.innerHTML = gameState.messages[guest.id].map(m=>
+                `<div class="message-row ${m.fromMe?'outgoing':'incoming'}"><div class="msg-bubble">${escapeHtml(m.text)}</div></div>`
+            ).join('');
+        } else {
+            msgContainer.innerHTML = '<div style="padding:20px;text-align:center;color:#1a5a1a;">'+(guest?'Occupied.':'Empty.')+'</div>';
+        }
+        updateRoomButtons(room, guest);
+    }
+    function updateRoomButtons(room, guest) {
+        document.getElementById('spyRoomBtn').style.display = guest ? 'inline-block' : 'none';
+        document.getElementById('knockRoomBtn').style.display = guest ? 'inline-block' : 'none';
+        document.getElementById('clearRoomBtn').style.display = guest ? 'inline-block' : 'none';
+        document.getElementById('recruitRoomBtn').style.display = (guest && !guest.recruited && !gameState.helper) ? 'inline-block' : 'none';
+    }
+    async function spyOnRoom() {
+        if(!currentRoomView) return;
+        const room = gameState.rooms.find(r=>r.number===currentRoomView);
+        if(!room||!room.occupied) return;
+        const guest = gameState.guests.find(g=>g.id===room.guestId && g.alive);
+        if(!guest) return;
+        showNotification('👁️ Observing...', 1500, true);
+        try {
+            const reply = await guardedAIRequest([
+                { role:'system', content:guest.prompt },
+                { role:'user', content:`(You are alone in Room ${room.number}. Describe what you are doing in 1-2 sentences.)` }
+            ], 120, 0.9);
+            if(!gameState.messages[guest.id]) gameState.messages[guest.id]=[];
+            gameState.messages[guest.id].push({ id:uid(), text:`👁️ [SURVEILLANCE]: ${reply}`, timestamp:Date.now(), fromMe:true, surveillance:true });
+            saveGameState();
+            openRoomDetail(currentRoomView);
+            addEvent(`Spied on Room ${room.number}.`, true);
+        } catch(e) { showNotification('Spy failed.'); }
+    }
+    async function knockOnRoom() {
+        if(!currentRoomView) return;
+        const room = gameState.rooms.find(r=>r.number===currentRoomView);
+        if(!room||!room.occupied) return;
+        const guest = gameState.guests.find(g=>g.id===room.guestId && g.alive);
+        if(!guest) return;
+        try {
+            const reply = await guardedAIRequest([
+                { role:'system', content:guest.prompt },
+                { role:'user', content:'The manager knocked. You open. What do you say?' }
+            ], 80, 0.9);
+            if(!gameState.messages[guest.id]) gameState.messages[guest.id]=[];
+            gameState.messages[guest.id].push({ id:uid(), text:reply, timestamp:Date.now(), fromMe:false, surveillance:false });
+            saveGameState();
+            openRoomDetail(currentRoomView);
+        } catch(e) { showNotification('No response.'); }
+    }
+    function clearRoom() {
+        if(!currentRoomView) return;
+        const room = gameState.rooms.find(r=>r.number===currentRoomView);
+        if(!room||!room.occupied) return;
+        const guest = gameState.guests.find(g=>g.id===room.guestId && g.alive);
+        if(!guest) return;
+        guest.alive = false; room.occupied = false; room.guestId = null;
+        if(gameState.helper && gameState.helper.id===guest.id) { gameState.helper = null; gameState.helperOutUntil = null; }
+        addEvent(`Room ${room.number} cleared.`, true);
+        updateGameState({});
+        showNotification('Room cleared.');
+        currentRoomView = null;
+        document.getElementById('roomDetailView').style.display='none';
+        document.getElementById('roomGrid').style.display='grid';
+        refreshAllPanels();
+    }
+    function recruitAsHelper() {
+        if(!currentRoomView) return;
+        const room = gameState.rooms.find(r=>r.number===currentRoomView);
+        if(!room||!room.occupied) return;
+        const guest = gameState.guests.find(g=>g.id===room.guestId && g.alive);
+        if(!guest || guest.recruited || gameState.helper) return;
+        guest.recruited = true;
+        gameState.helper = guest;
+        addEvent(`${guest.name} recruited as helper.`, false);
+        updateGameState({});
+        showNotification(`${guest.name} is your helper!`, 4000, true);
+        currentRoomView = null;
+        document.getElementById('roomDetailView').style.display='none';
+        document.getElementById('roomGrid').style.display='grid';
+        refreshAllPanels();
+    }
+
+    // ───────────── Guest Chat ─────────────
+    let currentGuestChatId = null;
+    function renderGuestList() {
+        const container = document.getElementById('guestListContainer');
+        document.getElementById('guestChatView').style.display='none';
+        container.style.display='flex';
+        const alive = gameState.guests.filter(g=>g.alive);
+        if(alive.length===0) container.innerHTML = '<div class="no-guests">NO GUESTS REGISTERED.</div>';
+        else container.innerHTML = alive.map(g=>`
+            <div class="guest-item">
+                <div class="guest-info" onclick="openGuestChat('${g.id}')">
+                    <div class="guest-name">${escapeHtml(g.name)}</div>
+                    <div class="guest-detail">Room ${g.roomNumber} · ${escapeHtml(g.appearance?.substring(0,40))}...</div>
+                </div>
+                <div class="flex-row">
+                    <button class="btn btn-small" onclick="openGuestChat('${g.id}')">TALK</button>
+                    <button class="btn btn-danger btn-small" onclick="removeGuest('${g.id}')">✖</button>
+                </div>
+            </div>`).join('');
+    }
+    function openGuestChat(guestId) {
+        currentGuestChatId = guestId;
+        const guest = gameState.guests.find(g=>g.id===guestId && g.alive);
+        if(!guest) return;
+        document.getElementById('guestListContainer').style.display='none';
+        document.getElementById('guestChatView').style.display='flex';
+        document.getElementById('guestChatName').textContent = guest.name;
+        renderGuestChatMessages();
+    }
+    function renderGuestChatMessages() {
+        const container = document.getElementById('guestChatMessages');
+        const msgs = gameState.messages[currentGuestChatId] || [];
+        container.innerHTML = msgs.filter(m=>!m.surveillance).map(m=>
+            `<div class="message-row ${m.fromMe?'outgoing':'incoming'}"><div class="msg-bubble">${escapeHtml(m.text)}</div></div>`
+        ).join('');
+        container.scrollTop = container.scrollHeight;
+    }
+    async function sendGuestMessage() {
+        if(!currentGuestChatId) return;
+        const input = document.getElementById('guestChatInput');
+        const text = input.value.trim();
+        if(!text) return;
+        input.value = '';
+        const guest = gameState.guests.find(g=>g.id===currentGuestChatId && g.alive);
+        if(!guest) return;
+        if(!gameState.messages[guest.id]) gameState.messages[guest.id]=[];
+        gameState.messages[guest.id].push({ id:uid(), text, timestamp:Date.now(), fromMe:true, surveillance:false });
+        saveGameState();
+        renderGuestChatMessages();
+        try {
+            const history = gameState.messages[guest.id].filter(m=>!m.surveillance).slice(-6).map(m=>({ role:m.fromMe?'user':'assistant', content:m.text }));
+            const reply = await guardedAIRequest([{ role:'system', content:guest.prompt }, ...history], 150, 0.85);
+            gameState.messages[guest.id].push({ id:uid(), text:reply, timestamp:Date.now(), fromMe:false, surveillance:false });
+            saveGameState();
+            renderGuestChatMessages();
+        } catch(e) {
+            gameState.messages[guest.id].push({ id:uid(), text:'[No response...]', timestamp:Date.now(), fromMe:false });
+            renderGuestChatMessages();
+        }
+    }
+    function removeGuest(guestId) {
+        const guest = gameState.guests.find(g=>g.id===guestId);
+        if(!guest) return;
+        guest.alive = false;
+        const room = gameState.rooms.find(r=>r.guestId===guestId);
+        if(room) { room.occupied = false; room.guestId = null; }
+        if(gameState.helper && gameState.helper.id===guestId) { gameState.helper = null; gameState.helperOutUntil = null; }
+        addEvent(`${guest.name} removed.`, true);
+        updateGameState({});
+        showNotification(`${guest.name} removed.`);
+        refreshAllPanels();
+    }
+
+    // ───────────── PHOTO SURVEILLANCE (improved fallback) ─────────────
+    function renderWatchList() {
+        const container = document.getElementById('watchListContainer');
+        container.innerHTML = gameState.rooms.map(room => {
+            const guest = room.occupied ? gameState.guests.find(g=>g.id===room.guestId && g.alive) : null;
+            return `
+            <div class="guest-item">
+                <div class="guest-info">
+                    <div class="guest-name">Room ${room.number}${room.special?' [BASEMENT]':''}</div>
+                    <div class="guest-detail">${guest ? '👤 '+escapeHtml(guest.name) : '🛏️ EMPTY'} · ${escapeHtml(room.desc)}</div>
+                </div>
+                <button class="btn btn-small" onclick="snapRoomPhoto(${room.number})">📷 SNAP</button>
+            </div>`;
+        }).join('');
+    }
+
+    async function snapRoomPhoto(roomNum) {
+        const room = gameState.rooms.find(r=>r.number===roomNum);
+        if(!room) return;
+        const guest = room.occupied ? gameState.guests.find(g=>g.id===room.guestId && g.alive) : null;
+        const resultDiv = document.getElementById('watchResult');
+        resultDiv.style.display='block';
+        resultDiv.innerHTML = '<div class="photo-display" style="font-size:7px;">📸 DEVELOPING...</div>';
+        showNotification('📸 Taking photo...', 1000, true);
+
+        // Build a short descriptive prompt for Pollinations
+        let rawPrompt;
+        if (guest) {
+            rawPrompt = `Dim room 1979, room ${room.number}, ${room.desc}. ${guest.appearance}. Night, grainy photo.`;
+        } else {
+            rawPrompt = `Empty dim room 1979, room ${room.number}, ${room.desc}. No one inside, quiet, grainy photo.`;
+        }
+        const safePrompt = rawPrompt.substring(0, 380); // keep it short
+        const imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(safePrompt)}?t=${Date.now()}`;
+
+        // Try to load the image, if it fails show a nice description instead of the prompt
+        const img = new Image();
+        img.onload = () => {
+            resultDiv.innerHTML = `
+            <div class="photo-display">
+                <div style="font-size:6px;margin-bottom:6px;color:#1a5a1a;">📷 ROOM ${room.number} · ${gameState.time}</div>
+                <img src="${imgUrl}" alt="Room photo">
+                <div style="font-size:5px;color:#1a4a1a;margin-top:4px;">${escapeHtml(guest ? guest.name : 'Empty Room')}</div>
+            </div>`;
+            addEvent(`Photo taken of Room ${room.number}${guest?' ('+guest.name+')':''}.`, false);
+        };
+        img.onerror = () => {
+            // Fallback – show a descriptive text, not the raw prompt
+            const desc = guest
+                ? `Room ${room.number}: ${guest.name} is inside. ${guest.appearance}. ${guest.personality ? guest.personality : ''}`
+                : `Room ${room.number} is empty. ${room.desc}.`;
+            resultDiv.innerHTML = `
+            <div class="photo-display">
+                <div style="font-size:6px;margin-bottom:6px;color:#1a5a1a;">📷 ROOM ${room.number} · ${gameState.time}</div>
+                <div class="photo-fallback">
+                    📸<br><span style="font-size:6px;">IMAGE UNAVAILABLE</span><br>
+                    <span style="font-size:5px;color:#55ff77;">${escapeHtml(desc)}</span>
+                </div>
+            </div>`;
+            addEvent(`Photo attempt failed for Room ${room.number}.`, false);
+        };
+        img.src = imgUrl;
+    }
+
+    // ───────────── Helper ─────────────
+    function refreshHelperPanel() {
+        const noHelper = document.getElementById('noHelperMsg');
+        const helperInfo = document.getElementById('helperInfo');
+        const statusEl = document.getElementById('helperStatus');
+        if(!gameState.helper) {
+            noHelper.style.display='block'; helperInfo.style.display='none';
+        } else {
+            noHelper.style.display='none'; helperInfo.style.display='flex';
+            const h = gameState.helper;
+            document.getElementById('helperName').textContent = h.name;
+            document.getElementById('helperDesc').textContent = h.appearance;
+            document.getElementById('helperLoyalty').textContent = '🔗 LOYALTY: BOUND';
+            if(gameState.helperOutUntil && Date.now() < gameState.helperOutUntil) {
+                const remaining = Math.ceil((gameState.helperOutUntil - Date.now())/1000);
+                statusEl.textContent = `🚗 OUT PATROLLING... ${remaining}S`;
+                document.getElementById('sendHelperBtn').disabled = true;
+            } else {
+                statusEl.textContent = '🟢 READY';
+                document.getElementById('sendHelperBtn').disabled = false;
+                if(gameState.helperOutUntil) gameState.helperOutUntil = null;
+            }
+        }
+    }
+    async function sendHelperForHitchhikers() {
+        if(!gameState.helper || gameState.helperOutUntil) return;
+        const duration = 30000 + Math.floor(Math.random()*40000);
+        gameState.helperOutUntil = Date.now() + duration;
+        saveGameState();
+        refreshHelperPanel();
+        showNotification('🚗 Helper searching highway...', 3000, true);
+        addEvent('Helper sent for hitchhikers.', false);
+        setTimeout(async () => {
+            if(!gameState.helper) return;
+            const count = Math.random()<0.4 ? 2 : 1;
+            for(let i=0;i<count;i++) {
+                const hh = await generateGuest('hitchhiker');
+                placeGuestAtDesk(hh);
+            }
+            addEvent(`Helper returned with ${count} hitchhiker(s).`, false);
+            gameState.helperOutUntil = null;
+            saveGameState();
+            refreshHelperPanel();
+            refreshAllPanels();
+            showNotification(`🔔 Helper returned with ${count} hitchhiker(s)!`, 4000, true);
+        }, duration);
+    }
+
+    // ───────────── Events ─────────────
+    function addEvent(text, ominous=false) {
+        gameState.events.unshift({ text, ominous, time:gameState.time });
+        if(gameState.events.length>50) gameState.events.length=50;
+        saveGameState();
+    }
+    function renderEventLog() {
+        document.getElementById('eventLog').innerHTML = gameState.events.map(e=>
+            `<div class="event${e.ominous?' ominous':''}">[${e.time}] ${escapeHtml(e.text)}</div>`
+        ).join('');
+    }
+
+    // ───────────── UI Refresh ─────────────
+    function refreshAllPanels() {
+        refreshDeskPanel(); renderRoomGrid(); renderGuestList(); renderWatchList();
+        refreshHelperPanel(); renderEventLog();
+        document.getElementById('timeDisplay').textContent = '🌙 '+gameState.time;
+    }
+    function refreshUI() {
+        const panel = document.querySelector('.panel.active');
+        if(!panel) return;
+        const id = panel.id;
+        if(id==='deskPanel') refreshDeskPanel();
+        if(id==='roomsPanel') { if(document.getElementById('roomDetailView').style.display==='flex' && currentRoomView) openRoomDetail(currentRoomView); else renderRoomGrid(); }
+        if(id==='guestsPanel') { if(document.getElementById('guestChatView').style.display==='flex' && currentGuestChatId) renderGuestChatMessages(); else renderGuestList(); }
+        if(id==='watchPanel') renderWatchList();
+        if(id==='helperPanel') refreshHelperPanel();
+        if(id==='logPanel') renderEventLog();
+        document.getElementById('timeDisplay').textContent = '🌙 '+gameState.time;
+    }
+    function escapeHtml(str) { return String(str).replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[m]); }
+
+    // ───────────── Bindings ─────────────
+    document.getElementById('checkInBtn').addEventListener('click', checkInGuest);
+    document.getElementById('turnAwayBtn').addEventListener('click', turnAwayGuest);
+    document.getElementById('closeRoomDetailBtn').addEventListener('click', ()=>{
+        currentRoomView=null;
+        document.getElementById('roomDetailView').style.display='none';
+        document.getElementById('roomGrid').style.display='grid';
+    });
+    document.getElementById('spyRoomBtn').addEventListener('click', spyOnRoom);
+    document.getElementById('knockRoomBtn').addEventListener('click', knockOnRoom);
+    document.getElementById('clearRoomBtn').addEventListener('click', clearRoom);
+    document.getElementById('recruitRoomBtn').addEventListener('click', recruitAsHelper);
+    document.getElementById('closeGuestChatBtn').addEventListener('click', ()=>{
+        currentGuestChatId=null;
+        document.getElementById('guestChatView').style.display='none';
+        document.getElementById('guestListContainer').style.display='flex';
+        renderGuestList();
+    });
+    document.getElementById('guestSendBtn').addEventListener('click', sendGuestMessage);
+    document.getElementById('guestChatInput').addEventListener('keypress', e=>{ if(e.key==='Enter') sendGuestMessage(); });
+    document.getElementById('sendHelperBtn').addEventListener('click', sendHelperForHitchhikers);
+    document.getElementById('resetApiKeyBtn').addEventListener('click', ()=>{
+        localStorage.removeItem('shadow_pine_api_key'); apiKey=''; openApiModal();
+    });
+
+    // ───────────── Tabs ─────────────
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', ()=>{
+            document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+            tab.classList.add('active');
+            document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+            document.getElementById(tab.dataset.tab+'Panel').classList.add('active');
+            refreshUI();
+        });
+    });
+
+    // ───────────── API Modal ─────────────
+    function openApiModal() { document.getElementById('apiModal').style.display='flex'; }
+    function closeApiModal() { document.getElementById('apiModal').style.display='none'; }
+    document.getElementById('saveApiKeyBtn').addEventListener('click', async ()=>{
+    const key = document.getElementById('apiKeyInput').value.trim();
+    if(key.length>10) {
+        apiKey=key;
+        localStorage.setItem('shadow_pine_api_key', apiKey);
+        closeApiModal();
+        showNotification('API key saved!',2500,true);
+
+        // ─── NEW: Spawn first guest immediately ───
+        try {
+            const firstGuest = await generateGuest('random');
+            if (!gameState.deskGuest) {
+                placeGuestAtDesk(firstGuest);
+            }
+        } catch (e) {
+            // If AI fails, we can fallback to a hardcoded guest
+            const fallbackGuest = {
+                id: uid(),
+                name: 'Martha Voss',
+                appearance: 'Elderly woman with a heavy suitcase, looks tired.',
+                reason: 'My car broke down a mile back.',
+                personality: 'Weary but observant',
+                prompt: 'You are Martha, a retired schoolteacher. You are tired and need a room.' + SYSTEM_INSTRUCTION,
+                roomNumber: null,
+                alive: true,
+                recruited: false,
+                source: 'random'
+            };
+            placeGuestAtDesk(fallbackGuest);
+        }
+        refreshAllPanels(); // make sure desk shows the guest
+    }
+});
+    document.getElementById('closeApiModalBtn').addEventListener('click', closeApiModal);
+    window.addEventListener('click', e=>{ if(e.target===document.getElementById('apiModal')) closeApiModal(); });
+
+    // ───────────── Global exports ─────────────
+    window.openRoomDetail = openRoomDetail;
+    window.openGuestChat = openGuestChat;
+    window.removeGuest = removeGuest;
+    window.snapRoomPhoto = snapRoomPhoto;
+
+    // ───────────── Game loop ─────────────
+    setInterval(() => {
+    if (!apiKey || gameState.deskGuest || guestGenerationInProgress) return;
+    if (Math.random() < 0.25 && gameState.rooms.some(r => !r.occupied)) {
+        generateGuest('random')
+            .then(g => { if (!gameState.deskGuest) placeGuestAtDesk(g); })
+            .catch(() => {});   // silently ignore (lock throws or other errors)
+    }
+}, 70000);
+    setInterval(()=>{
+        gameState.time = advanceTime(8);
+        saveGameState();
+        document.getElementById('timeDisplay').textContent = '🌙 '+gameState.time;
+    }, 45000);
+    setInterval(()=>{
+        if(gameState.helperOutUntil && Date.now() >= gameState.helperOutUntil) {
+            gameState.helperOutUntil = null;
+            saveGameState();
+            refreshHelperPanel();
+        }
+    }, 10000);
+
+    // ───────────── Boot ─────────────
+    function bootScreen() {
+        if(!apiKey) setTimeout(openApiModal, 500);
+        refreshAllPanels();
+    }
+    bootScreen();
+})();
+</script>
+</body>
+</html>
