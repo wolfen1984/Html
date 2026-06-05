@@ -955,7 +955,7 @@
                 updateGameState({});
             }
 
-            // ───────────── Prey Generation (now supports preference) ─────────────
+            // ───────────── Prey Generation (NO FALLBACK) ─────────────
             async function generatePrey(source = 'random', preference = '') {
                 const sourceContext = source === 'hitchhiker' ?
                     'This person was found lost near the castle, desperate for shelter.' :
@@ -964,44 +964,34 @@
                 if (preference && preference.trim()) {
                     extraPrompt = ` The Count specifically desires a victim with these characteristics: ${preference}. Make the guest match this as much as possible.`;
                 }
+                const reply = await guardedAIRequest([
+                    { role: 'system', content: 'Generate a guest profile JSON with exactly these keys: name, appearance, reason, personality, prompt (2-3 sentences). Return ONLY valid JSON, no extra text.' + extraPrompt },
+                    { role: 'user', content: `Context: ${sourceContext}.` }
+                ], 300, 0.95);
+
+                console.log("Raw AI response:", reply); // Log for debugging
+
+                let data;
                 try {
-                    const reply = await guardedAIRequest([
-                        { role: 'system',
-                            content: 'Generate a guest profile JSON: name, appearance, reason, personality, prompt (2-3 sentences).' +
-                                extraPrompt },
-                        { role: 'user',
-                            content: `Context: ${sourceContext}. Make them interesting, possibly with a dark past or fear.` }
-                    ], 300, 0.9);
-                    let data;
-                    try { data = JSON.parse(reply); } catch (e) {
-                        const match = reply.match(/\{[\s\S]*\}/);
-                        if (match) data = JSON.parse(match[0]);
-                        else throw new Error('Parse failed');
-                    }
-                    return {
-                        id: uid(),
-                        name: data.name || 'Unknown Traveler',
-                        appearance: data.appearance || '',
-                        reason: data.reason || '',
-                        personality: data.personality || '',
-                        prompt: (data.prompt || '') + SYSTEM_INSTRUCTION,
-                        roomNumber: null,
-                        alive: true,
-                        recruited: false,
-                        source
-                    };
+                    data = JSON.parse(reply);
                 } catch (e) {
-                    const fallbacks = [
-                        { name: 'Jonathan Harker', appearance: 'Nervous young solicitor, clutching a crucifix',
-                            reason: 'Lost on way to Bistritz', personality: 'Anxious, polite',
-                            prompt: 'You are Jonathan Harker, uneasy about this place.' + SYSTEM_INSTRUCTION },
-                        { name: 'Mina Murray', appearance: 'Determined young woman, dark hair, pale skin',
-                            reason: 'Searching for her fiancé', personality: 'Brave, worried',
-                            prompt: 'You are Mina, sensing something wrong.' + SYSTEM_INSTRUCTION }
-                    ];
-                    const f = fallbacks[Math.floor(Math.random() * fallbacks.length)];
-                    return { id: uid(), ...f, roomNumber: null, alive: true, recruited: false, source };
+                    const match = reply.match(/\{[\s\S]*\}/);
+                    if (match) data = JSON.parse(match[0]);
+                    else throw new Error('No valid JSON in response: ' + reply);
                 }
+
+                return {
+                    id: uid(),
+                    name: data.name || 'Unknown Traveler',
+                    appearance: data.appearance || '',
+                    reason: data.reason || '',
+                    personality: data.personality || '',
+                    prompt: (data.prompt || '') + SYSTEM_INSTRUCTION,
+                    roomNumber: null,
+                    alive: true,
+                    recruited: false,
+                    source
+                };
             }
 
             // ───────────── Inter-Guest Chat Utilities ─────────────
