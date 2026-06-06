@@ -1576,15 +1576,16 @@
             function scryChamberPhoto(chamberNum) {
     const chamber = gameState.chambers.find(c => c.number === chamberNum);
     if (!chamber || chamber.isCoffin) return;
+
     const guest = chamber.occupied
         ? gameState.prey.find(g => g.id === chamber.guestId && g.alive)
         : null;
+
     const resultDiv = document.getElementById('scryResult');
-     console.log('Scrying URL:', imgUrl);           
     resultDiv.style.display = 'block';
     showNotification('🔮 Gazing into the mirror...', 1000, true);
 
-    // Build the prompt
+    // Build prompt
     let rawPrompt;
     if (guest) {
         rawPrompt = `Victorian castle chamber, dim candlelight, gothic horror, ${chamber.desc}. ${guest.appearance}. Grainy, dark, moody.`;
@@ -1593,20 +1594,36 @@
     }
     const safePrompt = rawPrompt.replace(/[^a-zA-Z0-9 .,'-]/g, '').substring(0, 180);
 
-    // Pollinations URL (works without CORS, no API key)
+    // ---- Pollinations URL (must be defined BEFORE using it) ----
     const imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(safePrompt)}`;
+    console.log('🔮 Scrying URL:', imgUrl);   // <-- Check this in Console
 
-    // Display result – with an onerror fallback
-    resultDiv.innerHTML = `
-        <div class="scry-attachment">
-            <img src="${imgUrl}" alt="Scrying mirror"
-                 onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-            <span style="display:none; font-size:40px;">🔮</span>
-            <p style="display:none; color:#ff6666;">The mirror clouds over…</p>
-            <div style="font-size:10px;color:#aa4444;margin-top:8px;">
-                ${escapeHtml(guest ? guest.name : 'Empty Chamber')} · ${gameState.time}
-            </div>
-        </div>`;
+    // Clear old result and build new one safely
+    resultDiv.innerHTML = '';
+    const attachmentDiv = document.createElement('div');
+    attachmentDiv.className = 'scry-attachment';
+
+    const img = document.createElement('img');
+    img.src = imgUrl;
+    img.alt = 'Scrying mirror';
+    img.style.maxWidth = '100%';
+
+    // Debug and fallback
+    img.onload = () => console.log('✅ Image loaded successfully');
+    img.onerror = () => {
+        console.warn('❌ Image failed to load – showing fallback');
+        img.style.display = 'none';
+        attachmentDiv.innerHTML = '<span style="font-size:40px;">🔮</span><p style="color:#ff6666;">The mirror clouds over…</p>';
+    };
+
+    attachmentDiv.appendChild(img);
+
+    const infoLine = document.createElement('div');
+    infoLine.style.cssText = 'font-size:10px;color:#aa4444;margin-top:8px;';
+    infoLine.textContent = `${guest ? guest.name : 'Empty Chamber'} · ${gameState.time}`;
+    attachmentDiv.appendChild(infoLine);
+
+    resultDiv.appendChild(attachmentDiv);
 
     addEvent(
         `Scry mirror viewed Chamber ${chamber.number}${guest ? ' (' + guest.name + ')' : ''}.`,
