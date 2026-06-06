@@ -1573,33 +1573,64 @@
                 }).join('');
             }
 
-            function scryChamberPhoto(chamberNum) {
-                const chamber = gameState.chambers.find(c => c.number === chamberNum);
-                if (!chamber || chamber.isCoffin) return;
-                const guest = chamber.occupied ? gameState.prey.find(g => g.id === chamber.guestId && g.alive) : null;
-                const resultDiv = document.getElementById('scryResult');
-                resultDiv.style.display = 'block';
-                showNotification('🔮 Gazing into the mirror...', 1000, true);
-                let rawPrompt;
-                if (guest) {
-                    rawPrompt =
-                        `Victorian castle chamber, dim candlelight, gothic horror, ${chamber.desc}. ${guest.appearance}. Grainy, dark, moody.`;
-                } else {
-                    rawPrompt =
-                        `Empty Victorian castle chamber, dim light, cobwebs, stone walls, ${chamber.desc}. Gothic atmosphere, grainy.`;
-                }
-                const safePrompt = rawPrompt.replace(/[^a-zA-Z0-9 .,'-]/g, '').substring(0, 180);
-                const imgUrl =
-                    `https://image.pollinations.ai/prompt/${encodeURIComponent(safePrompt)}`;
-                resultDiv.innerHTML = `
+            async function scryChamberPhoto(chamberNum) {
+    const chamber = gameState.chambers.find(c => c.number === chamberNum);
+    if (!chamber || chamber.isCoffin) return;
+    const guest = chamber.occupied
+        ? gameState.prey.find(g => g.id === chamber.guestId && g.alive)
+        : null;
+    const resultDiv = document.getElementById('scryResult');
+    resultDiv.style.display = 'block';
+    showNotification('🔮 Gazing into the mirror...', 1000, true);
+
+    // Build the prompt the same way
+    let rawPrompt;
+    if (guest) {
+        rawPrompt = `Victorian castle chamber, dim candlelight, gothic horror, ${chamber.desc}. ${guest.appearance}. Grainy, dark, moody.`;
+    } else {
+        rawPrompt = `Empty Victorian castle chamber, dim light, cobwebs, stone walls, ${chamber.desc}. Gothic atmosphere, grainy.`;
+    }
+    const safePrompt = rawPrompt.replace(/[^a-zA-Z0-9 .,'-]/g, '').substring(0, 180);
+
+    // ----- NEW: Craiyon generation -----
+    let imgUrl = '';
+    try {
+        const response = await fetch('https://api.craiyon.com/draw', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: safePrompt })
+        });
+        if (!response.ok) throw new Error('Craiyon API error');
+        const data = await response.json();
+        // data.images is an array of base64 data URLs
+        if (data.images && data.images.length > 0) {
+            imgUrl = data.images[0];  // use the first image
+        } else {
+            throw new Error('No image returned');
+        }
+    } catch (err) {
+        console.warn('Craiyon failed:', err);
+        // Optional fallback – you can show a placeholder or try Pollinations
+        imgUrl = ''; // leave empty to show the text fallback
+    }
+
+    // Display the result (same container)
+    resultDiv.innerHTML = `
         <div class="scry-attachment">
-            <span class="photo-emoji" style="display:none;">🔮</span>
-            <img src="${imgUrl}" alt="Scrying mirror"
-                 onerror="this.style.display='none'; this.parentNode.querySelector('.photo-emoji').style.display='block';">
-            <div style="font-size:10px;color:#aa4444;margin-top:8px;">${escapeHtml(guest ? guest.name : 'Empty Chamber')} · ${gameState.time}</div>
-        </div>`;
-                addEvent(`Scry mirror viewed Chamber ${chamber.number}${guest?' ('+guest.name+')':''}.`, false);
+            ${imgUrl
+                ? `<img src="${imgUrl}" alt="Scrying mirror">`
+                : '<span style="font-size: 40px;">🔮</span><p style="color:#ff6666;">The mirror clouds over…</p>'
             }
+            <div style="font-size:10px;color:#aa4444;margin-top:8px;">
+                ${escapeHtml(guest ? guest.name : 'Empty Chamber')} · ${gameState.time}
+            </div>
+        </div>`;
+
+    addEvent(
+        `Scry mirror viewed Chamber ${chamber.number}${guest ? ' (' + guest.name + ')' : ''}.`,
+        false
+    );
+}
 
             // ───────────── Renfield ─────────────
             function refreshRenfieldPanel() {
