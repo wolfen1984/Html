@@ -1657,27 +1657,25 @@ ${controller.name} (${controller.personality || 'a guest'}) is under the hypnoti
 
 The target of this compelled action is ${target.name} (${target.personality || 'a guest'}). ${controller.name} MUST perform this action — they have no free will. ${target.name} will react naturally with shock, fear, anger, confusion, or whatever fits.
 
-Write a short dramatic dialogue (3-6 lines) showing this scene. Start with ${controller.name} performing the compelled action toward ${target.name}. Then show ${target.name}'s reaction and any response.
-
-Strict format: each line must begin with the character's full name followed by a colon and a space, like this:
+Write a short dramatic scene (3-6 lines). You may use dialogue or narration, but if you use dialogue, each line MUST begin with the character's full name followed by a colon, like:
 Jonathan: *slaps Timothy hard across the face*
 Timothy: *stares in disbelief* What was that for?!
 
-Use Victorian gothic style.`;
+If you use only narration, describe the event in 2-3 sentences. Either format is acceptable.`;
 
     const reply = await guardedAIRequest([
         { role: 'system', content: prompt },
         { role: 'user', content: `Write the mind-controlled scene: ${controller.name} compelled to "${command}".` }
     ], 250, 0.9);
 
-    const lines = reply.split('\n').filter(line => line.includes(':'));
     const now = Date.now();
     const chat = getInterGuestChatForPair(controller.id, target.id);
-
     let messageCount = 0;
+
+    // ---- Try to parse dialogue lines ----
+    const lines = reply.split('\n').filter(line => line.includes(':'));
     for (const line of lines) {
         const colonIndex = line.indexOf(':');
-        if (colonIndex === -1) continue;
         const speakerName = line.substring(0, colonIndex).trim();
         const text = line.substring(colonIndex + 1).trim();
         if (!text) continue;
@@ -1695,7 +1693,39 @@ Use Victorian gothic style.`;
         messageCount++;
     }
 
-    // NO FALLBACK – if the AI doesn't follow the format, nothing appears
+    // ---- If no dialogue was parsed, insert the whole reply as a narrator message ----
+    if (messageCount === 0 && reply.trim()) {
+        chat.messages.push({
+            id: uid(),
+            fromGuestId: controller.id,          // appears as if the controller is acting/speaking
+            toGuestId: target.id,
+            text: `🧠 *Compelled to ${command}*\n\n${reply}`,
+            timestamp: now,
+            isMindControl: true
+        });
+        messageCount = 1;
+    }
+
+    // ---- If still nothing (reply empty), create a minimal fallback ----
+    if (messageCount === 0) {
+        chat.messages.push({
+            id: uid(),
+            fromGuestId: controller.id,
+            toGuestId: target.id,
+            text: `🧠 ${controller.name} is suddenly forced to ${command}.`,
+            timestamp: now,
+            isMindControl: true
+        });
+        chat.messages.push({
+            id: uid(),
+            fromGuestId: target.id,
+            toGuestId: controller.id,
+            text: `${target.name} stares in shock.`,
+            timestamp: now + 100,
+            isMindControl: true
+        });
+        messageCount = 2;
+    }
 
     chat.lastExchange = Date.now();
 
