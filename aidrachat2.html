@@ -1649,81 +1649,65 @@
             }
 
             async function generateMindControlledDialogue(controller, target, command) {
-                const prompt = `You are a gothic horror narrator in 1897 Transylvania. Two guests are inside Castle Dracula.
+    const prompt = `You are a gothic horror narrator in 1897 Transylvania. Two guests are inside Castle Dracula.
 
-    ${controller.name} (${controller.personality || 'a guest'}) is currently under the hypnotic mind control of Count Dracula. An irresistible supernatural compulsion forces ${controller.name} to carry out this exact action: "${command}"
+${controller.name} (${controller.personality || 'a guest'}) is under the hypnotic mind control of Count Dracula. An irresistible supernatural compulsion forces ${controller.name} to carry out this action: "${command}"
 
-    The target of this compelled action is ${target.name} (${target.personality || 'a guest'}). ${controller.name} MUST perform this action — they have no free will in this moment. Their body moves against their own volition. ${target.name} will react naturally with shock, fear, anger, confusion, or whatever emotion fits the situation.
+The target of this compelled action is ${target.name} (${target.personality || 'a guest'}). ${controller.name} MUST perform this action — they have no free will. ${target.name} will react naturally with shock, fear, anger, confusion, or whatever fits.
 
-    Write a short dramatic dialogue (3-6 lines) showing this scene unfold. Start with ${controller.name} performing the compelled action toward ${target.name}. Then show ${target.name}'s immediate reaction and any response from ${controller.name} (who may be confused or horrified by their own actions).
+Write a short dramatic dialogue (3-6 lines) showing this scene. Start with ${controller.name} performing the compelled action toward ${target.name}. Then show ${target.name}'s reaction and any response.
 
-    Use Victorian gothic horror style. Keep each line of dialogue on a new line, prefixed with the character's name followed by a colon. Example format:
-    CharacterName: dialogue text here`;
+Strict format: each line must begin with the character's full name followed by a colon and a space, like this:
+Jonathan: *slaps Timothy hard across the face*
+Timothy: *stares in disbelief* What was that for?!
 
-                const reply = await guardedAIRequest([
-                    { role: 'system', content: prompt },
-                    { role: 'user', content: `Write the mind-controlled scene: ${controller.name} is compelled to "${command}" involving ${target.name}.` }
-                ], 250, 0.9);
+Use Victorian gothic style.`;
 
-                const lines = reply.split('\n').filter(line => line.includes(':'));
-                const now = Date.now();
-                const chat = getInterGuestChatForPair(controller.id, target.id);
+    const reply = await guardedAIRequest([
+        { role: 'system', content: prompt },
+        { role: 'user', content: `Write the mind-controlled scene: ${controller.name} compelled to "${command}".` }
+    ], 250, 0.9);
 
-                let messageCount = 0;
-                for (const line of lines) {
-                    const colonIndex = line.indexOf(':');
-                    if (colonIndex === -1) continue;
-                    const speakerName = line.substring(0, colonIndex).trim();
-                    const text = line.substring(colonIndex + 1).trim();
-                    if (!text) continue;
-                    const speaker = speakerName.toLowerCase().includes(controller.name.toLowerCase()) ?
-                        controller :
-                        (speakerName.toLowerCase().includes(target.name.toLowerCase()) ? target : null);
-                    if (!speaker) continue;
-                    chat.messages.push({
-                        id: uid(),
-                        fromGuestId: speaker.id,
-                        toGuestId: speaker.id === controller.id ? target.id : controller.id,
-                        text: text,
-                        timestamp: now + messageCount * 100,
-                        isMindControl: true
-                    });
-                    messageCount++;
-                }
+    const lines = reply.split('\n').filter(line => line.includes(':'));
+    const now = Date.now();
+    const chat = getInterGuestChatForPair(controller.id, target.id);
 
-                // If parsing failed to produce messages, create a fallback
-                if (messageCount === 0 && reply.trim()) {
-                    chat.messages.push({
-                        id: uid(),
-                        fromGuestId: controller.id,
-                        toGuestId: target.id,
-                        text: `(${controller.name} acts strangely, compelled by an unseen force: ${command})`,
-                        timestamp: now,
-                        isMindControl: true
-                    });
-                    chat.messages.push({
-                        id: uid(),
-                        fromGuestId: target.id,
-                        toGuestId: controller.id,
-                        text: `(${target.name} stares in shock at what just happened)`,
-                        timestamp: now + 100,
-                        isMindControl: true
-                    });
-                }
+    let messageCount = 0;
+    for (const line of lines) {
+        const colonIndex = line.indexOf(':');
+        if (colonIndex === -1) continue;
+        const speakerName = line.substring(0, colonIndex).trim();
+        const text = line.substring(colonIndex + 1).trim();
+        if (!text) continue;
+        const speaker = speakerName.toLowerCase().includes(controller.name.toLowerCase()) ? controller :
+                       (speakerName.toLowerCase().includes(target.name.toLowerCase()) ? target : null);
+        if (!speaker) continue;
+        chat.messages.push({
+            id: uid(),
+            fromGuestId: speaker.id,
+            toGuestId: speaker.id === controller.id ? target.id : controller.id,
+            text: text,
+            timestamp: now + messageCount * 100,
+            isMindControl: true
+        });
+        messageCount++;
+    }
 
-                chat.lastExchange = Date.now();
+    // NO FALLBACK – if the AI doesn't follow the format, nothing appears
 
-                // Apply psyche effects
-                controller.psyche.stateFlags.isConfused = true;
-                controller.psyche.stateFlags.wasMindControlled = true;
-                controller.psyche.fear = Math.min(100, controller.psyche.fear + 10);
-                controller.psyche.sanity = Math.max(0, controller.psyche.sanity - 5);
-                target.psyche.fear = Math.min(100, target.psyche.fear + 15);
-                target.psyche.suspicion = Math.min(100, target.psyche.suspicion + 10);
-                target.psyche.stateFlags.witnessedSupernatural = true;
+    chat.lastExchange = Date.now();
 
-                saveGameState();
-            }
+    // Apply psyche effects
+    controller.psyche.stateFlags.isConfused = true;
+    controller.psyche.stateFlags.wasMindControlled = true;
+    controller.psyche.fear = Math.min(100, controller.psyche.fear + 10);
+    controller.psyche.sanity = Math.max(0, controller.psyche.sanity - 5);
+    target.psyche.fear = Math.min(100, target.psyche.fear + 15);
+    target.psyche.suspicion = Math.min(100, target.psyche.suspicion + 10);
+    target.psyche.stateFlags.witnessedSupernatural = true;
+
+    saveGameState();
+}
 
             // ───────────── UI Refresh ─────────────
             function refreshAllPanels() {
