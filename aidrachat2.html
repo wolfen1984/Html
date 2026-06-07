@@ -991,86 +991,150 @@
                 }
             }
             async function executeIntent(guest, intent, forced = false) {
-                if (!guest.alive) return;
-                const action = intent.action;
-                const targetName = intent.target;
-                const target = targetName ? gameState.prey.find(g => g.name === targetName && g.alive) : null;
-                guest.psyche.lastAction = action;
-                if (target && !guest.psyche.knowledge.knownGuestIds.includes(target.id)) guest.psyche.knowledge.knownGuestIds.push(target.id);
+    if (!guest.alive) return;
+    const action = intent.action;
+    const targetName = intent.target;
+    const target = targetName ? gameState.prey.find(g => g.name === targetName && g.alive) : null;
+    guest.psyche.lastAction = action;
+    if (target && !guest.psyche.knowledge.knownGuestIds.includes(target.id)) {
+        guest.psyche.knowledge.knownGuestIds.push(target.id);
+    }
 
-                let eventText = '';
-                switch(action) {
-                    case 'BEFRIEND': if(target) {
-                        eventText = `${guest.name} attempts to befriend ${target.name}.`;
-                        if (!gameState.alliances.find(a => (a.guestA===guest.id&&a.guestB===target.id)||(a.guestA===target.id&&a.guestB===guest.id))) {
-                            gameState.alliances.push({ guestA: guest.id, guestB: target.id, strength: 1 });
-                        }
-                        guest.psyche.fear = Math.max(0, guest.psyche.fear-10);
-                        target.psyche.fear = Math.max(0, target.psyche.fear-5);
-                    } break;
-                    case 'ARGUE': if(target) {
-                        eventText = `${guest.name} argues heatedly with ${target.name}.`;
-                        guest.psyche.sanity -= 5; target.psyche.sanity -= 5;
-                        guest.psyche.fear += 5; target.psyche.fear += 5;
-                        const alliance = gameState.alliances.find(a => (a.guestA===guest.id&&a.guestB===target.id)||(a.guestA===target.id&&a.guestB===guest.id));
-                        if (alliance) gameState.alliances = gameState.alliances.filter(a => a !== alliance);
-                    } break;
-                    case 'STEAL': if(target) {
-                        eventText = `${guest.name} tries to steal from ${target.name}.`;
-                        target.psyche.suspicion += 10; guest.psyche.greed = Math.max(0, guest.psyche.greed-5);
-                    } break;
-                    case 'ACCUSE':
-                        eventText = `${guest.name} loudly accuses ${target ? target.name : 'the Count'} of dark deeds!`;
-                        guest.psyche.suspicion += 15; if(target) target.psyche.suspicion += 10;
-                        gameState.prey.filter(g => g.roomNumber === guest.roomNumber && g.id!==guest.id).forEach(g => g.psyche.fear += 15);
-                        updateSuspicion(5);
-                        break;
-                    case 'EXPLORE': {
-                        const emptyChambers = gameState.chambers.filter(c => !c.occupied && !c.isCoffin && c.number !== guest.roomNumber);
-                        if (emptyChambers.length) {
-                            const newCh = emptyChambers[Math.floor(Math.random()*emptyChambers.length)];
-                            const oldCh = gameState.chambers.find(c => c.number === guest.roomNumber);
-                            if (oldCh) { oldCh.occupied = false; oldCh.guestId = null; }
-                            guest.roomNumber = newCh.number; newCh.occupied = true; newCh.guestId = guest.id;
-                            eventText = `${guest.name} wanders into Chamber ${newCh.number}.`;
-                        } else eventText = `${guest.name} searches for another room but finds none.`;
-                    } break;
-                    case 'HIDE':
-                        guest.psyche.stateFlags.isHiding = true;
-                        eventText = `${guest.name} hides in the shadows.`;
-                        break;
-                    case 'ESCAPE':
-                        if (Math.random() < 0.2) {
-                            eventText = `${guest.name} tries to flee but is stopped by locked gates and wolves.`;
-                            guest.psyche.fear += 20;
-                        } else {
-                            eventText = `${guest.name} makes a desperate escape and vanishes into the night!`;
-                            guest.alive = false;
-                            const ch = gameState.chambers.find(c => c.guestId === guest.id);
-                            if (ch) { ch.occupied = false; ch.guestId = null; }
-                            updateSuspicion(20);
-                        }
-                        break;
-                    case 'SEARCH':
-                        eventText = `${guest.name} searches the room for anything useful.`;
-                        break;
-                    case 'REST':
-                        guest.psyche.sanity = Math.min(100, guest.psyche.sanity+5);
-                        guest.psyche.fear = Math.max(0, guest.psyche.fear-5);
-                        eventText = `${guest.name} rests, trying to calm their nerves.`;
-                        break;
-                    case 'DESPAIR':
-                        guest.psyche.sanity -= 20; guest.psyche.fear += 10;
-                        eventText = `${guest.name} is overcome by despair and collapses sobbing.`;
-                        if (guest.psyche.sanity <= 0) { guest.psyche.stateFlags.isHiding = true; }
-                        break;
-                    default: eventText = `${guest.name} does nothing.`;
+    let eventText = '';
+    switch (action) {
+        case 'BEFRIEND':
+            if (target) {
+                eventText = `${guest.name} attempts to befriend ${target.name}.`;
+                if (!gameState.alliances.find(a => (a.guestA === guest.id && a.guestB === target.id) || (a.guestA === target.id && a.guestB === guest.id))) {
+                    gameState.alliances.push({ guestA: guest.id, guestB: target.id, strength: 1 });
                 }
-                if (eventText) addEvent(eventText, action==='DESPAIR' || action==='ACCUSE');
-                if (!forced) guest.psyche.stateFlags.isConfused = false;
+                guest.psyche.fear = Math.max(0, guest.psyche.fear - 10);
+                target.psyche.fear = Math.max(0, target.psyche.fear - 5);
+                if (forced) generateForcedDialogue(guest, target, 'BEFRIEND');
             }
+            break;
+        case 'ARGUE':
+            if (target) {
+                eventText = `${guest.name} argues heatedly with ${target.name}.`;
+                guest.psyche.sanity -= 5; target.psyche.sanity -= 5;
+                guest.psyche.fear += 5; target.psyche.fear += 5;
+                const alliance = gameState.alliances.find(a => (a.guestA === guest.id && a.guestB === target.id) || (a.guestA === target.id && a.guestB === guest.id));
+                if (alliance) gameState.alliances = gameState.alliances.filter(a => a !== alliance);
+                if (forced) generateForcedDialogue(guest, target, 'ARGUE');
+            }
+            break;
+        case 'STEAL':
+            if (target) {
+                eventText = `${guest.name} tries to steal from ${target.name}.`;
+                target.psyche.suspicion += 10;
+                guest.psyche.greed = Math.max(0, guest.psyche.greed - 5);
+                if (forced) generateForcedDialogue(guest, target, 'STEAL');
+            }
+            break;
+        case 'ACCUSE':
+            eventText = `${guest.name} loudly accuses ${target ? target.name : 'the Count'} of dark deeds!`;
+            guest.psyche.suspicion += 15;
+            if (target) target.psyche.suspicion += 10;
+            gameState.prey.filter(g => g.roomNumber === guest.roomNumber && g.id !== guest.id).forEach(g => g.psyche.fear += 15);
+            updateSuspicion(5);
+            if (forced && target) generateForcedDialogue(guest, target, 'ACCUSE');
+            break;
+        case 'EXPLORE': {
+            const emptyChambers = gameState.chambers.filter(c => !c.occupied && !c.isCoffin && c.number !== guest.roomNumber);
+            if (emptyChambers.length) {
+                const newCh = emptyChambers[Math.floor(Math.random() * emptyChambers.length)];
+                const oldCh = gameState.chambers.find(c => c.number === guest.roomNumber);
+                if (oldCh) { oldCh.occupied = false; oldCh.guestId = null; }
+                guest.roomNumber = newCh.number; newCh.occupied = true; newCh.guestId = guest.id;
+                eventText = `${guest.name} wanders into Chamber ${newCh.number}.`;
+            } else {
+                eventText = `${guest.name} searches for another room but finds none.`;
+            }
+            break;
+        }
+        case 'HIDE':
+            guest.psyche.stateFlags.isHiding = true;
+            eventText = `${guest.name} hides in the shadows.`;
+            break;
+        case 'ESCAPE':
+            if (Math.random() < 0.2) {
+                eventText = `${guest.name} tries to flee but is stopped by locked gates and wolves.`;
+                guest.psyche.fear += 20;
+            } else {
+                eventText = `${guest.name} makes a desperate escape and vanishes into the night!`;
+                guest.alive = false;
+                const ch = gameState.chambers.find(c => c.guestId === guest.id);
+                if (ch) { ch.occupied = false; ch.guestId = null; }
+                updateSuspicion(20);
+            }
+            break;
+        case 'SEARCH':
+            eventText = `${guest.name} searches the room for anything useful.`;
+            break;
+        case 'REST':
+            guest.psyche.sanity = Math.min(100, guest.psyche.sanity + 5);
+            guest.psyche.fear = Math.max(0, guest.psyche.fear - 5);
+            eventText = `${guest.name} rests, trying to calm their nerves.`;
+            break;
+        case 'DESPAIR':
+            guest.psyche.sanity -= 20; guest.psyche.fear += 10;
+            eventText = `${guest.name} is overcome by despair and collapses sobbing.`;
+            if (guest.psyche.sanity <= 0) { guest.psyche.stateFlags.isHiding = true; }
+            break;
+        default:
+            eventText = `${guest.name} does nothing.`;
+    }
+    if (eventText) addEvent(eventText, action === 'DESPAIR' || action === 'ACCUSE');
+    if (!forced) guest.psyche.stateFlags.isConfused = false;
+}
 
-            // ───────────── UI Refresh ─────────────
+async function generateForcedDialogue(controller, target, actionType) {
+    let situation = '';
+    if (actionType === 'ACCUSE') {
+        situation = `${controller.name} is under a strange compulsion and suddenly accuses ${target.name} of being in league with dark forces, or possibly a vampire. ${target.name} reacts.`;
+    } else if (actionType === 'ARGUE') {
+        situation = `${controller.name} and ${target.name} get into a heated argument (the argument was forced by an unseen will).`;
+    } else if (actionType === 'BEFRIEND') {
+        situation = `${controller.name} feels an unnatural urge to befriend ${target.name} and says something kind or conspiratorial.`;
+    } else if (actionType === 'STEAL') {
+        situation = `${controller.name} tries to steal something from ${target.name}. ${target.name} notices and reacts.`;
+    } else {
+        return; // no dialogue needed for other actions
+    }
+
+    try {
+        const reply = await guardedAIRequest([
+            { role: 'system', content: `You are a gothic horror narrator. Write a very short dialogue (2–4 lines total) between ${controller.name} and ${target.name} in the style of a Victorian novel. ${situation} Keep each line of dialogue on a new line, prefixed with the character's name.` },
+            { role: 'user', content: 'Write the exchange.' }
+        ], 150, 0.9);
+
+        const lines = reply.split('\n').filter(line => line.includes(':'));
+        const now = Date.now();
+        const chat = getInterGuestChatForPair(controller.id, target.id);
+
+        for (const line of lines) {
+            const colonIndex = line.indexOf(':');
+            if (colonIndex === -1) continue;
+            const speakerName = line.substring(0, colonIndex).trim();
+            const text = line.substring(colonIndex + 1).trim();
+            if (!text) continue;
+            const speaker = speakerName.toLowerCase().includes(controller.name.toLowerCase()) ? controller :
+                           (speakerName.toLowerCase().includes(target.name.toLowerCase()) ? target : null);
+            if (!speaker) continue;
+            chat.messages.push({
+                id: uid(),
+                fromGuestId: speaker.id,
+                toGuestId: speaker.id === controller.id ? target.id : controller.id,
+                text: text,
+                timestamp: now++
+            });
+        }
+        chat.lastExchange = Date.now();
+        saveGameState();
+    } catch (e) {
+        console.warn('Forced dialogue generation failed:', e);
+    }
+}            // ───────────── UI Refresh ─────────────
             function refreshAllPanels() {
                 refreshGatesPanel();
                 renderChamberGrid();
