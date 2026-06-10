@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Highway Mirrors - Darkroad Games 1986</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --phosphor: #ffb000;
+            --phosphor-dim: #7a5500;
+            --phosphor-glow: #ffc800;
+            --bg-screen: #0a0a0a;
+            --text-shadow: 0 0 8px rgba(255, 176, 0, 0.6), 0 0 20px rgba(255, 176, 0, 0.3);
+            --text-shadow-bright: 0 0 12px rgba(255, 176, 0, 0.9), 0 0 30px rgba(255, 176, 0, 0.5);
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            background: #0d0d0d;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Press Start 2P', monospace;
+            background-image:
+                radial-gradient(ellipse at center, #1a0f00 0%, #050505 70%),
+                repeating-linear-gradient(0deg, rgba(0,0,0,0.03) 0px, rgba(0,0,0,0.03) 2px, transparent 2px, transparent 4px);
+            padding: 20px;
+            user-select: none;
+        }
+        .monitor {
+            background: #1c1c1c;
+            border-radius: 18px;
+            padding: 28px 24px 22px;
+            box-shadow:
+                inset 0 0 30px rgba(0,0,0,0.8),
+                0 0 0 3px #2a2a2a,
+                0 0 0 7px #1a1a1a,
+                0 0 0 10px #111,
+                0 8px 40px rgba(0,0,0,0.7),
+                0 20px 60px rgba(0,0,0,0.5);
+            max-width: 900px;
+            width: 100%;
+        }
+        .screen {
+            background: #0b0b0b;
+            border-radius: 8px;
+            padding: 20px 18px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: inset 0 0 80px rgba(0,0,0,0.9);
+            border: 2px solid #1a1a1a;
+            display: flex;
+            flex-direction: column;
+            min-height: 600px;
+        }
+        .scanlines, .screen-flicker, .vignette {
+            position: absolute;
+            top:0; left:0; right:0; bottom:0;
+            pointer-events: none;
+            border-radius: 8px;
+        }
+        .scanlines {
+            background: repeating-linear-gradient(0deg,
+                transparent, transparent 3px,
+                rgba(0,0,0,0.08) 3px, rgba(0,0,0,0.08) 4px);
+            z-index: 10;
+        }
+        .screen-flicker {
+            z-index: 9;
+            animation: flicker 0.15s infinite;
+            opacity: 0.03;
+            background: #fff;
+        }
+        .vignette {
+            z-index: 8;
+            box-shadow: inset 0 0 120px rgba(0,0,0,0.7);
+        }
+        @keyframes flicker {
+            0%{opacity:0.02} 5%{opacity:0.04} 10%{opacity:0.01} 15%{opacity:0.05}
+            20%{opacity:0.02} 50%{opacity:0.03} 70%{opacity:0.01} 80%{opacity:0.04}
+            90%{opacity:0.02} 100%{opacity:0.03}
+        }
+
+        .game-layout { display:flex; flex:1; position:relative; z-index:12; gap:10px; }
+        .game-main { flex:3; display:flex; flex-direction:column; min-width:0; }
+        .game-sidebar {
+            flex:1; max-width:220px; background:rgba(0,0,0,0.4);
+            border:1px solid rgba(255,176,0,0.2); border-radius:4px; padding:8px;
+            font-size:9px; color:var(--phosphor); text-shadow:var(--text-shadow);
+            display:flex; flex-direction:column; gap:8px; overflow-y:auto;
+            box-shadow:inset 0 0 10px rgba(0,0,0,0.8);
+        }
+        .sidebar-section { margin-bottom:6px; }
+        .sidebar-title {
+            font-size:10px; color:var(--phosphor-glow); text-shadow:var(--text-shadow-bright);
+            border-bottom:1px solid rgba(255,176,0,0.3); padding-bottom:3px; margin-bottom:4px; letter-spacing:1px;
+        }
+        .inventory-list { list-style:none; padding-left:0; }
+        .inventory-list li { line-height:1.6; }
+        .exit-indicator { color:var(--phosphor-glow); }
+        .stat-bar { display:block; height:8px; margin:4px 0; border:1px solid var(--phosphor-dim); }
+        .stat-bar-fill { height:100%; }
+        .fuel-bar-fill { background:var(--phosphor-glow); }
+
+        .title-bar {
+            text-align:center; padding:8px 0 4px; color:var(--phosphor-glow); font-size:15px;
+            letter-spacing:2px; text-shadow:var(--text-shadow-bright); position:relative; z-index:12;
+            line-height:1.6; border-bottom:1px solid rgba(255,176,0,0.2); margin-bottom:8px;
+        }
+        .title-bar .game-title { font-size:20px; display:block; letter-spacing:3px; margin-bottom:2px; }
+        .title-bar .subtitle { font-size:15px; color:var(--phosphor-glow); }
+
+        .game-output {
+            flex:1; overflow-y:auto; padding:6px 4px; color:var(--phosphor); font-size:12px;
+            line-height:2; max-height:300px; min-height:150px; scroll-behavior:smooth; letter-spacing:0.5px; text-shadow:var(--text-shadow);
+        }
+        .game-output::-webkit-scrollbar { width:6px; }
+        .game-output::-webkit-scrollbar-track { background:#0a0a0a; border-radius:3px; }
+        .game-output::-webkit-scrollbar-thumb { background:#4a3000; border-radius:3px; }
+
+        .system-msg { color:#888; font-size:10px; letter-spacing:1px; }
+        .player-cmd { color:var(--phosphor-glow); font-weight:bold; }
+        .ai-response { color:var(--phosphor-glow); text-shadow:var(--text-shadow); white-space:pre-wrap; word-wrap:break-word; }
+        .error-msg { color:#ff4444; text-shadow:0 0 8px rgba(255,68,68,0.6); }
+        .divider { color:var(--phosphor-dim); text-align:center; font-size:6px; letter-spacing:4px; margin:4px 0; opacity:0.5; }
+
+        .status-line {
+            font-size:10px; color:var(--phosphor-glow); text-align:right; padding:4px 6px;
+            position:relative; z-index:12; border-top:1px solid rgba(255,176,0,0.15); letter-spacing:1px; text-shadow:var(--text-shadow);
+        }
+        .fuel-bar { display:inline-block; vertical-align:middle; }
+
+        .input-area { display:flex; gap:6px; padding:8px 0 4px; position:relative; z-index:12; align-items:center; }
+        .prompt-symbol {
+            color:var(--phosphor-glow); font-size:10px; text-shadow:var(--text-shadow); flex-shrink:0;
+        }
+        .cmd-input {
+            flex:1; background:transparent; border:1px solid rgba(255,176,0,0.4); color:var(--phosphor-glow);
+            font-family:'Press Start 2P',monospace; font-size:10px; padding:8px 10px; outline:none;
+            caret-color:var(--phosphor-glow); letter-spacing:1px; border-radius:2px; text-shadow:var(--text-shadow);
+        }
+        .cmd-input:focus {
+            border-color:var(--phosphor-glow); box-shadow:0 0 10px rgba(255,176,0,0.3), inset 0 0 10px rgba(255,176,0,0.05);
+        }
+        .btn-send {
+            background:#1a0d00; border:1px solid rgba(255,176,0,0.5); color:var(--phosphor-glow);
+            font-family:'Press Start 2P',monospace; font-size:10px; padding:8px 14px; cursor:pointer; letter-spacing:1px;
+            text-shadow:var(--text-shadow); border-radius:2px; transition:all 0.2s;
+        }
+        .btn-send:hover { background:#332200; border-color:var(--phosphor-glow); box-shadow:0 0 15px rgba(255,176,0,0.4); }
+        .btn-send:active { background:#4a3300; }
+        .btn-send:disabled { opacity:0.4; cursor:not-allowed; }
+
+        .quick-actions { display:flex; flex-wrap:wrap; gap:10px; padding:10px 0; position:relative; z-index:12; justify-content:center; }
+        .ctrl-btn {
+            background:#0a0f0a; border:1px solid rgba(255,176,0,0.5); color:var(--phosphor-glow);
+            font-family:'Press Start 2P',monospace; font-size:10px; padding:8px 14px; cursor:pointer; letter-spacing:1px;
+            text-shadow:var(--text-shadow); border-radius:2px; transition:all 0.2s;
+        }
+        .ctrl-btn:hover { background:#221100; border-color:var(--phosphor-glow); box-shadow:0 0 12px rgba(255,176,0,0.4); }
+        .ctrl-btn:active { background:#332200; }
+        .ctrl-btn:disabled { opacity:0.4; cursor:not-allowed; }
+
+        #btnBeginAdventure {
+            background:#1a0d00; border:2px solid var(--phosphor-glow); color:var(--phosphor-glow);
+            font-family:'Press Start 2P',monospace; font-size:11px; padding:12px 28px; cursor:pointer; letter-spacing:2px;
+            border-radius:3px; text-shadow:var(--text-shadow-bright); box-shadow:0 0 15px rgba(255,176,0,0.3); transition:all 0.2s;
+        }
+        #btnBeginAdventure:hover { background:#332200; border-color:#ffe388; box-shadow:0 0 25px rgba(255,176,0,0.6); }
+        #btnBeginAdventure:disabled { opacity:0.35; cursor:not-allowed; }
+
+        /* Death overlay */
+        .death-overlay {
+            position:absolute; top:0; left:0; right:0; bottom:0;
+            background:rgba(0,0,0,0.85); z-index:50;
+            display:flex; flex-direction:column; align-items:center; justify-content:center;
+            color:#ff2222; text-shadow:0 0 20px #ff0000; font-size:18px; text-align:center;
+            animation:death-flicker 0.5s infinite;
+        }
+        .death-overlay .epitaph { font-size:12px; margin:20px; color:#cc3333; }
+        .death-overlay .restart-buttons { display:flex; gap:20px; margin-top:30px; }
+        .death-overlay button {
+            background:#220000; border:2px solid #ff4444; color:#ff4444;
+            font-family:'Press Start 2P',monospace; font-size:10px; padding:10px 20px; cursor:pointer;
+            text-shadow:0 0 10px #ff0000; letter-spacing:1px; transition:all 0.2s;
+        }
+        .death-overlay button:hover { background:#441111; border-color:#ff8888; }
+        @keyframes death-flicker { 0%,100%{opacity:1} 30%{opacity:0.6} 70%{opacity:0.4} }
+
+        .monitor-brand { text-align:center; font-size:10px; color:#2a2a2a; letter-spacing:3px; padding-top:6px; position:relative; z-index:12; }
+        .power-led { display:inline-block; width:6px; height:6px; background:#ffb000; border-radius:50%; margin-right:6px; box-shadow:0 0 8px #ffb000; animation:led-pulse 2s infinite; }
+        @keyframes led-pulse { 0%,100%{box-shadow:0 0 8px #ffb000} 50%{box-shadow:0 0 12px #ffb000} }
+
+        .api-key-section { position:relative; z-index:12; padding:6px 0; border-bottom:1px solid rgba(255,176,0,0.1); display:flex; gap:6px; align-items:center; font-size:10px; color:#666; letter-spacing:1px; }
+        .api-key-input { flex:1; background:#0a0a0a; border:1px solid rgba(255,176,0,0.25); color:#aaa; font-family:'Courier New',monospace; font-size:10px; padding:6px 8px; }
+        .btn-save-key { background:#0a0f0a; border:1px solid rgba(255,176,0,0.35); color:#888; font-family:'Press Start 2P',monospace; font-size:10px; padding:6px 10px; cursor:pointer; }
+        .key-status.valid { color:var(--phosphor-glow); text-shadow:var(--text-shadow); }
+        .key-status.missing { color:#ff6644; }
+
+        @media (max-width:750px) {
+            .game-layout { flex-direction:column; }
+            .game-sidebar { max-width:100%; flex-direction:row; flex-wrap:wrap; font-size:8px; }
+            .game-output { max-height:200px; font-size:10px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="monitor">
+        <div class="screen">
+            <div class="scanlines"></div>
+            <div class="screen-flicker"></div>
+            <div class="vignette"></div>
+
+            <div class="title-bar">
+                <span class="game-title">HIGHWAY MIRRORS</span>
+                <span class="subtitle">DARKROAD GAMES © 1986 — OPEN ROAD</span>
+            </div>
+
+            <div class="api-key-section" id="apiKeySection">
+                <label for="apiKeyInput">🔑 MISTRAL API KEY:</label>
+                <input type="password" id="apiKeyInput" class="api-key-input" placeholder="Enter your Mistral API key...">
+                <button class="btn-save-key" id="btnSaveKey">SAVE</button>
+                <span class="key-status missing" id="keyStatus">● NO KEY</span>
+            </div>
+
+            <div class="game-layout">
+                <div class="game-main">
+                    <div class="game-output" id="gameOutput">
+                        <div class="system-msg">> SYSTEM BOOT SEQUENCE INITIATED...</div>
+                        <div class="system-msg">> MEMORY CHECK... 512K OK</div>
+                        <div class="system-msg">> LOADING HIGHWAY MIRRORS...</div>
+                        <div class="divider">══════════════════════════════════════</div>
+                        <div class="system-msg">> INSERT API KEY AND PRESS 'BEGIN ADVENTURE'</div>
+                        <div class="system-msg">> GET A KEY AT: console.mistral.ai</div>
+                    </div>
+                    <div class="status-line" id="statusLine">BODY COUNT: 0 | FUEL: <span id="fuelBar">██████████ 100%</span></div>
+                    <div class="quick-actions" id="quickActions">
+                        <button id="btnBeginAdventure">▶ BEGIN ADVENTURE</button>
+                        <button id="btnRestart" class="ctrl-btn">🔄 RESTART</button>
+                        <button id="btnSave" class="ctrl-btn">💾 SAVE</button>
+                        <button id="btnLoad" class="ctrl-btn">📂 LOAD</button>
+                        <input type="file" id="loadFileInput" accept=".json" style="display:none;">
+                    </div>
+                    <div class="input-area" id="inputArea">
+                        <span class="prompt-symbol" id="promptSymbol">HIGHWAY></span>
+                        <input type="text" class="cmd-input" id="cmdInput" placeholder="Type command..." disabled>
+                        <button class="btn-send" id="btnSend" disabled>ENTER</button>
+                    </div>
+                </div>
+                <div class="game-sidebar" id="gameSidebar" style="display:none;">
+                    <div class="sidebar-section">
+                        <div class="sidebar-title">🔪 BODY COUNT</div>
+                        <div id="bodyCountSidebar">0</div>
+                        <div class="sidebar-title">⛽ FUEL</div>
+                        <div class="stat-bar"><div class="stat-bar-fill fuel-bar-fill" id="fuelBarSide" style="width:100%"></div></div>
+                        <div id="fuelPercent">100%</div>
+                    </div>
+                    <div class="sidebar-section">
+                        <div class="sidebar-title">🎒 INVENTORY</div>
+                        <ul class="inventory-list" id="inventoryList"></ul>
+                    </div>
+                    <div class="sidebar-section">
+                        <div class="sidebar-title">📍 LOCATION</div>
+                        <div id="sidebarLoc">I-94, Mile 0</div>
+                        <div class="sidebar-title">🧭 ACTIONS / EXITS</div>
+                        <div id="exitsText">drive north, drive south, pull over</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="monitor-brand">
+            <span class="power-led"></span> DARKROAD DATA-TERMINAL 86
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        // DOM elements
+        const gameOutput = document.getElementById('gameOutput');
+        const cmdInput = document.getElementById('cmdInput');
+        const btnSend = document.getElementById('btnSend');
+        const promptSymbol = document.getElementById('promptSymbol');
+        const btnSaveKey = document.getElementById('btnSaveKey');
+        const apiKeyInput = document.getElementById('apiKeyInput');
+        const keyStatus = document.getElementById('keyStatus');
+        const statusLine = document.getElementById('statusLine');
+        const fuelBar = document.getElementById('fuelBar');
+        const btnBeginAdventure = document.getElementById('btnBeginAdventure');
+        const btnRestart = document.getElementById('btnRestart');
+        const btnSave = document.getElementById('btnSave');
+        const btnLoad = document.getElementById('btnLoad');
+        const loadFileInput = document.getElementById('loadFileInput');
+        const gameSidebar = document.getElementById('gameSidebar');
+        const inventoryList = document.getElementById('inventoryList');
+        const exitsText = document.getElementById('exitsText');
+        const sidebarLoc = document.getElementById('sidebarLoc');
+        const bodyCountSidebar = document.getElementById('bodyCountSidebar');
+        const fuelBarSide = document.getElementById('fuelBarSide');
+        const fuelPercent = document.getElementById('fuelPercent');
+
+        // Game state
+        let mistralApiKey = '';
+        let gameHistory = [];
+        let turnCount = 0;
+        let isLoading = false;
+        let gameStarted = false;
+        let gameOver = false;
+        let bodyCount = 0;
+        let fuel = 100;
+        let currentLocation = 'I-94, Mile 0';
+        let inventory = [];
+        let knownExits = [];
+        const MAX_SAVE_SLOTS = 5;
+        const AUTO_SAVE_TURNS = 5;
+
+        // Audio
+        let audioCtx = null;
+        function initAudio() {
+            if (!audioCtx) {
+                try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+            }
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        }
+        function playTickSound() {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'square';
+            osc.frequency.value = 500 + Math.random() * 500;
+            gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.03);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.03);
+        }
+
+        // System prompt – no police, no heat, just open world
+        const SYSTEM_PROMPT = `You are the Game Master for "HIGHWAY MIRRORS," an open-world text adventure set in 1986. The player is a serial killer driving a beat-up van on dark interstates at night. They have complete freedom: drive anywhere, pick up hitchhikers, talk, threaten, attack, hide bodies, refuel, stay at motels, switch vehicles, walk, camp, and explore the world. There is NO police presence, NO heat level, and NO automatic law enforcement. The player can commit crimes without consequence from the law. The world is empty except for other travelers, gas stations, motels, diners, and lonely roads.
+
+You must respond ONLY with a raw JSON object (no markdown, no backticks). The JSON must contain exactly these fields:
+- "narration": string (25-50 words, tense 80s horror, describing what the player sees and the immediate outcomes of their actions)
+- "body_count": integer (total victims killed so far)
+- "fuel": integer (0-100, decreases when driving. At 0, the van stops, but the player can walk, hitchhike, or be stranded. They can find gas at stations or from other vehicles.)
+- "location": string (e.g., "I-94 Mile 23", "Rest Stop", "Gas Station", "Backroad", "Woods", "Motel", "Bridge", "Diner")
+- "inventory": array of strings (items the player carries)
+- "exits": array of strings (available actions or travel directions, e.g. "drive north", "pull over", "enter gas station", "approach hitchhiker", "walk", "hide body")
+- "gameover": boolean (set true only if the player is killed – by a victim fighting back, an accident, exposure, etc. There are no police arrests.)
+- "epitaph": string (10-20 words, only if gameover, describing the player's demise)
+
+World rules:
+- The player can type anything. Treat it as a real open world. They can go anywhere, talk to anyone, do anything within the dark 1986 setting.
+- Fuel is a resource; they can refuel at gas stations or siphon from other cars.
+- There are NO police, NO heat, NO law enforcement. If the player encounters a police car, it's just a random vehicle they can interact with like any other. The player is never pursued unless they deliberately provoke a response.
+- Keep the tone nihilistic and realistic.`;
+
+        // Helper functions
+        function parseGameState(json) {
+            try {
+                const state = JSON.parse(json);
+                if (state.body_count !== undefined) bodyCount = state.body_count;
+                if (state.fuel !== undefined) fuel = Math.min(100, Math.max(0, state.fuel));
+                if (state.location) currentLocation = state.location;
+                if (state.inventory) inventory = state.inventory;
+                if (state.exits) knownExits = state.exits;
+                if (state.gameover) gameOver = true;
+                updateSidebar();
+                updateStatusLine();
+                updatePrompt();
+                return state;
+            } catch(e) {
+                console.error('JSON parse error:', e);
+                return null;
+            }
+        }
+
+        function updateSidebar() {
+            if (!gameStarted) { gameSidebar.style.display = 'none'; return; }
+            gameSidebar.style.display = 'flex';
+            bodyCountSidebar.textContent = bodyCount;
+
+            // Fuel bar
+            fuelBarSide.style.width = fuel + '%';
+            fuelPercent.textContent = fuel + '%';
+
+            // Inventory
+            inventoryList.innerHTML = '';
+            if (inventory.length === 0) {
+                const li = document.createElement('li');
+                li.textContent = '- empty -';
+                inventoryList.appendChild(li);
+            } else {
+                inventory.forEach(item => {
+                    const li = document.createElement('li');
+                    li.textContent = '• ' + item;
+                    inventoryList.appendChild(li);
+                });
+            }
+
+            sidebarLoc.textContent = currentLocation;
+            exitsText.textContent = knownExits.length ? knownExits.join(', ') : 'none';
+        }
+
+        function updateStatusLine() {
+            const fuelPercentVal = fuel;
+            const fuelFilled = Math.round(fuelPercentVal / 10);
+            const fuelEmpty = 10 - fuelFilled;
+            const fuelBarStr = '█'.repeat(fuelFilled) + '░'.repeat(fuelEmpty) + ' ' + fuelPercentVal + '%';
+            statusLine.innerHTML = `BODY COUNT: ${bodyCount} | FUEL: <span class="fuel-bar">${fuelBarStr}</span>`;
+        }
+
+        function updatePrompt() {
+            if (!gameStarted) {
+                promptSymbol.textContent = 'HIGHWAY>';
+                return;
+            }
+            const loc = currentLocation.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase().substring(0, 12);
+            promptSymbol.textContent = `I-94\\${loc}>`;
+        }
+
+        // Typewriter effect
+        async function typewriterText(text, className, sound = true) {
+            return new Promise((resolve) => {
+                const div = document.createElement('div');
+                div.className = className;
+                gameOutput.appendChild(div);
+                let i = 0;
+                function typeChar() {
+                    if (i < text.length) {
+                        div.textContent += text.charAt(i);
+                        if (sound) playTickSound();
+                        i++;
+                        scrollToBottom();
+                        typingTimeout = setTimeout(typeChar, 25 + Math.random() * 10);
+                    } else {
+                        resolve();
+                    }
+                }
+                typeChar();
+            });
+        }
+
+        let typingTimeout = null;
+        function clearTyping() { if (typingTimeout) { clearTimeout(typingTimeout); typingTimeout = null; } }
+
+        function addOutputInstant(type, text) {
+            const div = document.createElement('div');
+            switch(type) {
+                case 'system': div.className = 'system-msg'; break;
+                case 'player': div.className = 'player-cmd'; text = '> ' + text; break;
+                case 'ai': div.className = 'ai-response'; break;
+                case 'error': div.className = 'error-msg'; break;
+                case 'divider': div.className = 'divider'; break;
+            }
+            div.textContent = text;
+            gameOutput.appendChild(div);
+        }
+
+        function addDividerInstant() {
+            const div = document.createElement('div');
+            div.className = 'divider';
+            div.textContent = '──────────────────────────────────────────';
+            gameOutput.appendChild(div);
+        }
+
+        function scrollToBottom() { gameOutput.scrollTop = gameOutput.scrollHeight; }
+
+        // Save/Load
+        function getSaveSlots() {
+            const slots = [];
+            for (let i = 0; i < MAX_SAVE_SLOTS; i++) {
+                const data = localStorage.getItem(`highway_mirrors_open_slot_${i}`);
+                if (data) {
+                    try {
+                        const parsed = JSON.parse(data);
+                        slots.push({ id:i, name:parsed.name || `Slot ${i+1}`, turn:parsed.turnCount, date:parsed.timestamp });
+                    } catch(e) { slots.push({ id:i, name:`Slot ${i+1} (corrupted)`, turn:0 }); }
+                } else {
+                    slots.push({ id:i, name:`Slot ${i+1} (empty)`, turn:0 });
+                }
+            }
+            return slots;
+        }
+
+        function saveToSlot(slotId, name) {
+            const saveData = {
+                gameHistory, turnCount, gameStarted,
+                bodyCount, fuel, currentLocation, inventory, knownExits, gameOver,
+                name: name || `Slot ${slotId+1}`,
+                timestamp: new Date().toISOString()
+            };
+            localStorage.setItem(`highway_mirrors_open_slot_${slotId}`, JSON.stringify(saveData));
+        }
+
+        function loadFromSlot(slotId) {
+            const data = localStorage.getItem(`highway_mirrors_open_slot_${slotId}`);
+            if (!data) throw new Error('Slot empty');
+            const save = JSON.parse(data);
+            gameHistory = save.gameHistory || [];
+            turnCount = save.turnCount || 0;
+            gameStarted = save.gameStarted || false;
+            bodyCount = save.bodyCount || 0;
+            fuel = save.fuel || 100;
+            currentLocation = save.currentLocation || 'I-94, Mile 0';
+            inventory = save.inventory || [];
+            knownExits = save.knownExits || [];
+            gameOver = save.gameOver || false;
+            return save;
+        }
+
+        function autoSave() {
+            if (!gameStarted || gameOver) return;
+            saveToSlot(0, 'Autosave');
+            addOutputInstant('system', '> AUTO-SAVING...');
+            setTimeout(() => {
+                const msgs = gameOutput.querySelectorAll('.system-msg');
+                for (let m of msgs) {
+                    if (m.textContent.includes('AUTO-SAVING')) m.remove();
+                }
+            }, 1200);
+        }
+
+        // Death screen (only if killed)
+        function showDeathScreen(epitaph) {
+            const overlay = document.createElement('div');
+            overlay.className = 'death-overlay';
+            overlay.innerHTML = `
+                <div>YOU DIED</div>
+                <div class="epitaph">"${epitaph || 'The night swallows you whole.'}"</div>
+                <div class="restart-buttons">
+                    <button id="deathRestart">🔄 RESTART</button>
+                    <button id="deathLoad">📂 LOAD GAME</button>
+                </div>
+            `;
+            document.querySelector('.screen').appendChild(overlay);
+            document.getElementById('deathRestart').addEventListener('click', () => {
+                overlay.remove();
+                restartGame();
+            });
+            document.getElementById('deathLoad').addEventListener('click', () => {
+                overlay.remove();
+                loadFileInput.click();
+            });
+            disableGameControls();
+        }
+
+        // API call
+        async function callMistralAPI(messages) {
+            const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${mistralApiKey}` },
+                body: JSON.stringify({
+                    model: 'mistral-large-latest',
+                    messages: messages,
+                    temperature: 0.85,
+                    max_tokens: 300,
+                    top_p: 0.95,
+                    response_format: { type: "json_object" }
+                })
+            });
+            if (!response.ok) {
+                if (response.status === 401) throw new Error('INVALID API KEY.');
+                if (response.status === 429) throw new Error('RATE LIMITED.');
+                throw new Error(`API ERROR (${response.status})`);
+            }
+            const data = await response.json();
+            return data.choices[0].message.content;
+        }
+
+        // Main game flow
+        async function sendToAI(userMessage) {
+            if (!mistralApiKey) { addOutputInstant('error', '> NO API KEY.'); return; }
+            if (isLoading) { addOutputInstant('system', '> PROCESSING...'); return; }
+            if (gameOver) { addOutputInstant('system', '> GAME OVER. RESTART OR LOAD.'); return; }
+
+            isLoading = true;
+            disableGameControls();
+            clearTyping();
+            gameHistory.push({ role: 'user', content: userMessage });
+            addOutputInstant('player', userMessage);
+
+            const thinkingDiv = document.createElement('div');
+            thinkingDiv.className = 'system-msg';
+            thinkingDiv.id = 'thinkingIndicator';
+            thinkingDiv.textContent = '> PROCESSING...';
+            gameOutput.appendChild(thinkingDiv);
+            scrollToBottom();
+
+            try {
+                const apiMessages = [{ role: 'system', content: SYSTEM_PROMPT }, ...gameHistory];
+                const rawResponse = await callMistralAPI(apiMessages);
+                const thinkEl = document.getElementById('thinkingIndicator');
+                if (thinkEl) thinkEl.remove();
+
+                let state;
+                try {
+                    state = JSON.parse(rawResponse.trim());
+                } catch(e) {
+                    const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) state = JSON.parse(jsonMatch[0]);
+                    else throw new Error('Invalid JSON response');
+                }
+
+                gameHistory.push({ role: 'assistant', content: JSON.stringify(state) });
+                turnCount++;
+                parseGameState(JSON.stringify(state));
+
+                addDividerInstant();
+                await typewriterText(state.narration || 'The road stretches on.', 'ai-response', true);
+                addDividerInstant();
+                scrollToBottom();
+
+                if (state.gameover) {
+                    gameOver = true;
+                    showDeathScreen(state.epitaph || 'The highway takes its toll.');
+                    updateSidebar();
+                    return;
+                }
+
+                if (turnCount % AUTO_SAVE_TURNS === 0) autoSave();
+
+            } catch (error) {
+                const thinkEl = document.getElementById('thinkingIndicator');
+                if (thinkEl) thinkEl.remove();
+                addOutputInstant('error', `> ⚠ ${error.message}`);
+                gameHistory.pop();
+            } finally {
+                isLoading = false;
+                if (mistralApiKey && !gameOver) {
+                    cmdInput.disabled = false;
+                    btnSend.disabled = false;
+                    btnBeginAdventure.disabled = true;
+                    btnRestart.disabled = false;
+                    btnSave.disabled = false;
+                    btnLoad.disabled = false;
+                }
+                updateSidebar();
+                cmdInput.focus();
+            }
+        }
+
+        async function beginAdventure() {
+            if (!mistralApiKey) { addOutputInstant('error', '> ENTER API KEY FIRST.'); return; }
+            if (isLoading) return;
+            gameHistory = [];
+            turnCount = 0;
+            bodyCount = 0;
+            fuel = 100;
+            currentLocation = 'I-94, Mile 0';
+            inventory = [];
+            knownExits = ['drive north', 'drive south', 'pull over'];
+            gameOver = false;
+            gameStarted = true;
+            updateStatusLine();
+            updatePrompt();
+            updateSidebar();
+            gameOutput.innerHTML = '';
+            addOutputInstant('system', '> HIGHWAY MIRRORS — DARKROAD GAMES 1986');
+            addOutputInstant('system', '> THE ROAD IS DARK. THE VAN IS RUNNING.');
+            addDividerInstant();
+            btnBeginAdventure.disabled = true;
+            gameSidebar.style.display = 'flex';
+            await sendToAI('I am driving my van along the highway at night. I look at the road ahead and check the radio.');
+        }
+
+        function restartGame() {
+            if (isLoading) return;
+            clearTyping();
+            gameHistory = [];
+            turnCount = 0;
+            bodyCount = 0;
+            fuel = 100;
+            currentLocation = 'I-94, Mile 0';
+            inventory = [];
+            knownExits = ['drive north', 'drive south', 'pull over'];
+            gameOver = false;
+            gameStarted = false;
+            gameOutput.innerHTML = '';
+            addOutputInstant('system', '> HIGHWAY MIRRORS — DARKROAD GAMES 1986');
+            addOutputInstant('system', '> NEW GAME READY. PRESS BEGIN.');
+            addDividerInstant();
+            updateStatusLine();
+            updatePrompt();
+            gameSidebar.style.display = 'none';
+            btnBeginAdventure.disabled = false;
+            enableGameControls();
+            cmdInput.focus();
+        }
+
+        function showSaveDialog() {
+            const slots = getSaveSlots();
+            let msg = 'Select save slot (0-4) or type a name:\n';
+            slots.forEach(s => { msg += `  ${s.id}: ${s.name} (Turn ${s.turn})\n`; });
+            msg += 'Enter slot number or "name:MySaveName".';
+            const userInput = prompt(msg);
+            if (userInput === null) return;
+            if (userInput.toLowerCase().startsWith('name:')) {
+                const name = userInput.substring(5).trim();
+                const slotId = prompt('Which slot number (0-4)?', '0');
+                if (slotId !== null) {
+                    const id = parseInt(slotId);
+                    if (!isNaN(id) && id >=0 && id < MAX_SAVE_SLOTS) {
+                        saveToSlot(id, name);
+                        addOutputInstant('system', `> GAME SAVED IN SLOT ${id} AS "${name}".`);
+                    }
+                }
+            } else {
+                const id = parseInt(userInput);
+                if (!isNaN(id) && id >=0 && id < MAX_SAVE_SLOTS) {
+                    saveToSlot(id);
+                    addOutputInstant('system', `> GAME SAVED IN SLOT ${id}.`);
+                }
+            }
+        }
+
+        function showLoadDialog() {
+            const slots = getSaveSlots();
+            let msg = 'Select save slot to load (0-4):\n';
+            slots.forEach(s => { msg += `  ${s.id}: ${s.name} (Turn ${s.turn})\n`; });
+            const idStr = prompt(msg);
+            if (idStr === null) return;
+            const id = parseInt(idStr);
+            if (!isNaN(id) && id >=0 && id < MAX_SAVE_SLOTS) {
+                try {
+                    const saveData = loadFromSlot(id);
+                    gameOutput.innerHTML = '';
+                    addOutputInstant('system', `> GAME LOADED: ${saveData.name || 'Slot '+id}`);
+                    if (gameStarted) {
+                        btnBeginAdventure.disabled = true;
+                        gameSidebar.style.display = 'flex';
+                        const lastAI = [...gameHistory].reverse().find(m => m.role === 'assistant');
+                        if (lastAI) {
+                            try {
+                                const state = JSON.parse(lastAI.content);
+                                addDividerInstant();
+                                addOutputInstant('ai', state.narration || lastAI.content);
+                                addDividerInstant();
+                            } catch(e) { addOutputInstant('ai', lastAI.content); }
+                        }
+                        updateStatusLine();
+                        updatePrompt();
+                        updateSidebar();
+                    } else {
+                        gameSidebar.style.display = 'none';
+                        btnBeginAdventure.disabled = false;
+                    }
+                    enableGameControls();
+                } catch(e) {
+                    addOutputInstant('error', '> FAILED TO LOAD SAVE.');
+                }
+            }
+        }
+
+        function enableGameControls() {
+            if (mistralApiKey && !isLoading && !gameOver) {
+                cmdInput.disabled = false;
+                btnSend.disabled = false;
+                btnBeginAdventure.disabled = gameStarted;
+                btnRestart.disabled = false;
+                btnSave.disabled = false;
+                btnLoad.disabled = false;
+            }
+        }
+        function disableGameControls() {
+            cmdInput.disabled = true;
+            btnSend.disabled = true;
+            btnBeginAdventure.disabled = true;
+            btnRestart.disabled = true;
+            btnSave.disabled = true;
+            btnLoad.disabled = true;
+        }
+
+        // Command handler
+        function handleCommand(cmd) {
+            cmd = cmd.trim();
+            if (!cmd) return;
+            initAudio();
+            if (!mistralApiKey) { addOutputInstant('error', '> NO API KEY.'); return; }
+            if (!gameStarted && cmd.toLowerCase() !== 'begin') {
+                addOutputInstant('system', '> PRESS "BEGIN ADVENTURE" FIRST.');
+                return;
+            }
+            if (isLoading) { addOutputInstant('system', '> PROCESSING...'); return; }
+            if (gameOver) { addOutputInstant('system', '> GAME OVER. RESTART OR LOAD.'); return; }
+            if (cmd.toLowerCase() === 'begin' && !gameStarted) { beginAdventure(); return; }
+            sendToAI(cmd);
+            cmdInput.value = '';
+        }
+
+        // Event listeners
+        btnSaveKey.addEventListener('click', () => {
+            initAudio();
+            const key = apiKeyInput.value.trim();
+            if (key) {
+                mistralApiKey = key;
+                localStorage.setItem('highway_mirrors_mistral_key', key);
+                keyStatus.textContent = '● KEY SET';
+                keyStatus.className = 'key-status valid';
+                enableGameControls();
+            } else {
+                localStorage.removeItem('highway_mirrors_mistral_key');
+                keyStatus.textContent = '● NO KEY';
+                keyStatus.className = 'key-status missing';
+            }
+        });
+        apiKeyInput.addEventListener('keydown', e => { if (e.key === 'Enter') btnSaveKey.click(); });
+
+        btnSend.addEventListener('click', () => handleCommand(cmdInput.value));
+        cmdInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleCommand(cmdInput.value); });
+
+        btnBeginAdventure.addEventListener('click', () => { initAudio(); beginAdventure(); });
+        btnRestart.addEventListener('click', () => { initAudio(); restartGame(); });
+        btnSave.addEventListener('click', () => { initAudio(); showSaveDialog(); });
+        btnLoad.addEventListener('click', () => { initAudio(); showLoadDialog(); });
+        loadFileInput.addEventListener('change', e => {
+            if (e.target.files.length > 0) {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    try {
+                        const data = JSON.parse(ev.target.result);
+                        if (data.gameHistory) {
+                            gameHistory = data.gameHistory;
+                            turnCount = data.turnCount || 0;
+                            gameStarted = data.gameStarted || false;
+                            bodyCount = data.bodyCount || 0;
+                            fuel = data.fuel || 100;
+                            currentLocation = data.currentLocation || 'I-94, Mile 0';
+                            inventory = data.inventory || [];
+                            gameOver = data.gameOver || false;
+                            gameOutput.innerHTML = '';
+                            addOutputInstant('system', '> GAME LOADED FROM FILE.');
+                            if (gameStarted) {
+                                btnBeginAdventure.disabled = true;
+                                gameSidebar.style.display = 'flex';
+                                const lastAI = [...gameHistory].reverse().find(m => m.role === 'assistant');
+                                if (lastAI) {
+                                    try { const state = JSON.parse(lastAI.content); addDividerInstant(); addOutputInstant('ai', state.narration); addDividerInstant(); } catch(e) {}
+                                }
+                                updateStatusLine(); updatePrompt(); updateSidebar();
+                            }
+                            enableGameControls();
+                        }
+                    } catch(e) { addOutputInstant('error', '> INVALID SAVE FILE.'); }
+                };
+                reader.readAsText(e.target.files[0]);
+                loadFileInput.value = '';
+            }
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', e => {
+            if (document.activeElement === cmdInput || document.activeElement === apiKeyInput) return;
+            const key = e.key.toLowerCase();
+            const shortcuts = { 'l':'look','n':'drive north','s':'drive south','e':'drive east','w':'drive west',
+                'i':'inventory','x':'examine','t':'take','a':'attack','k':'talk','o':'open','p':'pull over','r':'refuel','h':'hide' };
+            if (shortcuts[key] && gameStarted && !isLoading && mistralApiKey && !gameOver) {
+                e.preventDefault();
+                handleCommand(shortcuts[key]);
+            }
+        });
+
+        // Init
+        function init() {
+            const savedKey = localStorage.getItem('highway_mirrors_mistral_key');
+            if (savedKey) {
+                mistralApiKey = savedKey;
+                apiKeyInput.value = savedKey;
+                keyStatus.textContent = '● KEY SET';
+                keyStatus.className = 'key-status valid';
+                enableGameControls();
+            } else {
+                keyStatus.textContent = '● NO KEY';
+                keyStatus.className = 'key-status missing';
+                disableGameControls();
+            }
+            updateStatusLine();
+            updatePrompt();
+            cmdInput.focus();
+        }
+        init();
+    })();
+    </script>
+</body>
+</html>
