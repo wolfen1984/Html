@@ -6,6 +6,7 @@
     <title>The Last Projectionist – Rialto Cinema 1986</title>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <style>
+        /* ... all your existing CSS (exactly the same) ... */
         :root {
             --phosphor: #cc2244;
             --phosphor-dim: #881133;
@@ -317,7 +318,6 @@
         return reelsLocations;
     }
 
-    // Audio
     let audioCtx = null;
     function initAudio() {
         if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {} }
@@ -334,6 +334,7 @@
         osc.start(); osc.stop(audioCtx.currentTime+0.03);
     }
 
+    // *** IMPROVED SYSTEM PROMPT ***
     const SYSTEM_PROMPT = `You are the Game Master for "THE LAST PROJECTIONIST," an open-world text adventure set in 1986. The player runs the decaying Rialto Cinema. They can explore the cinema, the nearby town, and use a dedicated REELS page for managing their film collection. There is NO police, NO death, NO game over.
 
 Respond ONLY with a raw JSON object (no markdown, no backticks). The JSON must be perfectly formatted – no trailing commas, all property names in double quotes. The JSON must contain exactly these fields:
@@ -347,8 +348,13 @@ Respond ONLY with a raw JSON object (no markdown, no backticks). The JSON must b
 - "current_screening": string or null
 - "client_request": object or null
 - "exits": array of strings
-- "classifieds": array of objects (only when in Classifieds or after BROWSE ADS), each with: id, type, reel_title, rarity, asking_price, description
-- "market": array of objects (only when in Trading Post or after LIST MARKET), each with: reel_title, rarity, price
+- "classifieds": array of objects (only when the player explicitly browses the classifieds or is in the Classifieds section). Each ad must have: id (string), type (wanted/selling/trade), reel_title, rarity, asking_price, description.
+- "market": array of objects (only when the player explicitly lists the market or is in the Trading Post). Each item must have: reel_title, rarity, price.
+
+SPECIAL COMMANDS:
+- When the player types "BROWSE ADS" while in the Classifieds, you MUST generate 2-3 fresh classified ads in the "classifieds" array. The narration should be a brief sentence like "You scan the newspaper listings."
+- When the player types "LIST MARKET" while in the Trading Post, you MUST generate 2-3 market items in the "market" array. The narration should be brief.
+- For any other command, you may provide narration and update other fields as appropriate, but always include the arrays if the player is in a corresponding area and has requested them (you can leave them empty if not applicable).
 
 Navigation:
 - "GO TO REELS PAGE" sets location to "Reels - Collection"
@@ -413,7 +419,6 @@ Keep the tone noir, gothic, obsessed with film.`;
         };
     }
 
-    // Display the interactive Reels sub-page
     function displayReelsContent(section) {
         currentReelsSection = section;
         const container = reelsInterface;
@@ -460,11 +465,9 @@ Keep the tone noir, gothic, obsessed with film.`;
                         <button id="breakBtn">BREAK SELECTED REEL</button>
                     </div>
                     <div id="reelDetails" style="flex:1; border:1px solid var(--gold); padding:6px; font-size:9px;">
-                        <!-- filled dynamically -->
                     </div>
                 </div>
             `;
-
             function updateReelDetails(title) {
                 const reel = reels.find(r => r.title === title);
                 const detailsDiv = document.getElementById('reelDetails');
@@ -482,14 +485,11 @@ Keep the tone noir, gothic, obsessed with film.`;
                     `;
                 }
             }
-            // initial update
             const initialSelect = document.getElementById('editReelSelect');
             if (initialSelect) {
                 updateReelDetails(initialSelect.value);
                 initialSelect.addEventListener('change', (e) => updateReelDetails(e.target.value));
             }
-
-            // Buttons
             document.getElementById('saveEditBtn').addEventListener('click', () => {
                 const title = document.getElementById('editReelSelect').value;
                 const newTitle = document.getElementById('editTitle').value.trim();
@@ -631,7 +631,6 @@ Keep the tone noir, gothic, obsessed with film.`;
     function updateUI() {
         if (!gameStarted) { gameSidebar.style.display='none'; return; }
         gameSidebar.style.display='flex';
-        // Reels sidebar
         reelsList.innerHTML = '';
         if (reels.length===0) reelsList.textContent='No reels.';
         else {
@@ -643,7 +642,6 @@ Keep the tone noir, gothic, obsessed with film.`;
                 reelsList.appendChild(card);
             });
         }
-        // Friends
         friendsList.innerHTML = '';
         if (friends.length===0) friendsList.textContent='No friends yet.';
         else {
@@ -654,22 +652,16 @@ Keep the tone noir, gothic, obsessed with film.`;
                 friendsList.appendChild(card);
             });
         }
-        // Storage
         inventoryList.innerHTML = inventory.length===0 ? '<li>- none -</li>' : inventory.map(i => `<li>• ${i}</li>`).join('');
         vaultList.innerHTML = vaultItems.length===0 ? '<li>- empty -</li>' : vaultItems.map(i => `<li>• ${i}</li>`).join('');
-        // Status
         const screenText = currentScreening || 'none';
         statusLine.textContent = `CASH: $${cash} | SCREENING: ${screenText} | LOC: ${currentLocation}`;
-        // Prompt
         const locShort = currentLocation.replace(/[^a-zA-Z0-9]/g,'_').toUpperCase().substring(0,10);
         promptSymbol.textContent = `RIALTO\\${locShort}>`;
 
-        // Always show map grid
         mapGrid.style.display = 'grid';
-        // Show/hide reels interface
         if (currentArea === 'reels') {
             reelsInterface.style.display = 'block';
-            // Refresh the interactive panel for the current sub-page
             displayReelsContent(currentReelsSection);
         } else {
             reelsInterface.style.display = 'none';
@@ -682,7 +674,6 @@ Keep the tone noir, gothic, obsessed with film.`;
         });
     }
 
-    // Typewriter
     let typingTimeout = null;
     async function typewriterText(text, cls, sound=true) {
         return new Promise(resolve => {
@@ -719,7 +710,6 @@ Keep the tone noir, gothic, obsessed with film.`;
     }
     function scrollToBottom() { gameOutput.scrollTop = gameOutput.scrollHeight; }
 
-    // Save/Load
     const MAX_SLOTS = 5;
     function saveToSlot(slotId, name) {
         const save = { gameHistory,turnCount,gameStarted,cash,currentLocation,currentArea,inventory,vaultItems,reels,friends,currentScreening,clientRequest,classifieds,marketListings,
@@ -744,7 +734,6 @@ Keep the tone noir, gothic, obsessed with film.`;
         setTimeout(()=>{ const msgs=gameOutput.querySelectorAll('.system-msg'); msgs.forEach(m=>{ if(m.textContent.includes('AUTO-SAVING')) m.remove();}); },1200);
     }
 
-    // API
     async function callMistral(msgs) {
         const resp = await fetch('https://api.mistral.ai/v1/chat/completions', {
             method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${mistralApiKey}`},
@@ -759,7 +748,6 @@ Keep the tone noir, gothic, obsessed with film.`;
         return data.choices[0].message.content;
     }
 
-    // Main game loop
     async function sendToAI(userMsg) {
         if (!mistralApiKey) { addOutputInstant('error','> NO API KEY.'); return; }
         if (isLoading) { addOutputInstant('system','> PROCESSING...'); return; }
@@ -853,7 +841,6 @@ Keep the tone noir, gothic, obsessed with film.`;
         cmdInput.value='';
     }
 
-    // Area tab clicks
     areaTabs.addEventListener('click', e => {
         const tab = e.target.closest('.area-tab');
         if (!tab) return;
@@ -868,7 +855,6 @@ Keep the tone noir, gothic, obsessed with film.`;
         }
     });
 
-    // Sidebar tabs
     sidebarTabs.forEach(tab => {
         tab.addEventListener('click', () => {
             sidebarTabs.forEach(t => t.classList.remove('active'));
@@ -878,7 +864,6 @@ Keep the tone noir, gothic, obsessed with film.`;
         });
     });
 
-    // Event listeners
     btnSaveKey.addEventListener('click', () => {
         initAudio();
         const key = apiKeyInput.value.trim();
