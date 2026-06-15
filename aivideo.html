@@ -73,7 +73,7 @@
             display: flex; justify-content: space-between; align-items: center;
             padding:6px 8px; background: rgba(15,5,20,0.9); border:1px solid var(--magenta-dim);
             margin-bottom:8px; font-size:10px; color:#cc99bb; text-shadow:0 0 6px rgba(255,100,180,0.5);
-            position:relative; z-index:12; flex-shrink: 0;
+            position:relative; z-index:12; flex-shrink: 0; flex-wrap: wrap; gap: 4px;
         }
         .store-indicator { color: var(--magenta); font-weight:bold; }
         .store-indicator.closed { color: #555; }
@@ -180,6 +180,18 @@
         }
         .monitor-brand { text-align:center; font-size:10px; color:#2a2a2a; letter-spacing:2px; padding-top:4px; }
         .power-led { display:inline-block; width:6px; height:6px; background:var(--magenta); border-radius:50%; margin-right:6px; box-shadow:0 0 8px var(--magenta); }
+
+        .sellback-overlay {
+            position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+            background: #0a0010; border: 2px solid var(--orange); padding: 12px;
+            z-index: 55; display: none; flex-direction: column; gap: 8px;
+            width: 90%; max-width: 450px; color: #ffbb66; font-size: 9px;
+            font-family: 'Press Start 2P', monospace; border-radius: 6px;
+        }
+        .sellback-overlay button {
+            background: none; border: 1px solid var(--orange); color: var(--orange);
+            padding: 6px 12px; cursor: pointer; font-family: inherit; font-size: 9px;
+        }
     </style>
 </head>
 <body>
@@ -191,9 +203,11 @@
         <div class="status-bar" id="statusBar">
             <span><span class="store-indicator closed" id="storeIndicator">● CLOSED</span></span>
             <span id="timeDisplay">11:00 PM</span>
-            <span>REVENUE: <span id="revenueDisplay">$0</span></span>
+            <span>SHIFT: <span id="revenueDisplay">$0</span></span>
+            <span>CASH: <span id="storeBalanceDisplay">$200</span></span>
             <span>STRESS: <span id="stressDisplay">15</span>%</span>
         </div>
+
         <div class="counter-board" id="counterBoard"></div>
         <div class="actions-bar" id="actionButtons">
             <button id="btnOpenStore" style="display:none;">🔓 OPEN STORE</button>
@@ -202,6 +216,7 @@
             <button id="btnBackRoom">🚪 BACK ROOM</button>
             <button id="btnReturn" style="display:none;">⬅️ RETURN</button>
             <button id="btnCloseStore">⏹️ CLOSE STORE</button>
+            <button id="btnFeedDumpster" style="display:none;">🍖 FEED DUMPSTER</button>
             <button id="btnSave">💾 SAVE</button>
             <button id="btnLoad">📂 LOAD</button>
             <button id="btnRestart">🔄 RESTART</button>
@@ -223,16 +238,24 @@
             <button id="btnSend" style="background:rgba(15,5,20,0.9); border:1px solid var(--magenta); color:var(--magenta); font-family:'Press Start 2P'; font-size:9px; padding:6px 12px; cursor:pointer;">SEND</button>
         </div>
         <div class="break-overlay" id="breakOverlay">
+<div id="breakMessage" style="color:var(--cyan); font-size:9px; text-align:center; max-width:80%; min-height:20px;"></div>
             <button id="btnPrivateCollection">🎬 PRIVATE COLLECTION</button>
             <button id="btnViewingRoomBreak">👁 VIEWING ROOM</button>
+            <button id="btnOrderTapes">📦 ORDER TAPES</button>
+            <button id="btnDigBoxes">🔍 DIG THROUGH BOXES</button>
             <button id="btnSmokeAlley">🚬 SMOKE (ALLEY)</button>
             <button id="btnReturnToCounter">⬅️ RETURN TO COUNTER</button>
         </div>
         <div class="modal-overlay" id="inventoryModal">
             <div class="modal-content">
                 <h3>📼 STORE INVENTORY</h3>
+                <div id="inventoryTabs" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;">
+                    <button class="inv-tab" data-tab="shelves">SHELVES</button>
+                    <button class="inv-tab" data-tab="ledger">LEDGER</button>
+                </div>
                 <div id="inventoryCategoryTabs" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;"></div>
                 <div id="inventoryTapeList"></div>
+                <div id="inventoryLedger" style="display:none;"></div>
                 <button class="modal-close" id="closeInventoryModal">CLOSE</button>
             </div>
         </div>
@@ -271,6 +294,20 @@
                 <button class="modal-close" id="closeSaveModal">CLOSE</button>
             </div>
         </div>
+        <div class="modal-overlay" id="distributorModal">
+            <div class="modal-content">
+                <h3>📦 DISTRIBUTOR CATALOG</h3>
+                <div id="distributorList"></div>
+                <button class="modal-close" id="closeDistributorModal">CLOSE</button>
+            </div>
+        </div>
+        <div class="sellback-overlay" id="sellbackOffer">
+            <div id="sellbackMessage"></div>
+            <div style="display:flex; gap:8px; justify-content:center;">
+                <button id="btnAcceptSellback">ACCEPT</button>
+                <button id="btnDeclineSellback">DECLINE</button>
+            </div>
+        </div>
     </div>
     <div class="monitor-brand"><span class="power-led"></span> VIDEO VISIONS RENTAL TERMINAL</div>
 </div>
@@ -286,6 +323,7 @@
     const timeDisplay = document.getElementById('timeDisplay');
     const revenueDisplay = document.getElementById('revenueDisplay');
     const stressDisplay = document.getElementById('stressDisplay');
+    const storeBalanceDisplay = document.getElementById('storeBalanceDisplay');
     const apiKeyInput = document.getElementById('apiKeyInput');
     const keyStatus = document.getElementById('keyStatus');
     const btnBeginShift = document.getElementById('btnBeginShift');
@@ -294,6 +332,7 @@
     const btnReturn = document.getElementById('btnReturn');
     const btnViewingRm = document.getElementById('btnViewingRm');
     const btnCloseStore = document.getElementById('btnCloseStore');
+    const btnFeedDumpster = document.getElementById('btnFeedDumpster');
 
     let mistralApiKey = '';
     let gameHistory = [];
@@ -303,10 +342,11 @@
     let storeOpen = false;
     let inBreak = false;
     let inAlley = false;
+    let shiftEnded = false;
     let revenue = 0;
+    let storeBalance = 200;
     let stress = 15;
     let currentTime = '11:00 PM';
-    let shiftEnded = false;
     let counterSlots = [
         { id:1, status:'empty', customer:null },
         { id:2, status:'empty', customer:null },
@@ -317,42 +357,49 @@
     let viewingRoomOccupant = null;
     let viewingRoomTape = null;
     let viewingActive = false;
+    let pendingTapeRental = null;
+    let currentSellbackOffer = null;
 
-    // FULLY POPULATED STORE INVENTORY
+    // Enhanced inventory
     let storeInventory = {
         horror: [
-            { title: 'The Last House on Dead End Street', year: '1977', director: 'Roger Watkins', danger_vibe:5, description:'Notorious grindhouse shocker. Rumored to contain real footage.' },
-            { title: 'Cannibal Apocalypse', year: '1980', director: 'Antonio Margheriti', danger_vibe:4, description:'Vietnam vet brings a taste for human flesh back to Atlanta.' },
-            { title: 'Deranged', year: '1974', director: 'Alan Ormsby', danger_vibe:4, description:'Loose retelling of Ed Gein. Uncomfortably intimate.' },
-            { title: 'The House on the Edge of the Park', year: '1980', director: 'Ruggero Deodato', danger_vibe:5, description:'Home invasion nightmare. The last scene is burned into memory.' }
+            { title: 'The Last House on Dead End Street', year: '1977', director: 'Roger Watkins', danger_vibe:5, description:'Notorious grindhouse shocker. Rumored to contain real footage.', condition:100, wholesalePrice:45, times_rented:0 },
+            { title: 'Cannibal Apocalypse', year: '1980', director: 'Antonio Margheriti', danger_vibe:4, description:'Vietnam vet brings a taste for human flesh back to Atlanta.', condition:100, wholesalePrice:35, times_rented:0 },
+            { title: 'Deranged', year: '1974', director: 'Alan Ormsby', danger_vibe:4, description:'Loose retelling of Ed Gein. Uncomfortably intimate.', condition:100, wholesalePrice:30, times_rented:0 },
+            { title: 'The House on the Edge of the Park', year: '1980', director: 'Ruggero Deodato', danger_vibe:5, description:'Home invasion nightmare. The last scene is burned into memory.', condition:100, wholesalePrice:40, times_rented:0 }
         ],
         cult: [
-            { title: 'Possession', year: '1981', director: 'Andrzej Zulawski', danger_vibe:4, description:'A marriage dissolves into something unspeakable. Banned in several countries.' },
-            { title: 'The Holy Mountain', year: '1973', director: 'Alejandro Jodorowsky', danger_vibe:3, description:'Surrealist odyssey. Viewers report altered states.' },
-            { title: 'El Topo', year: '1970', director: 'Alejandro Jodorowsky', danger_vibe:3, description:'Acid western. Not for the faint of heart.' }
+            { title: 'Possession', year: '1981', director: 'Andrzej Zulawski', danger_vibe:4, description:'A marriage dissolves into something unspeakable. Banned in several countries.', condition:100, wholesalePrice:40, times_rented:0 },
+            { title: 'The Holy Mountain', year: '1973', director: 'Alejandro Jodorowsky', danger_vibe:3, description:'Surrealist odyssey. Viewers report altered states.', condition:100, wholesalePrice:30, times_rented:0 },
+            { title: 'El Topo', year: '1970', director: 'Alejandro Jodorowsky', danger_vibe:3, description:'Acid western. Not for the faint of heart.', condition:100, wholesalePrice:25, times_rented:0 }
         ],
         foreign: [
-            { title: 'Salò', year: '1975', director: 'Pier Paolo Pasolini', danger_vibe:5, description:'120 days of depravity. Still banned in multiple territories.' },
-            { title: 'Angst', year: '1983', director: 'Gerald Kargl', danger_vibe:4, description:'Austrian home-invasion film. The camerawork alone induces nausea.' },
-            { title: 'Martyrs', year: '2008', director: 'Pascal Laugier', danger_vibe:5, description:'French extremity. The last third is pure, unrelenting horror.' }
+            { title: 'Salò', year: '1975', director: 'Pier Paolo Pasolini', danger_vibe:5, description:'120 days of depravity. Still banned in multiple territories.', condition:100, wholesalePrice:50, times_rented:0 },
+            { title: 'Angst', year: '1983', director: 'Gerald Kargl', danger_vibe:4, description:'Austrian home-invasion film. The camerawork alone induces nausea.', condition:100, wholesalePrice:35, times_rented:0 },
+            { title: 'Martyrs', year: '2008', director: 'Pascal Laugier', danger_vibe:5, description:'French extremity. The last third is pure, unrelenting horror.', condition:100, wholesalePrice:45, times_rented:0 }
         ],
         documentary: [
-            { title: 'Faces of Death', year: '1978', director: 'John Alan Schwartz', danger_vibe:4, description:'Purported archive footage of real deaths. The clerk who rented this never came back.' },
-            { title: 'The Act of Killing', year: '2012', director: 'Joshua Oppenheimer', danger_vibe:3, description:'Former Indonesian death-squad leaders reenact their crimes.' }
+            { title: 'Faces of Death', year: '1978', director: 'John Alan Schwartz', danger_vibe:4, description:'Purported archive footage of real deaths. The clerk who rented this never came back.', condition:100, wholesalePrice:40, times_rented:0 },
+            { title: 'The Act of Killing', year: '2012', director: 'Joshua Oppenheimer', danger_vibe:3, description:'Former Indonesian death-squad leaders reenact their crimes.', condition:100, wholesalePrice:25, times_rented:0 }
         ],
         mystery: [
-            { title: 'Cure', year: '1997', director: 'Kiyoshi Kurosawa', danger_vibe:3, description:'Detective story about a man who hypnotizes people into murder.' },
-            { title: 'Lost Highway', year: '1997', director: 'David Lynch', danger_vibe:4, description:'Identity, murder, and videotapes. Nothing makes sense.' }
+            { title: 'Cure', year: '1997', director: 'Kiyoshi Kurosawa', danger_vibe:3, description:'Detective story about a man who hypnotizes people into murder.', condition:100, wholesalePrice:25, times_rented:0 },
+            { title: 'Lost Highway', year: '1997', director: 'David Lynch', danger_vibe:4, description:'Identity, murder, and videotapes. Nothing makes sense.', condition:100, wholesalePrice:30, times_rented:0 }
         ],
         adult: [
-            { title: 'The Devil in Miss Jones', year: '1973', director: 'Gerard Damiano', danger_vibe:2, description:'Arthouse adult film. A woman\'s journey through a bleak afterlife.' },
-            { title: 'Through the Looking Glass', year: '1976', director: 'Jonas Middleton', danger_vibe:3, description:'A woman becomes obsessed with an antique mirror. Hypnotic and wrong.' }
-        ]
+            { title: 'The Devil in Miss Jones', year: '1973', director: 'Gerard Damiano', danger_vibe:2, description:'Arthouse adult film. A woman\'s journey through a bleak afterlife.', condition:100, wholesalePrice:20, times_rented:0 },
+            { title: 'Through the Looking Glass', year: '1976', director: 'Jonas Middleton', danger_vibe:3, description:'A woman becomes obsessed with an antique mirror. Hypnotic and wrong.', condition:100, wholesalePrice:25, times_rented:0 }
+        ],
+        bootlegs: []
     };
+    let genreRevenue = {
+        horror: 0, cult: 0, foreign: 0, documentary: 0, mystery: 0, adult: 0, bootlegs: 0
+    };
+    let distributorCatalog = [];
 
     let privateCollection = [
-        { title: 'Basement — March 14', genre: 'confession', danger_rating:5, description:'A man in a suit confesses to seven murders. His face is never shown. The camera shakes.' },
-        { title: 'The Red Door', genre: 'ritual', danger_rating:4, description:'Amateur footage of a ceremony in an abandoned church. Something answers.' }
+        { title: 'Basement — March 14', genre: 'confession', danger_rating:5, description:'A man in a suit confesses to seven murders. His face is never shown. The camera shakes.', condition:100, times_rented:0 },
+        { title: 'The Red Door', genre: 'ritual', danger_rating:4, description:'Amateur footage of a ceremony in an abandoned church. Something answers.', condition:100, times_rented:0 }
     ];
 
     const SYSTEM_PROMPT = `You are the Game Master for "VIDEO VISIONS," a grim 24-hour video rental store. The player is the sole clerk on the graveyard shift. The store is rundown, attracting lonely insomniacs, drifters, and dangerous people. Behind the building, a rusted dumpster TALKS to the clerk (only the clerk hears it). It knows secrets and hungers for human flesh. Everything is grounded realism except the clerk's delusion.
@@ -363,20 +410,24 @@ Respond ONLY with a raw JSON object containing:
 - "customer_dialogue": string or null (active customer speech)
 - "customer_dialogue_slot": 1|2|3|null
 - "store_events": array of strings (creepy store ambience)
-- "dumpster_dialogue": string (CRITICAL: when in_alley is true, this MUST be a non‑null, meaningful greeting. The dumpster ALWAYS speaks when summoned. It greets the clerk, comments on discarded things, and urges harm. NEVER return null or empty.)
+- "dumpster_dialogue": string (CRITICAL: when in_alley is true, meaningful greeting. The dumpster ALWAYS speaks. NEVER return null or empty.)
 - "viewing_room_event": string or null (private viewing result)
 - "revenue_change": integer
 - "stress_change": integer
 - "time_advance": integer (minutes)
 - "shift_summary": string or null (only on CLOSE STORE)
+- "customer_sellback_offer": null or object { tape: {title, genre, danger_vibe, description, wholesalePrice}, asking_price: number, message: string } (only when player uses ASK FOR TAPES)
+- "dumpster_gift_tape": null or object { title, genre, danger_vibe, description } (only when player feeds the dumpster)
 
 **Important rules for customer interaction:**
 - When a customer is APPROACHed, change their status to "at_counter" and keep them there. Do NOT advance them to "checking_out" unless the player explicitly performs RING UP, DENY, or the customer has been at the counter for a long time with no player action.
 - HELP, CHAT, RECOMMEND should keep the customer at "at_counter". They do not end the interaction.
 - Only RING UP or DENY should move the customer to "checking_out" and then eventually "empty".
 - INVITE moves the customer directly to the viewing room and makes the counter slot empty.
+- When SEARCH INVENTORY is used, the customer asks for a specific tape; check the provided store titles list to see if we have it. Respond accordingly.
+- When ASK FOR TAPES is used, the customer may offer to sell a tape. Set customer_sellback_offer with a unique tape and a price. Otherwise leave it null.
 
-Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / ASK TO LEAVE slot X, ADD REGULAR, SMOKE (ALLEY), START VIEWING, EJECT VIEWING, OPEN STORE, CLOSE STORE, BACK ROOM / RETURN. Free‑form text may talk to customers or the dumpster.`;
+Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / ASK TO LEAVE slot X, ADD REGULAR, SMOKE (ALLEY), START VIEWING, EJECT VIEWING, OPEN STORE, CLOSE STORE, BACK ROOM / RETURN, SEARCH INVENTORY, ASK FOR TAPES, FEED DUMPSTER. Free‑form text may talk to customers or the dumpster.`;
 
     function repairJSON(s) {
         s = s.replace(/```json\s*|```\s*/gi,'').trim();
@@ -386,7 +437,7 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
     }
     function safeParseJSON(raw) {
         try { return JSON.parse(repairJSON(raw)); } catch(e) {
-            return { narration:raw.substring(0,200), customer_updates:[], customer_dialogue:null, customer_dialogue_slot:null, store_events:[], dumpster_dialogue:null, viewing_room_event:null, revenue_change:0, stress_change:0, time_advance:2, shift_summary:null };
+            return { narration:raw.substring(0,200), customer_updates:[], customer_dialogue:null, customer_dialogue_slot:null, store_events:[], dumpster_dialogue:null, viewing_room_event:null, revenue_change:0, stress_change:0, time_advance:2, shift_summary:null, customer_sellback_offer:null, dumpster_gift_tape:null };
         }
     }
 
@@ -395,6 +446,7 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
         storeIndicator.className = 'store-indicator' + (storeOpen ? ' pulse' : ' closed');
         timeDisplay.textContent = currentTime;
         revenueDisplay.textContent = '$' + revenue;
+        storeBalanceDisplay.textContent = '$' + storeBalance;
         stressDisplay.textContent = stress;
         stressDisplay.classList.toggle('stress-high', stress>=70);
         btnBeginShift.style.display = (!gameStarted && !shiftEnded) ? 'inline-block' : 'none';
@@ -403,6 +455,7 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
         btnReturn.style.display = (inBreak && !storeOpen && !shiftEnded) ? 'inline-block' : 'none';
         btnCloseStore.style.display = (storeOpen && !inBreak && !shiftEnded) ? 'inline-block' : 'none';
         btnViewingRm.disabled = !(viewingRoomOccupant && !viewingActive);
+        btnFeedDumpster.style.display = (inAlley && !shiftEnded) ? 'inline-block' : 'none';
         document.getElementById('btnInventory').disabled = !gameStarted || shiftEnded;
         document.getElementById('btnSave').disabled = !gameStarted;
     }
@@ -418,12 +471,14 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
             if(slot.status==='at_counter') {
                 html += `<button data-action="help" data-slot="${slot.id}">HELP</button>`;
                 html += `<button data-action="chat" data-slot="${slot.id}">CHAT</button>`;
+                html += `<button data-action="search" data-slot="${slot.id}">SEARCH</button>`;
                 html += `<button data-action="recommend" data-slot="${slot.id}">RECOMMEND</button>`;
                 html += `<button data-action="deny" data-slot="${slot.id}">DENY</button>`;
                 html += `<button data-action="invite" data-slot="${slot.id}">INVITE</button>`;
                 html += `<button data-action="ringup" data-slot="${slot.id}">RING UP</button>`;
+                html += `<button data-action="askfortapes" data-slot="${slot.id}">ASK FOR TAPES</button>`;
             }
-            if(slot.status==='lingering') { html += `<button data-action="chat" data-slot="${slot.id}">CHAT</button>`; html += `<button data-action="askleave" data-slot="${slot.id}">ASK TO LEAVE</button>`; }
+            if(slot.status==='lingering') { html += `<button data-action="chat" data-slot="${slot.id}">CHAT</button>`; html += `<button data-action="askfortapes" data-slot="${slot.id}">ASK FOR TAPES</button>`; html += `<button data-action="askleave" data-slot="${slot.id}">ASK TO LEAVE</button>`; }
             html += `</span></div>`;
         });
         counterBoard.innerHTML = html;
@@ -446,11 +501,24 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
                 viewingRoomOccupant = {...customer, originSlot:slotId};
                 slot.status='empty'; slot.customer=null;
                 renderCounterBoard(); updateUI();
-                // Send AI command to generate narration for the invite
                 sendToAI(`INVITE slot ${slotId}: Customer "${customer.name}" has been moved to the viewing room.`);
             } else if (viewingRoomOccupant) {
                 addOutput('system', '> The viewing room is already occupied.');
             }
+            return;
+        }
+        if(action==='search') {
+            if(slot.customer && slot.customer.wants) {
+                const titles = [];
+                for(let cat in storeInventory) storeInventory[cat].forEach(t => titles.push({title:t.title, category:cat}));
+                sendToAI(`SEARCH INVENTORY slot ${slotId}: Customer "${slot.customer.name}" wants "${slot.customer.wants}". Store titles: ${JSON.stringify(titles)}`);
+            } else {
+                addOutput('system', '> Customer hasn\'t specified what they\'re looking for.');
+            }
+            return;
+        }
+        if(action==='askfortapes') {
+            sendToAI(`ASK FOR TAPES slot ${slotId}`);
             return;
         }
         const map = { approach:'APPROACH', help:'HELP', chat:'CHAT', deny:'DENY', ringup:'RING UP', askleave:'ASK TO LEAVE' };
@@ -458,33 +526,6 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
             activeInteractionSlot=slotId;
             sendToAI(`${map[action]} slot ${slotId}`);
         }
-    }
-
-    function showInventoryForRecommend(slotId) {
-        const modal = document.getElementById('inventoryModal');
-        const tabs = document.getElementById('inventoryCategoryTabs');
-        const list = document.getElementById('inventoryTapeList');
-        tabs.innerHTML = '';
-        Object.keys(storeInventory).forEach(cat => {
-            const b = document.createElement('button');
-            b.textContent=cat.toUpperCase(); b.style.cssText='background:none;border:1px solid var(--magenta);color:var(--magenta);font-family:"Press Start 2P";font-size:8px;padding:4px 8px;cursor:pointer;';
-            b.addEventListener('click', ()=>{
-                list.innerHTML='';
-                (storeInventory[cat]||[]).forEach((t,idx)=>{
-                    const d=document.createElement('div'); d.className='modal-item';
-                    d.innerHTML=`<span>📼 ${t.title} (${t.year}) <br><small style="color:#886677;">${t.director} | Danger: ${'★'.repeat(t.danger_vibe)}${'☆'.repeat(5-t.danger_vibe)}</small></span><button class="pull-tape" data-cat="${cat}" data-idx="${idx}">PULL</button>`;
-                    list.appendChild(d);
-                    d.querySelector('.pull-tape').addEventListener('click',()=>{
-                        const tape = storeInventory[cat][idx];
-                        sendToAI(`RECOMMEND slot ${slotId} tape: "${tape.title}" (${tape.year}, dir:${tape.director}, category:${cat}, danger:${tape.danger_vibe}/5, desc:${tape.description})`);
-                        modal.style.display='none';
-                    });
-                });
-            });
-            tabs.appendChild(b);
-        });
-        if(tabs.children.length) tabs.children[0].click();
-        modal.style.display='flex';
     }
 
     function addRegular(cust) {
@@ -518,7 +559,7 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
         addOutput('player',msg);
         const think=document.createElement('div'); think.className='system-msg'; think.textContent='> ...'; think.id='think';
         gameOutput.appendChild(think);
-        const ctx = { store_open:storeOpen, in_break:inBreak, in_alley:inAlley, current_time:currentTime, revenue, stress, counter_slots:counterSlots.map(s=>({id:s.id,status:s.status,customer_name:s.customer?.name})), regulars:regulars.length, viewing_occupant:viewingRoomOccupant?.name, viewing_active:viewingActive };
+        const ctx = { store_open:storeOpen, in_break:inBreak, in_alley:inAlley, current_time:currentTime, revenue, storeBalance, stress, counter_slots:counterSlots.map(s=>({id:s.id,status:s.status,customer_name:s.customer?.name})), regulars:regulars.length, viewing_occupant:viewingRoomOccupant?.name, viewing_active:viewingActive, store_titles:(()=>{let titles=[];for(let cat in storeInventory)storeInventory[cat].forEach(t=>titles.push({title:t.title,category:cat}));return titles;})() };
         callMistral([{role:'system',content:SYSTEM_PROMPT+'\nCURRENT STATE: '+JSON.stringify(ctx)},...gameHistory])
             .then(raw=>{
                 document.getElementById('think')?.remove();
@@ -540,7 +581,21 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
             addOutput('customer', `${slot?.customer?.name||'Customer'}: "${state.customer_dialogue}"`);
         }
         if(state.customer_updates) state.customer_updates.forEach(u=>{ const s=counterSlots.find(s=>s.id===u.slot); if(s){ s.status=u.status; s.customer=u.customer; } });
-        if(state.revenue_change) revenue=Math.max(0,revenue+state.revenue_change);
+        if(state.revenue_change) {
+            const amount = state.revenue_change;
+            revenue = Math.max(0, revenue + amount);
+            storeBalance += amount;
+            if(pendingTapeRental && amount > 0) {
+                const { tape, category } = pendingTapeRental;
+                tape.times_rented = (tape.times_rented || 0) + 1;
+                tape.condition = Math.max(0, (tape.condition || 100) - (Math.floor(Math.random()*11)+5));
+                if(!genreRevenue[category]) genreRevenue[category] = 0;
+                genreRevenue[category] += amount;
+                if(tape.condition <= 0) addOutput('store', `📼 "${tape.title}" has been destroyed.`);
+                else if(tape.condition < 30) addOutput('store', `⚠️ "${tape.title}" is in poor condition.`);
+            }
+            pendingTapeRental = null;
+        }
         if(state.stress_change) stress=Math.max(0,Math.min(100,stress+state.stress_change));
         if(state.time_advance) {
             let match = currentTime.match(/(\d+):(\d+)\s*(AM|PM)/);
@@ -552,6 +607,13 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
         }
         if(state.viewing_room_event) { addOutput('viewing', state.viewing_room_event); viewingActive=false; viewingRoomTape=null; }
         if(state.shift_summary) { addOutput('narration', state.shift_summary); shiftEnded=true; storeOpen=false; inBreak=false; inAlley=false; viewingActive=false; viewingRoomOccupant=null; viewingRoomTape=null; }
+        if(state.customer_sellback_offer) showSellbackOffer(state.customer_sellback_offer);
+        if(state.dumpster_gift_tape) {
+            const gift = {...state.dumpster_gift_tape, condition:Math.floor(Math.random()*40)+40, times_rented:0, wholesalePrice:0};
+            privateCollection.push(gift);
+            addOutput('dumpster', `The dumpster coughs up a tape: "${gift.title}". Added to private collection.`);
+            renderPrivateCollection();
+        }
         if(activeInteractionSlot && !counterSlots.find(s=>s.id===activeInteractionSlot && (s.status==='at_counter'||s.status==='lingering'))) activeInteractionSlot=null;
     }
 
@@ -567,9 +629,11 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
 
     function beginShift() {
         if(!mistralApiKey) { addOutput('system','> ENTER API KEY FIRST.'); return; }
-        gameHistory=[]; turnCount=0; revenue=0; stress=15; currentTime='11:00 PM'; storeOpen=true; inBreak=false; inAlley=false; shiftEnded=false;
+        gameHistory=[]; turnCount=0; revenue=0; storeBalance=200; stress=15; currentTime='11:00 PM'; storeOpen=true; inBreak=false; inAlley=false; shiftEnded=false;
         counterSlots.forEach(s=>{s.status='empty'; s.customer=null;});
-        activeInteractionSlot=null; viewingRoomOccupant=null; viewingRoomTape=null; viewingActive=false;
+        activeInteractionSlot=null; viewingRoomOccupant=null; viewingRoomTape=null; viewingActive=false; pendingTapeRental=null; currentSellbackOffer=null;
+        Object.keys(storeInventory).forEach(cat => storeInventory[cat].forEach(t => { if(!t.condition) t.condition=100; if(!t.wholesalePrice) t.wholesalePrice=30; if(!t.times_rented) t.times_rented=0; }));
+        distributorCatalog = [];
         gameStarted=true; gameOutput.innerHTML='';
         addOutput('system','> VIDEO VISIONS — 24HR RENTAL');
         addOutput('system','> The neon hums. The dumpster hungers.');
@@ -581,9 +645,9 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
 
     function restartGame() {
         if(isLoading) return;
-        gameHistory=[]; turnCount=0; revenue=0; stress=15; currentTime='11:00 PM'; storeOpen=false; inBreak=false; inAlley=false; shiftEnded=false;
+        gameHistory=[]; turnCount=0; revenue=0; storeBalance=200; stress=15; currentTime='11:00 PM'; storeOpen=false; inBreak=false; inAlley=false; shiftEnded=false;
         counterSlots.forEach(s=>{s.status='empty'; s.customer=null;});
-        activeInteractionSlot=null; viewingRoomOccupant=null; viewingRoomTape=null; viewingActive=false;
+        activeInteractionSlot=null; viewingRoomOccupant=null; viewingRoomTape=null; viewingActive=false; pendingTapeRental=null; currentSellbackOffer=null;
         gameStarted=false; gameOutput.innerHTML='';
         addOutput('system','> VIDEO VISIONS — READY. PRESS BEGIN SHIFT.');
         updateUI(); renderCounterBoard();
@@ -594,16 +658,18 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
     function exitBreak() { breakOverlay.style.display='none'; inBreak=false; inAlley=false; storeOpen=true; updateUI(); renderCounterBoard(); addOutput('system','> Store reopened.'); }
 
     function saveToSlot(id, name) {
-        const save = { gameHistory, turnCount, gameStarted, storeOpen, inBreak, inAlley, shiftEnded, revenue, stress, currentTime, counterSlots, regulars, activeInteractionSlot, viewingRoomOccupant, viewingRoomTape, viewingActive, storeInventory, privateCollection, name:name||`Slot ${id+1}` };
+        const save = { gameHistory, turnCount, gameStarted, storeOpen, inBreak, inAlley, shiftEnded, revenue, storeBalance, stress, currentTime, counterSlots, regulars, activeInteractionSlot, viewingRoomOccupant, viewingRoomTape, viewingActive, storeInventory, privateCollection, genreRevenue, name:name||`Slot ${id+1}` };
         localStorage.setItem(`vv_slot_${id}`, JSON.stringify(save));
     }
     function loadFromSlot(id) {
         const d = localStorage.getItem(`vv_slot_${id}`);
         if(!d) throw new Error('empty');
-        const s = JSON.parse(d); Object.assign(this, s);
+        const s = JSON.parse(d);
+        Object.assign(this, s);
         gameOutput.innerHTML=''; addOutput('system',`> LOADED: ${s.name}`);
         updateUI(); renderCounterBoard();
         breakOverlay.style.display = inBreak ? 'flex' : 'none';
+        document.getElementById('sellbackOffer').style.display = 'none';
     }
     function autoSave() { if(gameStarted && !shiftEnded) saveToSlot(0, 'Autosave'); }
 
@@ -646,23 +712,195 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
         document.getElementById('btnEjectViewing').disabled = !viewingRoomOccupant;
     }
 
-    // Event bindings
+    // --- Inventory (Shelves & Ledger) ---
+    function showInventoryForRecommend(slotId) {
+        const modal = document.getElementById('inventoryModal');
+        const tabs = document.getElementById('inventoryCategoryTabs');
+        const list = document.getElementById('inventoryTapeList');
+        document.getElementById('inventoryLedger').style.display = 'none';
+        list.style.display = 'block';
+        tabs.style.display = 'flex';
+        tabs.innerHTML = '';
+        Object.keys(storeInventory).forEach(cat => {
+            const b = document.createElement('button');
+            b.textContent=cat.toUpperCase(); b.style.cssText='background:none;border:1px solid var(--magenta);color:var(--magenta);font-family:"Press Start 2P";font-size:8px;padding:4px 8px;cursor:pointer;';
+            b.addEventListener('click', ()=>{
+                list.innerHTML='';
+                (storeInventory[cat]||[]).forEach((t,idx)=>{
+                    if(t.condition <= 0) return;
+                    const d=document.createElement('div'); d.className='modal-item';
+                    d.innerHTML=`<span>📼 ${t.title} (${t.year}) <br><small style="color:#886677;">${t.director} | Danger: ${'★'.repeat(t.danger_vibe)}${'☆'.repeat(5-t.danger_vibe)} | Cond: ${t.condition}%</small></span><button class="pull-tape" data-cat="${cat}" data-idx="${idx}">PULL</button>`;
+                    list.appendChild(d);
+                    d.querySelector('.pull-tape').addEventListener('click',()=>{
+                        const tape = storeInventory[cat][idx];
+                        pendingTapeRental = { tape, category: cat };
+                        sendToAI(`RECOMMEND slot ${slotId} tape: "${tape.title}" (${tape.year}, dir:${tape.director}, category:${cat}, danger:${tape.danger_vibe}/5, desc:${tape.description})`);
+                        modal.style.display='none';
+                    });
+                });
+            });
+            tabs.appendChild(b);
+        });
+        if(tabs.children.length) tabs.children[0].click();
+        modal.style.display='flex';
+    }
+
+    function showInventoryLedger() {
+        document.getElementById('inventoryCategoryTabs').style.display = 'none';
+        document.getElementById('inventoryTapeList').style.display = 'none';
+        const ledger = document.getElementById('inventoryLedger');
+        ledger.style.display = 'block';
+        let html = '<h4 style="color:var(--magenta);">📊 STORE LEDGER</h4>';
+        let total = 0, most = null, all = [];
+        for(let cat in storeInventory) {
+            storeInventory[cat].forEach(t => { total++; all.push({...t, category:cat}); if(!most || t.times_rented > most.times_rented) most = t; });
+        }
+        html += `<p>Total tapes: ${total}</p>`;
+        if(most && most.times_rented > 0) html += `<p>Most rented: "${most.title}" (${most.times_rented}x)</p>`;
+        html += '<p>Revenue by genre:</p><ul>';
+        for(let g in genreRevenue) html += `<li>${g}: $${genreRevenue[g]}</li>`;
+        html += '</ul>';
+        all.forEach(t => html += `<div class="modal-item"><span>📼 ${t.title} (${t.category})</span><span>Cond: ${t.condition}% | Rented: ${t.times_rented}x</span></div>`);
+        ledger.innerHTML = html;
+    }
+
+    // Tab switching inside inventory modal
+    document.querySelectorAll('.inv-tab').forEach(tab => {
+        tab.addEventListener('click', function() {
+            if(this.dataset.tab === 'shelves') {
+                document.getElementById('inventoryLedger').style.display = 'none';
+                document.getElementById('inventoryTapeList').style.display = 'block';
+                document.getElementById('inventoryCategoryTabs').style.display = 'flex';
+                document.getElementById('btnInventory').click();  // rebuild shelves view
+            } else {
+                showInventoryLedger();
+            }
+        });
+    });
+
+    // --- Distributor Catalog ---
+    function generateDistributorCatalog() {
+        const pool = [
+            { title: 'Zombie Flesh Eaters', year: '1979', director: 'Lucio Fulci', danger_vibe:4, genre:'horror', wholesalePrice:35 },
+            { title: 'Deep Red', year: '1975', director: 'Dario Argento', danger_vibe:3, genre:'horror', wholesalePrice:30 },
+            { title: 'Eraserhead', year: '1977', director: 'David Lynch', danger_vibe:4, genre:'cult', wholesalePrice:30 },
+            { title: 'Videodrome', year: '1983', director: 'David Cronenberg', danger_vibe:4, genre:'cult', wholesalePrice:35 },
+            { title: 'I Spit on Your Grave', year: '1978', director: 'Meir Zarchi', danger_vibe:5, genre:'horror', wholesalePrice:40 },
+            { title: 'Cannibal Holocaust', year: '1980', director: 'Ruggero Deodato', danger_vibe:5, genre:'horror', wholesalePrice:50 },
+            { title: 'The Beyond', year: '1981', director: 'Lucio Fulci', danger_vibe:4, genre:'horror', wholesalePrice:35 },
+            { title: 'Hausu', year: '1977', director: 'Nobuhiko Obayashi', danger_vibe:3, genre:'foreign', wholesalePrice:25 },
+            { title: 'Tetsuo: The Iron Man', year: '1989', director: 'Shinya Tsukamoto', danger_vibe:4, genre:'foreign', wholesalePrice:30 },
+            { title: 'Man Bites Dog', year: '1992', director: 'Rémy Belvaux', danger_vibe:4, genre:'foreign', wholesalePrice:35 },
+            { title: 'Henry: Portrait of a Serial Killer', year: '1986', director: 'John McNaughton', danger_vibe:5, genre:'documentary', wholesalePrice:45 },
+            { title: 'The Poughkeepsie Tapes', year: '2007', director: 'John Erick Dowdle', danger_vibe:5, genre:'horror', wholesalePrice:40 }
+        ];
+        distributorCatalog = pool.sort(() => Math.random() - 0.5).slice(0, 6);
+    }
+    function openDistributorModal() {
+        if(distributorCatalog.length === 0) generateDistributorCatalog();
+        const modal = document.getElementById('distributorModal');
+        const list = document.getElementById('distributorList');
+        list.innerHTML = '';
+        distributorCatalog.forEach((t, idx) => {
+            const div = document.createElement('div'); div.className = 'modal-item';
+            div.innerHTML = `<span>📦 ${t.title} (${t.year})<br><small>${t.director} | Danger: ${'★'.repeat(t.danger_vibe)} | Genre: ${t.genre}</small></span><span>$${t.wholesalePrice}</span><button class="buy-tape" data-idx="${idx}">BUY</button>`;
+            list.appendChild(div);
+            div.querySelector('.buy-tape').addEventListener('click', () => {
+                if(storeBalance < t.wholesalePrice) { addOutput('system', `> Not enough cash. Need $${t.wholesalePrice}.`); return; }
+                storeBalance -= t.wholesalePrice;
+                const newTape = { title: t.title, year: t.year, director: t.director, danger_vibe: t.danger_vibe, description: 'New distributor purchase.', condition: 100, wholesalePrice: t.wholesalePrice, times_rented: 0 };
+                const cat = t.genre;
+                if(!storeInventory[cat]) storeInventory[cat] = [];
+                storeInventory[cat].push(newTape);
+                addOutput('store', `📦 Purchased "${t.title}" for $${t.wholesalePrice}. Added to ${cat} section.`);
+                distributorCatalog.splice(idx, 1);
+                updateUI();
+                openDistributorModal(); // refresh
+            });
+        });
+        modal.style.display = 'flex';
+    }
+
+   function digBackRoom() {
+    const breakMsg = document.getElementById('breakMessage');
+    if (!breakMsg) return;
+
+    if (Math.random() < 0.6) {
+        const foundTapes = [
+            { title: 'Static Ritual #3', year: '1987', director: 'Unknown', danger_vibe:5, description:'Flickering images of robed figures around a burning VCR.', condition:60 },
+            { title: 'The Neighbor\'s Camcorder', year: '1994', director: 'Unknown', danger_vibe:4, description:'Hours of footage from a hidden camera. Someone is watching.', condition:50 },
+            { title: 'Channel 99 Test Signal', year: '???', director: '???', danger_vibe:4, description:'A broadcast that never should have aired.', condition:40 },
+            { title: 'Family Vacation 1982', year: '1982', director: 'Unknown', danger_vibe:5, description:'The last five minutes are... different.', condition:70 }
+        ];
+        const tape = foundTapes[Math.floor(Math.random() * foundTapes.length)];
+        const newTape = { ...tape, times_rented:0, wholesalePrice:0 };
+        if (!storeInventory['bootlegs']) storeInventory['bootlegs'] = [];
+        storeInventory['bootlegs'].push(newTape);
+
+        // Show in break overlay
+        breakMsg.textContent = `Found "${tape.title}" — ${tape.description}`;
+        // Also log to main output (visible after returning to counter)
+        addOutput('store', `🔍 Found a dusty tape: "${tape.title}" — ${tape.description}`);
+    } else {
+        breakMsg.textContent = 'Nothing but dust and dead roaches.';
+        addOutput('store', '🔍 You dig through old boxes but find nothing but dust and dead roaches.');
+    }
+
+    // Clear the break message after 4 seconds so it doesn't stay forever
+    setTimeout(() => { if (breakMsg) breakMsg.textContent = ''; }, 4000);
+}
+
+    // --- Sellback Overlay ---
+    function showSellbackOffer(offer) {
+        currentSellbackOffer = offer;
+        document.getElementById('sellbackMessage').textContent = offer.message || `Customer offers "${offer.tape.title}" for $${offer.asking_price}.`;
+        document.getElementById('sellbackOffer').style.display = 'flex';
+    }
+    function hideSellbackOffer() {
+        document.getElementById('sellbackOffer').style.display = 'none';
+        currentSellbackOffer = null;
+    }
+    document.getElementById('btnAcceptSellback').addEventListener('click', () => {
+        if(!currentSellbackOffer) return;
+        const offer = currentSellbackOffer;
+        if(storeBalance < offer.asking_price) { addOutput('system','> Not enough cash.'); hideSellbackOffer(); return; }
+        storeBalance -= offer.asking_price;
+        const newTape = {...offer.tape, condition: 70 + Math.floor(Math.random()*30), times_rented:0, wholesalePrice: offer.asking_price};
+        const cat = newTape.genre || 'bootlegs';
+        if(!storeInventory[cat]) storeInventory[cat] = [];
+        storeInventory[cat].push(newTape);
+        addOutput('store', `📼 Bought "${newTape.title}" for $${offer.asking_price}. Added to ${cat} section.`);
+        hideSellbackOffer();
+        updateUI();
+    });
+    document.getElementById('btnDeclineSellback').addEventListener('click', () => {
+        hideSellbackOffer();
+        addOutput('system', '> Declined the offer.');
+    });
+
+    // Event bindings (original)
     btnBeginShift.addEventListener('click', beginShift);
     btnOpenStore.addEventListener('click', ()=>{ if(!storeOpen&&!inBreak&&gameStarted&&!shiftEnded){ storeOpen=true; updateUI(); renderCounterBoard(); sendToAI('OPEN STORE'); } });
     btnBackRoom.addEventListener('click', ()=>{ if(storeOpen&&!inBreak&&!shiftEnded){ enterBreak(); sendToAI('BACK ROOM. Store closed.'); } });
     btnReturn.addEventListener('click', ()=>{ if(inBreak&&!storeOpen&&!shiftEnded){ exitBreak(); sendToAI('RETURN TO COUNTER. Reopen store.'); } });
     btnCloseStore.addEventListener('click', ()=>{ if(storeOpen&&!inBreak&&!shiftEnded) sendToAI('CLOSE STORE. Provide final summary.'); });
     btnViewingRm.addEventListener('click', ()=>{ updateViewingModal(); document.getElementById('viewingRoomModal').style.display='flex'; });
+    btnFeedDumpster.addEventListener('click', ()=>{ if(inAlley&&!isLoading&&!shiftEnded) sendToAI('FEED DUMPSTER'); });
+
     document.getElementById('btnInventory').addEventListener('click', ()=>{
         const modal=document.getElementById('inventoryModal'), tabs=document.getElementById('inventoryCategoryTabs'), list=document.getElementById('inventoryTapeList');
+        document.getElementById('inventoryLedger').style.display = 'none';
+        list.style.display = 'block';
+        tabs.style.display = 'flex';
         tabs.innerHTML='';
         Object.keys(storeInventory).forEach(cat=>{
             const b=document.createElement('button'); b.textContent=cat.toUpperCase(); b.style.cssText='background:none;border:1px solid var(--magenta);color:var(--magenta);font-family:"Press Start 2P";font-size:8px;padding:4px 8px;cursor:pointer;';
             b.addEventListener('click',()=>{
                 list.innerHTML='';
                 (storeInventory[cat]||[]).forEach(t=>{
+                    if(t.condition <= 0) return;
                     const d=document.createElement('div'); d.className='modal-item';
-                    d.innerHTML=`<span>📼 ${t.title} (${t.year})<br><small style="color:#886677;">${t.director} | Danger: ${'★'.repeat(t.danger_vibe)}${'☆'.repeat(5-t.danger_vibe)}</small><br><small style="color:#665566;">${t.description}</small></span>`;
+                    d.innerHTML=`<span>📼 ${t.title} (${t.year})<br><small style="color:#886677;">${t.director} | Danger: ${'★'.repeat(t.danger_vibe)}${'☆'.repeat(5-t.danger_vibe)}</small><br><small style="color:#665566;">${t.description}</small><br><small>Cond: ${t.condition}% | Rented: ${t.times_rented}x</small></span>`;
                     list.appendChild(d);
                 });
             });
@@ -694,7 +932,7 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
     document.getElementById('btnSubmitTape').addEventListener('click', ()=>{
         const title=document.getElementById('tapeTitleInput').value.trim(), genre=document.getElementById('tapeGenreInput').value.trim(), desc=document.getElementById('tapeDescInput').value.trim();
         if(!title) { alert('Title required'); return; }
-        privateCollection.push({title, genre:genre||'unknown', danger_rating:4, description:desc||'No description.'});
+        privateCollection.push({title, genre:genre||'unknown', danger_rating:4, description:desc||'No description.', condition:100, times_rented:0});
         renderPrivateCollection(); document.getElementById('tapeCreateForm').style.display='none';
         addOutput('system', `> 🎬 Created private tape: "${title}"`);
     });
@@ -703,15 +941,20 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
     document.getElementById('closeSaveModal').addEventListener('click', ()=> document.getElementById('saveModal').style.display='none');
     document.getElementById('btnRestart').addEventListener('click', restartGame);
 
-    // Break overlay (no CHECK DROPBOX)
+    // Break overlay events (new)
     document.getElementById('btnPrivateCollection').addEventListener('click', ()=>{ renderPrivateCollection(); document.getElementById('privateCollectionModal').style.display='flex'; });
     document.getElementById('btnViewingRoomBreak').addEventListener('click', ()=>{ updateViewingModal(); document.getElementById('viewingRoomModal').style.display='flex'; });
+    document.getElementById('btnOrderTapes').addEventListener('click', openDistributorModal);
+    document.getElementById('btnDigBoxes').addEventListener('click', digBackRoom);
     document.getElementById('btnSmokeAlley').addEventListener('click', ()=>{
         breakOverlay.style.display='none'; inBreak=true; inAlley=true; storeOpen=false;
         updateUI(); renderCounterBoard();
         sendToAI('SMOKE (ALLEY). The clerk goes behind the store. The dumpster MUST speak immediately — greet the clerk, comment on what it has tasted, and urge violence.');
     });
     document.getElementById('btnReturnToCounter').addEventListener('click', ()=>{ exitBreak(); sendToAI('RETURN TO COUNTER. Reopen store.'); });
+
+    // Distributor modal close
+    document.getElementById('closeDistributorModal').addEventListener('click', ()=> document.getElementById('distributorModal').style.display='none');
 
     btnSend.addEventListener('click', ()=>{
         const msg=cmdInput.value.trim(); if(!msg) return; cmdInput.value='';
@@ -739,6 +982,7 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
     (function init() {
         const savedKey = localStorage.getItem('vv_key');
         if(savedKey) { mistralApiKey=savedKey; apiKeyInput.value=savedKey; keyStatus.textContent='● KEY SET'; keyStatus.style.color='var(--magenta)'; }
+        Object.keys(storeInventory).forEach(cat => storeInventory[cat].forEach(t => { if(!t.condition) t.condition=100; if(!t.wholesalePrice) t.wholesalePrice=30; if(!t.times_rented) t.times_rented=0; }));
         updateUI(); renderCounterBoard(); btnBeginShift.style.display='inline-block';
     })();
 })();
