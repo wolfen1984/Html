@@ -238,7 +238,7 @@
             <button id="btnSend" style="background:rgba(15,5,20,0.9); border:1px solid var(--magenta); color:var(--magenta); font-family:'Press Start 2P'; font-size:9px; padding:6px 12px; cursor:pointer;">SEND</button>
         </div>
         <div class="break-overlay" id="breakOverlay">
-<div id="breakMessage" style="color:var(--cyan); font-size:9px; text-align:center; max-width:80%; min-height:20px;"></div>
+            <div id="breakMessage" style="color:var(--cyan); font-size:9px; text-align:center; max-width:80%; min-height:20px;"></div>
             <button id="btnPrivateCollection">🎬 PRIVATE COLLECTION</button>
             <button id="btnViewingRoomBreak">👁 VIEWING ROOM</button>
             <button id="btnOrderTapes">📦 ORDER TAPES</button>
@@ -418,6 +418,10 @@ Respond ONLY with a raw JSON object containing:
 - "shift_summary": string or null (only on CLOSE STORE)
 - "customer_sellback_offer": null or object { tape: {title, genre, danger_vibe, description, wholesalePrice}, asking_price: number, message: string } (only when player uses ASK FOR TAPES)
 - "dumpster_gift_tape": null or object { title, genre, danger_vibe, description } (only when player feeds the dumpster)
+- "distributor_catalog_update": null or object with an "action" field:
+    "add" → requires "tape" object { title, year, director, danger_vibe, genre, wholesalePrice, description }
+    "remove" → requires "title" of tape to remove from catalog
+    "replace_all" → replaces entire catalog with a new "tapes" array (rare, big events)
 
 **Important rules for customer interaction:**
 - When a customer is APPROACHed, change their status to "at_counter" and keep them there. Do NOT advance them to "checking_out" unless the player explicitly performs RING UP, DENY, or the customer has been at the counter for a long time with no player action.
@@ -426,6 +430,9 @@ Respond ONLY with a raw JSON object containing:
 - INVITE moves the customer directly to the viewing room and makes the counter slot empty.
 - When SEARCH INVENTORY is used, the customer asks for a specific tape; check the provided store titles list to see if we have it. Respond accordingly.
 - When ASK FOR TAPES is used, the customer may offer to sell a tape. Set customer_sellback_offer with a unique tape and a price. Otherwise leave it null.
+
+**Distributor catalog updates:**
+The distributor catalog is displayed when the player clicks ORDER TAPES during a break. You may occasionally send a catalog update when it makes narrative sense (new releases, rumored tapes, dumpster whispers, a shady customer leaving a tip, etc.). Use sparingly — no more than once every few turns.
 
 Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / ASK TO LEAVE slot X, ADD REGULAR, SMOKE (ALLEY), START VIEWING, EJECT VIEWING, OPEN STORE, CLOSE STORE, BACK ROOM / RETURN, SEARCH INVENTORY, ASK FOR TAPES, FEED DUMPSTER. Free‑form text may talk to customers or the dumpster.`;
 
@@ -437,7 +444,7 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
     }
     function safeParseJSON(raw) {
         try { return JSON.parse(repairJSON(raw)); } catch(e) {
-            return { narration:raw.substring(0,200), customer_updates:[], customer_dialogue:null, customer_dialogue_slot:null, store_events:[], dumpster_dialogue:null, viewing_room_event:null, revenue_change:0, stress_change:0, time_advance:2, shift_summary:null, customer_sellback_offer:null, dumpster_gift_tape:null };
+            return { narration:raw.substring(0,200), customer_updates:[], customer_dialogue:null, customer_dialogue_slot:null, store_events:[], dumpster_dialogue:null, viewing_room_event:null, revenue_change:0, stress_change:0, time_advance:2, shift_summary:null, customer_sellback_offer:null, dumpster_gift_tape:null, distributor_catalog_update:null };
         }
     }
 
@@ -559,7 +566,21 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
         addOutput('player',msg);
         const think=document.createElement('div'); think.className='system-msg'; think.textContent='> ...'; think.id='think';
         gameOutput.appendChild(think);
-        const ctx = { store_open:storeOpen, in_break:inBreak, in_alley:inAlley, current_time:currentTime, revenue, storeBalance, stress, counter_slots:counterSlots.map(s=>({id:s.id,status:s.status,customer_name:s.customer?.name})), regulars:regulars.length, viewing_occupant:viewingRoomOccupant?.name, viewing_active:viewingActive, store_titles:(()=>{let titles=[];for(let cat in storeInventory)storeInventory[cat].forEach(t=>titles.push({title:t.title,category:cat}));return titles;})() };
+        const ctx = { 
+            store_open:storeOpen, 
+            in_break:inBreak, 
+            in_alley:inAlley, 
+            current_time:currentTime, 
+            revenue, 
+            storeBalance, 
+            stress, 
+            counter_slots:counterSlots.map(s=>({id:s.id,status:s.status,customer_name:s.customer?.name})), 
+            regulars:regulars.length, 
+            viewing_occupant:viewingRoomOccupant?.name, 
+            viewing_active:viewingActive, 
+            store_titles:(()=>{let titles=[];for(let cat in storeInventory)storeInventory[cat].forEach(t=>titles.push({title:t.title,category:cat}));return titles;})(),
+            distributor_catalog: distributorCatalog.map(t => ({title:t.title, genre:t.genre, wholesalePrice:t.wholesalePrice}))
+        };
         callMistral([{role:'system',content:SYSTEM_PROMPT+'\nCURRENT STATE: '+JSON.stringify(ctx)},...gameHistory])
             .then(raw=>{
                 document.getElementById('think')?.remove();
@@ -614,6 +635,21 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
             addOutput('dumpster', `The dumpster coughs up a tape: "${gift.title}". Added to private collection.`);
             renderPrivateCollection();
         }
+        // Distributor catalog update
+        if(state.distributor_catalog_update) {
+            const upd = state.distributor_catalog_update;
+            if(upd.action === 'add' && upd.tape) {
+                const newTape = { ...upd.tape, condition: 100, times_rented: 0, wholesalePrice: upd.tape.wholesalePrice || 30 };
+                distributorCatalog.push(newTape);
+                addOutput('store', `📦 Distributor added "${upd.tape.title}" to the catalog.`);
+            } else if(upd.action === 'remove' && upd.title) {
+                const idx = distributorCatalog.findIndex(t => t.title === upd.title);
+                if(idx !== -1) { distributorCatalog.splice(idx, 1); addOutput('store', `📦 "${upd.title}" is no longer available from the distributor.`); }
+            } else if(upd.action === 'replace_all' && upd.tapes) {
+                distributorCatalog = upd.tapes.map(t => ({ ...t, condition: 100, times_rented: 0, wholesalePrice: t.wholesalePrice || 30 }));
+                addOutput('store', '📦 The distributor catalog has been completely refreshed.');
+            }
+        }
         if(activeInteractionSlot && !counterSlots.find(s=>s.id===activeInteractionSlot && (s.status==='at_counter'||s.status==='lingering'))) activeInteractionSlot=null;
     }
 
@@ -658,7 +694,7 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
     function exitBreak() { breakOverlay.style.display='none'; inBreak=false; inAlley=false; storeOpen=true; updateUI(); renderCounterBoard(); addOutput('system','> Store reopened.'); }
 
     function saveToSlot(id, name) {
-        const save = { gameHistory, turnCount, gameStarted, storeOpen, inBreak, inAlley, shiftEnded, revenue, storeBalance, stress, currentTime, counterSlots, regulars, activeInteractionSlot, viewingRoomOccupant, viewingRoomTape, viewingActive, storeInventory, privateCollection, genreRevenue, name:name||`Slot ${id+1}` };
+        const save = { gameHistory, turnCount, gameStarted, storeOpen, inBreak, inAlley, shiftEnded, revenue, storeBalance, stress, currentTime, counterSlots, regulars, activeInteractionSlot, viewingRoomOccupant, viewingRoomTape, viewingActive, storeInventory, privateCollection, genreRevenue, distributorCatalog, name:name||`Slot ${id+1}` };
         localStorage.setItem(`vv_slot_${id}`, JSON.stringify(save));
     }
     function loadFromSlot(id) {
@@ -821,31 +857,26 @@ Player actions: APPROACH / HELP / CHAT / RECOMMEND / DENY / INVITE / RING UP / A
         modal.style.display = 'flex';
     }
 
-   function digBackRoom() {
-    // Perform the dig
-    let message;
-    if (Math.random() < 0.6) {
-        const foundTapes = [
-            { title: 'Static Ritual #3', year: '1987', director: 'Unknown', danger_vibe:5, description:'Flickering images of robed figures around a burning VCR.', condition:60 },
-            { title: 'The Neighbor\'s Camcorder', year: '1994', director: 'Unknown', danger_vibe:4, description:'Hours of footage from a hidden camera. Someone is watching.', condition:50 },
-            { title: 'Channel 99 Test Signal', year: '???', director: '???', danger_vibe:4, description:'A broadcast that never should have aired.', condition:40 },
-            { title: 'Family Vacation 1982', year: '1982', director: 'Unknown', danger_vibe:5, description:'The last five minutes are... different.', condition:70 }
-        ];
-        const tape = foundTapes[Math.floor(Math.random() * foundTapes.length)];
-        const newTape = { ...tape, times_rented:0, wholesalePrice:0 };
-        if (!storeInventory['bootlegs']) storeInventory['bootlegs'] = [];
-        storeInventory['bootlegs'].push(newTape);
-        message = `Found a dusty tape: "${tape.title}" — ${tape.description}`;
-    } else {
-        message = 'You dig through old boxes but find nothing but dust and dead roaches.';
+    function digBackRoom() {
+        let message;
+        if (Math.random() < 0.6) {
+            const foundTapes = [
+                { title: 'Static Ritual #3', year: '1987', director: 'Unknown', danger_vibe:5, description:'Flickering images of robed figures around a burning VCR.', condition:60 },
+                { title: 'The Neighbor\'s Camcorder', year: '1994', director: 'Unknown', danger_vibe:4, description:'Hours of footage from a hidden camera. Someone is watching.', condition:50 },
+                { title: 'Channel 99 Test Signal', year: '???', director: '???', danger_vibe:4, description:'A broadcast that never should have aired.', condition:40 },
+                { title: 'Family Vacation 1982', year: '1982', director: 'Unknown', danger_vibe:5, description:'The last five minutes are... different.', condition:70 }
+            ];
+            const tape = foundTapes[Math.floor(Math.random() * foundTapes.length)];
+            const newTape = { ...tape, times_rented:0, wholesalePrice:0 };
+            if (!storeInventory['bootlegs']) storeInventory['bootlegs'] = [];
+            storeInventory['bootlegs'].push(newTape);
+            message = `Found a dusty tape: "${tape.title}" — ${tape.description}`;
+        } else {
+            message = 'You dig through old boxes but find nothing but dust and dead roaches.';
+        }
+        addOutput('store', `🔍 ${message}`);
+        exitBreak();  // Close the back room and return to counter
     }
-
-    // Show the result in the main game log (visible after returning to the counter)
-    addOutput('store', `🔍 ${message}`);
-
-    // Immediately exit the break and return to the counter
-    exitBreak();
-}
 
     // --- Sellback Overlay ---
     function showSellbackOffer(offer) {
