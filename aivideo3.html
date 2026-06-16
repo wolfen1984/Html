@@ -188,6 +188,11 @@
             <button id="btnInviteView" disabled>👁 INVITE TO VIEW</button>
             <button id="btnTalkEd" style="display:none;">🗑 TALK TO ED</button>
             <button id="btnRummage" style="display:none;">🔍 RUMMAGE</button>
+<button id="btnVisitPet" style="display:none;">🐾 VISIT PET</button>
+<button id="btnTalkPet" style="display:none;">💬 TALK TO PET</button>
+<button id="btnFeedPet" style="display:none;">🍖 FEED PET</button>
+<button id="btnEndPet" style="display:none;">💀 END PET</button>
+<button id="btnFeedToEd" style="display:none;">🩸 FEED TO ED</button>
             <button id="btnSave">💾 SAVE</button>
             <button id="btnLoad">📂 LOAD</button>
             <button id="btnRestart">🔄 RESTART</button>
@@ -310,6 +315,12 @@
     const btnKeepViewing = document.getElementById('btnKeepViewing');
     const btnStopViewing = document.getElementById('btnStopViewing');
 
+const btnVisitPet = document.getElementById('btnVisitPet');
+const btnTalkPet = document.getElementById('btnTalkPet');
+const btnFeedPet = document.getElementById('btnFeedPet');
+const btnEndPet = document.getElementById('btnEndPet');
+const btnFeedToEd = document.getElementById('btnFeedToEd');
+
     // ---------- Audio ----------
     let audioCtx = null;
     function initAudio() {
@@ -375,6 +386,7 @@
     let boxGuyInventory = null;
     let boxGuyVisits = 0;
     let edKnownSecrets = [];
+let pet = null; // { name, type, personality, alive: true, trust: 50, description }
 
     let viewingGuest = null;
     let viewingTape = null;
@@ -434,6 +446,13 @@
         btnTalkEd.style.display = (currentLocation === 'alley') ? 'inline-block' : 'none';
         btnRummage.style.display = (currentLocation === 'alley') ? 'inline-block' : 'none';
 
+// Pet buttons – only when in back room and pet exists
+const petExists = pet && pet.alive;
+btnVisitPet.style.display = (currentLocation === 'backroom' && petExists) ? 'inline-block' : 'none';
+btnTalkPet.style.display = (currentLocation === 'backroom' && petExists) ? 'inline-block' : 'none';
+btnFeedPet.style.display = (currentLocation === 'backroom' && petExists) ? 'inline-block' : 'none';
+btnEndPet.style.display = (currentLocation === 'backroom' && petExists) ? 'inline-block' : 'none';
+
         const canAct = gameStarted && !isLoading;
         btnTalkCustomer.disabled = !canAct;
         btnRecommend.disabled = !canAct || (storeInventory.length === 0 && privateCollection.length === 0);
@@ -442,6 +461,12 @@
         btnTalkEd.disabled = !canAct;
         btnRummage.disabled = !canAct;
         btnSend.disabled = !canAct;
+btnVisitPet.disabled = !canAct;
+btnTalkPet.disabled = !canAct;
+btnFeedPet.disabled = !canAct;
+btnEndPet.disabled = !canAct;
+btnFeedToEd.style.display = (currentLocation === 'alley' && pet && !pet.alive) ? 'inline-block' : 'none';
+btnFeedToEd.disabled = !canAct;
     }
 
     // ---------- API Call ----------
@@ -469,14 +494,14 @@
     }
 
     // ---------- AI Interaction (revised system prompt) ----------
-    const SYSTEM_PROMPT = `You are the Game Master for "REEL LIFE VIDEO: FORBIDDEN TAPES," a 1987 psychological horror sim. The player runs a late-night video store, an insomniac and deeply unhinged man who collects rare, often illegal tapes (snuff, real documentaries, extreme horror, pornography). He is gaunt like Trevor Reznik, prone to violent thoughts like Henry: Portrait of a Serial Killer, but he hasn't killed (yet). He talks to a dumpster named Ed in the alley, believing it speaks to him. Ed is NOT alive, but the player interprets its sounds, smells, and the trash inside as secret messages about people.
+    const SYSTEM_PROMPT = `You are the Game Master for "REEL LIFE VIDEO: FORBIDDEN TAPES," a 1987 psychological horror sim. The player runs a late-night video store, an insomniac and deeply unhinged man who collects rare, often illegal tapes (snuff, real documentaries, extreme horror, pornography). He is gaunt like Trevor Reznik, prone to violent thoughts like Henry: Portrait of a Serial Killer, but he hasn't killed (yet). He talks to a dumpster named Ed in the alley, believing it speaks to him. Ed is NOT alive, but the player interprets its sounds, smells, and the trash inside as secret messages about people. A "pet" lives in the back room. It may be an animal or a person the player keeps. The pet has a name, type, and personality. The dumpster Ed repeatedly urges the player to kill the pet and bring the body to him. Ed's whispers should remind the player of the pet's secrets, the pet's uselessness, or dark desires. When the player is in the back room, they can visit, talk to, feed, or end the pet's life. After the pet is killed, the body can be disposed of in the alley (FEED TO ED). Ed will praise the player for doing so. The AI must track the pet's state and incorporate Ed's demands.
 
 Your job: simulate the world and the player's deteriorating mind. Always respond with a raw JSON object containing these fields (all optional):
 - "narration": atmospheric description (20-50 words).
 - "customer": object or null. If new customer arrives or changes, provide: name, appearance, request (what banned/rare tape genre/title they want, often hinting at urban legends), personality (e.g., pervert, hooker, teenage runaway, drifter, addict, clean-looking psychopath), secret (a dark truth about them).
 - "customer_dialogue": string or null.
 - "customer_trust_change": number.
-- "ed_dialogue": string or null. ONLY generate ed_dialogue when the player is in the alley. Describe Ed's physical state (rust, stench, dripping, items visible) and then provide the player's hallucinated words. Ed's "advice" should reflect what people have thrown away: a discarded love letter, bloody clothes, drug paraphernalia, etc., hinting at customers' secrets or the player's urges.
+- "ed_dialogue": string or null. ONLY generate ed_dialogue when the player is in the alley. Describe Ed's physical state (rust, stench, dripping, items visible) and then provide the player's hallucinated words. Ed's "advice" should reflect what people have thrown away: a discarded love letter, bloody clothes, drug paraphernalia, etc., hinting at customers' secrets or the player's urges. Only generate when player is in alley. Ed often tells the player to "bring the other one", "the pet's time has come", "it knows too much", etc.
 - "box_guy_event": object or null (Vic's crate of illicit tapes).
 - "viewing_room_event": object or null. Content of tape, guest reaction, guest dialogue.
 - "tape_updates": array of tape changes.
@@ -494,6 +519,7 @@ The player can be in three locations: counter, backroom, alley. Commands: TALK T
             customer: currentCustomer ? { name: currentCustomer.name, request: currentCustomer.request, trust: customerTrust } : null,
             ed_known_secrets: edKnownSecrets,
             box_guy_visits: boxGuyVisits,
+pet: pet ? { name: pet.name, type: pet.type, alive: pet.alive, trust: pet.trust } : null,
             viewing_guest: viewingGuest ? viewingGuest.name : null,
             viewing_tape: viewingTape ? viewingTape.title : null
         };
@@ -554,6 +580,13 @@ The player can be in three locations: counter, backroom, alley. Commands: TALK T
         if (state.viewing_room_event) {
             updateViewingRoom(state.viewing_room_event);
         }
+if (state.pet_update) {
+    if (state.pet_update.set) {
+        pet = state.pet_update.set; // full replacement
+    } else if (state.pet_update.alive === false) {
+        if (pet) pet.alive = false;
+    }
+}
         if (state.tape_updates) {
             state.tape_updates.forEach(upd => {
                 if (upd.action === 'add_store') addTapeToStore(upd.tape);
@@ -679,6 +712,39 @@ The player can be in three locations: counter, backroom, alley. Commands: TALK T
     btnTalkEd.addEventListener('click', () => sendToAI('TALK TO ED'));
     btnRummage.addEventListener('click', () => sendToAI('RUMMAGE'));
 
+btnVisitPet.addEventListener('click', () => {
+    if (!pet) return;
+    sendToAI(`VISIT PET: ${pet.name}`);
+});
+
+btnTalkPet.addEventListener('click', () => {
+    if (!pet) return;
+    sendToAI(`TALK TO PET: ${pet.name}`);
+});
+
+btnFeedPet.addEventListener('click', () => {
+    if (!pet) return;
+    sendToAI(`FEED PET: ${pet.name}`);
+});
+
+btnEndPet.addEventListener('click', () => {
+    if (!pet || !pet.alive) return;
+    if (confirm(`End ${pet.name}? This will kill them.`)) {
+        pet.alive = false;
+        addOutput('narration', `You have ended ${pet.name}.`);
+        updateUI();
+        sendToAI(`KILLED PET: ${pet.name}`);
+    }
+});
+
+btnFeedToEd.addEventListener('click', () => {
+    if (!pet || pet.alive) return;
+    addOutput('ed', `You drag ${pet.name}'s body to the dumpster. Ed's lid creaks open.`);
+    pet = null; // body disposed
+    updateUI();
+    sendToAI(`FED PET BODY TO ED: ${pet?.name || 'the pet'}`);
+});
+
     btnSend.addEventListener('click', () => {
         const msg = cmdInput.value.trim();
         if (!msg) return;
@@ -794,6 +860,14 @@ The player can be in three locations: counter, backroom, alley. Commands: TALK T
         timeMinutes = 0; currentCustomer = null; customerTrust = 50;
         boxGuyVisits = 0; edKnownSecrets = [];
         currentLocation = 'counter'; gameStarted = true;
+pet = {
+    name: "Stray",
+    type: "thin, silent person",
+    personality: "obedient but fearful, never speaks",
+    alive: true,
+    trust: 40,
+    description: "You found them in the alley months ago. Ed said to keep them."
+};
         gameOutput.innerHTML = '';
         addOutput('system','> REEL LIFE VIDEO — FORBIDDEN TAPES');
         addOutput('system','> Your reflection in the monitor: hollow eyes, trembling hands.');
@@ -810,6 +884,7 @@ The player can be in three locations: counter, backroom, alley. Commands: TALK T
         addOutput('system','> REEL LIFE VIDEO — FORBIDDEN TAPES');
         addOutput('system','> READY. PRESS BEGIN SHIFT.');
         btnBegin.style.display = 'inline-block';
+pet = null;
         updateUI();
     }
 
