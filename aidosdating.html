@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HEARTLINE BBS — 2400 BAUD</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { background: #000; display: flex; justify-content: center; align-items: center; min-height: 100vh; font-family: 'Courier New', monospace; color: #0f0; }
+        .terminal { width: 100%; max-width: 900px; height: 90vh; background: #000; border: 3px solid #0a0; display: flex; flex-direction: column; box-shadow: 0 0 30px rgba(0,255,0,0.2); overflow: hidden; position: relative; }
+        .title-bar { background: #0a0; color: #000; font-weight: bold; text-align: center; padding: 4px; font-size: 18px; letter-spacing: 2px; }
+        .status-line { display: flex; justify-content: space-between; padding: 2px 8px; background: #020; border-bottom: 1px solid #0a0; font-size: 14px; }
+        .main-area { flex: 1; display: flex; overflow: hidden; }
+        .left-panel { width: 280px; border-right: 1px solid #0a0; display: flex; flex-direction: column; background: #010; }
+        .nav-buttons { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-bottom: 1px solid #0a0; background: #020; }
+        .nav-btn { background: #000; border: 1px solid #0a0; color: #0f0; font-family: 'Courier New', monospace; font-size: 13px; padding: 2px 8px; cursor: pointer; }
+        .nav-btn:hover, .nav-btn.active { background: #0a0; color: #000; font-weight: bold; }
+        .list-container { flex: 1; overflow-y: auto; padding: 4px; background: #000; }
+        .list-item { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px; border-bottom: 1px dotted #040; cursor: pointer; font-size: 14px; }
+        .list-item:hover { background: #020; }
+        .list-item.selected { background: #040; color: #fff; }
+        .unread-badge { color: #ff0; font-weight: bold; margin-right: 4px; }
+        .right-panel { flex: 1; display: flex; flex-direction: column; background: #000; }
+        .message-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; border-bottom: 1px solid #0a0; background: #020; font-size: 15px; font-weight: bold; }
+        .message-body { flex: 1; overflow-y: auto; padding: 10px; font-size: 15px; line-height: 1.5; white-space: pre-wrap; }
+        .action-bar { display: flex; gap: 8px; padding: 8px; border-top: 1px solid #0a0; background: #020; flex-wrap: wrap; }
+        .action-btn { background: #000; border: 1px solid #0a0; color: #0f0; font-family: 'Courier New', monospace; font-size: 14px; padding: 4px 12px; cursor: pointer; }
+        .action-btn:hover { background: #0a0; color: #000; font-weight: bold; }
+        .compose-area { display: none; padding: 10px; flex-direction: column; gap: 8px; }
+        .compose-area textarea, .compose-area input, .compose-area select { background: #000; border: 1px solid #0a0; color: #0f0; font-family: 'Courier New', monospace; font-size: 14px; padding: 6px; }
+        .compose-area textarea { resize: vertical; width: 100%; height: 80px; }
+        .compose-area select { padding: 4px; }
+        .login-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 8px; z-index: 100; padding: 20px; }
+        .login-overlay h1 { font-size: 28px; text-shadow: 0 0 10px #0f0; margin: 0; }
+        .login-overlay input { background: #000; border: 2px solid #0a0; color: #0f0; font-family: 'Courier New', monospace; font-size: 16px; padding: 8px 16px; text-align: center; width: 250px; }
+        .login-overlay button { background: #0a0; color: #000; font-weight: bold; border: none; padding: 10px 30px; font-size: 16px; cursor: pointer; font-family: 'Courier New', monospace; }
+        .login-overlay .key-section { display: flex; flex-direction: column; align-items: center; gap: 4px; margin: 8px 0; }
+        .login-overlay .key-section input { width: 300px; }
+        .api-key-row { display: flex; padding: 4px 8px; border-top: 1px dashed #0a0; gap: 8px; align-items: center; font-size: 13px; background: #020; }
+        .api-key-row input { flex: 1; background: #000; border: 1px solid #0a0; color: #0f0; font-family: 'Courier New', monospace; padding: 2px 6px; }
+        .api-key-row button { background: #0a0; color: #000; font-weight: bold; border: none; padding: 2px 10px; cursor: pointer; font-family: 'Courier New', monospace; }
+        .hidden { display: none !important; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #000; }
+        ::-webkit-scrollbar-thumb { background: #0a0; border-radius: 3px; }
+        .thread-msg { margin-bottom: 8px; border-bottom: 1px dotted #030; padding-bottom: 4px; }
+        .thread-msg .author { color: #0f0; font-weight: bold; }
+        .thread-msg .me { color: #fff; }
+        .loading { color: #ff0; }
+        .error-msg { color: #f44; }
+        .status-dot { color: #f44; }
+        .status-dot.active { color: #0f0; }
+        .search-form label { display: block; margin-bottom: 4px; font-size: 13px; }
+        .search-form select, .search-form input { background: #000; border: 1px solid #0a0; color: #0f0; font-family: 'Courier New', monospace; font-size: 13px; padding: 2px 4px; width: 100%; }
+        .search-form input[type="number"] { width: 60px; }
+        .result-item { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+    </style>
+</head>
+<body>
+<div class="terminal">
+    <div class="title-bar">♥ HEARTLINE BBS ♥ NODE 1 · 2400 BAUD</div>
+    <div class="status-line">
+        <span id="userStatus">Not logged in</span>
+        <span id="clockDisplay">12:00 AM</span>
+    </div>
+    <div class="main-area">
+        <div class="left-panel">
+            <div class="nav-buttons">
+                <button class="nav-btn active" data-view="mailbox">📬 Mail</button>
+                <button class="nav-btn" data-view="boards">📋 Boards</button>
+                <button class="nav-btn" data-view="who">👥 Who</button>
+                <button class="nav-btn" data-view="directory">📇 Directory</button>
+                <button class="nav-btn" data-view="profile">👤 Profile</button>
+            </div>
+            <div class="list-container" id="listContainer"></div>
+        </div>
+        <div class="right-panel">
+            <div class="message-header">
+                <span id="rightHeader">Select a conversation</span>
+                <button class="action-btn" id="refreshBtn" style="font-size:12px; padding:2px 8px;">🔄 New Mail</button>
+            </div>
+            <div class="message-body" id="rightBody"></div>
+            <div class="action-bar" id="actionBar"></div>
+            <div class="compose-area" id="composeArea">
+                <div style="display:flex; gap:8px; align-items:center;"><span>To:</span><select id="composeTo"></select></div>
+                <input type="text" id="composeSubject" placeholder="Subject">
+                <textarea id="composeBody" placeholder="Type your message..."></textarea>
+                <div>
+                    <button class="action-btn" id="sendComposeBtn">Send</button>
+                    <button class="action-btn" id="cancelComposeBtn">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="api-key-row">
+        <span>🔑 API Key:</span>
+        <input type="password" id="apiKeyInput" placeholder="Paste Mistral key">
+        <button id="saveKeyBtn">SAVE</button>
+        <span id="keyStatus">● No key</span>
+    </div>
+
+    <div class="login-overlay" id="loginOverlay">
+        <h1>HEARTLINE BBS</h1>
+        <p style="font-size:16px; color:#0f0;">Enter your handle to login or create an account</p>
+        <input type="text" id="loginHandleInput" placeholder="Your handle" maxlength="20">
+        <input type="password" id="loginPassInput" placeholder="Password (new users: choose one)">
+        <div class="key-section">
+            <label>🔑 Mistral API Key:</label>
+            <input type="password" id="loginApiKeyInput" placeholder="Paste your Mistral key">
+            <div style="display:flex; gap:8px; align-items:center;">
+                <button id="loginSaveKeyBtn" style="padding:4px 12px; font-size:14px;">SAVE KEY</button>
+                <span id="loginKeyStatus" class="status-dot">● No key</span>
+            </div>
+        </div>
+        <button id="loginBtn">Connect 2400</button>
+        <div id="loginError" style="color:#f44;"></div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const listContainer = document.getElementById('listContainer');
+    const rightHeader = document.getElementById('rightHeader');
+    const rightBody = document.getElementById('rightBody');
+    const actionBar = document.getElementById('actionBar');
+    const composeArea = document.getElementById('composeArea');
+    const composeTo = document.getElementById('composeTo');
+    const composeSubject = document.getElementById('composeSubject');
+    const composeBody = document.getElementById('composeBody');
+    const sendComposeBtn = document.getElementById('sendComposeBtn');
+    const cancelComposeBtn = document.getElementById('cancelComposeBtn');
+    const userStatus = document.getElementById('userStatus');
+    const clockDisplay = document.getElementById('clockDisplay');
+    const loginOverlay = document.getElementById('loginOverlay');
+    const loginHandleInput = document.getElementById('loginHandleInput');
+    const loginPassInput = document.getElementById('loginPassInput');
+    const loginBtn = document.getElementById('loginBtn');
+    const loginError = document.getElementById('loginError');
+    const apiKeyInput = document.getElementById('apiKeyInput');
+    const saveKeyBtn = document.getElementById('saveKeyBtn');
+    const keyStatus = document.getElementById('keyStatus');
+    const loginApiKeyInput = document.getElementById('loginApiKeyInput');
+    const loginSaveKeyBtn = document.getElementById('loginSaveKeyBtn');
+    const loginKeyStatus = document.getElementById('loginKeyStatus');
+    const navBtns = document.querySelectorAll('.nav-btn');
+    const refreshBtn = document.getElementById('refreshBtn');
+
+    let mistralKey = localStorage.getItem('heartline_key') || '';
+    let currentView = 'mailbox';
+    let selectedConversationUser = null;
+    let selectedBoard = null;
+
+    const STORAGE_KEY = 'heartline_bbs_robust';
+    let G = {
+        player: null,
+        users: [],
+        conversations: [],
+        boards: { 'personals': [], 'interests': [], 'confessions': [] },
+        lastLogin: null,
+        sessions: 0,
+        worldGenerated: false
+    };
+
+    // ---------- Data validation ----------
+    function ensureUserObject(u) {
+        if (!u.handle) u.handle = 'UNKNOWN';
+        if (!u.password) u.password = 'pass';
+        if (!u.personality) u.personality = 'a regular BBS user';
+        if (!u.profile || typeof u.profile !== 'object') u.profile = {};
+        const p = u.profile;
+        if (!p.realName) p.realName = 'Unknown';
+        if (!p.age) p.age = Math.floor(Math.random() * 30) + 18;
+        if (!p.lookingFor) p.lookingFor = 'friendship';
+        if (!p.interests || !Array.isArray(p.interests)) p.interests = ['chatting', 'vintage computing'];
+        if (!p.publicMessage) p.publicMessage = 'Hello, world!';
+        if (!p.gender) p.gender = 'unspecified'; // new field for directory search
+        return u;
+    }
+
+    function sanitizeAllUsers() {
+        G.users.forEach(u => ensureUserObject(u));
+    }
+
+    // ---------- Persistence ----------
+    function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(G)); }
+    function load() {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            G = JSON.parse(saved);
+            if (!G.boards) G.boards = { 'personals': [], 'interests': [], 'confessions': [] };
+            if (!G.conversations) G.conversations = [];
+            for (let board in G.boards) G.boards[board].forEach(p => { if (!p.replies) p.replies = []; });
+            sanitizeAllUsers();
+            return true;
+        }
+        return false;
+    }
+
+    function updateKeyIndicators() {
+        const hasKey = !!mistralKey;
+        const statusText = hasKey ? '● Key set' : '● No key';
+        const statusColor = hasKey ? '#0f0' : '#f44';
+        keyStatus.textContent = statusText; keyStatus.style.color = statusColor;
+        loginKeyStatus.textContent = statusText;
+        loginKeyStatus.className = 'status-dot' + (hasKey ? ' active' : '');
+        if (apiKeyInput) apiKeyInput.value = mistralKey;
+        if (loginApiKeyInput) loginApiKeyInput.value = mistralKey;
+    }
+
+    function saveApiKey(key) {
+        mistralKey = key ? key : '';
+        if (mistralKey) localStorage.setItem('heartline_key', mistralKey);
+        else localStorage.removeItem('heartline_key');
+        updateKeyIndicators();
+    }
+
+    function playModemHandshake() {
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator(), gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(800, ctx.currentTime);
+            osc.frequency.linearRampToValueAtTime(2000, ctx.currentTime+0.2);
+            osc.frequency.linearRampToValueAtTime(800, ctx.currentTime+0.4);
+            gain.gain.setValueAtTime(0.03, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.5);
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.start(); osc.stop(ctx.currentTime+0.5);
+        } catch(e) {}
+    }
+
+    function updateClock() {
+        const now = new Date(), h = now.getHours(), m = now.getMinutes().toString().padStart(2,'0');
+        clockDisplay.textContent = `${h%12||12}:${m} ${h>=12?'PM':'AM'}`;
+    }
+    setInterval(updateClock, 1000); updateClock();
+
+    function getConversationWith(handle) {
+        let conv = G.conversations.find(c => c.with.toLowerCase() === handle.toLowerCase());
+        if (!conv) { conv = { with: handle, messages: [] }; G.conversations.push(conv); }
+        return conv;
+    }
+    function conversationHasUnread(conv) {
+        return conv.messages.some(m => m.from !== G.player.handle && !m.read);
+    }
+
+    // ---------- JSON parser ----------
+    function safeParseAIResponse(raw) {
+        if (typeof raw !== 'string') return null;
+        let cleaned = raw.replace(/```json|```/g, '').trim();
+        const start = cleaned.indexOf('{'), end = cleaned.lastIndexOf('}');
+        if (start === -1 || end === -1) {
+            console.warn('No JSON object found:', raw.substring(0,200));
+            return null;
+        }
+        cleaned = cleaned.substring(start, end + 1);
+        try {
+            return JSON.parse(cleaned);
+        } catch (e1) {
+            const cleaned2 = cleaned.replace(/\n/g, ' ');
+            return JSON.parse(cleaned2);
+        }
+    }
+
+    // ---------- AI call ----------
+    async function callAI(systemPrompt, userMessage, options = {}) {
+        if (!mistralKey) throw new Error('No API key set.');
+        const resp = await fetch('https://api.mistral.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${mistralKey}` },
+            body: JSON.stringify({
+                model: 'mistral-large-latest',
+                messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }],
+                temperature: options.temperature || 0.9,
+                max_tokens: options.maxTokens || 3000,
+                response_format: options.jsonResponse ? { type: "json_object" } : undefined
+            })
+        });
+        if (!resp.ok) {
+            if (resp.status === 401) throw new Error('Invalid API key.');
+            if (resp.status === 429) throw new Error('Too many requests. Wait.');
+            throw new Error(`API error ${resp.status}`);
+        }
+        const data = await resp.json();
+        return data.choices[0].message.content;
+    }
+
+    // ---------- Fallback content generators ----------
+    function createFallbackMessage() {
+        const npc = G.users.find(u => u.handle !== G.player.handle);
+        if (!npc) return null;
+        const bodies = [
+            "Hey, noticed you around the BBS. Wanna chat?",
+            "I saw your profile – I think we'd get along. Message me back!",
+            "Bored and browsing. What's up?",
+            "New to this board but you seem cool."
+        ];
+        return {
+            from: npc.handle,
+            body: bodies[Math.floor(Math.random() * bodies.length)]
+        };
+    }
+
+    function createFallbackPost() {
+        const npc = G.users.find(u => u.handle !== G.player.handle);
+        if (!npc) return null;
+        const board = ['personals','interests','confessions'][Math.floor(Math.random()*3)];
+        const subjects = ["Looking for chat", "Anyone into vintage computing?", "Late night thoughts..."];
+        const bodies = ["Just seeing who's out there tonight.", "Drop me a line if you like similar music.", "Confession: I still use dial-up sounds for nostalgia."];
+        return {
+            board,
+            author: npc.handle,
+            subject: subjects[Math.floor(Math.random()*subjects.length)],
+            body: bodies[Math.floor(Math.random()*bodies.length)]
+        };
+    }
+
+    // ---------- World generation ----------
+    async function generateInitialWorld() {
+        rightBody.innerHTML = '<span class="loading">Generating bustling BBS population…</span>';
+        playModemHandshake();
+        const systemPrompt = `You are the world creator for HEARTLINE BBS, a 1985 dial-up dating BBS.
+Generate exactly 12 diverse NPC users (handles in ALL CAPS, max 12 chars, passwords simple, each with personality and profile containing realName, age, lookingFor, interests array, publicMessage, and gender (male/female/trans/gay)).
+Also generate at least 5 board posts: 2 for "personals", 2 for "interests", 1 for "confessions". Each post must have author, subject, body.
+Generate 3-4 initial private messages to the player from different NPCs.
+All string values single line, no newlines inside strings. Only output valid JSON.`;
+        try {
+            const raw = await callAI(systemPrompt, 'Create the BBS world.', { maxTokens: 4000, jsonResponse: true });
+            const parsed = safeParseAIResponse(raw);
+            if (!parsed) throw new Error('AI returned invalid JSON.');
+            if (parsed.users) parsed.users.forEach(u => {
+                if (!G.users.find(ex => ex.handle.toLowerCase() === u.handle.toLowerCase())) {
+                    G.users.push(ensureUserObject(u));
+                }
+            });
+            if (parsed.newPosts) parsed.newPosts.forEach(p => {
+                if (!G.boards[p.board]) G.boards[p.board] = [];
+                G.boards[p.board].push({
+                    id: Date.now() + Math.random(),
+                    author: p.author, subject: p.subject, body: p.body,
+                    timestamp: new Date().toISOString(), replies: []
+                });
+            });
+            if (parsed.newMail) parsed.newMail.forEach(m => {
+                getConversationWith(m.from).messages.push({ from: m.from, body: m.body, timestamp: new Date().toISOString(), read: false });
+            });
+            // Seed each initial post with one NPC reply
+            for (let board in G.boards) {
+                for (let post of G.boards[board]) {
+                    if (post.replies.length === 0) {
+                        const npc = G.users.find(u => u.handle !== G.player.handle && u.handle !== post.author);
+                        if (npc) {
+                            post.replies.push({
+                                author: npc.handle,
+                                body: 'Interesting post!',
+                                timestamp: new Date().toISOString()
+                            });
+                        }
+                    }
+                }
+            }
+            G.worldGenerated = true;
+            save();
+            rightBody.innerHTML = 'BBS populated with lively users and posts. Welcome!';
+            setTimeout(() => showView('mailbox'), 800);
+        } catch(e) {
+            rightBody.innerHTML = `<span class="error-msg">World generation failed: ${e.message}</span>`;
+        }
+    }
+
+    // ---------- New Mail / Batch fetch (guaranteed content) ----------
+    async function fetchBatchContent() {
+        rightBody.innerHTML = '<span class="loading">Dialling in for new activity…</span>';
+        playModemHandshake();
+        const context = {
+            playerHandle: G.player.handle,
+            sessions: G.sessions,
+            existingUsers: G.users.map(u => u.handle),
+            existingConversations: G.conversations.map(c => c.with),
+            npcs: G.users.filter(u => u.handle !== G.player.handle).map(u => ({ handle: u.handle, personality: u.personality }))
+        };
+        const systemPrompt = `You are the activity generator for HEARTLINE BBS.
+Generate NEW private mail for the player and NEW public board posts. You may also introduce 1-2 NEW users.
+IMPORTANT: Every new user must be a complete object like: {"handle":"HANDLE","password":"simple","personality":"quirky, shy","profile":{"realName":"Name","age":25,"lookingFor":"friendship" or "sex" or "Relationships","interests":["bbs","music"],"publicMessage":"Hello!","gender":"male/female/trans/gay"}}.
+You MUST include at least 1 new message and at least 1 new post. All strings single line. Output ONLY valid JSON.`;
+        let addedMail = 0, addedPosts = 0, addedUsers = 0;
+        try {
+            const raw = await callAI(systemPrompt, JSON.stringify(context), { maxTokens: 3500, jsonResponse: true });
+            const parsed = safeParseAIResponse(raw);
+            if (parsed) {
+                if (parsed.newUsers) parsed.newUsers.forEach(u => {
+                    if (!G.users.find(ex => ex.handle.toLowerCase() === u.handle.toLowerCase())) {
+                        G.users.push(ensureUserObject(u));
+                        addedUsers++;
+                    }
+                });
+                if (parsed.newMail) parsed.newMail.forEach(m => {
+                    getConversationWith(m.from).messages.push({ from: m.from, body: m.body, timestamp: new Date().toISOString(), read: false });
+                    addedMail++;
+                });
+                if (parsed.newPosts) parsed.newPosts.forEach(p => {
+                    if (!G.boards[p.board]) G.boards[p.board] = [];
+                    G.boards[p.board].push({
+                        id: Date.now() + Math.random(),
+                        author: p.author, subject: p.subject, body: p.body,
+                        timestamp: new Date().toISOString(), replies: []
+                    });
+                    addedPosts++;
+                });
+            }
+        } catch(e) { console.warn('Batch fetch AI call failed, using fallback.', e); }
+
+        if (addedMail === 0) {
+            const fallback = createFallbackMessage();
+            if (fallback) {
+                getConversationWith(fallback.from).messages.push({ from: fallback.from, body: fallback.body, timestamp: new Date().toISOString(), read: false });
+                addedMail = 1;
+            }
+        }
+        if (addedPosts === 0) {
+            const fbPost = createFallbackPost();
+            if (fbPost) {
+                G.boards[fbPost.board].push({
+                    id: Date.now() + Math.random(),
+                    author: fbPost.author, subject: fbPost.subject, body: fbPost.body,
+                    timestamp: new Date().toISOString(), replies: []
+                });
+                addedPosts = 1;
+            }
+        }
+
+        save();
+        rightBody.innerHTML = `<em>${addedMail} new message(s), ${addedPosts} new post(s)${addedUsers>0?`, and ${addedUsers} new user(s)!`:''}</em>`;
+        setTimeout(() => showView(currentView), 800);
+    }
+
+    // ---------- UI Rendering ----------
+    function showView(view) {
+        currentView = view;
+        navBtns.forEach(b => b.classList.remove('active'));
+        document.querySelector(`.nav-btn[data-view="${view}"]`).classList.add('active');
+        selectedConversationUser = null; selectedBoard = null;
+        rightHeader.textContent = {mailbox:'Conversations',boards:'Boards',who:"Who's Online",directory:'Directory Search',profile:'Profile'}[view]||'';
+        rightBody.innerHTML = ''; actionBar.innerHTML = ''; composeArea.style.display = 'none';
+        listContainer.innerHTML = '';
+        if (view === 'directory') {
+            // Directory search form
+            listContainer.innerHTML = `
+                <div class="search-form" style="padding:8px;">
+                    <label>Sex:
+                        <select id="dirSex">
+                            <option value="">Any</option>
+                            <option value="male">Male</option>
+                            <option value="female">Female</option>
+                            <option value="trans">Trans</option>
+                            <option value="gay">Gay</option>
+                        </select>
+                    </label>
+                    <label>Age:
+                        <input type="number" id="dirMinAge" placeholder="Min" min="10" max="99">
+                        -
+                        <input type="number" id="dirMaxAge" placeholder="Max" min="10" max="99">
+                    </label>
+                    <label>Looking for:
+                        <select id="dirLookingFor">
+                            <option value="">Any</option>
+                            <option value="friendship">Friendship</option>
+                            <option value="relationships">Relationships</option>
+                            <option value="sex">Sex</option>
+                            <option value="chat">Chat</option>
+                        </select>
+                    </label>
+                    <button class="action-btn" id="dirSearchBtn" style="width:100%; margin-top:6px;">Search</button>
+                </div>`;
+            document.getElementById('dirSearchBtn').addEventListener('click', performDirectorySearch);
+            rightBody.innerHTML = '<em>Select criteria and click Search.</em>';
+            return;
+        }
+        renderList();
+        if (view === 'profile' && G.player) showUserProfile(G.player.handle);
+    }
+
+    function renderList() {
+        listContainer.innerHTML = '';
+        if (!G.player) return;
+        const userId = G.player.handle;
+        if (currentView === 'mailbox') {
+            const convs = G.conversations.filter(c => c.messages.length > 0);
+            if (!convs.length) { listContainer.innerHTML = '<div style="padding:8px;">No conversations yet.</div>'; return; }
+            convs.sort((a,b) => b.messages[b.messages.length-1].id - a.messages[a.messages.length-1].id);
+            convs.forEach(conv => {
+                const div = document.createElement('div');
+                div.className = 'list-item' + (selectedConversationUser === conv.with ? ' selected' : '');
+                div.innerHTML = `${conversationHasUnread(conv) ? '<span class="unread-badge">●</span>' : ''} <strong>${conv.with}</strong> (${conv.messages.length})`;
+                div.addEventListener('click', () => selectConversation(conv.with));
+                listContainer.appendChild(div);
+            });
+        } else if (currentView === 'boards') {
+            Object.keys(G.boards).forEach(bName => {
+                const div = document.createElement('div');
+                div.className = 'list-item' + (selectedBoard === bName ? ' selected' : '');
+                div.innerHTML = `<strong>${bName.toUpperCase()}</strong> (${G.boards[bName].length})`;
+                div.addEventListener('click', () => selectBoard(bName));
+                listContainer.appendChild(div);
+            });
+        } else if (currentView === 'who') {
+            const npcs = G.users.filter(u => u.handle !== userId);
+            if (!npcs.length) { listContainer.innerHTML = '<div style="padding:8px;">No other users yet.</div>'; return; }
+            const count = Math.min(npcs.length, Math.floor(Math.random()*4)+2);
+            const shuffled = npcs.sort(() => 0.5-Math.random()).slice(0,count);
+            [G.player, ...shuffled].forEach(u => {
+                const div = document.createElement('div'); div.className = 'list-item';
+                div.textContent = u.handle + (u.handle===userId?' (you)':'');
+                div.addEventListener('click', () => showUserProfile(u.handle));
+                listContainer.appendChild(div);
+            });
+        }
+    }
+
+    async function performDirectorySearch() {
+        if (!G.player) return;
+        const sex = document.getElementById('dirSex').value;
+        const minAge = parseInt(document.getElementById('dirMinAge').value) || 0;
+        const maxAge = parseInt(document.getElementById('dirMaxAge').value) || 999;
+        const lookingFor = document.getElementById('dirLookingFor').value;
+        const candidates = G.users.filter(u => u.handle !== G.player.handle);
+        if (candidates.length === 0) {
+            rightBody.innerHTML = '<em>No other users in directory.</em>';
+            return;
+        }
+        const userList = candidates.map(u => ({
+            handle: u.handle,
+            profile: u.profile
+        }));
+        const prompt = {
+            sex: sex || 'any',
+            age: { min: minAge, max: maxAge },
+            lookingFor: lookingFor || 'any',
+            users: userList
+        };
+        const system = `You are the directory search assistant for HEARTLINE BBS. Given a list of users with their profiles, return a JSON array of handles that match the given criteria. For each match, include a short description (1-2 sentences) about why they match. Criteria: sex preference (male, female, trans, gay), age range, and what they're looking for. If sex is "any", skip gender check. If no users match, return an empty array. Only output valid JSON: {"matches":[{"handle":"...","description":"..."}]}`;
+        rightBody.innerHTML = '<span class="loading">Searching directory...</span>';
+        try {
+            if (mistralKey) {
+                const raw = await callAI(system, JSON.stringify(prompt), { maxTokens: 2000, jsonResponse: true });
+                const parsed = safeParseAIResponse(raw);
+                if (parsed && parsed.matches) {
+                    displayDirectoryResults(parsed.matches);
+                    return;
+                }
+            }
+            throw new Error('AI not available or returned invalid data');
+        } catch (e) {
+            // fallback to local filtering
+            let filtered = candidates;
+            if (lookingFor) filtered = filtered.filter(u => u.profile.lookingFor && u.profile.lookingFor.toLowerCase().includes(lookingFor.toLowerCase()));
+            if (minAge || maxAge < 999) filtered = filtered.filter(u => u.profile.age && u.profile.age >= minAge && u.profile.age <= maxAge);
+            // local sex filter (simple string match)
+            if (sex) filtered = filtered.filter(u => u.profile.gender && u.profile.gender.toLowerCase() === sex.toLowerCase());
+            const matches = filtered.map(u => ({ handle: u.handle, description: '' }));
+            displayDirectoryResults(matches, true);
+        }
+    }
+
+    function displayDirectoryResults(matches, localFallback = false) {
+        rightHeader.textContent = 'Directory Results' + (localFallback ? ' (local)' : '');
+        if (matches.length === 0) {
+            rightBody.innerHTML = '<em>No matches found.</em>';
+            return;
+        }
+        let html = '';
+        matches.forEach(m => {
+            html += `<div class="result-item list-item" data-handle="${m.handle}" style="display:flex; justify-content:space-between; align-items:center;">
+                <span>📇 ${m.handle}</span>
+                ${m.description ? `<span style="font-size:12px; color:#0a0;"> - ${m.description}</span>` : ''}
+                <button class="action-btn msg-result-btn" data-handle="${m.handle}" style="padding:0 4px; font-size:11px;">✉ Msg</button>
+            </div>`;
+        });
+        rightBody.innerHTML = html;
+        document.querySelectorAll('.result-item').forEach(item => {
+            item.addEventListener('click', function(e) {
+                if (e.target.classList.contains('msg-result-btn')) return;
+                const handle = this.dataset.handle;
+                showUserProfile(handle);
+            });
+        });
+        document.querySelectorAll('.msg-result-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                startNewMessage(this.dataset.handle);
+            });
+        });
+    }
+
+    function selectConversation(handle) {
+        selectedConversationUser = handle; selectedBoard = null;
+        const conv = getConversationWith(handle);
+        rightHeader.textContent = `Conversation with ${conv.with}`;
+        let html = '';
+        conv.messages.forEach(m => {
+            const authorClass = (m.from === G.player.handle) ? 'me' : 'other';
+            html += `<div class="thread-msg"><span class="author ${authorClass}">${m.from}:</span> ${m.body}</div>`;
+            if (m.from !== G.player.handle) m.read = true;
+        });
+        rightBody.innerHTML = html || '<em>No messages yet.</em>';
+        actionBar.innerHTML = `<textarea id="threadReplyInput" style="flex:1; background:#000; border:1px solid #0a0; color:#0f0; font-size:14px; padding:4px; resize:none; height:40px;" placeholder="Write your reply..."></textarea>
+            <button class="action-btn" id="threadReplyBtn">Send</button>`;
+        document.getElementById('threadReplyBtn').addEventListener('click', () => sendThreadReply(conv));
+        document.getElementById('threadReplyInput').addEventListener('keypress', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendThreadReply(conv);} });
+        composeArea.style.display = 'none';
+        save();
+        renderList();
+    }
+
+    async function sendThreadReply(conv) {
+        const input = document.getElementById('threadReplyInput');
+        const body = input.value.trim(); if(!body) return;
+        conv.messages.push({ from: G.player.handle, body, timestamp: new Date().toISOString(), read: true });
+        input.value = '';
+        selectConversation(conv.with);
+        await generateImmediateReplyInThread(conv);
+        selectConversation(conv.with);
+    }
+
+    async function generateImmediateReplyInThread(conv) {
+        if (!mistralKey) return;
+        const toHandle = conv.with;
+        const targetUser = G.users.find(u => u.handle.toLowerCase() === toHandle.toLowerCase());
+        if (!targetUser) return;
+        const history = conv.messages.slice(-6).map(m => `${m.from}: ${m.body}`).join('\n');
+        const sys = `You are ${targetUser.handle}. Personality: ${targetUser.personality}. Reply in character, 2-5 sentences. Only output the reply body.`;
+        try {
+            const reply = await callAI(sys, `Conversation:\n${history}\n\nRespond as ${targetUser.handle}.`, { maxTokens: 300 });
+            if (reply && reply.trim()) {
+                conv.messages.push({ from: toHandle, body: reply.trim(), timestamp: new Date().toISOString(), read: false });
+            } else {
+                conv.messages.push({ from: toHandle, body: '...', timestamp: new Date().toISOString(), read: false });
+            }
+            save();
+        } catch(e) {
+            conv.messages.push({ from: toHandle, body: '(static) …bad connection.', timestamp: new Date().toISOString(), read: false });
+            save();
+        }
+    }
+
+    function selectBoard(bName) {
+        selectedBoard = bName; selectedConversationUser = null;
+        const posts = G.boards[bName];
+        rightHeader.textContent = `Board: ${bName.toUpperCase()}`;
+        if (!posts.length) {
+            rightBody.innerHTML = '<em>No posts yet.</em>';
+            actionBar.innerHTML = '<button class="action-btn" id="newPostBtn">➕ New Post</button>';
+            document.getElementById('newPostBtn').addEventListener('click', () => startNewPost(bName));
+        } else {
+            let html = '';
+            posts.forEach(p => html += `<div style="border-bottom:1px dotted #040; padding:4px; cursor:pointer;" onclick="window.selectPost(${p.id})"><strong>${p.author}</strong> - ${p.subject} (${p.replies.length} replies)</div>`);
+            rightBody.innerHTML = html;
+            actionBar.innerHTML = '<button class="action-btn" id="newPostBtn">➕ New Post</button>';
+            document.getElementById('newPostBtn').addEventListener('click', () => startNewPost(bName));
+        }
+        composeArea.style.display = 'none';
+        renderList();
+    }
+
+    window.selectPost = function(postId) {
+        const board = selectedBoard; if(!board) return;
+        const post = G.boards[board].find(p => p.id===postId); if(!post) return;
+        if(!post.replies) post.replies=[];
+        let html = `<div class="thread-msg"><span class="author">${post.author}</span> - ${post.subject}<br>${post.body}</div>`;
+        post.replies.forEach(r => html += `<div class="thread-msg" style="margin-left:20px;"><span class="author">${r.author}:</span> ${r.body}</div>`);
+        rightBody.innerHTML = html;
+        actionBar.innerHTML = `<textarea id="boardReplyInput" style="flex:1; background:#000; border:1px solid #0a0; color:#0f0; font-size:14px; padding:4px; resize:none; height:40px;" placeholder="Write your reply..."></textarea>
+            <button class="action-btn" id="boardReplyBtn">Send</button>`;
+        document.getElementById('boardReplyBtn').addEventListener('click', () => sendBoardReply(post));
+        document.getElementById('boardReplyInput').addEventListener('keypress', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendBoardReply(post);} });
+    };
+
+    async function sendBoardReply(post) {
+        const input = document.getElementById('boardReplyInput');
+        const body = input.value.trim(); if(!body) return;
+        post.replies.push({ author: G.player.handle, body, timestamp: new Date().toISOString() });
+        input.value = '';
+        save();
+        window.selectPost(post.id);
+        await generateBoardNPCReply(post);
+        window.selectPost(post.id);
+    }
+
+    async function generateBoardNPCReply(post) {
+        if (!mistralKey) return;
+        const npcs = G.users.filter(u => u.handle !== G.player.handle);
+        if(!npcs.length) return;
+        const responder = npcs[Math.floor(Math.random()*npcs.length)];
+        const sys = `You are ${responder.handle}. Personality: ${responder.personality}. Reply to the board post in character, 1-3 sentences. Only output the reply body.`;
+        const msg = `Post by ${post.author}: ${post.subject}\n${post.body}\n\nRecent replies: ${post.replies.map(r=>`${r.author}: ${r.body}`).join('\n')}`;
+        try {
+            const reply = await callAI(sys, msg, { maxTokens: 200 });
+            if (reply && reply.trim()) {
+                post.replies.push({ author: responder.handle, body: reply.trim(), timestamp: new Date().toISOString() });
+            } else {
+                post.replies.push({ author: responder.handle, body: '...', timestamp: new Date().toISOString() });
+            }
+            save();
+        } catch(e) {
+            post.replies.push({ author: responder.handle, body: '(lost connection)', timestamp: new Date().toISOString() });
+            save();
+        }
+    }
+
+    function startNewPost(board) {
+        composeTo.innerHTML = ''; composeSubject.value=''; composeBody.value='';
+        composeArea.style.display='flex'; composeArea.dataset.mode='post'; composeArea.dataset.board=board;
+    }
+
+    function startNewMessage(toHandle) {
+        composeTo.innerHTML = '';
+        G.users.forEach(u => { if(u.handle!==G.player.handle) composeTo.innerHTML += `<option value="${u.handle}">${u.handle}</option>`; });
+        if(toHandle) composeTo.value = toHandle;
+        composeSubject.value=''; composeBody.value='';
+        composeArea.style.display='flex'; composeArea.dataset.mode='msg';
+    }
+
+    async function handleComposeSend() {
+        const mode = composeArea.dataset.mode || 'msg';
+        if(mode === 'post') {
+            const board = composeArea.dataset.board, subject = composeSubject.value.trim(), body = composeBody.value.trim();
+            if(!board||!subject||!body) return;
+            const newPost = {
+                id: Date.now(),
+                author: G.player.handle,
+                subject,
+                body,
+                timestamp: new Date().toISOString(),
+                replies: []
+            };
+            G.boards[board].push(newPost);
+            composeArea.style.display='none';
+            save();
+            if (mistralKey) {
+                await generateBoardNPCReply(newPost);
+            } else {
+                newPost.replies.push({ author: 'MODEM', body: 'No key set. NPCs offline.', timestamp: new Date().toISOString() });
+            }
+            save();
+            if(currentView==='boards' && selectedBoard===board) selectBoard(board);
+            else renderList();
+        } else {
+            const toHandle = composeTo.value;
+            if(!toHandle || !composeSubject.value.trim() || !composeBody.value.trim()) return;
+            const conv = getConversationWith(toHandle);
+            conv.messages.push({ from: G.player.handle, body: composeBody.value.trim(), timestamp: new Date().toISOString(), read: true });
+            composeArea.style.display='none';
+            save();
+            await generateImmediateReplyInThread(conv);
+            showView('mailbox');
+            selectConversation(toHandle);
+        }
+    }
+
+    function showUserProfile(handle) {
+        const user = G.users.find(u => u.handle===handle);
+        if(!user) { rightBody.innerHTML='<em>User not found.</em>'; return; }
+        ensureUserObject(user);
+        rightHeader.textContent = `Profile: ${user.handle}`;
+        rightBody.innerHTML = `<strong>Real Name:</strong> ${user.profile.realName||'?'}<br>
+            <strong>Age:</strong> ${user.profile.age||'?'}<br>
+            <strong>Gender:</strong> ${user.profile.gender||'?'}<br>
+            <strong>Looking for:</strong> ${user.profile.lookingFor||'?'}<br>
+            <strong>Interests:</strong> ${(user.profile.interests||[]).join(', ')||'None'}<br>
+            <strong>Public Message:</strong> "${user.profile.publicMessage||''}"`;
+        actionBar.innerHTML = '';
+        if(user.handle===G.player.handle) {
+            actionBar.innerHTML = '<button class="action-btn" id="editProfileBtn">✏️ Edit Profile</button>';
+            document.getElementById('editProfileBtn').addEventListener('click', showProfileEditor);
+        } else {
+            actionBar.innerHTML = '<button class="action-btn" id="msgUserBtn">✉ Send Message</button>';
+            document.getElementById('msgUserBtn').addEventListener('click', () => startNewMessage(user.handle));
+        }
+        composeArea.style.display='none';
+    }
+
+    function showProfileEditor() {
+        const p = G.player.profile;
+        rightBody.innerHTML = `<div style="display:flex; flex-direction:column; gap:8px;">
+            <label>Real Name: <input type="text" id="editRealName" value="${p.realName||''}"></label>
+            <label>Age: <input type="number" id="editAge" value="${p.age||0}" min="10" max="99"></label>
+            <label>Gender: <input type="text" id="editGender" value="${p.gender||''}"></label>
+            <label>Looking For: <input type="text" id="editLookingFor" value="${p.lookingFor||''}"></label>
+            <label>Interests: <input type="text" id="editInterests" value="${(p.interests||[]).join(', ')}"></label>
+            <label>Public Message: <input type="text" id="editPublicMessage" value="${p.publicMessage||''}"></label>
+            <div><button class="action-btn" id="saveProfileBtn">💾 Save</button><button class="action-btn" id="cancelEditBtn">❌ Cancel</button></div></div>`;
+        actionBar.innerHTML='';
+        document.getElementById('saveProfileBtn').addEventListener('click', () => {
+            G.player.profile.realName = document.getElementById('editRealName').value;
+            G.player.profile.age = parseInt(document.getElementById('editAge').value)||0;
+            G.player.profile.gender = document.getElementById('editGender').value;
+            G.player.profile.lookingFor = document.getElementById('editLookingFor').value;
+            G.player.profile.interests = document.getElementById('editInterests').value.split(',').map(s=>s.trim()).filter(s=>s);
+            G.player.profile.publicMessage = document.getElementById('editPublicMessage').value;
+            save(); showUserProfile(G.player.handle);
+        });
+        document.getElementById('cancelEditBtn').addEventListener('click', () => showUserProfile(G.player.handle));
+    }
+
+    async function doLogin() {
+        const handle = loginHandleInput.value.trim(), pass = loginPassInput.value.trim();
+        if(!handle||!pass) { loginError.textContent='Enter handle and password.'; return; }
+        if(!mistralKey) { loginError.textContent='Set Mistral API key above first.'; return; }
+        playModemHandshake();
+        let user = G.users.find(u => u.handle.toLowerCase()===handle.toLowerCase());
+        if(user) {
+            if(user.password !== pass) { loginError.textContent='Invalid password.'; return; }
+        } else {
+            user = { handle, password: pass, profile: { realName:'', age:0, gender:'', lookingFor:'', interests:[], publicMessage:'' }, personality:'new user' };
+            G.users.push(ensureUserObject(user));
+        }
+        G.player = user; G.lastLogin = new Date().toISOString(); G.sessions++;
+        loginOverlay.classList.add('hidden'); userStatus.textContent = `Logged in: ${user.handle}`;
+        save();
+        if(G.users.length===1 && !G.worldGenerated) await generateInitialWorld();
+        else await fetchBatchContent();
+        showView('mailbox');
+    }
+
+    navBtns.forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
+    loginBtn.addEventListener('click', doLogin);
+    loginPassInput.addEventListener('keypress', e => { if(e.key==='Enter') doLogin(); });
+    sendComposeBtn.addEventListener('click', handleComposeSend);
+    cancelComposeBtn.addEventListener('click', () => composeArea.style.display='none');
+    refreshBtn.addEventListener('click', () => { if(!G.player) return; fetchBatchContent(); });
+    saveKeyBtn.addEventListener('click', () => saveApiKey(apiKeyInput.value.trim()));
+    loginSaveKeyBtn.addEventListener('click', () => saveApiKey(loginApiKeyInput.value.trim()));
+
+    updateKeyIndicators();
+
+    const hasSave = load();
+    if(hasSave && G.player) {
+        loginOverlay.classList.add('hidden'); userStatus.textContent = `Logged in: ${G.player.handle}`;
+        showView('mailbox'); fetchBatchContent();
+    } else {
+        loginOverlay.classList.remove('hidden'); G.player = null; showView('mailbox');
+    }
+})();
+</script>
+</body>
+</html>
