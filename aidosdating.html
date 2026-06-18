@@ -158,14 +158,16 @@
         boards: { 'personals': [], 'interests': [], 'confessions': [] },
         lastLogin: null,
         sessions: 0,
-        worldGenerated: false
+        worldGenerated: false,
+        lore: [],
+        feuds: []
     };
 
-    // ---------- Data validation ----------
     function ensureUserObject(u) {
         if (!u.handle) u.handle = 'UNKNOWN';
         if (!u.password) u.password = 'pass';
         if (!u.personality) u.personality = 'a regular BBS user';
+        if (!u.traits) u.traits = [];
         if (!u.profile || typeof u.profile !== 'object') u.profile = {};
         const p = u.profile;
         if (!p.realName) p.realName = 'Unknown';
@@ -173,7 +175,7 @@
         if (!p.lookingFor) p.lookingFor = 'friendship';
         if (!p.interests || !Array.isArray(p.interests)) p.interests = ['chatting', 'vintage computing'];
         if (!p.publicMessage) p.publicMessage = 'Hello, world!';
-        if (!p.gender) p.gender = 'unspecified'; // new field for directory search
+        if (!p.gender) p.gender = 'unspecified';
         return u;
     }
 
@@ -181,7 +183,6 @@
         G.users.forEach(u => ensureUserObject(u));
     }
 
-    // ---------- Persistence ----------
     function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(G)); }
     function load() {
         const saved = localStorage.getItem(STORAGE_KEY);
@@ -189,6 +190,8 @@
             G = JSON.parse(saved);
             if (!G.boards) G.boards = { 'personals': [], 'interests': [], 'confessions': [] };
             if (!G.conversations) G.conversations = [];
+            if (!G.lore) G.lore = [];
+            if (!G.feuds) G.feuds = [];
             for (let board in G.boards) G.boards[board].forEach(p => { if (!p.replies) p.replies = []; });
             sanitizeAllUsers();
             return true;
@@ -244,15 +247,11 @@
         return conv.messages.some(m => m.from !== G.player.handle && !m.read);
     }
 
-    // ---------- JSON parser ----------
     function safeParseAIResponse(raw) {
         if (typeof raw !== 'string') return null;
         let cleaned = raw.replace(/```json|```/g, '').trim();
         const start = cleaned.indexOf('{'), end = cleaned.lastIndexOf('}');
-        if (start === -1 || end === -1) {
-            console.warn('No JSON object found:', raw.substring(0,200));
-            return null;
-        }
+        if (start === -1 || end === -1) return null;
         cleaned = cleaned.substring(start, end + 1);
         try {
             return JSON.parse(cleaned);
@@ -262,7 +261,6 @@
         }
     }
 
-    // ---------- AI call ----------
     async function callAI(systemPrompt, userMessage, options = {}) {
         if (!mistralKey) throw new Error('No API key set.');
         const resp = await fetch('https://api.mistral.ai/v1/chat/completions', {
@@ -285,20 +283,11 @@
         return data.choices[0].message.content;
     }
 
-    // ---------- Fallback content generators ----------
     function createFallbackMessage() {
         const npc = G.users.find(u => u.handle !== G.player.handle);
         if (!npc) return null;
-        const bodies = [
-            "Hey, noticed you around the BBS. Wanna chat?",
-            "I saw your profile – I think we'd get along. Message me back!",
-            "Bored and browsing. What's up?",
-            "New to this board but you seem cool."
-        ];
-        return {
-            from: npc.handle,
-            body: bodies[Math.floor(Math.random() * bodies.length)]
-        };
+        const bodies = ["Hey, noticed you around the BBS. Wanna chat?", "I saw your profile – I think we'd get along.", "Bored and browsing. What's up?", "New to this board but you seem cool."];
+        return { from: npc.handle, body: bodies[Math.floor(Math.random() * bodies.length)] };
     }
 
     function createFallbackPost() {
@@ -306,24 +295,15 @@
         if (!npc) return null;
         const board = ['personals','interests','confessions'][Math.floor(Math.random()*3)];
         const subjects = ["Looking for chat", "Anyone into vintage computing?", "Late night thoughts..."];
-        const bodies = ["Just seeing who's out there tonight.", "Drop me a line if you like similar music.", "Confession: I still use dial-up sounds for nostalgia."];
-        return {
-            board,
-            author: npc.handle,
-            subject: subjects[Math.floor(Math.random()*subjects.length)],
-            body: bodies[Math.floor(Math.random()*bodies.length)]
-        };
+        const bodies = ["Just seeing who's out there.", "Drop me a line if you like similar music.", "Confession: I still use dial-up sounds for nostalgia."];
+        return { board, author: npc.handle, subject: subjects[Math.floor(Math.random()*subjects.length)], body: bodies[Math.floor(Math.random()*bodies.length)] };
     }
 
-    // ---------- World generation ----------
     async function generateInitialWorld() {
         rightBody.innerHTML = '<span class="loading">Generating bustling BBS population…</span>';
         playModemHandshake();
-        const systemPrompt = `You are the world creator for HEARTLINE BBS, a 1985 dial-up dating BBS.
-Generate exactly 12 diverse NPC users (handles in ALL CAPS, max 12 chars, passwords simple, each with personality and profile containing realName, age, lookingFor, interests array, publicMessage, and gender (male/female/trans/gay)).
-Also generate at least 5 board posts: 2 for "personals", 2 for "interests", 1 for "confessions". Each post must have author, subject, body.
-Generate 3-4 initial private messages to the player from different NPCs.
-All string values single line, no newlines inside strings. Only output valid JSON.`;
+        const systemPrompt = `You are the world creator for HEARTLINE BBS, a 1985 dial-up dating BBS with a raw, unfiltered community full of trolling, drama, and inside jokes.
+Generate exactly 12 diverse NPC users (handles in ALL CAPS, max 12 chars, simple passwords). Give 2-3 of them the trait "troll" and make their personalities insulting, provocative, or absurd. Give 1-2 the trait "wannabe_mod" who love policing others. Create at least 2 feuds between specific users (provide reason). Invent 3 inside jokes/running gags (e.g., "modems that smell", "sysop is a cat"). Generate at least 5 board posts: 2 for personals (one must be a flirt-troll style mocking), 2 for interests, 1 for confessions (spicy exposed secret or call-out). Each post has author, subject, body. Generate 3-4 initial private messages to the player from different NPCs (some can be playfully snarky or weird). All strings single line, no newlines inside strings. Output valid JSON with fields: users (with traits array), newPosts, newMail, lore (array of strings), feuds (array of {user1, user2, reason}).`;
         try {
             const raw = await callAI(systemPrompt, 'Create the BBS world.', { maxTokens: 4000, jsonResponse: true });
             const parsed = safeParseAIResponse(raw);
@@ -344,7 +324,8 @@ All string values single line, no newlines inside strings. Only output valid JSO
             if (parsed.newMail) parsed.newMail.forEach(m => {
                 getConversationWith(m.from).messages.push({ from: m.from, body: m.body, timestamp: new Date().toISOString(), read: false });
             });
-            // Seed each initial post with one NPC reply
+            if (parsed.lore) G.lore.push(...parsed.lore);
+            if (parsed.feuds) G.feuds.push(...parsed.feuds);
             for (let board in G.boards) {
                 for (let post of G.boards[board]) {
                     if (post.replies.length === 0) {
@@ -368,21 +349,27 @@ All string values single line, no newlines inside strings. Only output valid JSO
         }
     }
 
-    // ---------- New Mail / Batch fetch (guaranteed content) ----------
     async function fetchBatchContent() {
         rightBody.innerHTML = '<span class="loading">Dialling in for new activity…</span>';
         playModemHandshake();
+        const player = G.player;
+        const playerRecent = G.conversations.flatMap(c => c.messages.filter(m => m.from === player.handle).slice(-3)).map(m => m.body).join(' | ');
         const context = {
-            playerHandle: G.player.handle,
-            sessions: G.sessions,
+            playerHandle: player.handle,
+            playerProfile: player.profile,
+            playerRecentActivity: playerRecent,
             existingUsers: G.users.map(u => u.handle),
             existingConversations: G.conversations.map(c => c.with),
-            npcs: G.users.filter(u => u.handle !== G.player.handle).map(u => ({ handle: u.handle, personality: u.personality }))
+            npcs: G.users.filter(u => u.handle !== player.handle).map(u => ({ handle: u.handle, personality: u.personality, traits: u.traits })),
+            lore: G.lore,
+            feuds: G.feuds
         };
-        const systemPrompt = `You are the activity generator for HEARTLINE BBS.
-Generate NEW private mail for the player and NEW public board posts. You may also introduce 1-2 NEW users.
-IMPORTANT: Every new user must be a complete object like: {"handle":"HANDLE","password":"simple","personality":"quirky, shy","profile":{"realName":"Name","age":16,"lookingFor":"friendship" or "sex" or "Relationships","interests":["bbs","music"],"publicMessage":"Hello!","gender":"male/female/trans/gay"}}.
-You MUST include at least 1 new message and at least 1 new post. All strings single line. Output ONLY valid JSON.`;
+        const systemPrompt = `You are the activity generator for HEARTLINE BBS, a chaotic 80s BBS where trolling, call-outs, and inside jokes are normal.
+Generate NEW private mail (some snarky/weird), NEW public board posts. You MAY introduce 1-2 NEW users (could be trolls or drama seekers). 
+Include AT LEAST ONE board post that directly calls out or mocks another user (the player or an NPC) – this can be on personals or confessions. Include a troll post full of bait. Include a fake mod-style post if a wannabe_mod exists. 
+Flirt-troll behavior: on personals, mix creepy/flirty with insults. 
+Return any new lore items (funny BBS events) and any new feuds. 
+All strings single line. Output ONLY valid JSON with fields: newUsers, newMail, newPosts, loreUpdates (array), feudUpdates (array).`;
         let addedMail = 0, addedPosts = 0, addedUsers = 0;
         try {
             const raw = await callAI(systemPrompt, JSON.stringify(context), { maxTokens: 3500, jsonResponse: true });
@@ -407,6 +394,8 @@ You MUST include at least 1 new message and at least 1 new post. All strings sin
                     });
                     addedPosts++;
                 });
+                if (parsed.loreUpdates) G.lore.push(...parsed.loreUpdates);
+                if (parsed.feudUpdates) G.feuds.push(...parsed.feudUpdates);
             }
         } catch(e) { console.warn('Batch fetch AI call failed, using fallback.', e); }
 
@@ -434,7 +423,6 @@ You MUST include at least 1 new message and at least 1 new post. All strings sin
         setTimeout(() => showView(currentView), 800);
     }
 
-    // ---------- UI Rendering ----------
     function showView(view) {
         currentView = view;
         navBtns.forEach(b => b.classList.remove('active'));
@@ -444,7 +432,6 @@ You MUST include at least 1 new message and at least 1 new post. All strings sin
         rightBody.innerHTML = ''; actionBar.innerHTML = ''; composeArea.style.display = 'none';
         listContainer.innerHTML = '';
         if (view === 'directory') {
-            // Directory search form
             listContainer.innerHTML = `
                 <div class="search-form" style="padding:8px;">
                     <label>Sex:
@@ -457,9 +444,9 @@ You MUST include at least 1 new message and at least 1 new post. All strings sin
                         </select>
                     </label>
                     <label>Age:
-                        <input type="number" id="dirMinAge" placeholder="Min" min="10" max="99">
+                        <input type="number" id="dirMinAge" placeholder="Min" min="10" max="99" value="">
                         -
-                        <input type="number" id="dirMaxAge" placeholder="Max" min="10" max="99">
+                        <input type="number" id="dirMaxAge" placeholder="Max" min="10" max="99" value="">
                     </label>
                     <label>Looking for:
                         <select id="dirLookingFor">
@@ -471,9 +458,10 @@ You MUST include at least 1 new message and at least 1 new post. All strings sin
                         </select>
                     </label>
                     <button class="action-btn" id="dirSearchBtn" style="width:100%; margin-top:6px;">Search</button>
+                    <div id="dirDebug" style="font-size:12px; color:#ff0; margin-top:4px;"></div>
                 </div>`;
             document.getElementById('dirSearchBtn').addEventListener('click', performDirectorySearch);
-            rightBody.innerHTML = '<em>Select criteria and click Search.</em>';
+            rightBody.innerHTML = '<em>Select criteria and click Search. Leave all fields blank to see everyone.</em>';
             return;
         }
         renderList();
@@ -517,66 +505,119 @@ You MUST include at least 1 new message and at least 1 new post. All strings sin
         }
     }
 
+    // ---------- FIXED DIRECTORY SEARCH (Pure Mistral, no local fallback) ----------
     async function performDirectorySearch() {
         if (!G.player) return;
-        const sex = document.getElementById('dirSex').value;
-        const minAge = parseInt(document.getElementById('dirMinAge').value) || 0;
-        const maxAge = parseInt(document.getElementById('dirMaxAge').value) || 999;
-        const lookingFor = document.getElementById('dirLookingFor').value;
+
+        const sex = (document.getElementById('dirSex')?.value || '').trim().toLowerCase();
+        const minAge = parseInt(document.getElementById('dirMinAge')?.value) || 0;
+        const maxAge = parseInt(document.getElementById('dirMaxAge')?.value) || 999;
+        const lookingFor = (document.getElementById('dirLookingFor')?.value || '').trim().toLowerCase();
+
         const candidates = G.users.filter(u => u.handle !== G.player.handle);
         if (candidates.length === 0) {
-            rightBody.innerHTML = '<em>No other users in directory.</em>';
+            rightBody.innerHTML = '<em>No other users in the directory.</em>';
             return;
         }
-        const userList = candidates.map(u => ({
+
+        if (!mistralKey) {
+            rightBody.innerHTML = '<span class="error-msg">🔑 No Mistral API key set. AI required.</span>';
+            return;
+        }
+
+        const debugEl = document.getElementById('dirDebug');
+        if (debugEl) debugEl.textContent = 'Calling Mistral AI...';
+        rightBody.innerHTML = '<span class="loading">Searching directory via Mistral AI…</span>';
+
+        // Prepare user data for the AI (only what it needs)
+        const userData = candidates.map(u => ({
             handle: u.handle,
-            profile: u.profile
+            gender: (u.profile.gender || '').toLowerCase(),
+            age: u.profile.age || 0,
+            lookingFor: (u.profile.lookingFor || '').toLowerCase(),
+            interests: (u.profile.interests || []).join(', '),
+            publicMessage: u.profile.publicMessage || ''
         }));
-        const prompt = {
-            sex: sex || 'any',
-            age: { min: minAge, max: maxAge },
-            lookingFor: lookingFor || 'any',
-            users: userList
-        };
-        const system = `You are the directory search assistant for HEARTLINE BBS. Given a list of users with their profiles, return a JSON array of handles that match the given criteria. For each match, include a short description (1-2 sentences) about why they match. Criteria: sex preference (male, female, trans, gay), age range, and what they're looking for. If sex is "any", skip gender check. If no users match, return an empty array. Only output valid JSON: {"matches":[{"handle":"...","description":"..."}]}`;
-        rightBody.innerHTML = '<span class="loading">Searching directory...</span>';
+
+        const system = `You are a precise directory assistant for HEARTLINE BBS. 
+You receive a list of user profiles and search criteria. 
+You MUST return a JSON object: {"matches":[{"handle":"...","description":"..."}]}
+RULES:
+- If criteria are broad (sex=any, age=0-999, lookingFor=any), return EVERY user with a short, fun description referencing their profile.
+- If criteria are specific, strictly filter but include everyone who matches.
+- IMPORTANT: NEVER return an empty array if there are users. If you think no one matches exactly, return the closest one or two and explain in the description that they are close but not perfect.
+- Each description should be 1-2 sentences.
+Respond ONLY with the JSON.`;
+
+        const userMessage = `SEARCH CRITERIA:
+- Sex: ${sex || 'any'} (if 'any', ignore gender)
+- Age: ${minAge} to ${maxAge} (inclusive)
+- Looking for: ${lookingFor || 'any'} (match if user's lookingFor contains this exact word/phrase, case-insensitive; 'any' means ignore)
+
+USER LIST (JSON):
+${JSON.stringify(userData, null, 2)}
+
+Now return the matches.`;
+
+        console.log('=== DIR AI REQUEST ===');
+        console.log('System:', system);
+        console.log('User:', userMessage);
+
         try {
-            if (mistralKey) {
-                const raw = await callAI(system, JSON.stringify(prompt), { maxTokens: 2000, jsonResponse: true });
-                const parsed = safeParseAIResponse(raw);
-                if (parsed && parsed.matches) {
-                    displayDirectoryResults(parsed.matches);
-                    return;
-                }
+            const raw = await callAI(system, userMessage, {
+                maxTokens: 2000,
+                jsonResponse: true,
+                temperature: 0.3
+            });
+
+            console.log('=== DIR AI RAW RESPONSE ===');
+            console.log(raw);
+            if (debugEl) debugEl.textContent = 'AI response received.';
+
+            const parsed = safeParseAIResponse(raw);
+            if (!parsed || !Array.isArray(parsed.matches)) {
+                throw new Error('AI did not return a valid matches array.');
             }
-            throw new Error('AI not available or returned invalid data');
-        } catch (e) {
-            // fallback to local filtering
-            let filtered = candidates;
-            if (lookingFor) filtered = filtered.filter(u => u.profile.lookingFor && u.profile.lookingFor.toLowerCase().includes(lookingFor.toLowerCase()));
-            if (minAge || maxAge < 999) filtered = filtered.filter(u => u.profile.age && u.profile.age >= minAge && u.profile.age <= maxAge);
-            // local sex filter (simple string match)
-            if (sex) filtered = filtered.filter(u => u.profile.gender && u.profile.gender.toLowerCase() === sex.toLowerCase());
-            const matches = filtered.map(u => ({ handle: u.handle, description: '' }));
-            displayDirectoryResults(matches, true);
+
+            // Clean matches (ensure handle exists)
+            const cleaned = parsed.matches.filter(m => m.handle).map(m => ({
+                handle: m.handle,
+                description: m.description || ''
+            }));
+
+            // If AI returned empty despite our instructions, we show an error (no local fallback)
+            if (cleaned.length === 0) {
+                rightBody.innerHTML = '<span class="error-msg">AI returned no matches, but there are users in the directory. Try again.</span>';
+                if (debugEl) debugEl.textContent = 'AI returned empty matches array.';
+                return;
+            }
+
+            displayDirectoryResults(cleaned);
+
+        } catch (err) {
+            console.error('Directory AI error:', err);
+            if (debugEl) debugEl.textContent = 'Error: ' + err.message;
+            rightBody.innerHTML = `<span class="error-msg">❌ Directory search failed: ${err.message}</span>`;
         }
     }
 
-    function displayDirectoryResults(matches, localFallback = false) {
-        rightHeader.textContent = 'Directory Results' + (localFallback ? ' (local)' : '');
-        if (matches.length === 0) {
+    function displayDirectoryResults(matches) {
+        rightHeader.textContent = 'Directory Results (AI)';
+        if (!matches || matches.length === 0) {
             rightBody.innerHTML = '<em>No matches found.</em>';
             return;
         }
+
         let html = '';
         matches.forEach(m => {
             html += `<div class="result-item list-item" data-handle="${m.handle}" style="display:flex; justify-content:space-between; align-items:center;">
-                <span>📇 ${m.handle}</span>
-                ${m.description ? `<span style="font-size:12px; color:#0a0;"> - ${m.description}</span>` : ''}
+                <span>📇 <strong>${m.handle}</strong></span>
+                ${m.description ? `<span style="font-size:12px; color:#0a0; margin-left:8px;"> – ${m.description}</span>` : ''}
                 <button class="action-btn msg-result-btn" data-handle="${m.handle}" style="padding:0 4px; font-size:11px;">✉ Msg</button>
             </div>`;
         });
         rightBody.innerHTML = html;
+
         document.querySelectorAll('.result-item').forEach(item => {
             item.addEventListener('click', function(e) {
                 if (e.target.classList.contains('msg-result-btn')) return;
@@ -628,7 +669,10 @@ You MUST include at least 1 new message and at least 1 new post. All strings sin
         const targetUser = G.users.find(u => u.handle.toLowerCase() === toHandle.toLowerCase());
         if (!targetUser) return;
         const history = conv.messages.slice(-6).map(m => `${m.from}: ${m.body}`).join('\n');
-        const sys = `You are ${targetUser.handle}. Personality: ${targetUser.personality}. Reply in character, 2-5 sentences. Only output the reply body.`;
+        const traits = targetUser.traits ? targetUser.traits.join(', ') : '';
+        const loreContext = G.lore.slice(-3).join('; ');
+        const feuds = G.feuds.filter(f => f.user1 === toHandle || f.user2 === toHandle).map(f => `${f.user1} vs ${f.user2}: ${f.reason}`).join('; ');
+        const sys = `You are ${targetUser.handle}. Personality: ${targetUser.personality}. Traits: ${traits}. You are chatting privately on a retro BBS. You can be snarky, weird, or flirt-troll if it fits. Current BBS lore: ${loreContext}. Feuds you're in: ${feuds}. Reply in character, 2-5 sentences. Only output the reply body.`;
         try {
             const reply = await callAI(sys, `Conversation:\n${history}\n\nRespond as ${targetUser.handle}.`, { maxTokens: 300 });
             if (reply && reply.trim()) {
@@ -690,11 +734,20 @@ You MUST include at least 1 new message and at least 1 new post. All strings sin
         if (!mistralKey) return;
         const npcs = G.users.filter(u => u.handle !== G.player.handle);
         if(!npcs.length) return;
-        const responder = npcs[Math.floor(Math.random()*npcs.length)];
-        const sys = `You are ${responder.handle}. Personality: ${responder.personality}. Reply to the board post in character, 1-3 sentences. Only output the reply body.`;
-        const msg = `Post by ${post.author}: ${post.subject}\n${post.body}\n\nRecent replies: ${post.replies.map(r=>`${r.author}: ${r.body}`).join('\n')}`;
+        const feudingNpcs = npcs.filter(u => G.feuds.some(f => (f.user1 === u.handle || f.user2 === u.handle) && (f.user1 === post.author || f.user2 === post.author)));
+        const trolls = npcs.filter(u => u.traits && u.traits.includes('troll'));
+        let responder = npcs[Math.floor(Math.random()*npcs.length)];
+        if (feudingNpcs.length && Math.random() < 0.7) responder = feudingNpcs[Math.floor(Math.random()*feudingNpcs.length)];
+        else if (trolls.length && Math.random() < 0.5) responder = trolls[Math.floor(Math.random()*trolls.length)];
+
+        const traits = responder.traits ? responder.traits.join(', ') : '';
+        const loreContext = G.lore.slice(-3).join('; ');
+        const feuds = G.feuds.filter(f => f.user1 === responder.handle || f.user2 === responder.handle).map(f => `${f.user1} vs ${f.user2}: ${f.reason}`).join('; ');
+        const derailChance = (traits.includes('troll') || Math.random() < 0.3) ? 'high' : 'low';
+        const sys = `You are ${responder.handle}. Personality: ${responder.personality}. Traits: ${traits}. You are replying to a board post on a chaotic BBS. Current BBS lore: ${loreContext}. Active feuds: ${feuds}. Derailment chance: ${derailChance}. If derailment is high, you must completely ignore the topic and mock someone, reference an inside joke, or start a flame war. If you're a troll, be insulting or post bait. Reply in character, 1-3 sentences. Only output the reply body.`;
+        const msg = `Board: ${selectedBoard}. Post by ${post.author}: ${post.subject}\n${post.body}\n\nRecent replies: ${post.replies.map(r=>`${r.author}: ${r.body}`).join('\n')}`;
         try {
-            const reply = await callAI(sys, msg, { maxTokens: 200 });
+            const reply = await callAI(sys, msg, { maxTokens: 250 });
             if (reply && reply.trim()) {
                 post.replies.push({ author: responder.handle, body: reply.trim(), timestamp: new Date().toISOString() });
             } else {
@@ -811,7 +864,7 @@ You MUST include at least 1 new message and at least 1 new post. All strings sin
         if(user) {
             if(user.password !== pass) { loginError.textContent='Invalid password.'; return; }
         } else {
-            user = { handle, password: pass, profile: { realName:'', age:0, gender:'', lookingFor:'', interests:[], publicMessage:'' }, personality:'new user' };
+            user = { handle, password: pass, profile: { realName:'', age:0, gender:'', lookingFor:'', interests:[], publicMessage:'' }, personality:'new user', traits: [] };
             G.users.push(ensureUserObject(user));
         }
         G.player = user; G.lastLogin = new Date().toISOString(); G.sessions++;
