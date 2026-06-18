@@ -75,7 +75,7 @@
 </head>
 <body>
 <div class="desktop" id="desktop">
-    <div class="title-bar"><span>💾 OLD SCHOOL 86</span><span>RIDGEWOOD v1.2</span></div>
+    <div class="title-bar"><span>💾 OLD SCHOOL 86</span><span>RIDGEWOOD v1.1</span></div>
     <div class="status-bar" id="statusBar">
         <span class="status-item"><span class="status-label">📅</span> <span class="status-val" id="sbDay">Monday, Oct 2 1985</span></span>
         <span class="status-item"><span class="status-label">🕐</span> <span class="status-val" id="sbTime">8:00 AM</span></span>
@@ -139,6 +139,7 @@
 
     let mistralKey = localStorage.getItem('oldschool86_key') || '';
     let currentApp = 'map';
+    let selectedNPC = null;
     let selectedBoard = null;
     let selectedConv = null;
     let selectedPostId = null;
@@ -152,32 +153,6 @@
         notes: [], events: [], lore: [], feuds: [],
         worldGenerated: false, sessions: 0
     };
-
-    // ─── NOTE SANITIZER ───
-    function sanitizeNoteBody(body) {
-        if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
-            const keys = Object.keys(body).filter(k => !isNaN(parseInt(k)));
-            if (keys.length > 0) {
-                const arr = keys.map(k => ({ idx: parseInt(k), val: body[k] }));
-                arr.sort((a,b) => a.idx - b.idx);
-                return arr.map(item => item.val).join('');
-            }
-            return JSON.stringify(body);
-        }
-        return body;
-    }
-
-    function sanitizeNote(note) {
-        if (note.body) note.body = sanitizeNoteBody(note.body);
-        if (note.content) note.content = sanitizeNoteBody(note.content);
-        return note;
-    }
-
-    function sanitizeAllNotes() {
-        if (G.notes && G.notes.length) {
-            G.notes = G.notes.map(sanitizeNote);
-        }
-    }
 
     function getClockStr() { const c=G.clock; const h=c.hour; const ampm=h>=12?'PM':'AM'; const h12=h%12||12; const m=c.minute.toString().padStart(2,'0'); return `${DAYS[c.dayIdx]}, ${MONTHS[c.monthIdx]} ${c.dayOfMonth} ${c.year} | ${h12}:${m} ${ampm}`; }
     function getTimeStr() { const c=G.clock; const h=c.hour; const ampm=h>=12?'PM':'AM'; const h12=h%12||12; const m=c.minute.toString().padStart(2,'0'); return `${h12}:${m} ${ampm}`; }
@@ -203,7 +178,7 @@
     }
 
     function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(G)); }
-    function load() { const s=localStorage.getItem(STORAGE_KEY); if(s){ try{ G=JSON.parse(s); if(!G.boards) G.boards={general:[],personals:[],classifieds:[],confessions:[],events:[]}; if(!G.notes) G.notes=[]; if(!G.events) G.events=[]; if(!G.lore) G.lore=[]; if(!G.feuds) G.feuds=[]; if(!G.townies) G.townies=[]; if(!G.teachers) G.teachers=[]; sanitizeAllNotes(); return true; }catch(e){ return false; } } return false; }
+    function load() { const s=localStorage.getItem(STORAGE_KEY); if(s){ try{ G=JSON.parse(s); if(!G.boards) G.boards={general:[],personals:[],classifieds:[],confessions:[],events:[]}; if(!G.notes) G.notes=[]; if(!G.events) G.events=[]; if(!G.lore) G.lore=[]; if(!G.feuds) G.feuds=[]; if(!G.townies) G.townies=[]; if(!G.teachers) G.teachers=[]; return true; }catch(e){ return false; } } return false; }
 
     function ensurePlayer() {
         if(!G.player) return;
@@ -249,16 +224,17 @@
     function getNPCByHandle(h) { return [...G.students,...G.townies,...G.teachers].find(n=>n.handle.toLowerCase()===h.toLowerCase()); }
     function getConvWith(h) { let c=G.conversations.find(c=>c.with.toLowerCase()===h.toLowerCase()); if(!c){ c={with:h,messages:[]}; G.conversations.push(c); } return c; }
     function convHasUnread(c) { return c.messages.some(m=>m.from!==G.player?.handle && !m.read); }
-    function getRecentNotesForNPC(npcHandle) { return G.notes.filter(n => n.from === G.player?.handle && n.to === npcHandle).slice(-3); }
 
-    // ─── APP SWITCHING ───
+    // ─── APP SWITCHING (preserves selections when appropriate) ───
     function switchApp(app) {
         if (app === currentApp) {
+            // same app: just re-render without resetting selections
             renderApp(app);
             updateBottomBar(app);
             return;
         }
         currentApp = app;
+        selectedNPC = null;
         selectedBoard = null;
         selectedConv = null;
         selectedPostId = null;
@@ -345,7 +321,7 @@
     async function describeArrival(loc) {
         if(!mistralKey){ contentBody.innerHTML=`<em>You arrive at ${loc}. ${getNPCsAtLocation(loc).length} people here.</em>`; return; }
         const npcsHere = getNPCsAtLocation(loc);
-        const sys = `You are the narrator for OLD SCHOOL 86. Describe arrival at ${loc}. NPCs present: ${npcsHere.map(n=>n.handle+' ('+n.personality+')').join(', ')||'no one'}. Time: ${getTimeStr()}. 3-5 sentences, 80s atmosphere. Only output description.`;
+        const sys = `You are the narrator for OLD SCHOOL 86. Describe the player's arrival at ${loc}. NPCs present: ${npcsHere.map(n=>n.handle+' ('+n.personality+')').join(', ')||'no one'}. Time: ${getTimeStr()}. Write 3-5 sentences, 80s atmosphere. Only output description.`;
         try{
             const desc = await callAI(sys, 'Arrival at '+loc, {maxTokens:400,temperature:0.8});
             contentBody.innerHTML = desc || `You arrive at ${loc}.`;
@@ -378,16 +354,17 @@
         const npcs = getNPCsAtLocation(G.player.location);
         if(!npcs.length){ contentBody.innerHTML='<em>No one here to talk to.</em>'; return; }
         let html = '<div><strong>Talk to:</strong>';
-        npcs.forEach(n=>{ html += `<button class="action-btn" style="display:block;width:100%;text-align:left;margin:2px 0;" onclick="startConversation('${n.handle}')">💬 ${n.handle} (${n.personality||'?'})</button>`; });
+        npcs.forEach(n=>{ html += `<button class="action-btn" style="display:block;width:100%;text-align:left;margin:2px 0;" onclick="window._talkTo('${n.handle}')">💬 ${n.handle} (${n.personality||'?'})</button>`; });
         html += '<button class="action-btn" onclick="switchApp(\'map\')">Cancel</button></div>';
         contentBody.innerHTML = html;
+        window._talkTo = (h)=>{ startConversation(h); };
     }
 
     function showFreeActionDialog() {
         contentBody.innerHTML = `
         <div style="display:flex;flex-direction:column;gap:8px;">
             <strong>🎬 Free Action — What do you want to do?</strong>
-            <em style="color:#888;">Examples: "flirt with Jamie", "buy cigarettes", "start a rumour about Kyle", "trade mixtape with Alex"</em>
+            <em style="color:#888;">Examples: "flirt with Jamie", "buy cigarettes", "start a rumour about Kyle", "ask Sarah on a date", "trade mixtape with Alex"</em>
             <textarea id="freeActionInput" style="height:60px;" placeholder="Describe your action..."></textarea>
             <div style="display:flex;gap:6px;">
                 <button class="action-btn primary" id="doFreeActionBtn">▶ Do It</button>
@@ -405,7 +382,7 @@
         const resDiv = document.getElementById('freeActionResult');
         if(resDiv) resDiv.innerHTML = '<span class="loading">Processing…</span>';
         advanceTime(10+Math.floor(Math.random()*20));
-        if(!mistralKey){ if(resDiv) resDiv.innerHTML='<em>You '+action+'. (No API key — action recorded.)</em>'; save(); return; }
+        if(!mistralKey){ if(resDiv) resDiv.innerHTML='<em>You '+action+'. (No AI key — action recorded.)</em>'; save(); return; }
         const loc = G.player.location;
         const npcsHere = getNPCsAtLocation(loc);
         const sys = `You are the game engine for OLD SCHOOL 86. Process the player's free action. Return JSON: {"narrative":"...", "repChanges":{"overall":0,...}, "friendshipChanges":{"HANDLE":+1}, "newItems":[], "newNotes":[], "energyChange":-1, "triggeredEvent":null}. 80s realistic.`;
@@ -417,7 +394,7 @@
                 if(parsed.repChanges) for(let k in parsed.repChanges) if(G.player.reputation[k]!==undefined) G.player.reputation[k]=Math.max(0,Math.min(10,(G.player.reputation[k]||5)+(parsed.repChanges[k]||0)));
                 if(parsed.friendshipChanges) for(let h in parsed.friendshipChanges){ const npc=getNPCByHandle(h); if(npc) npc.friendshipLevel=(npc.friendshipLevel||0)+parsed.friendshipChanges[h]; }
                 if(parsed.newItems) parsed.newItems.forEach(it=>G.player.inventory.push(it));
-                if(parsed.newNotes) parsed.newNotes.forEach(n=>G.notes.push(sanitizeNote({...n,timestamp:getClockStr()})));
+                if(parsed.newNotes) parsed.newNotes.forEach(n=>G.notes.push({...n,timestamp:getClockStr()}));
                 if(parsed.energyChange) G.player.energy=Math.max(0,Math.min(10,G.player.energy+parsed.energyChange));
                 if(parsed.triggeredEvent) G.events.push({description:parsed.triggeredEvent,timestamp:getClockStr()});
             }
@@ -461,7 +438,7 @@
             if(parsed){
                 if(parsed.events) parsed.events.forEach(e=>G.events.push({...e,timestamp:getClockStr()}));
                 if(parsed.newBBSPosts) parsed.newBBSPosts.forEach(p=>{ if(!G.boards[p.board]) G.boards[p.board]=[]; G.boards[p.board].push({id:Date.now()+Math.random(),author:p.author,subject:p.subject,body:p.body,timestamp:getClockStr(),replies:[]}); });
-                if(parsed.newNotes) parsed.newNotes.forEach(n=>G.notes.push(sanitizeNote({...n,timestamp:getClockStr()})));
+                if(parsed.newNotes) parsed.newNotes.forEach(n=>G.notes.push({...n,timestamp:getClockStr()}));
             }
         }catch(e){}
         save();
@@ -516,7 +493,7 @@
         conv.messages.push({from:G.player.handle,body:input.value.trim(),timestamp:getClockStr(),read:true});
         input.value=''; save();
         await generateNPCReply(conv);
-        switchApp('bbs');
+        switchApp('bbs'); // re-render same app (preserves selection)
     }
 
     async function sendPostReply() {
@@ -535,13 +512,8 @@
         if(!mistralKey) return;
         const npc=getNPCByHandle(conv.with); if(!npc) return;
         const hist=conv.messages.slice(-6).map(m=>m.from+': '+m.body).join('\n');
-        const recentNotes = getRecentNotesForNPC(conv.with);
-        let notesContext = '';
-        if (recentNotes.length > 0) {
-            notesContext = 'The player recently passed you these notes:\n' + recentNotes.map(n => `- "${sanitizeNoteBody(n.body)}"`).join('\n') + '\n';
-        }
-        const sys = `You are ${npc.handle}. Personality: ${npc.personality||'teen'}. Traits: ${(npc.traits||[]).join(', ')}. ${notesContext}Reply in character, 2-4 sentences. You can reference the notes if asked. Only output the reply body.`;
-        try{ const r=await callAI(sys,'Conversation:\n'+hist,{maxTokens:350}); if(r&&r.trim()) conv.messages.push({from:conv.with,body:r.trim(),timestamp:getClockStr(),read:false}); }catch(e){}
+        const sys=`You are ${npc.handle}. Personality: ${npc.personality||'teen'}. Reply in character. 2-4 sentences. Only output body.`;
+        try{ const r=await callAI(sys,'Conversation:\n'+hist,{maxTokens:300}); if(r&&r.trim()) conv.messages.push({from:conv.with,body:r.trim(),timestamp:getClockStr(),read:false}); }catch(e){}
         save();
     }
 
@@ -597,6 +569,7 @@
         if(conv.messages.length===0){
             conv.messages.push({from:'SYSTEM',body:`You connected with ${h}. The line crackles with 80s static.`,timestamp:getClockStr(),read:true});
         }
+        // switch to BBS without resetting selections
         currentApp = 'bbs';
         appBtns.forEach(b=>b.classList.remove('active'));
         const btn = document.querySelector('.app-btn[data-app="bbs"]');
@@ -610,13 +583,7 @@
     function renderJournal() {
         let html='<strong>📝 Your Journal</strong><br><em style="color:#888;">Private entries and notes.</em><br><br>';
         if(!G.notes.length) html+='<em>No notes yet.</em>';
-        else G.notes.forEach((n,i)=>{
-            let displayBody = n.body || n.content || '';
-            if (typeof displayBody === 'object' && displayBody !== null) {
-                displayBody = sanitizeNoteBody(displayBody);
-            }
-            html+=`<div class="npc-card"><span style="color:#888;">📝 ${n.timestamp||'?'}</span> ${n.from?('<strong>From: '+n.from+'</strong><br>'):''}${displayBody}</div>`;
-        });
+        else G.notes.forEach((n,i)=>{ html+=`<div class="npc-card"><span style="color:#888;">📝 ${n.timestamp||'?'}</span> ${n.from?('<strong>From: '+n.from+'</strong><br>'):''}${n.body||n.content||JSON.stringify(n)}</div>`; });
         contentBody.innerHTML=html;
     }
 
@@ -649,8 +616,9 @@
             const body=document.getElementById('noteBody').value.trim();
             if(!to||!body) return;
             G.notes.push({from:G.player.handle,to,body,timestamp:getClockStr(),type:'passed_note'});
-            save();
+            // also add a copy to recipient's pending notes? For simplicity, we add a confirmation.
             contentBody.innerHTML = '<span class="success-msg">✅ Note passed to '+to+'. They might respond later.</span>';
+            save();
             setTimeout(()=>switchApp('journal'),1200);
         });
     }
@@ -786,7 +754,7 @@
         contentBody.innerHTML=html;
     }
 
-    // ─── WORLD GENERATION (WITH FALLBACK) ───
+    // ─── WORLD GENERATION ───
     async function generateInitialWorld() {
         contentBody.innerHTML='<span class="loading">Generating Ridgewood…</span>';
         if(!mistralKey){ contentBody.innerHTML='<span class="error-msg">🔑 Mistral API key required.</span>'; return; }
@@ -803,33 +771,10 @@
             if(parsed.lore) G.lore=parsed.lore;
             if(parsed.feuds) G.feuds=parsed.feuds;
             if(parsed.events) parsed.events.forEach(e=>G.events.push({...e,timestamp:getClockStr()}));
-        }catch(e){ console.warn('AI generation failed, using fallback'); }
-
-        // ★ FALLBACK: If any array is empty, add a few generic NPCs
-        if (!G.students.length && !G.townies.length && !G.teachers.length) {
-            G.students.push(
-                { handle:'Jamie', password:'pass', archetype:'Punk', personality:'rebellious artist', traits:['rebellious','sarcastic'], socialStanding:4, crush:null, feud:null, secret:'runs an underground zine', inventory:[], friendshipLevel:0, location:'The Mall', relationshipStatus:'single' },
-                { handle:'Kyle', password:'pass', archetype:'Jock', personality:'cocky quarterback', traits:['competitive','loud'], socialStanding:8, crush:'Sarah', feud:'Jamie', secret:'cheated on algebra test', inventory:[], friendshipLevel:0, location:'Ridgewood High School', relationshipStatus:'single' },
-                { handle:'Sarah', password:'pass', archetype:'Popular', personality:'friendly but sharp', traits:['popular','gossip'], socialStanding:7, crush:null, feud:null, secret:'parents are getting divorced', inventory:[], friendshipLevel:0, location:'The Park', relationshipStatus:'single' }
-            );
-            G.townies.push(
-                { handle:'Max', role:'Arcade Owner', personality:'chill and nostalgic', traits:['friendly','gamer'], location:'The Arcade', friendshipLevel:0, relationshipStatus:'single', secret:'was a pro gamer in 1982' }
-            );
-            G.teachers.push(
-                { handle:'Mr. Henderson', role:'English Teacher', personality:'inspiring and sarcastic', traits:['witty','strict'], location:'Ridgewood High School', friendshipLevel:0, relationshipStatus:'married', secret:'writes poetry under a pseudonym' }
-            );
-            // Add a few BBS posts and mail so the world feels alive
-            G.boards.general.push({id:Date.now(),author:'Jamie',subject:'Anyone going to the lake tonight?',body:'Meet at 9. No cops.',timestamp:getClockStr(),replies:[]});
-            G.boards.personals.push({id:Date.now()+1,author:'Kyle',subject:'Looking for a date to the game',body:'Must like football. Or at least pretend.',timestamp:getClockStr(),replies:[]});
-            getConvWith('Jamie').messages.push({from:'Jamie',body:'Hey, heard you were new. Welcome to Ridgewood.',timestamp:getClockStr(),read:false});
-            G.lore.push('The arcade has a secret high-score board that nobody talks about.');
-            G.feuds.push({user1:'Kyle',user2:'Jamie',reason:'Kyle called Jamie a poser at the mall.'});
-        }
-
-        G.worldGenerated = true;
-        save();
-        contentBody.innerHTML='<span class="success-msg">✅ Ridgewood is alive! '+G.students.length+' students, '+G.townies.length+' townies, '+G.teachers.length+' teachers.</span>';
-        setTimeout(()=>switchApp('map'),1500);
+            G.worldGenerated=true; save();
+            contentBody.innerHTML='<span class="success-msg">✅ Ridgewood is alive! '+G.students.length+' students, '+G.townies.length+' townies, '+G.teachers.length+' teachers.</span>';
+            setTimeout(()=>switchApp('map'),1500);
+        }catch(e){ contentBody.innerHTML='<span class="error-msg">❌ Generation failed: '+e.message+'</span><br><button class="action-btn" onclick="generateInitialWorld()">Retry</button>'; }
     }
 
     // ─── LOGIN ───
@@ -852,36 +797,23 @@
     }
 
     // ─── EVENT BINDINGS ───
-    appBtns.forEach(b => b.addEventListener('click', () => switchApp(b.dataset.app)));
-    document.getElementById('loginBtn').addEventListener('click', doLogin);
-    document.getElementById('loginPassInput').addEventListener('keypress', e => {
-        if (e.key === 'Enter') doLogin();
-    });
-    document.getElementById('loginSaveKeyBtn').addEventListener('click', () => {
-        const keyInput = document.getElementById('loginKeyInput');
-        if (keyInput) saveApiKey(keyInput.value.trim());
-    });
+    appBtns.forEach(b=>b.addEventListener('click',()=>switchApp(b.dataset.app)));
+    document.getElementById('loginBtn').addEventListener('click',doLogin);
+    document.getElementById('loginPassInput').addEventListener('keypress',e=>{ if(e.key==='Enter') doLogin(); });
+    document.getElementById('loginSaveKeyBtn').addEventListener('click',()=>saveApiKey(document.getElementById('loginKeyInput').value.trim()));
 
     updateKeyDot();
-
-    (async () => {
-        const hasSave = load();
-        if (hasSave && G.player) {
-            loginOverlay.classList.add('hidden');
-            ensurePlayer();
-            updateStatusBar();
-            if (G.worldGenerated && G.students.length === 0 && G.townies.length === 0 && G.teachers.length === 0) {
-                G.worldGenerated = false;
-            }
-            if (!G.worldGenerated && mistralKey) {
-                await generateInitialWorld();
-            }
-            switchApp('map');
-        } else {
-            loginOverlay.classList.remove('hidden');
-            G.player = null;
-        }
-    })();
+    const hasSave=load();
+    if(hasSave && G.player){
+        loginOverlay.classList.add('hidden');
+        ensurePlayer();
+        updateStatusBar();
+        switchApp('map');
+        if(!G.worldGenerated && mistralKey) generateInitialWorld();
+    }else{
+        loginOverlay.classList.remove('hidden');
+        G.player=null;
+    }
 })();
 </script>
 </body>
