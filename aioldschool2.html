@@ -75,7 +75,7 @@
 </head>
 <body>
 <div class="desktop" id="desktop">
-    <div class="title-bar"><span>💾 OLD SCHOOL 86</span><span>RIDGEWOOD v1.1</span></div>
+    <div class="title-bar"><span>💾 OLD SCHOOL 86</span><span>RIDGEWOOD v1.2</span></div>
     <div class="status-bar" id="statusBar">
         <span class="status-item"><span class="status-label">📅</span> <span class="status-val" id="sbDay">Monday, Oct 2 1985</span></span>
         <span class="status-item"><span class="status-label">🕐</span> <span class="status-val" id="sbTime">8:00 AM</span></span>
@@ -139,7 +139,6 @@
 
     let mistralKey = localStorage.getItem('oldschool86_key') || '';
     let currentApp = 'map';
-    let selectedNPC = null;
     let selectedBoard = null;
     let selectedConv = null;
     let selectedPostId = null;
@@ -225,16 +224,19 @@
     function getConvWith(h) { let c=G.conversations.find(c=>c.with.toLowerCase()===h.toLowerCase()); if(!c){ c={with:h,messages:[]}; G.conversations.push(c); } return c; }
     function convHasUnread(c) { return c.messages.some(m=>m.from!==G.player?.handle && !m.read); }
 
-    // ─── APP SWITCHING (preserves selections when appropriate) ───
+    // ─── GET NOTES FOR AN NPC (from player) ───
+    function getRecentNotesForNPC(npcHandle) {
+        return G.notes.filter(n => n.from === G.player?.handle && n.to === npcHandle).slice(-3);
+    }
+
+    // ─── APP SWITCHING (preserves selections) ───
     function switchApp(app) {
         if (app === currentApp) {
-            // same app: just re-render without resetting selections
             renderApp(app);
             updateBottomBar(app);
             return;
         }
         currentApp = app;
-        selectedNPC = null;
         selectedBoard = null;
         selectedConv = null;
         selectedPostId = null;
@@ -321,7 +323,7 @@
     async function describeArrival(loc) {
         if(!mistralKey){ contentBody.innerHTML=`<em>You arrive at ${loc}. ${getNPCsAtLocation(loc).length} people here.</em>`; return; }
         const npcsHere = getNPCsAtLocation(loc);
-        const sys = `You are the narrator for OLD SCHOOL 86. Describe the player's arrival at ${loc}. NPCs present: ${npcsHere.map(n=>n.handle+' ('+n.personality+')').join(', ')||'no one'}. Time: ${getTimeStr()}. Write 3-5 sentences, 80s atmosphere. Only output description.`;
+        const sys = `You are the narrator for OLD SCHOOL 86. Describe arrival at ${loc}. NPCs present: ${npcsHere.map(n=>n.handle+' ('+n.personality+')').join(', ')||'no one'}. Time: ${getTimeStr()}. 3-5 sentences, 80s atmosphere. Only output description.`;
         try{
             const desc = await callAI(sys, 'Arrival at '+loc, {maxTokens:400,temperature:0.8});
             contentBody.innerHTML = desc || `You arrive at ${loc}.`;
@@ -354,17 +356,16 @@
         const npcs = getNPCsAtLocation(G.player.location);
         if(!npcs.length){ contentBody.innerHTML='<em>No one here to talk to.</em>'; return; }
         let html = '<div><strong>Talk to:</strong>';
-        npcs.forEach(n=>{ html += `<button class="action-btn" style="display:block;width:100%;text-align:left;margin:2px 0;" onclick="window._talkTo('${n.handle}')">💬 ${n.handle} (${n.personality||'?'})</button>`; });
+        npcs.forEach(n=>{ html += `<button class="action-btn" style="display:block;width:100%;text-align:left;margin:2px 0;" onclick="startConversation('${n.handle}')">💬 ${n.handle} (${n.personality||'?'})</button>`; });
         html += '<button class="action-btn" onclick="switchApp(\'map\')">Cancel</button></div>';
         contentBody.innerHTML = html;
-        window._talkTo = (h)=>{ startConversation(h); };
     }
 
     function showFreeActionDialog() {
         contentBody.innerHTML = `
         <div style="display:flex;flex-direction:column;gap:8px;">
             <strong>🎬 Free Action — What do you want to do?</strong>
-            <em style="color:#888;">Examples: "flirt with Jamie", "buy cigarettes", "start a rumour about Kyle", "ask Sarah on a date", "trade mixtape with Alex"</em>
+            <em style="color:#888;">Examples: "flirt with Jamie", "buy cigarettes", "start a rumour about Kyle", "trade mixtape with Alex"</em>
             <textarea id="freeActionInput" style="height:60px;" placeholder="Describe your action..."></textarea>
             <div style="display:flex;gap:6px;">
                 <button class="action-btn primary" id="doFreeActionBtn">▶ Do It</button>
@@ -493,7 +494,7 @@
         conv.messages.push({from:G.player.handle,body:input.value.trim(),timestamp:getClockStr(),read:true});
         input.value=''; save();
         await generateNPCReply(conv);
-        switchApp('bbs'); // re-render same app (preserves selection)
+        switchApp('bbs');
     }
 
     async function sendPostReply() {
@@ -508,12 +509,18 @@
         switchApp('bbs');
     }
 
+    // ─── GENERATE NPC REPLY (WITH NOTE MEMORY) ───
     async function generateNPCReply(conv) {
         if(!mistralKey) return;
         const npc=getNPCByHandle(conv.with); if(!npc) return;
         const hist=conv.messages.slice(-6).map(m=>m.from+': '+m.body).join('\n');
-        const sys=`You are ${npc.handle}. Personality: ${npc.personality||'teen'}. Reply in character. 2-4 sentences. Only output body.`;
-        try{ const r=await callAI(sys,'Conversation:\n'+hist,{maxTokens:300}); if(r&&r.trim()) conv.messages.push({from:conv.with,body:r.trim(),timestamp:getClockStr(),read:false}); }catch(e){}
+        const recentNotes = getRecentNotesForNPC(conv.with);
+        let notesContext = '';
+        if (recentNotes.length > 0) {
+            notesContext = 'The player recently passed you these notes:\n' + recentNotes.map(n => `- "${n.body}"`).join('\n') + '\n';
+        }
+        const sys = `You are ${npc.handle}. Personality: ${npc.personality||'teen'}. Traits: ${(npc.traits||[]).join(', ')}. ${notesContext}Reply in character, 2-4 sentences. You can reference the notes if asked. Only output the reply body.`;
+        try{ const r=await callAI(sys,'Conversation:\n'+hist,{maxTokens:350}); if(r&&r.trim()) conv.messages.push({from:conv.with,body:r.trim(),timestamp:getClockStr(),read:false}); }catch(e){}
         save();
     }
 
@@ -569,7 +576,6 @@
         if(conv.messages.length===0){
             conv.messages.push({from:'SYSTEM',body:`You connected with ${h}. The line crackles with 80s static.`,timestamp:getClockStr(),read:true});
         }
-        // switch to BBS without resetting selections
         currentApp = 'bbs';
         appBtns.forEach(b=>b.classList.remove('active'));
         const btn = document.querySelector('.app-btn[data-app="bbs"]');
@@ -616,9 +622,8 @@
             const body=document.getElementById('noteBody').value.trim();
             if(!to||!body) return;
             G.notes.push({from:G.player.handle,to,body,timestamp:getClockStr(),type:'passed_note'});
-            // also add a copy to recipient's pending notes? For simplicity, we add a confirmation.
-            contentBody.innerHTML = '<span class="success-msg">✅ Note passed to '+to+'. They might respond later.</span>';
             save();
+            contentBody.innerHTML = '<span class="success-msg">✅ Note passed to '+to+'. They might respond later.</span>';
             setTimeout(()=>switchApp('journal'),1200);
         });
     }
