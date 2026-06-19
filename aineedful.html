@@ -249,6 +249,9 @@ let customerOrders = JSON.parse(localStorage.getItem('rr_orders') || '[]');
 let townMood = localStorage.getItem('rr_townMood') || 'uneasy quiet';
 let activeTests = JSON.parse(localStorage.getItem('rr_activeTests') || '[]');
 
+// ═══ ANTI-REPETITION: recently offered items ═══
+let recentOfferedItems = JSON.parse(localStorage.getItem('rr_recentOfferedItems') || '[]');
+
 function saveAll() {
   localStorage.setItem('rr_cash', cash);
   localStorage.setItem('rr_inventory', JSON.stringify(inventory));
@@ -259,6 +262,7 @@ function saveAll() {
   localStorage.setItem('rr_orders', JSON.stringify(customerOrders));
   localStorage.setItem('rr_townMood', townMood);
   localStorage.setItem('rr_activeTests', JSON.stringify(activeTests));
+  localStorage.setItem('rr_recentOfferedItems', JSON.stringify(recentOfferedItems));
 }
 
 function loadState(state) {
@@ -272,13 +276,14 @@ function loadState(state) {
   customerOrders = state.customerOrders;
   townMood = state.townMood;
   activeTests = state.activeTests;
+  recentOfferedItems = state.recentOfferedItems || [];
   saveAll();
 }
 
 function getCurrentState() {
   return {
     cash, inventory, currentSign, npcMemory, activeFavour,
-    wantedList, customerOrders, townMood, activeTests
+    wantedList, customerOrders, townMood, activeTests, recentOfferedItems
   };
 }
 
@@ -429,7 +434,7 @@ async function callMistralJSON(systemPrompt, userMessage) {
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage }
         ],
-        temperature: 1.3,
+        temperature: 1.3,   // increased for variety
         response_format: { type: 'json_object' }
       })
     });
@@ -453,7 +458,7 @@ async function callMistralText(systemPrompt, userMessage) {
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage }
         ],
-        temperature: 0.9
+        temperature: 1.3   // increased for variety
       })
     });
     if (!res.ok) return null;
@@ -480,7 +485,9 @@ function clearNPC() {
   wrapper.classList.remove('chat-mode');
 }
 
-// ── All game commands ────────────────────────
+// ═══════════════════════════════════════════════
+//  CORE: cmdCustomer (with anti-repetition)
+// ═══════════════════════════════════════════════
 async function cmdCustomer() {
   if (currentNPC) { printInstant('A customer is already here.'); return; }
 
@@ -490,6 +497,7 @@ async function cmdCustomer() {
     returning = activeTests[0];
   }
 
+  // ─── BRANCH 1: RETURNING NPC ──────────────────
   if (returning) {
     const idx = activeTests.indexOf(returning);
     activeTests.splice(idx, 1);
@@ -539,10 +547,22 @@ Include any other fields like favour, order as usual. Only JSON.`;
     return;
   }
 
+  // ─── BRANCH 2: BRAND-NEW VISITOR ──────────────
   await print('The bell above the door chimes...');
+
+  // Create chaotic seed and forbidden lists
+  const chaosSeed = Math.floor(Math.random() * 10000);
+  const recentNames = Object.keys(npcMemory).slice(-10).join(', ');
+  const forbiddenItems = recentOfferedItems.slice(-10).join(', ');
+
   const invNames = inventory.map(i => i.name).join(', ') || 'nothing at all';
   const townSummary = `Town mood: ${townMood}. Recent dark deeds: ${activeTests.map(t => `${t.npcName} ${t.action}`).join('; ') || 'none'}.`;
-  const prompt = `A new visitor enters RELICS & REGRET. Shop sign reads: "${currentSign}". Inventory: [${invNames}]. ${townSummary}
+
+  const prompt = `SEED: ${chaosSeed}.
+DO NOT reuse any of these NPC names: ${recentNames || 'none'}.
+DO NOT reuse any of these recently offered items: ${forbiddenItems || 'none'}.
+You MUST invent a completely unique item that has never appeared before.
+A new visitor enters RELICS & REGRET. Shop sign reads: "${currentSign}". Inventory: [${invNames}]. ${townSummary}
 Generate JSON with:
 - "visitor": { "name", "description", "dialogue" }
 - "offeredItem": { "name", "year", "description", "value" (5-200) }
@@ -551,11 +571,20 @@ Generate JSON with:
 - "order": (optional) {"item":"description","price":number}
 - "alternativeOfferedItem": (optional) same structure as offeredItem.
 Output only the JSON.`;
+
   const data = await callMistralJSON(SYSTEM_SHOP, prompt);
   if (!data || !data.visitor || !data.offeredItem) {
     printInstant('...but the door swung open to empty air.');
     return;
   }
+
+  // Store the offered item in the forbidden list for future calls
+  if (data.offeredItem && data.offeredItem.name) {
+    recentOfferedItems.push(data.offeredItem.name);
+    if (recentOfferedItems.length > 15) recentOfferedItems.shift();
+    saveAll();
+  }
+
   const name = data.visitor.name;
   if (npcMemory[name]) {
     const history = npcMemory[name].slice(-3).join('; ');
@@ -590,6 +619,7 @@ Output only the JSON.`;
   wrapper.classList.add('chat-mode');
 }
 
+// ── All other commands (unchanged) ────────────
 function cmdBuy() {
   if (!currentNPC) { printInstant('No one is here.'); return; }
   const price = currentNPC.offeredItem.value;
@@ -708,7 +738,7 @@ async function cmdChat(message) {
       body: JSON.stringify({
         model: MODEL,
         messages: chatMessages,
-        temperature: 0.9,
+        temperature: 1.3,
         response_format: { type: 'json_object' }
       })
     });
