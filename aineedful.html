@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <title>RELICS & REGRET (1986)</title>
+  <style>
+    * {
+      margin: 0; padding: 0; box-sizing: border-box;
+    }
+    body {
+      background: #0a0a0a; color: #33ff33;
+      font-family: 'Press Start 2P', monospace;
+      display: flex; justify-content: center; align-items: center;
+      height: 100vh; overflow: hidden;
+      text-shadow: 0 0 5px rgba(51,255,51,0.6);
+    }
+    body::after {
+      content: ''; position: fixed; top:0; left:0; width:100%; height:100%;
+      background: repeating-linear-gradient(0deg, rgba(0,0,0,0.1) 0px, rgba(0,0,0,0.1) 1px, transparent 1px, transparent 3px);
+      pointer-events: none; z-index: 999;
+    }
+    #wrapper {
+      width: 100%; max-width: 920px; height: 96vh;
+      background: #0c1a0c; border: 3px double #336633;
+      box-shadow: 0 0 30px #224422; display: flex; flex-direction: column;
+      position: relative; z-index: 1;
+    }
+    #wrapper.chat-mode {
+      background: #0a120a; border-color: #44aa44; box-shadow: 0 0 50px #336633;
+    }
+    #title {
+      padding: 12px; text-align: center; font-size: 1.1em;
+      border-bottom: 2px solid #336633; white-space: pre; letter-spacing: 2px;
+      background: #0d1a0d; color: #44ff44;
+    }
+    #output {
+      flex: 1; overflow-y: auto; padding: 20px; white-space: pre-wrap;
+      line-height: 1.7; font-size: 1em;
+      background: #0a120a; color: #33ee33; position: relative; z-index: 3;
+    }
+    #output::-webkit-scrollbar { width: 8px; }
+    #output::-webkit-scrollbar-thumb { background: #336633; }
+    #input-line {
+      display: flex; border-top: 2px solid #336633; background: #0d1a0d; z-index: 3;
+    }
+    #prompt {
+      padding: 12px 8px 12px 18px; font-weight: bold; color: #55ff55;
+    }
+    #cmd {
+      flex: 1; background: transparent; border: none; color: #33ff33;
+      font-family: 'Press Start 2P', monospace; font-size: 1em;
+      padding: 12px 10px; outline: none; caret-color: #33ff33;
+    }
+    #cmd::placeholder { color: #336633; }
+    #key-overlay {
+      position: fixed; top:0; left:0; width:100%; height:100%;
+      background: rgba(0,0,0,0.95); display: flex; justify-content: center;
+      align-items: center; z-index: 1000; flex-direction: column;
+      text-align: center; font-family: 'Press Start 2P', monospace;
+    }
+    #key-box {
+      border: 2px solid #33aa33; padding: 40px; background: #0a120a;
+      box-shadow: 0 0 30px #336633; width: 90%; max-width: 500px;
+      color: #44ff44;
+    }
+    #key-box h2 { margin-bottom: 20px; font-size: 1.5em; }
+    #api-key-input {
+      width: 100%; padding: 12px; background: #000; border: 1px solid #336633;
+      color: #44ff44; font-family: 'Press Start 2P', monospace; font-size: 1em;
+      margin-bottom: 20px; outline: none;
+    }
+    #api-key-input::placeholder { color: #336633; }
+    #save-key-btn {
+      padding: 10px 30px; background: #1a2a1a; border: 1px solid #44aa44;
+      color: #44ff44; font-family: 'Press Start 2P', monospace; font-size: 1.2em;
+      cursor: pointer; transition: background 0.2s;
+    }
+    #save-key-btn:hover { background: #2a4a2a; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+<div id="wrapper">
+  <div id="title">
+█▓▒░ RELICS & REGRET ░▒▓█
+  Antique Shop, Main Street [1986]
+  </div>
+  <div id="output"></div>
+  <div id="input-line">
+    <span id="prompt">&gt;</span>
+    <input type="text" id="cmd" placeholder="TYPE COMMAND..." autofocus>
+  </div>
+</div>
+
+<div id="key-overlay" class="hidden">
+  <div id="key-box">
+    <h2>ENTER MISTRAL API KEY</h2>
+    <input type="text" id="api-key-input" placeholder="Paste your key here..." autocomplete="off" spellcheck="false">
+    <br>
+    <button id="save-key-btn">SAVE KEY</button>
+    <p style="font-size:0.8em; margin-top:20px; color:#669966;">Key stored locally in your browser.</p>
+  </div>
+</div>
+
+<script>
+// ──────────────────────────────────────────────
+// RELICS & REGRET – Full Antique Shop Sim (1986)
+// with TEST command and returning NPCs
+// ──────────────────────────────────────────────
+let MISTRAL_KEY = '';
+const MODEL = 'mistral-small-latest';
+const API_URL = 'https://api.mistral.ai/v1/chat/completions';
+
+// DOM
+const keyOverlay = document.getElementById('key-overlay');
+const apiKeyInput = document.getElementById('api-key-input');
+const saveKeyBtn = document.getElementById('save-key-btn');
+const outputEl = document.getElementById('output');
+const cmdInput = document.getElementById('cmd');
+const wrapper = document.getElementById('wrapper');
+
+// Audio
+let audioCtx = null, soundEnabled = true;
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+function playClick() {
+  if (!soundEnabled || !audioCtx) return;
+  try {
+    const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.frequency.value = 600 + Math.random()*300;
+    gain.gain.setValueAtTime(0.04, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime+0.03);
+    osc.start(); osc.stop(audioCtx.currentTime+0.03);
+  } catch(e) {}
+}
+
+// Key management
+let savedKey = localStorage.getItem('rr_api_key');
+function setApiKey(key) {
+  MISTRAL_KEY = key;
+  if (key) {
+    localStorage.setItem('rr_api_key', key);
+    keyOverlay.classList.add('hidden');
+    cmdInput.focus();
+  }
+}
+if (!savedKey) {
+  keyOverlay.classList.remove('hidden');
+  apiKeyInput.focus();
+} else { MISTRAL_KEY = savedKey; }
+saveKeyBtn.addEventListener('click', () => {
+  const key = apiKeyInput.value.trim();
+  if (!key) { alert('Please enter a valid API key.'); return; }
+  setApiKey(key);
+  if (!window.booted) { window.booted = true; boot(); }
+});
+apiKeyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveKeyBtn.click(); });
+
+// ── Global State ──────────────────────────────
+let cash = parseInt(localStorage.getItem('rr_cash') || '200');
+let inventory = JSON.parse(localStorage.getItem('rr_inventory') || '[]');
+let currentNPC = null, chatHistory = [];
+let currentSign = localStorage.getItem('rr_sign') || 'RELICS & REGRET';
+let npcMemory = JSON.parse(localStorage.getItem('rr_npcMemory') || '{}');
+let activeFavour = JSON.parse(localStorage.getItem('rr_favour') || 'null');
+let wantedList = JSON.parse(localStorage.getItem('rr_wanted') || '[]');
+let customerOrders = JSON.parse(localStorage.getItem('rr_orders') || '[]');
+let townMood = localStorage.getItem('rr_townMood') || 'uneasy quiet';
+// activeTests: array of {npcName, action, itemName, consequence, done: false}
+let activeTests = JSON.parse(localStorage.getItem('rr_activeTests') || '[]');
+
+// Persistence
+function saveAll() {
+  localStorage.setItem('rr_cash', cash);
+  localStorage.setItem('rr_inventory', JSON.stringify(inventory));
+  localStorage.setItem('rr_sign', currentSign);
+  localStorage.setItem('rr_npcMemory', JSON.stringify(npcMemory));
+  localStorage.setItem('rr_favour', JSON.stringify(activeFavour));
+  localStorage.setItem('rr_wanted', JSON.stringify(wantedList));
+  localStorage.setItem('rr_orders', JSON.stringify(customerOrders));
+  localStorage.setItem('rr_townMood', townMood);
+  localStorage.setItem('rr_activeTests', JSON.stringify(activeTests));
+}
+
+// Terminal output
+function print(text, delay=15) {
+  return new Promise(resolve => {
+    let i = 0;
+    function type() {
+      if (i < text.length) {
+        outputEl.innerHTML += text.charAt(i);
+        outputEl.scrollTop = outputEl.scrollHeight;
+        if (!currentNPC) playClick();
+        i++;
+        setTimeout(type, delay);
+      } else {
+        outputEl.innerHTML += '\n';
+        outputEl.scrollTop = outputEl.scrollHeight;
+        resolve();
+      }
+    }
+    type();
+  });
+}
+function printInstant(text) {
+  outputEl.innerHTML += text + '\n';
+  outputEl.scrollTop = outputEl.scrollHeight;
+}
+
+// API call JSON
+async function callMistralJSON(systemPrompt, userMessage) {
+  if (!MISTRAL_KEY) { printInstant('*** NO API KEY. Type SETKEY.'); return null; }
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage }
+        ],
+        temperature: 0.9,
+        response_format: { type: 'json_object' }
+      })
+    });
+    if (!res.ok) { printInstant(`*** API ERROR ${res.status}`); return null; }
+    const data = await res.json();
+    const content = data.choices[0]?.message?.content;
+    if (!content) return null;
+    try { return JSON.parse(content); } catch(e) { printInstant('*** JSON parse error.'); return null; }
+  } catch(e) { printInstant(`*** NETWORK ERROR: ${e.message}`); return null; }
+}
+
+// API call text
+async function callMistralText(systemPrompt, userMessage) {
+  if (!MISTRAL_KEY) { printInstant('*** NO API KEY.'); return null; }
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage }
+        ],
+        temperature: 0.9
+      })
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.choices[0]?.message?.content || null;
+  } catch(e) { return null; }
+}
+
+// ── SYSTEM PROMPTS ───────────────────────────
+const SYSTEM_SHOP = `You are the sentient ledger of RELICS & REGRET, a dusty antique shop in a small 1986 New England town. Items are often cursed, haunted, or carry dark secrets. You generate visitor and item details as JSON. Always only valid JSON, no markdown.`.trim();
+const SYSTEM_CHAT = `You are a visitor in RELICS & REGRET, talking to the shopkeeper. Reply with JSON: {"dialogue":"your words", "updatedOfferedItem":optional new item object, "newDesire":optional, "alternativeOfferedItem":optional, "order":optional {"item":"description","price":number}, "favour":optional {"type":"deliver","targetNPC":"name","item":"item to deliver","reward":"something"}}. Keep personality consistent.`.trim();
+
+// ── NPC Memory helpers ──────────────────────
+function rememberNPC(name, event) {
+  if (!npcMemory[name]) npcMemory[name] = [];
+  npcMemory[name].push(event);
+  if (npcMemory[name].length > 10) npcMemory[name].shift();
+  saveAll();
+}
+
+// ── CORE GAME COMMANDS ──────────────────────
+
+async function cmdCustomer() {
+  if (currentNPC) { printInstant('A customer is already here.'); return; }
+
+  // Check if any tested NPC is due to return
+  let returning = null;
+  if (activeTests.length > 0 && Math.random() < 0.5) {
+    returning = activeTests[0]; // only one returning at a time, simplest
+  }
+
+  if (returning) {
+    const idx = activeTests.indexOf(returning);
+    activeTests.splice(idx, 1);
+    saveAll();
+    // Generate return visitor
+    const prompt = `An NPC who previously made a dark deal with the shopkeeper returns. 
+Details: Name: ${returning.npcName}. They were given "${returning.itemName}" in exchange for doing this: "${returning.action}". The consequence: "${returning.consequence}". 
+They now want to sell the item back (maybe it has changed, or they have become unhinged). 
+Create a JSON visitor entry: "visitor": {"name":"${returning.npcName}", "description": "how they look now, changed", "dialogue": "what they say upon entering, referencing the deed"}, 
+"offeredItem": the item they now carry (use the item name, but update its description to reflect any changes, set a new year if needed, and set a value higher than before). 
+"desiredItem": "maybe they want something new from the shop, or empty string",
+"testResult": true (indicate this is a returning test NPC).
+Include any other fields like favour, order as usual. Only JSON.`;
+    const data = await callMistralJSON(SYSTEM_SHOP, prompt);
+    if (!data || !data.visitor || !data.offeredItem) {
+      printInstant('The door creaks, but nobody enters. A cold draft follows.');
+      return;
+    }
+    // Force the NPC name to match memory
+    data.visitor.name = returning.npcName;
+    currentNPC = {
+      visitor: data.visitor,
+      offeredItem: data.offeredItem,
+      desiredItem: data.desiredItem || '',
+      alternativeItem: null,
+      order: data.order || null,
+      favour: data.favour || null,
+      isTestReturn: true
+    };
+    chatHistory = [];
+    printInstant(`\n${data.visitor.name} returns. ${data.visitor.description}`);
+    printInstant(`"${data.visitor.dialogue}"`);
+    printInstant(`\nITEM OFFERED: "${data.offeredItem.name}" (c. ${data.offeredItem.year})`);
+    printInstant(`  "${data.offeredItem.description}"`);
+    printInstant(`  ASKING PRICE: $${data.offeredItem.value}`);
+    if (data.desiredItem) printInstant(`  They glance at your "${data.desiredItem}".`);
+    if (data.favour) {
+      printInstant(`\n❗ FAVOUR REQUEST: Deliver "${data.favour.item}" to ${data.favour.targetNPC}. Reward: ${data.favour.reward}`);
+      activeFavour = data.favour;
+      saveAll();
+    }
+    if (data.order) {
+      printInstant(`📝 SPECIAL ORDER: They want "${data.order.item}" and will pay $${data.order.price}.`);
+      customerOrders.push({ from: data.visitor.name, item: data.order.item, price: data.order.price });
+      saveAll();
+    }
+    wrapper.classList.add('chat-mode');
+    rememberNPC(data.visitor.name, `returned after ${returning.action}, offered "${data.offeredItem.name}"`);
+    return;
+  }
+
+  // Normal visitor generation
+  await print('The bell above the door chimes...');
+  const invNames = inventory.map(i => i.name).join(', ') || 'nothing at all';
+  const townSummary = `Town mood: ${townMood}. Recent dark deeds: ${activeTests.map(t => `${t.npcName} ${t.action}`).join('; ') || 'none'}.`;
+  const prompt = `A new visitor enters RELICS & REGRET. Shop sign reads: "${currentSign}". Inventory: [${invNames}]. ${townSummary}
+Generate JSON with:
+- "visitor": { "name", "description", "dialogue" }
+- "offeredItem": { "name", "year", "description", "value" (5-200) }
+- "desiredItem": string or empty
+- "favour": (optional) {"type":"deliver","targetNPC":"name","item":"item to deliver","reward":"description"}
+- "order": (optional) {"item":"description","price":number}
+- "alternativeOfferedItem": (optional) same structure as offeredItem.
+Output only the JSON.`;
+  const data = await callMistralJSON(SYSTEM_SHOP, prompt);
+  if (!data || !data.visitor || !data.offeredItem) {
+    printInstant('...but the door swung open to empty air.');
+    return;
+  }
+  const name = data.visitor.name;
+  if (npcMemory[name]) {
+    const history = npcMemory[name].slice(-3).join('; ');
+    data.visitor.dialogue = `[Recognising you] ${data.visitor.dialogue} (They recall: ${history})`;
+  }
+  currentNPC = {
+    visitor: data.visitor,
+    offeredItem: data.offeredItem,
+    desiredItem: data.desiredItem || '',
+    alternativeItem: data.alternativeOfferedItem || null,
+    order: data.order || null,
+    favour: data.favour || null,
+    isTestReturn: false
+  };
+  chatHistory = [];
+  printInstant(`\n${name} enters. ${data.visitor.description}`);
+  printInstant(`"${data.visitor.dialogue}"`);
+  printInstant(`\nITEM OFFERED: "${data.offeredItem.name}" (c. ${data.offeredItem.year})`);
+  printInstant(`  "${data.offeredItem.description}"`);
+  printInstant(`  ASKING PRICE: $${data.offeredItem.value}`);
+  if (data.desiredItem) printInstant(`  They glance at your "${data.desiredItem}".`);
+  if (data.favour) {
+    printInstant(`\n❗ FAVOUR REQUEST: Deliver "${data.favour.item}" to ${data.favour.targetNPC}. Reward: ${data.favour.reward}`);
+    activeFavour = data.favour;
+    saveAll();
+  }
+  if (data.order) {
+    printInstant(`📝 SPECIAL ORDER: They want "${data.order.item}" and will pay $${data.order.price}.`);
+    customerOrders.push({ from: name, item: data.order.item, price: data.order.price });
+    saveAll();
+  }
+  wrapper.classList.add('chat-mode');
+}
+
+// TEST command
+async function cmdTest(action) {
+  if (!currentNPC) { printInstant('No one is here to test.'); return; }
+  if (!action) { printInstant('Usage: TEST <action description>'); return; }
+  if (!currentNPC.desiredItem) {
+    printInstant(`${currentNPC.visitor.name} doesn't want anything specific right now. Try chatting to find out what they desire.`);
+    return;
+  }
+  const itemWanted = currentNPC.desiredItem;
+  // Check if we have it
+  const idx = inventory.findIndex(i => i.name.toLowerCase() === itemWanted.toLowerCase());
+  if (idx === -1) {
+    printInstant(`You don't have "${itemWanted}" in your inventory.`);
+    return;
+  }
+  // Ask AI if NPC accepts the deal
+  const prompt = `You are ${currentNPC.visitor.name}, currently in RELICS & REGRET. You desperately want "${itemWanted}". The shopkeeper proposes a test: in exchange for giving you "${itemWanted}", you must do the following action: "${action}". 
+Do you accept? Respond with JSON: {"accepted": true/false, "response": "your shocked or eager reply", "consequence": "briefly describe what happens after you perform the act (the town reaction, how you feel)"}. Only JSON.`;
+  const data = await callMistralJSON(SYSTEM_CHAT, prompt);
+  if (!data) return;
+  printInstant(`\n${currentNPC.visitor.name}: "${data.response}"`);
+  if (data.accepted) {
+    // Remove item from inventory and set up test
+    const item = inventory.splice(idx, 1)[0];
+    saveAll();
+    activeTests.push({
+      npcName: currentNPC.visitor.name,
+      action: action,
+      itemName: item.name,
+      consequence: data.consequence,
+      done: false
+    });
+    saveAll();
+    // Update town mood (AI can generate a new mood later, for now we'll just set a placeholder)
+    townMood = `disturbed after ${currentNPC.visitor.name} ${action}`;
+    saveAll();
+    printInstant(`\n${currentNPC.visitor.name} takes "${item.name}" and leaves. The air grows heavy.`);
+    rememberNPC(currentNPC.visitor.name, `tested: ${action}, received "${item.name}"`);
+    clearNPC();
+  } else {
+    printInstant(`${currentNPC.visitor.name} refuses the test. They seem shaken.`);
+    rememberNPC(currentNPC.visitor.name, `refused test: ${action}`);
+  }
+}
+
+// Other commands unchanged, but we'll add TEST to the help
+function cmdBuy() {
+  if (!currentNPC) { printInstant('No one is here.'); return; }
+  const price = currentNPC.offeredItem.value;
+  if (cash < price) { printInstant(`You need $${price}, but only have $${cash}.`); return; }
+  cash -= price; saveAll();
+  const newItem = {
+    name: currentNPC.offeredItem.name,
+    year: currentNPC.offeredItem.year,
+    description: currentNPC.offeredItem.description,
+    value: price,
+    secret: '', knownSecret: false,
+    isFake: false, trueValue: price
+  };
+  inventory.push(newItem); saveAll();
+  printInstant(`You bought "${newItem.name}" for $${price}.`);
+  rememberNPC(currentNPC.visitor.name, `sold "${newItem.name}"`);
+  clearNPC();
+}
+
+function cmdTrade(itemName) {
+  if (!currentNPC) { printInstant('No one to trade with.'); return; }
+  if (!itemName) { printInstant('Usage: TRADE <item name>'); return; }
+  const idx = inventory.findIndex(i => i.name.toLowerCase() === itemName.toLowerCase());
+  if (idx === -1) { printInstant(`You don't own "${itemName}".`); return; }
+  const given = inventory.splice(idx,1)[0]; saveAll();
+  const received = {
+    name: currentNPC.offeredItem.name,
+    year: currentNPC.offeredItem.year,
+    description: currentNPC.offeredItem.description,
+    value: currentNPC.offeredItem.value,
+    secret: '', knownSecret: false,
+    isFake: false, trueValue: currentNPC.offeredItem.value
+  };
+  inventory.push(received); saveAll();
+  printInstant(`You traded "${given.name}" for "${received.name}".`);
+  rememberNPC(currentNPC.visitor.name, `traded "${given.name}" for "${received.name}"`);
+  clearNPC();
+}
+
+function cmdGift(itemName) {
+  if (!currentNPC) { printInstant('No one to gift to.'); return; }
+  if (!itemName) { printInstant('Usage: GIFT <item name>'); return; }
+  const idx = inventory.findIndex(i => i.name.toLowerCase() === itemName.toLowerCase());
+  if (idx === -1) { printInstant(`You don't own "${itemName}".`); return; }
+  const gifted = inventory.splice(idx,1)[0]; saveAll();
+  printInstant(`You gave "${gifted.name}" to ${currentNPC.visitor.name}.`);
+  rememberNPC(currentNPC.visitor.name, `received gift "${gifted.name}"`);
+  clearNPC();
+}
+
+function cmdDecline() {
+  if (!currentNPC) { printInstant('Nobody here.'); return; }
+  printInstant(`${currentNPC.visitor.name} leaves, disappointed.`);
+  rememberNPC(currentNPC.visitor.name, 'was declined');
+  clearNPC();
+}
+
+function clearNPC() {
+  currentNPC = null;
+  chatHistory = [];
+  wrapper.classList.remove('chat-mode');
+}
+
+async function cmdChat(message) {
+  if (!currentNPC) { printInstant('No one to talk to.'); return; }
+  if (!message) { printInstant('Usage: CHAT <message>'); return; }
+  const context = {
+    visitor: currentNPC.visitor,
+    offeredItem: currentNPC.offeredItem,
+    desiredItem: currentNPC.desiredItem,
+    inventory: inventory.map(i => i.name).join(', ')
+  };
+  const chatMessages = [
+    { role: 'system', content: SYSTEM_CHAT + '\nContext: ' + JSON.stringify(context) },
+    ...chatHistory,
+    { role: 'user', content: message }
+  ];
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: chatMessages,
+        temperature: 0.9,
+        response_format: { type: 'json_object' }
+      })
+    });
+    const data = await res.json();
+    const content = data.choices[0]?.message?.content;
+    if (!content) return;
+    const reply = JSON.parse(content);
+    printInstant(`\n${currentNPC.visitor.name}: "${reply.dialogue}"`);
+    if (reply.updatedOfferedItem) {
+      currentNPC.offeredItem = reply.updatedOfferedItem;
+      printInstant(`(Their offered item changed: ${reply.updatedOfferedItem.name}, $${reply.updatedOfferedItem.value})`);
+    }
+    if (reply.alternativeOfferedItem) {
+      currentNPC.offeredItem = reply.alternativeOfferedItem;
+      printInstant(`(They now offer a personal item: "${reply.alternativeOfferedItem.name}")`);
+    }
+    if (reply.newDesire) currentNPC.desiredItem = reply.newDesire;
+    if (reply.order) {
+      customerOrders.push({ from: currentNPC.visitor.name, item: reply.order.item, price: reply.order.price });
+      saveAll();
+      printInstant(`📝 New order logged: "${reply.order.item}" for $${reply.order.price}.`);
+    }
+    if (reply.favour) {
+      activeFavour = reply.favour;
+      saveAll();
+      printInstant(`❗ Favour: deliver "${reply.favour.item}" to ${reply.favour.targetNPC}.`);
+    }
+    chatHistory.push({ role: 'user', content: message });
+    chatHistory.push({ role: 'assistant', content: reply.dialogue });
+  } catch(e) { printInstant('*** Chat error.'); }
+}
+
+function cmdSign(newSign) {
+  if (!newSign) { printInstant('Usage: SIGN <new sign text>'); return; }
+  currentSign = newSign;
+  saveAll();
+  printInstant(`Shop sign now reads: "${currentSign}"`);
+}
+
+async function cmdWanted() {
+  await print('Tuning into forbidden frequencies...');
+  const prompt = `Generate a rumour about a legendary lost antique that a collector might want. JSON with: "name", "description", "lastKnownOwner", "rumouredValue". Only JSON.`;
+  const legend = await callMistralJSON(SYSTEM_SHOP, prompt);
+  if (!legend) return;
+  wantedList.push(legend);
+  saveAll();
+  printInstant(`\n🕵️ LEGENDARY ITEM RUMOUR: ${legend.name}`);
+  printInstant(`   "${legend.description}"`);
+  printInstant(`   Last seen with: ${legend.lastKnownOwner}`);
+  printInstant(`   Estimated value: $${legend.rumouredValue}`);
+  printInstant('Added to your wanted list. Use SEARCH to hunt for it.');
+}
+
+async function cmdSearch() {
+  if (wantedList.length === 0) { printInstant('You have no wanted items. Use WANTED first.'); return; }
+  if (cash < 20) { printInstant('Searching costs $20.'); return; }
+  cash -= 20; saveAll();
+  await print('You spend the night scouring estate sales, dead drops, and old attics...');
+  const target = wantedList[Math.floor(Math.random() * wantedList.length)];
+  const success = Math.random() < 0.35;
+  if (success) {
+    const prompt = `The legendary item "${target.name}" has been found! Generate a detailed item JSON: name, year, description, value (as rumoured). Only JSON.`;
+    const found = await callMistralJSON(SYSTEM_SHOP, prompt);
+    if (found && found.name) {
+      const newItem = { name: found.name, year: found.year, description: found.description, value: found.value, secret: '', knownSecret: false, isFake: false, trueValue: found.value };
+      inventory.push(newItem);
+      wantedList = wantedList.filter(w => w.name !== target.name);
+      saveAll();
+      printInstant(`\n🎉 FOUND: "${newItem.name}"! It's now in your inventory.`);
+    } else { printInstant('The trail went cold. No item found.'); cash += 20; saveAll(); }
+  } else {
+    const prompt = `The search for "${target.name}" fails, but you stumble upon a different oddity. Generate an item JSON.`;
+    const alt = await callMistralJSON(SYSTEM_SHOP, prompt);
+    if (alt && alt.name) {
+      const newItem = { name: alt.name, year: alt.year, description: alt.description, value: alt.value, secret: '', knownSecret: false, isFake: false, trueValue: alt.value };
+      inventory.push(newItem); saveAll();
+      printInstant(`\nYou didn't find "${target.name}", but you did acquire: "${newItem.name}".`);
+    } else { printInstant('You found nothing but dust.'); cash += 20; saveAll(); }
+  }
+}
+
+async function cmdFulfil(itemName, npcName) {
+  if (!itemName || !npcName) { printInstant('Usage: FULFIL <item> FOR <npc name>'); return; }
+  const orderIdx = customerOrders.findIndex(o => o.from.toLowerCase() === npcName.toLowerCase());
+  if (orderIdx === -1) { printInstant(`No order from ${npcName}.`); return; }
+  const itemIdx = inventory.findIndex(i => i.name.toLowerCase() === itemName.toLowerCase());
+  if (itemIdx === -1) { printInstant(`You don't have "${itemName}".`); return; }
+  const order = customerOrders[orderIdx];
+  const confirmPrompt = `Does the item "${itemName}" (described as "${inventory[itemIdx].description}") match the order request "${order.item}"? Answer with JSON {"match":true/false}.`;
+  const check = await callMistralJSON(SYSTEM_SHOP, confirmPrompt);
+  if (check && check.match === false) { printInstant(`"${itemName}" doesn't seem to match what ${npcName} wanted.`); return; }
+  const sold = inventory.splice(itemIdx,1)[0];
+  cash += order.price;
+  customerOrders.splice(orderIdx,1);
+  saveAll();
+  printInstant(`You fulfilled ${npcName}'s order with "${sold.name}". Earned $${order.price}.`);
+  rememberNPC(npcName, `order fulfilled with "${sold.name}"`);
+}
+
+async function cmdDeliver(itemName) {
+  if (!activeFavour) { printInstant('No active favour request.'); return; }
+  if (!itemName) { printInstant('Usage: DELIVER <item>'); return; }
+  const idx = inventory.findIndex(i => i.name.toLowerCase() === itemName.toLowerCase());
+  if (idx === -1) { printInstant(`You don't have "${itemName}".`); return; }
+  const fav = activeFavour;
+  if (itemName.toLowerCase() !== fav.item.toLowerCase()) { printInstant(`You need to deliver "${fav.item}", not "${itemName}".`); return; }
+  inventory.splice(idx,1); saveAll();
+  printInstant(`You delivered "${fav.item}" to ${fav.targetNPC}.`);
+  const outcome = await callMistralText(SYSTEM_SHOP, `Describe the scene when you deliver "${fav.item}" to ${fav.targetNPC} in the small town. Reward: ${fav.reward}.`);
+  if (outcome) printInstant(outcome.trim());
+  activeFavour = null;
+  saveAll();
+}
+
+async function cmdRadio() {
+  await print('You switch on the transistor radio behind the counter...');
+  const broadcast = await callMistralText(SYSTEM_SHOP, `Generate a short 1986 radio snippet: a news headline, weather, or a fragment of a song that fits the mood of RELICS & REGRET. One paragraph.`);
+  if (broadcast) printInstant(`\n📻 RADIO: ${broadcast.trim()}`);
+  else printInstant('Static. Nothing but static.');
+}
+
+async function cmdAppraise(itemName) {
+  if (!itemName) { printInstant('Usage: APPRAISE <item>'); return; }
+  const idx = inventory.findIndex(i => i.name.toLowerCase() === itemName.toLowerCase());
+  if (idx === -1) { printInstant(`You don't have "${itemName}".`); return; }
+  const item = inventory[idx];
+  if (item.knownSecret) { printInstant(`Already appraised: ${item.secret}`); return; }
+  if (cash < 5) { printInstant('Appraisal costs $5.'); return; }
+  cash -= 5; saveAll();
+  await print('Examining under lamplight...');
+  const prompt = `Reveal the hidden secret of "${item.name}" (${item.year}), described as "${item.description}". One or two sentences, chilling. Only the secret text.`;
+  const secret = await callMistralText(SYSTEM_SHOP, prompt);
+  if (!secret) { cash += 5; saveAll(); return; }
+  item.secret = secret.trim();
+  item.knownSecret = true;
+  saveAll();
+  printInstant(`Secret: ${item.secret}`);
+}
+
+async function cmdResearch(itemName) {
+  if (!itemName) { printInstant('Usage: RESEARCH <item>'); return; }
+  const idx = inventory.findIndex(i => i.name.toLowerCase() === itemName.toLowerCase());
+  if (idx === -1) { printInstant(`You don't have "${itemName}".`); return; }
+  const item = inventory[idx];
+  if (cash < 10) { printInstant('Research costs $10.'); return; }
+  cash -= 10; saveAll();
+  await print('You delve into old books and town records...');
+  const prompt = `Write a short passage from an old book about the general category of object "${item.name}" (like "paintings" or "music boxes") that might reveal something about its history. One paragraph.`;
+  const passage = await callMistralText(SYSTEM_SHOP, prompt);
+  if (passage) printInstant(`\n📖 RESEARCH: ${passage.trim()}`);
+  else printInstant('The books are unreadable.');
+  if (Math.random() < 0.33) {
+    await print('\nWhile researching, you notice something odd...');
+    const innerPrompt = `The item "${item.name}" (${item.description}) is found to contain a hidden object inside. Generate a new small item JSON: name, year, description, value (low). Only JSON.`;
+    const inner = await callMistralJSON(SYSTEM_SHOP, innerPrompt);
+    if (inner && inner.name) {
+      const newItem = { name: inner.name, year: inner.year, description: inner.description, value: inner.value, secret: '', knownSecret: false, isFake: false, trueValue: inner.value };
+      inventory.push(newItem); saveAll();
+      printInstant(`🔍 Hidden inside, you find: "${newItem.name}"! Added to inventory.`);
+    }
+  }
+}
+
+async function cmdAuthenticate(itemName) {
+  if (!itemName) { printInstant('Usage: AUTHENTICATE <item>'); return; }
+  const idx = inventory.findIndex(i => i.name.toLowerCase() === itemName.toLowerCase());
+  if (idx === -1) { printInstant(`You don't have "${itemName}".`); return; }
+  const item = inventory[idx];
+  if (cash < 5) { printInstant('Authentication costs $5.'); return; }
+  cash -= 5; saveAll();
+  await print('Contacting an expert via crackling telephone line...');
+  const prompt = `Determine if the antique "${item.name}" (${item.description}, year ${item.year}) is authentic. Return JSON: {"isAuthentic":true/false, "trueValue":number, "note":"explanation"}. If fake, note strange property. Only JSON.`;
+  const result = await callMistralJSON(SYSTEM_SHOP, prompt);
+  if (!result) { cash += 5; saveAll(); return; }
+  item.isFake = !result.isAuthentic;
+  item.trueValue = result.trueValue;
+  if (!result.isAuthentic) {
+    item.value = result.trueValue;
+    item.secret = `FAKE: ${result.note}`; item.knownSecret = true;
+    printInstant(`⚠️ FAKE! ${result.note} True value: $${result.trueValue}.`);
+  } else {
+    printInstant(`✅ GENUINE. ${result.note} Value confirmed: $${result.trueValue}.`);
+  }
+  saveAll();
+}
+
+function cmdShop() {
+  if (inventory.length === 0) { printInstant('Shop empty.'); return; }
+  printInstant('\n📦 INVENTORY:');
+  inventory.forEach((i, idx) => {
+    const status = i.knownSecret ? ' 👁' : '';
+    const fake = i.isFake ? ' (FAKE)' : '';
+    printInstant(`${idx+1}. ${i.name} (${i.year})${status}${fake} — ${i.description} [$${i.value}]`);
+  });
+  printInstant('── End of shelf ──');
+}
+
+function cmdLedger() {
+  printInstant(`\n💰 Cash: $${cash}   📜 Items: ${inventory.length}   🪧 Sign: "${currentSign}"`);
+  if (activeFavour) printInstant(`📦 Active favour: deliver "${activeFavour.item}" to ${activeFavour.targetNPC}`);
+  if (customerOrders.length > 0) {
+    printInstant('📝 Open orders:');
+    customerOrders.forEach(o => printInstant(`  - ${o.from} wants "${o.item}" for $${o.price}`));
+  }
+  if (wantedList.length > 0) {
+    printInstant('🔍 Wanted items:');
+    wantedList.forEach(w => printInstant(`  - ${w.name}`));
+  }
+  if (activeTests.length > 0) {
+    printInstant('🔄 Pending tests (NPCs who may return):');
+    activeTests.forEach(t => printInstant(`  - ${t.npcName}: ${t.action}`));
+  }
+}
+
+function cmdHelp() {
+  printInstant(`
+  COMMANDS:
+  CUSTOMER / NEXT     - Wait for a visitor
+  BUY                 - Purchase offered item
+  TRADE <item>        - Swap your item for theirs
+  GIFT <item>         - Give item away free
+  DECLINE             - Send visitor away
+  CHAT <message>      - Talk to current visitor
+  TEST <action>       - Propose a dark deal (NPC must want an item)
+  SIGN <text>         - Change shop sign
+  WANTED              - Get rumour about a legendary item
+  SEARCH              - Hunt for a wanted item (costs $20)
+  FULFIL <item> FOR <npc>  - Complete a customer order
+  DELIVER <item>      - Complete a favour delivery
+  RADIO               - Listen to 1986 radio
+  APPRAISE <item>     - Uncover item secret ($5)
+  RESEARCH <item>     - Deep history study ($10, may find hidden object)
+  AUTHENTICATE <item> - Check if genuine ($5)
+  SHOP / INVENTORY    - List your items
+  LEDGER              - Shop summary & pending tasks
+  WAIT                - End day (overnight flavour)
+  CLEAR               - Clear screen
+  MUTE / UNMUTE       - Toggle sound
+  SETKEY              - Change API key
+  HELP                - This list
+  `);
+}
+
+async function cmdWait() {
+  if (currentNPC) { printInstant('Close the shop? A customer is still here.'); return; }
+  await print('You lock up. The town falls quiet...');
+  // Occasionally a tested NPC returns spontaneously during the night
+  if (activeTests.length > 0 && Math.random() < 0.3) {
+    const returning = activeTests.shift();
+    saveAll();
+    printInstant(`In the dead of night, a figure hammers on the door. It's ${returning.npcName}, holding "${returning.itemName}". They want to sell it back.`);
+    // This will be handled in next CUSTOMER call; for now, just flavour.
+    activeTests.unshift(returning); // put back, we'll handle on next CUSTOMER
+    saveAll();
+  }
+  const events = [
+    'A distant scream, then silence.',
+    'A knock at the back door. When you open it, a small, wet cardboard box sits on the step. It contains a single, human tooth.',
+    'The radio turns on by itself, whispering a weather report from 1943.',
+  ];
+  printInstant(events[Math.floor(Math.random()*events.length)]);
+  printInstant('Morning comes. The shop is open again.');
+}
+
+// Input handler
+cmdInput.addEventListener('keydown', async (e) => {
+  if (e.key !== 'Enter') return;
+  initAudio();
+  const raw = cmdInput.value.trim();
+  cmdInput.value = '';
+  if (!raw) return;
+  const upperCmd = raw.toUpperCase();
+  printInstant(`> ${raw}`);
+
+  if (upperCmd === 'CUSTOMER' || upperCmd === 'NEXT') {
+    await cmdCustomer();
+  } else if (upperCmd === 'BUY') {
+    cmdBuy();
+  } else if (upperCmd.startsWith('TRADE ')) {
+    cmdTrade(raw.slice(6).trim());
+  } else if (upperCmd.startsWith('GIFT ')) {
+    cmdGift(raw.slice(5).trim());
+  } else if (upperCmd === 'DECLINE') {
+    cmdDecline();
+  } else if (upperCmd.startsWith('CHAT ')) {
+    await cmdChat(raw.slice(5).trim());
+  } else if (upperCmd.startsWith('TEST ')) {
+    await cmdTest(raw.slice(5).trim());
+  } else if (upperCmd.startsWith('SIGN ')) {
+    cmdSign(raw.slice(5).trim());
+  } else if (upperCmd === 'WANTED') {
+    await cmdWanted();
+  } else if (upperCmd === 'SEARCH') {
+    await cmdSearch();
+  } else if (upperCmd.startsWith('FULFIL ')) {
+    const parts = raw.slice(7).split(' FOR ');
+    if (parts.length === 2) await cmdFulfil(parts[0].trim(), parts[1].trim());
+    else printInstant('Usage: FULFIL <item> FOR <npc>');
+  } else if (upperCmd.startsWith('DELIVER ')) {
+    await cmdDeliver(raw.slice(8).trim());
+  } else if (upperCmd === 'RADIO') {
+    await cmdRadio();
+  } else if (upperCmd.startsWith('APPRAISE ')) {
+    await cmdAppraise(raw.slice(9).trim());
+  } else if (upperCmd.startsWith('RESEARCH ')) {
+    await cmdResearch(raw.slice(9).trim());
+  } else if (upperCmd.startsWith('AUTHENTICATE ')) {
+    await cmdAuthenticate(raw.slice(13).trim());
+  } else if (upperCmd === 'SHOP' || upperCmd === 'INVENTORY' || upperCmd === 'LIST' || upperCmd === 'SHOW') {
+    cmdShop();
+  } else if (upperCmd === 'LEDGER') {
+    cmdLedger();
+  } else if (upperCmd === 'WAIT' || upperCmd === 'CLOSE') {
+    await cmdWait();
+  } else if (upperCmd === 'CLEAR') {
+    outputEl.innerHTML = '';
+  } else if (upperCmd === 'HELP') {
+    cmdHelp();
+  } else if (upperCmd === 'MUTE') {
+    soundEnabled = false; printInstant('Sound off.');
+  } else if (upperCmd === 'UNMUTE') {
+    soundEnabled = true; printInstant('Sound on.');
+  } else if (upperCmd === 'SETKEY') {
+    MISTRAL_KEY = ''; localStorage.removeItem('rr_api_key');
+    keyOverlay.classList.remove('hidden');
+    apiKeyInput.value = ''; apiKeyInput.focus();
+    printInstant('API key cleared.');
+  } else {
+    printInstant('Unknown command. Type HELP.');
+  }
+});
+
+// Boot
+async function boot() {
+  await print('LOADING RELICS & REGRET INVENTORY SYSTEM...');
+  await new Promise(r => setTimeout(r, 800));
+  await print('   ██████╗ ███████╗██╗     ██╗ ██████╗███████╗    ██╗   ██╗███████╗ ██████╗ ██████╗ ███████╗████████╗');
+  await print('   ██╔══██╗██╔════╝██║     ██║██╔════╝██╔════╝    ██║   ██║██╔════╝██╔════╝ ██╔══██╗██╔════╝╚══██╔══╝');
+  await print('   ██████╔╝█████╗  ██║     ██║██║     ███████╗    ██║   ██║█████╗  ██║  ███╗██████╔╝█████╗     ██║   ');
+  await print('   ██╔══██╗██╔══╝  ██║     ██║██║     ╚════██║    ╚██╗ ██╔╝██╔══╝  ██║   ██║██╔══██╗██╔══╝     ██║   ');
+  await print('   ██║  ██║███████╗███████╗██║╚██████╗███████║     ╚████╔╝ ███████╗╚██████╔╝██║  ██║███████╗   ██║   ');
+  await print('   ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝ ╚═════╝╚══════╝      ╚═══╝  ╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝   ╚═╝   ');
+  await print('                  ──── Antique Shop, Main Street 1986 ────');
+  await print('\nThe previous owner left behind only dust and a strange key. The shelves are yours now.');
+  await print('Type HELP for a list of commands.\n');
+  printInstant(`Cash: $${cash}`);
+  if (inventory.length > 0) { printInstant('Your current inventory:'); cmdShop(); }
+  else printInstant('Your shelves are bare. Type CUSTOMER to open for business.');
+}
+
+if (MISTRAL_KEY) { window.booted = true; boot(); }
+</script>
+</body>
+</html>
