@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>VIDEO NASTY EXCHANGE</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #000;
+      color: #ff3333;
+      font-family: 'Courier New', Courier, monospace;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+      text-shadow: 0 0 8px rgba(255, 0, 0, 0.7);
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: repeating-linear-gradient(0deg, rgba(0,0,0,0.15) 0px, rgba(0,0,0,0.15) 1px, transparent 1px, transparent 3px);
+      pointer-events: none;
+      z-index: 999;
+    }
+
+    #wrapper {
+      width: 100%;
+      max-width: 850px;
+      height: 92vh;
+      background: #0a0000;
+      border: 3px double #800;
+      box-shadow: 0 0 40px #500;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      z-index: 1;
+    }
+
+    #title {
+      padding: 15px;
+      text-align: center;
+      font-size: 1.3em;
+      border-bottom: 2px solid #800;
+      white-space: pre;
+      letter-spacing: 3px;
+      background: #0d0000;
+      color: #ff4444;
+    }
+
+    #output {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      white-space: pre-wrap;
+      line-height: 1.7;
+      font-size: 1.05em;
+      background: #080000;
+      color: #ff3a3a;
+    }
+
+    #output::-webkit-scrollbar {
+      width: 8px;
+    }
+    #output::-webkit-scrollbar-thumb {
+      background: #a00;
+    }
+
+    #input-line {
+      display: flex;
+      border-top: 2px solid #800;
+      background: #0d0000;
+    }
+    #prompt {
+      padding: 12px 8px 12px 18px;
+      font-weight: bold;
+      color: #ff5555;
+    }
+    #cmd {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: #ff4444;
+      font-family: inherit;
+      font-size: 1em;
+      padding: 12px 10px;
+      outline: none;
+      caret-color: #ff0000;
+    }
+    #cmd::placeholder {
+      color: #800;
+    }
+
+    #key-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.95);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+      flex-direction: column;
+      text-align: center;
+    }
+    #key-box {
+      border: 2px solid #b00;
+      padding: 40px;
+      background: #0a0000;
+      box-shadow: 0 0 30px #700;
+      width: 90%;
+      max-width: 500px;
+      color: #ff4444;
+    }
+    #key-box h2 {
+      margin-bottom: 20px;
+      font-size: 1.5em;
+      text-shadow: 0 0 10px #f00;
+    }
+    #api-key-input {
+      width: 100%;
+      padding: 12px;
+      background: #000;
+      border: 1px solid #800;
+      color: #ff4444;
+      font-family: inherit;
+      font-size: 1em;
+      margin-bottom: 20px;
+      outline: none;
+    }
+    #api-key-input::placeholder {
+      color: #800;
+    }
+    #save-key-btn {
+      padding: 10px 30px;
+      background: #200;
+      border: 1px solid #b00;
+      color: #ff4444;
+      font-family: inherit;
+      font-size: 1.2em;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #save-key-btn:hover {
+      background: #400;
+    }
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+<div id="wrapper">
+  <div id="title">
+█▓▒░ VIDEO NASTY EXCHANGE ░▒▓█
+  A Horror Collector's BBS  [1985]
+  </div>
+  <div id="output"></div>
+  <div id="input-line">
+    <span id="prompt">&gt;</span>
+    <input type="text" id="cmd" placeholder="TYPE COMMAND..." autofocus>
+  </div>
+</div>
+
+<div id="key-overlay" class="hidden">
+  <div id="key-box">
+    <h2>ENTER MISTRAL API KEY</h2>
+    <input type="text" id="api-key-input" placeholder="Paste your key here..." autocomplete="off" spellcheck="false">
+    <br>
+    <button id="save-key-btn">SAVE KEY</button>
+    <p style="font-size:0.8em; margin-top:20px; color:#a00;">Key stored locally in your browser.</p>
+  </div>
+</div>
+
+<script>
+// ──────────────────────────────────────────────
+// VIDEO NASTY EXCHANGE – Market Edition (Fixed)
+// ──────────────────────────────────────────────
+let MISTRAL_KEY = '';
+const MODEL = 'mistral-small-latest';
+const API_URL = 'https://api.mistral.ai/v1/chat/completions';
+
+// ── DOM Elements ──────────────────────────────
+const keyOverlay = document.getElementById('key-overlay');
+const apiKeyInput = document.getElementById('api-key-input');
+const saveKeyBtn = document.getElementById('save-key-btn');
+const outputEl = document.getElementById('output');
+const cmdInput = document.getElementById('cmd');
+
+// ── Audio ─────────────────────────────────────
+let audioCtx = null;
+let soundEnabled = true;
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+function playClick() {
+  if (!soundEnabled || !audioCtx) return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.frequency.value = 800 + Math.random() * 400;
+    gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.03);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.03);
+  } catch(e) {}
+}
+
+// ── Key management ────────────────────────────
+let savedKey = localStorage.getItem('vn_api_key');
+function setApiKey(key) {
+  MISTRAL_KEY = key;
+  if (key) {
+    localStorage.setItem('vn_api_key', key);
+    keyOverlay.classList.add('hidden');
+    cmdInput.focus();
+  }
+}
+if (!savedKey) {
+  keyOverlay.classList.remove('hidden');
+  apiKeyInput.focus();
+} else {
+  MISTRAL_KEY = savedKey;
+}
+saveKeyBtn.addEventListener('click', () => {
+  const key = apiKeyInput.value.trim();
+  if (!key) { alert('Please enter a valid API key.'); return; }
+  setApiKey(key);
+  if (!window.booted) { window.booted = true; boot(); }
+});
+apiKeyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveKeyBtn.click(); });
+
+// ── Global State ──────────────────────────────
+let collection = JSON.parse(localStorage.getItem('vn_collection') || '[]');
+let wallet = parseInt(localStorage.getItem('vn_wallet') || '20');   // start with $20
+let pendingTrade = null;
+let crateStock = [];
+let lastRandomEvent = 0;
+const EVENT_COOLDOWN = 60000;
+
+// ── Rarity & Perks ────────────────────────────
+const RARITIES = [
+  { name: 'Common', color: '#aa5500', chance: 0.55, priceMin: 5, priceMax: 20 },
+  { name: 'Uncommon', color: '#cccccc', chance: 0.25, priceMin: 25, priceMax: 60 },
+  { name: 'Rare', color: '#ffcc00', chance: 0.15, priceMin: 75, priceMax: 150 },
+  { name: 'Ultra Rare', color: '#cc44ff', chance: 0.04, priceMin: 200, priceMax: 500 },
+  { name: 'Mythic', color: '#ff0000', chance: 0.01, priceMin: 1000, priceMax: 2000 }
+];
+
+function rollRarity() {
+  let roll = Math.random();
+  let cum = 0;
+  for (let r of RARITIES) {
+    cum += r.chance;
+    if (roll <= cum) return r;
+  }
+  return RARITIES[0];
+}
+
+// ── Conditions ────────────────────────────────
+const CONDITIONS = ['pristine', 'worn', 'mouldy', 'covered in suspicious stains'];
+function randomCondition() {
+  return CONDITIONS[Math.floor(Math.random() * CONDITIONS.length)];
+}
+
+// Milestones & perks
+let milestones = JSON.parse(localStorage.getItem('vn_milestones') || '{}');
+function saveMilestones() { localStorage.setItem('vn_milestones', JSON.stringify(milestones)); }
+
+const MILESTONE_DEFS = [
+  { type: 'tapes', threshold: 5, title: 'Starter Shelf', perk: 'Crate discount 10%' },
+  { type: 'tapes', threshold: 10, title: 'Collector', perk: 'Crate size +1' },
+  { type: 'tapes', threshold: 25, title: 'Hoarding Horror', perk: 'Sell price +10%' },
+  { type: 'tapes', threshold: 50, title: 'The Archive', perk: 'Mythic find chance doubled' },
+  { type: 'value', threshold: 100, title: 'Cash Spiller', perk: 'Crate discount 15%' },
+  { type: 'value', threshold: 500, title: 'Black Market Tycoon', perk: 'Crate size +2' },
+  { type: 'value', threshold: 2000, title: 'Underworld Mogul', perk: 'Sell price +20%' },
+  { type: 'value', threshold: 10000, title: 'Video Nasty Kingpin', perk: 'All prices halved' },
+  { type: 'rare', threshold: 3, title: 'Connoisseur of Pain', perk: 'Rare+ find chance up' },
+  { type: 'rare', threshold: 10, title: 'The Vault Keeper', perk: 'Crate can contain 2 Ultra Rare' },
+  { type: 'rare', threshold: 25, title: 'Master of the Lost Reels', perk: 'Mythic tapes appear in crate' },
+];
+
+function checkMilestones() {
+  const tapeCount = collection.length;
+  const totalValue = collection.reduce((sum, t) => sum + (t.price || 0), 0);
+  const rareCount = collection.filter(t => t.rarity && (t.rarity === 'Rare' || t.rarity === 'Ultra Rare' || t.rarity === 'Mythic')).length;
+
+  for (let ms of MILESTONE_DEFS) {
+    const key = ms.type + '_' + ms.threshold;
+    if (milestones[key]) continue;
+    let current = 0;
+    if (ms.type === 'tapes') current = tapeCount;
+    else if (ms.type === 'value') current = totalValue;
+    else if (ms.type === 'rare') current = rareCount;
+
+    if (current >= ms.threshold) {
+      milestones[key] = true;
+      saveMilestones();
+      printInstant(`\n🏆 MILESTONE UNLOCKED: ${ms.title}`);
+      printInstant(`   Perk: ${ms.perk}`);
+    }
+  }
+}
+
+// Discount based on milestones
+function getDiscount() {
+  let disc = 1.0;
+  if (milestones['tapes_5']) disc -= 0.10;
+  if (milestones['value_100']) disc -= 0.15;
+  if (milestones['value_10000']) disc = 0.5;
+  return Math.max(0.1, disc);
+}
+
+// ── Persistence ──────────────────────────────
+function saveCollection() { localStorage.setItem('vn_collection', JSON.stringify(collection)); }
+function saveWallet() { localStorage.setItem('vn_wallet', wallet.toString()); }
+
+// ── Terminal Output ──────────────────────────
+function print(text, delay = 15) {
+  return new Promise((resolve) => {
+    let i = 0;
+    function type() {
+      if (i < text.length) {
+        outputEl.innerHTML += text.charAt(i);
+        outputEl.scrollTop = outputEl.scrollHeight;
+        playClick();
+        i++;
+        setTimeout(type, delay);
+      } else {
+        outputEl.innerHTML += '\n';
+        outputEl.scrollTop = outputEl.scrollHeight;
+        resolve();
+      }
+    }
+    type();
+  });
+}
+function printInstant(text) {
+  outputEl.innerHTML += text + '\n';
+  outputEl.scrollTop = outputEl.scrollHeight;
+}
+
+// ── Mistral API Call (simplified, no fallbacks) ──
+async function callMistral(systemPrompt, userMessage) {
+  if (!MISTRAL_KEY) {
+    printInstant('*** NO API KEY SET. Type SETKEY to enter your key.');
+    return null;
+  }
+
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${MISTRAL_KEY}`
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage }
+      ],
+      temperature: 0.95,
+      response_format: { type: 'json_object' }
+    })
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    printInstant(`*** API ERROR ${res.status}: ${errText}`);
+    console.error('Mistral API error:', errText);
+    return null;
+  }
+
+  const data = await res.json();
+  console.log('Mistral raw response:', data);
+
+  if (!data.choices || !data.choices[0]?.message?.content) {
+    printInstant('*** API returned no content. Full response: ' + JSON.stringify(data));
+    return null;
+  }
+
+  const content = data.choices[0].message.content;
+  try {
+    return JSON.parse(content);
+  } catch (e) {
+    printInstant('*** Failed to parse JSON. Raw AI message:');
+    printInstant(content);
+    console.error('Parse error:', e);
+    return null;
+  }
+}
+
+const SYSTEM_PROMPT = `You are the deranged, sentient database of "VIDEO NASTY EXCHANGE", a shadowy 1985 BBS for collectors of banned horror VHS tapes. Always respond with ONLY valid JSON. No markdown.`.trim();
+
+// Collectors
+const COLLECTORS = [
+  { name: "Vince Razorback", trait: "paranoid survivalist who believes only real snuff recordings hold power" },
+  { name: "Mama Crypt", trait: "elderly bootlegger who worships the static between channels" },
+  { name: "The Degausser", trait: "obsessed with tapes that erase themselves after one viewing" },
+  { name: "Gristle", trait: "former mortician who only collects films with authentic autopsy footage" },
+  { name: "Wendy Lacerate", trait: "runaway teen who trades tapes from a stolen cable access archive" },
+  { name: "Father Abscess", trait: "defrocked priest who documents demonic possession on home video" },
+];
+function randomCollector() { return COLLECTORS[Math.floor(Math.random() * COLLECTORS.length)]; }
+
+// Random events
+async function maybeTriggerRandomEvent() {
+  const now = Date.now();
+  if (now - lastRandomEvent < EVENT_COOLDOWN) return;
+  if (Math.random() < 0.2) {
+    lastRandomEvent = now;
+    const events = [
+      "A garbled message flickers onto the screen: 'THE HOLLOW MAN TAPE IS REAL. DO NOT PLAY IT.'",
+      "Your modem emits a low, anguished scream before the line clears.",
+      "A collector known only as 'Candlewick' sends you a single emoji: 🕯️. The cursor blinks once and vanishes.",
+      "For a moment, your collection list shows an extra tape you don't remember acquiring. Then the screen refreshes and it's gone.",
+      "The BBS plays a distorted lullaby through your terminal speaker. It's 3:33 AM... somewhere.",
+    ];
+    await print('\n*** ' + events[Math.floor(Math.random() * events.length)] + ' ***', 25);
+  }
+}
+
+// Static corruption
+function maybeCorruptTape() {
+  if (collection.length === 0) return;
+  if (Math.random() < 0.1) {
+    const idx = Math.floor(Math.random() * collection.length);
+    const lost = collection.splice(idx, 1)[0];
+    saveCollection();
+    printInstant(`\n⚠ STATIC CORRUPTION: The tape "${lost.title}" has been eaten by the VCR. It's nothing but snow now.`);
+  }
+}
+
+// ── Tape generation for SEARCH ────────────────
+async function generateTapeWithRarity(rarity) {
+  const prompt = `Generate a single fictional banned horror VHS tape. It must be of rarity "${rarity.name}".
+Return a JSON object with exactly these keys:
+- "title" (string)
+- "year" (number, 1975-1989)
+- "coverDescription" (one lurid sentence)
+- "trackListing" (array of strings)
+- "rarity" (exactly "${rarity.name}")
+- "price" (number between ${rarity.priceMin} and ${rarity.priceMax})
+
+Output ONLY the JSON object. Do not wrap it in markdown or extra text.`;
+  return await callMistral(SYSTEM_PROMPT, prompt);
+}
+
+// ── Commands ─────────────────────────────────
+async function cmdCrate() {
+  await print('The Archivist opens his footlocker, breath misting in the cold...');
+  const disc = getDiscount();
+  let size = 4;
+  if (milestones['tapes_10']) size = 5;
+  if (milestones['value_500']) size = 6;
+
+  const prompt = `Generate an array of ${size} fictional banned horror VHS tapes that The Archivist has for sale.
+Each tape object:
+- "title" (string)
+- "year" (number, 1975-1989)
+- "coverDescription" (one sentence)
+- "rarity" (one of: Common, Uncommon, Rare, Ultra Rare, Mythic)
+- "price" (integer, appropriate for rarity: Common 5-20, Uncommon 25-60, Rare 75-150, Ultra Rare 200-500, Mythic 1000-2000)
+- "condition" (one of: pristine, worn, mouldy, covered in suspicious stains)
+
+Return a JSON object with key "tapes" containing that array. Output ONLY that JSON object.`;
+  const data = await callMistral(SYSTEM_PROMPT, prompt);
+  if (!data || !data.tapes) {
+    printInstant('The Archivist grumbles. Something is wrong with the stock.');
+    return;
+  }
+  crateStock = data.tapes.map((t, idx) => ({ ...t, index: idx+1 }));
+  await print(`\n📦 THE ARCHIVIST'S CRATE [${size} tapes]:`);
+  crateStock.forEach(t => {
+    const finalPrice = Math.floor(t.price * disc);
+    printInstant(`  ${t.index}. ${t.title} (${t.year}) - ${t.rarity} - $${finalPrice} [${t.condition}]`);
+    printInstant(`     "${t.coverDescription}"`);
+  });
+  printInstant('\nType BUY [number] to purchase.');
+  await maybeTriggerRandomEvent();
+}
+
+async function cmdBuy(num) {
+  if (crateStock.length === 0) { printInstant('The crate is empty. Type CRATE to see new stock.'); return; }
+  const tape = crateStock.find(t => t.index === num);
+  if (!tape) { printInstant('Invalid tape number. Check the crate listing.'); return; }
+  const disc = getDiscount();
+  const finalPrice = Math.floor(tape.price * disc);
+  if (wallet < finalPrice) { printInstant(`You need $${finalPrice}, but only have $${wallet}. The Archivist sneers.`); return; }
+  wallet -= finalPrice;
+  saveWallet();
+  const newTape = {
+    title: tape.title,
+    year: tape.year,
+    coverDescription: tape.coverDescription,
+    rarity: tape.rarity,
+    price: tape.price,   // store original price for selling
+    condition: tape.condition
+  };
+  collection.push(newTape);
+  saveCollection();
+  crateStock = crateStock.filter(t => t.index !== num);
+  printInstant(`You hand over $${finalPrice}. "${tape.title}" is now in your collection.`);
+  printInstant(`Wallet: $${wallet}.`);
+  checkMilestones();
+  await maybeTriggerRandomEvent();
+}
+
+async function cmdSell(title) {
+  const idx = collection.findIndex(t => t.title.toLowerCase() === title.toLowerCase());
+  if (idx === -1) { printInstant('You don\'t own a tape by that name.'); return; }
+  const tape = collection[idx];
+  let sellPrice = tape.price ? Math.floor(tape.price * 0.5) : 5;
+  if (milestones['tapes_25']) sellPrice = Math.floor(sellPrice * 1.1);
+  if (milestones['value_2000']) sellPrice = Math.floor(sellPrice * 1.2);
+  collection.splice(idx, 1);
+  wallet += sellPrice;
+  saveCollection();
+  saveWallet();
+  printInstant(`You sold "${tape.title}" for $${sellPrice}. Wallet: $${wallet}.`);
+  checkMilestones();
+}
+
+function cmdRank() {
+  const tapeCount = collection.length;
+  const totalValue = collection.reduce((sum, t) => sum + (t.price || 0), 0);
+  const rareCount = collection.filter(t => t.rarity === 'Rare' || t.rarity === 'Ultra Rare' || t.rarity === 'Mythic').length;
+  printInstant(`\n📈 COLLECTOR RANK`);
+  printInstant(`   Tapes owned: ${tapeCount}`);
+  printInstant(`   Collection value: $${totalValue}`);
+  printInstant(`   Rare+ tapes: ${rareCount}`);
+  let nextMilestones = MILESTONE_DEFS.filter(ms => !milestones[ms.type + '_' + ms.threshold]);
+  if (nextMilestones.length > 0) {
+    printInstant(`\n   Next milestones:`);
+    nextMilestones.slice(0,3).forEach(ms => printInstant(`     - ${ms.title} (${ms.type}: ${ms.threshold})`));
+  } else {
+    printInstant(`\n   You have achieved all known milestones. You are the ultimate collector.`);
+  }
+}
+
+function cmdWallet() {
+  printInstant(`💰 You have $${wallet}.`);
+}
+
+async function cmdSearch() {
+  await print('Going out into the field... checking dead drops, estate sales, abandoned storage lockers...');
+  if (Math.random() < 0.3) {
+    await print('You found nothing but a water-damaged copy of "JANE FONDA\'S WORKOUT" and some mouldy blanks.');
+    return;
+  }
+  let rarity = rollRarity();
+  if (milestones['rare_3'] && Math.random() < 0.2) rarity = rollRarity();
+  if (milestones['tapes_50'] && rarity.name === 'Mythic' && Math.random() < 0.5) rarity = rollRarity();
+
+  const tape = await generateTapeWithRarity(rarity);
+  if (!tape || !tape.title) {
+    await print('The signal went dead. Whatever you found dissolved before you could read the label.');
+    return;
+  }
+  tape.condition = randomCondition();
+  collection.push(tape);
+  saveCollection();
+
+  await print(`\n🎬 YOU FOUND A TAPE!`);
+  await print(`   ${tape.title} (${tape.year}) [${tape.condition}]`);
+  await print(`   Rarity: ${tape.rarity}   Estimated value: $${tape.price}`);
+  await print(`   Cover: ${tape.coverDescription}`);
+  if (tape.trackListing) {
+    await print(`   Tape contents:`);
+    for (const track of tape.trackListing) await print(`     • ${track}`);
+  }
+  await print(`\n   Added to your collection.`);
+  checkMilestones();
+  await maybeTriggerRandomEvent();
+}
+
+async function cmdTrade() {
+  const collector = randomCollector();
+  const myTitles = collection.length > 0 ? collection.map(t => t.title).join(', ') : 'nothing yet';
+  await print(`Contacting "${collector.name}"...`);
+  const prompt = `A collector named "${collector.name}" (${collector.trait}) wants to trade. Your collection: [${myTitles}]. Generate a JSON trade offer with: from, personality, offerTitle, offerYear, offerCoverDescription, message, desiredTape (title from your collection, or "unknown"). Output ONLY that JSON object.`;
+  const trade = await callMistral(SYSTEM_PROMPT, prompt);
+  if (!trade) return;
+  pendingTrade = {
+    from: trade.from,
+    desiredTape: trade.desiredTape,
+    offer: {
+      title: trade.offerTitle,
+      year: trade.offerYear,
+      coverDescription: trade.offerCoverDescription,
+      condition: randomCondition(),
+      rarity: rollRarity().name,
+      price: Math.floor(Math.random() * 50 + 10)
+    }
+  };
+  await print(`\n📦 TRADE OFFER from ${trade.from} [${trade.personality}]`);
+  await print(`   Offers: "${trade.offerTitle}" (${trade.offerYear}) [${pendingTrade.offer.condition}]`);
+  await print(`   Cover: ${trade.offerCoverDescription}`);
+  await print(`\n   "${trade.message}"`);
+  if (trade.desiredTape && trade.desiredTape !== 'unknown') {
+    await print(`\n   They want your copy of "${trade.desiredTape}".`);
+  }
+  await print('\n   Do you ACCEPT? (Y/N)');
+  await maybeTriggerRandomEvent();
+}
+
+async function cmdReview(title) {
+  await print(`Checking the Vault for reviews of "${title}"...`);
+  const prompt = `Write a review for the fictional banned horror tape "${title}". JSON: reviewer, rating (skulls), body (3-5 sentences), warning. Output ONLY that JSON object.`;
+  const review = await callMistral(SYSTEM_PROMPT, prompt);
+  if (!review) return;
+  await print(`\n📼 REVIEW: ${title}`);
+  await print(`   Reviewer: ${review.reviewer}`);
+  await print(`   Rating: ${review.rating}`);
+  await print(`   "${review.body}"`);
+  await print(`   ⚠ ${review.warning}`);
+  if (Math.random() < 0.15) maybeCorruptTape();
+  await maybeTriggerRandomEvent();
+}
+
+async function cmdWanted() {
+  await print('Tuning into forbidden frequencies...');
+  const prompt = `Generate a JSON object about a legendary lost video nasty: title, rumouredContents, fateOfWatchers, lastKnownOwner. Output ONLY that JSON object.`;
+  const legend = await callMistral(SYSTEM_PROMPT, prompt);
+  if (!legend) return;
+  await print(`\n🕵️ RARITY WANTED: ${legend.title}`);
+  await print(`   ${legend.rumouredContents}`);
+  await print(`   ${legend.fateOfWatchers}`);
+  await print(`   Last seen with: ${legend.lastKnownOwner}`);
+  await maybeTriggerRandomEvent();
+}
+
+function cmdShowCollection() {
+  if (collection.length === 0) { printInstant('Your shelf is empty. Find some tapes.'); return; }
+  printInstant('\n📚 YOUR COLLECTION:');
+  collection.forEach((tape, i) => {
+    const cond = tape.condition ? ` [${tape.condition}]` : '';
+    const rar = tape.rarity ? ` (${tape.rarity})` : '';
+    printInstant(`${i+1}. ${tape.title} (${tape.year})${rar}${cond} — ${tape.coverDescription}`);
+  });
+  printInstant('── End of shelf ──');
+}
+
+function acceptTrade() {
+  if (!pendingTrade) { printInstant('No pending trade. Type TRADE to get an offer.'); return; }
+  const { from, desiredTape, offer } = pendingTrade;
+  if (desiredTape && desiredTape !== 'unknown') {
+    const idx = collection.findIndex(t => t.title === desiredTape);
+    if (idx !== -1) {
+      collection.splice(idx, 1);
+      printInstant(`You gave away "${desiredTape}".`);
+    } else {
+      printInstant(`You don't own "${desiredTape}", but the trade proceeds anyway.`);
+    }
+  }
+  collection.push({ title: offer.title, year: offer.year, coverDescription: offer.coverDescription, condition: offer.condition, rarity: offer.rarity, price: offer.price });
+  saveCollection();
+  printInstant(`\nTrade complete. "${offer.title}" added to your collection.`);
+  pendingTrade = null;
+  checkMilestones();
+  maybeCorruptTape();
+}
+
+function declineTrade() {
+  if (!pendingTrade) { printInstant('No pending trade.'); return; }
+  printInstant('Trade declined. The offer vanishes into static.');
+  pendingTrade = null;
+}
+
+function cmdHelp() {
+  printInstant(`
+  COMMANDS:
+  CRATE            - Browse The Archivist's stock
+  BUY [number]     - Purchase a tape from the crate
+  SELL [title]     - Sell a tape from your collection
+  SEARCH           - Hunt for a tape in the wild
+  TRADE            - Receive a trade offer
+  REVIEW [title]   - Read a tape review
+  WANTED           - Urban legend about a lost tape
+  SHOW             - Display your collection
+  RANK             - Check your collector milestones
+  ACCEPT / DECLINE - Respond to a trade offer
+  SETKEY           - Change your API key
+  MUTE / UNMUTE    - Toggle terminal sounds
+  CLEAR            - Clear screen
+  HELP             - This list
+  `);
+}
+
+// ── Input Handler ──────────────────────────────
+cmdInput.addEventListener('keydown', async (e) => {
+  if (e.key !== 'Enter') return;
+  initAudio();
+  const raw = cmdInput.value.trim();
+  cmdInput.value = '';
+  if (!raw) return;
+  const upperCmd = raw.toUpperCase();
+  printInstant(`> ${raw}`);
+
+  if (upperCmd === 'CRATE') {
+    await cmdCrate();
+  } else if (upperCmd.startsWith('BUY ')) {
+    const num = parseInt(raw.slice(4).trim());
+    if (isNaN(num)) printInstant('Usage: BUY [number]');
+    else await cmdBuy(num);
+  } else if (upperCmd.startsWith('SELL ')) {
+    const title = raw.slice(5).trim();
+    if (!title) printInstant('Usage: SELL [title]');
+    else await cmdSell(title);
+  } else if (upperCmd === 'SEARCH') {
+    await cmdSearch();
+  } else if (upperCmd === 'TRADE') {
+    await cmdTrade();
+  } else if (upperCmd.startsWith('REVIEW ')) {
+    const title = raw.slice(7).trim();
+    if (!title) printInstant('Usage: REVIEW [title]');
+    else await cmdReview(title);
+  } else if (upperCmd === 'WANTED') {
+    await cmdWanted();
+  } else if (upperCmd === 'SHOW') {
+    cmdShowCollection();
+  } else if (upperCmd === 'ACCEPT' || upperCmd === 'Y') {
+    acceptTrade();
+  } else if (upperCmd === 'DECLINE' || upperCmd === 'N') {
+    declineTrade();
+  } else if (upperCmd === 'HELP') {
+    cmdHelp();
+  } else if (upperCmd === 'SETKEY') {
+    MISTRAL_KEY = '';
+    localStorage.removeItem('vn_api_key');
+    keyOverlay.classList.remove('hidden');
+    apiKeyInput.value = '';
+    apiKeyInput.focus();
+    printInstant('API key cleared. Please enter a new one.');
+  } else if (upperCmd === 'MUTE') {
+    soundEnabled = false; printInstant('Terminal sounds muted.');
+  } else if (upperCmd === 'UNMUTE') {
+    soundEnabled = true; printInstant('Terminal sounds unmuted.');
+  } else if (upperCmd === 'CLEAR') {
+    outputEl.innerHTML = '';
+  } else if (upperCmd === 'RANK') {
+    cmdRank();
+  } else {
+    printInstant('Unknown command. Type HELP.');
+  }
+} else if (upperCmd === 'WALLET') {
+  cmdWallet();
+}
+});
+
+// Boot
+async function boot() {
+  await print('CONNECTING TO VIDEO NASTY EXCHANGE BBS...');
+  await new Promise(r => setTimeout(r, 1200));
+  await print('HANDSHAKE COMPLETE.');
+  await print('   ██╗   ██╗██╗██████╗ ███████╗ ██████╗ ');
+  await print('   ██║   ██║██║██╔══██╗██╔════╝██╔═══██╗');
+  await print('   ██║   ██║██║██║  ██║█████╗  ██║   ██║');
+  await print('   ╚██╗ ██╔╝██║██║  ██║██╔══╝  ██║   ██║');
+  await print('    ╚████╔╝ ██║██████╔╝███████╗╚██████╔╝');
+  await print('     ╚═══╝  ╚═╝╚═════╝ ╚══════╝ ╚═════╝ ');
+  await print('   N A S T Y   E X C H A N G E');
+  await print("   A Horror Collector's BBS  [1985]\n");
+  await print('Type HELP for commands.\n');
+  printInstant(`Wallet: $${wallet}`);
+  if (collection.length > 0) {
+    printInstant('Your collection from last session:');
+    cmdShowCollection();
+  } else {
+    printInstant('Your shelf is empty. Try CRATE to browse, SEARCH to hunt, or TRADE to swap.');
+  }
+  checkMilestones();
+}
+
+if (MISTRAL_KEY) { window.booted = true; boot(); }
+</script>
+</body>
+</html>
