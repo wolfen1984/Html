@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <title>DISCWORLD</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      color: #33ff33;
+      font-family: 'Press Start 2P', monospace;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+      text-shadow: 0 0 6px rgba(51, 255, 51, 0.8);
+    }
+    body::after {
+      content: '';
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: repeating-linear-gradient(0deg, rgba(0,0,0,0.15) 0px, rgba(0,0,0,0.15) 1px, transparent 1px, transparent 3px);
+      pointer-events: none;
+      z-index: 999;
+    }
+    #wrapper {
+      width: 100%; max-width: 850px; height: 92vh;
+      background: #0a0a0a;
+      border: 3px double #0f0;
+      box-shadow: 0 0 40px #0f0;
+      display: flex; flex-direction: column;
+      position: relative; z-index: 1;
+    }
+    #title {
+      padding: 15px; text-align: center; font-size: 1.3em;
+      border-bottom: 2px solid #0f0; background: #111;
+      color: #33ff33; letter-spacing: 3px; white-space: pre;
+    }
+    #output {
+      flex: 1; overflow-y: auto; padding: 20px; white-space: pre-wrap;
+      line-height: 1.7; font-size: 1.05em; background: #0a0a0a;
+      color: #33ff33; position: relative; z-index: 3;
+    }
+    #output::-webkit-scrollbar { width: 8px; }
+    #output::-webkit-scrollbar-thumb { background: #0f0; }
+    #input-line {
+      display: flex; border-top: 2px solid #0f0; background: #111; z-index: 3;
+    }
+    #prompt { padding: 12px 8px 12px 18px; font-weight: bold; color: #55ff55; }
+    #cmd {
+      flex: 1; background: transparent; border: none; color: #33ff33;
+      font-family: 'Press Start 2P', monospace; font-size: 1em;
+      padding: 12px 10px; outline: none; caret-color: #33ff33;
+    }
+    #cmd::placeholder { color: #0f0; }
+
+    #key-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.95); display: flex; justify-content: center;
+      align-items: center; z-index: 1000; flex-direction: column;
+      text-align: center; font-family: 'Press Start 2P', monospace;
+    }
+    #key-overlay.hidden { display: none !important; }
+    #key-box {
+      border: 2px solid #0f0; padding: 40px; background: #0a0a0a;
+      box-shadow: 0 0 30px #0f0; width: 90%; max-width: 500px;
+      color: #33ff33;
+    }
+    #key-box h2 { margin-bottom: 20px; font-size: 1.5em; text-shadow: 0 0 10px #0f0; }
+    #api-key-input {
+      width: 100%; padding: 12px; background: #000; border: 1px solid #0f0;
+      color: #33ff33; font-family: 'Press Start 2P', monospace; font-size: 1em;
+      margin-bottom: 20px; outline: none;
+    }
+    #save-key-btn {
+      padding: 10px 30px; background: #111; border: 1px solid #0f0;
+      color: #33ff33; font-family: 'Press Start 2P', monospace; font-size: 1.2em;
+      cursor: pointer; transition: background 0.2s;
+    }
+    #save-key-btn:hover { background: #0f0; color: #000; }
+  </style>
+</head>
+<body>
+<div id="wrapper">
+  <div id="title">
+█▓▒░ DISCWORLD ░▒▓█
+ Underground Disk Exchange  [1987]
+  </div>
+  <div id="output"></div>
+  <div id="input-line">
+    <span id="prompt">&gt;</span>
+    <input type="text" id="cmd" placeholder="TYPE COMMAND..." autofocus>
+  </div>
+</div>
+
+<div id="key-overlay">
+  <div id="key-box">
+    <h2>ENTER MISTRAL API KEY</h2>
+    <input type="text" id="api-key-input" placeholder="Paste your key here..." autocomplete="off" spellcheck="false">
+    <br>
+    <button id="save-key-btn">SAVE KEY</button>
+    <p style="font-size:0.8em; margin-top:20px; color:#0f0;">Key stored locally in your browser.</p>
+  </div>
+</div>
+
+<script>
+// ── OVERLAY (runs first) ──────────────────────
+(function() {
+  var savedKey = localStorage.getItem('dw_api_key');
+  var overlay = document.getElementById('key-overlay');
+  if (!savedKey) {
+    overlay.classList.remove('hidden');
+    document.getElementById('api-key-input').focus();
+  } else {
+    overlay.classList.add('hidden');
+  }
+})();
+
+// ── MAIN GAME ─────────────────────────────────
+(function() {
+  let MISTRAL_KEY = localStorage.getItem('dw_api_key') || '';
+  const MODEL = 'mistral-small-latest';
+  const API_URL = 'https://api.mistral.ai/v1/chat/completions';
+
+  const outputEl = document.getElementById('output');
+  const cmdInput = document.getElementById('cmd');
+  const keyOverlay = document.getElementById('key-overlay');
+  const apiKeyInput = document.getElementById('api-key-input');
+  const saveKeyBtn = document.getElementById('save-key-btn');
+
+  // Audio
+  let audioCtx = null;
+  let soundEnabled = true;
+  function initAudio() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  }
+  function playClick() {
+    if (!soundEnabled || !audioCtx) return;
+    try {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.frequency.value = 600 + Math.random() * 200;
+      gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.02);
+      osc.start(); osc.stop(audioCtx.currentTime + 0.02);
+    } catch(e) {}
+  }
+
+  // Key management
+  function setApiKey(key) {
+    MISTRAL_KEY = key;
+    if (key) {
+      localStorage.setItem('dw_api_key', key);
+      keyOverlay.classList.add('hidden');
+      cmdInput.focus();
+      if (!window._booted) {
+        window._booted = true;
+        boot();
+      }
+    }
+  }
+
+  saveKeyBtn.addEventListener('click', () => {
+    const key = apiKeyInput.value.trim();
+    if (!key) { alert('Please enter a valid API key.'); return; }
+    setApiKey(key);
+  });
+  apiKeyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveKeyBtn.click(); });
+
+  // Global state
+  let collection = JSON.parse(localStorage.getItem('dw_collection') || '[]');
+  let wallet = parseInt(localStorage.getItem('dw_wallet') || '20');
+  let browseStock = [];
+  let pendingTrade = null;
+  let adventureMode = false;
+  let currentAdventure = null;
+  let currentAdventureHistory = [];
+
+  const RARITIES = [
+    { name: 'Common', chance: 0.55, priceMin: 5, priceMax: 20 },
+    { name: 'Uncommon', chance: 0.25, priceMin: 25, priceMax: 60 },
+    { name: 'Rare', chance: 0.15, priceMin: 75, priceMax: 150 },
+    { name: 'Ultra Rare', chance: 0.04, priceMin: 200, priceMax: 500 },
+    { name: 'Legendary', chance: 0.01, priceMin: 1000, priceMax: 2000 }
+  ];
+  function rollRarity() {
+    let roll = Math.random(), cum = 0;
+    for (let r of RARITIES) { cum += r.chance; if (roll <= cum) return r; }
+    return RARITIES[0];
+  }
+  const CONDITIONS = ['pristine', 'worn', 'mouldy', 'sector errors', 'unreadable'];
+  function randomCondition() { return CONDITIONS[Math.floor(Math.random() * CONDITIONS.length)]; }
+
+  let milestones = JSON.parse(localStorage.getItem('dw_milestones') || '{}');
+  function saveMilestones() { localStorage.setItem('dw_milestones', JSON.stringify(milestones)); }
+  function saveCollection() { localStorage.setItem('dw_collection', JSON.stringify(collection)); }
+  function saveWallet() { localStorage.setItem('dw_wallet', wallet.toString()); }
+
+  function printInstant(text) { outputEl.innerHTML += text + '\n'; outputEl.scrollTop = outputEl.scrollHeight; }
+  function print(text, delay = 15) {
+    return new Promise((resolve) => {
+      let i = 0;
+      function type() {
+        if (i < text.length) {
+          outputEl.innerHTML += text.charAt(i);
+          outputEl.scrollTop = outputEl.scrollHeight;
+          if (!adventureMode) playClick();
+          i++;
+          setTimeout(type, delay);
+        } else { outputEl.innerHTML += '\n'; outputEl.scrollTop = outputEl.scrollHeight; resolve(); }
+      }
+      type();
+    });
+  }
+
+  // ── Mistral API calls ──────────────────────────
+  async function callMistral(systemPrompt, userMessage) {
+    if (!MISTRAL_KEY) { printInstant('*** NO API KEY. Type SETKEY.'); return null; }
+    try {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
+        body: JSON.stringify({ model: MODEL, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }], temperature: 0.95, response_format: { type: 'json_object' } })
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        printInstant(`*** API ERROR ${res.status}: ${errText}`);
+        return null;
+      }
+      const data = await res.json();
+      return JSON.parse(data.choices?.[0]?.message?.content || '{}');
+    } catch(e) { printInstant(`*** NETWORK ERROR: ${e.message}`); return null; }
+  }
+
+  async function callMistralText(systemPrompt, userMessage, conversation = null) {
+    if (!MISTRAL_KEY) { printInstant('*** NO API KEY.'); return null; }
+    try {
+      let messages = [{ role: 'system', content: systemPrompt }];
+      if (conversation) {
+        const trimmed = conversation.slice(-28);
+        for (const msg of trimmed) {
+          messages.push(msg);
+        }
+        messages.push({ role: 'user', content: userMessage });
+      } else {
+        messages.push({ role: 'user', content: userMessage });
+      }
+
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
+        body: JSON.stringify({ model: MODEL, messages, temperature: 0.95 })
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        printInstant(`*** API ERROR ${res.status}: ${errText}`);
+        return null;
+      }
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content?.trim() || null;
+    } catch(e) { printInstant(`*** NETWORK ERROR: ${e.message}`); return null; }
+  }
+
+  const SYSTEM_PROMPT = "You are the underground sentient database of DISCWORLD, a 1987 BBS for trading banned/rare floppy disk text adventure games. Always respond with ONLY valid JSON. No markdown.";
+
+  function getDiscount() {
+    let d = 1.0;
+    if (milestones['disks_5']) d -= 0.10;
+    if (milestones['value_100']) d -= 0.15;
+    if (milestones['value_10000']) d = 0.5;
+    return Math.max(0.1, d);
+  }
+
+  const COLLECTORS = [
+    { name: "Vince Razorback", trait: "hoarder of buggy adventures" },
+    { name: "Mama Crypt", trait: "bootlegger of self‑deleting games" },
+    { name: "The Degausser", trait: "obsessed with magnetic decay" },
+    { name: "Gristle", trait: "collects horror with real autopsy files" }
+  ];
+  function randomCollector() { return COLLECTORS[Math.floor(Math.random() * COLLECTORS.length)]; }
+
+  async function cmdBrowse() {
+    await print('The Dealer opens his briefcase...');
+    let size = 4;
+    if (milestones['disks_10']) size = 5;
+    if (milestones['value_500']) size = 6;
+    const prompt = `Generate an array of ${size} fictional underground text adventure floppy disks for sale. Each: title, year (1980‑1988), genre, rarity (Common/Uncommon/Rare/Ultra Rare/Legendary), value (integer), condition, copyProtected (boolean), description (one sentence). Return JSON with key "disks". Output ONLY JSON.`;
+    const data = await callMistral(SYSTEM_PROMPT, prompt);
+    if (!data?.disks) { printInstant('The Dealer grumbles.'); return; }
+    browseStock = data.disks.map((d, idx) => ({ ...d, index: idx+1, value: Math.floor(d.value * getDiscount()) }));
+    await print(`\n📦 THE DEALER'S STOCK:`);
+    browseStock.forEach(d => printInstant(`  ${d.index}. ${d.title} (${d.year}) - ${d.rarity} - $${d.value} [${d.condition}]`));
+    printInstant('\nType BUY [number] to purchase.');
+  }
+
+  async function cmdBuy(num) {
+    if (!browseStock.length) { printInstant('No stock. BROWSE first.'); return; }
+    const disk = browseStock.find(d => d.index === num);
+    if (!disk) { printInstant('Invalid number.'); return; }
+    if (wallet < disk.value) { printInstant(`Need $${disk.value}, have $${wallet}.`); return; }
+    wallet -= disk.value; saveWallet();
+    const newDisk = { ...disk, completed: false, adventureLog: [] };
+    collection.push(newDisk); saveCollection();
+    browseStock = browseStock.filter(d => d.index !== num);
+    printInstant(`Bought "${disk.title}". Wallet: $${wallet}.`);
+  }
+
+  async function cmdSearch() {
+    await print('Searching garages and BBS file sections...');
+    if (Math.random() < 0.3) { await print('Nothing found.'); return; }
+    const rarity = rollRarity();
+    const prompt = `Generate a fictional banned text adventure floppy disk. Rarity: ${rarity.name}. Return JSON: title, year, genre, description, rarity, value (${rarity.priceMin}-${rarity.priceMax}), condition, copyProtected (boolean). Output ONLY JSON.`;
+    const disk = await callMistral(SYSTEM_PROMPT, prompt);
+    if (!disk?.title) { await print('The signal faded.'); return; }
+    disk.condition = randomCondition(); disk.completed = false; disk.adventureLog = [];
+    collection.push(disk); saveCollection();
+    await print(`\n💾 Found: ${disk.title} (${disk.year}) [${disk.rarity}] - $${disk.value}`);
+  }
+
+  async function cmdSell(title) {
+    const idx = collection.findIndex(d => d.title.toLowerCase() === title.toLowerCase());
+    if (idx === -1) { printInstant('Not found.'); return; }
+    const disk = collection[idx];
+    let price = Math.floor(disk.value * 0.5);
+    collection.splice(idx, 1); wallet += price;
+    saveCollection(); saveWallet();
+    printInstant(`Sold "${disk.title}" for $${price}. Wallet: $${wallet}.`);
+  }
+
+  // ── TRADE (fixed) ──────────────────────────────
+  async function cmdTrade() {
+    const collector = randomCollector();
+    const myTitles = collection.length > 0 ? collection.map(d => d.title).join(', ') : 'nothing yet';
+    await print(`Contacting "${collector.name}"...`);
+    
+    const prompt = `A collector named "${collector.name}" (${collector.trait}) wants to trade.
+Your disks: [${myTitles}].
+
+Generate a JSON object with **exactly** these keys and nothing else:
+- "from" (string, the collector's name)
+- "personality" (string, a short description of their style)
+- "offerTitle" (string, the title of the game they offer)
+- "offerYear" (number, between 1980 and 1988)
+- "offerDescription" (string, one sentence)
+- "message" (string, what they say to you)
+- "desiredDisk" (string, a title from your collection, or "unknown")
+
+Output ONLY the JSON object. No markdown, no extra text.`;
+    
+    const trade = await callMistral(SYSTEM_PROMPT, prompt);
+    
+    if (!trade) {
+      printInstant('The modem hisses… no response.');
+      return;
+    }
+    
+    // Validate required fields
+    if (!trade.from || !trade.offerTitle) {
+      printInstant('Trade data incomplete. Raw reply:');
+      printInstant(JSON.stringify(trade, null, 2));
+      return;
+    }
+
+    pendingTrade = {
+      from: trade.from,
+      desiredDisk: trade.desiredDisk,
+      offer: {
+        title: trade.offerTitle,
+        year: trade.offerYear,
+        description: trade.offerDescription,
+        condition: randomCondition(),
+        rarity: rollRarity().name,
+        value: Math.floor(Math.random() * 50 + 10)
+      }
+    };
+
+    await print(`\n📦 TRADE OFFER from ${trade.from} [${trade.personality}]`);
+    await print(`   Offers: "${trade.offerTitle}" (${trade.offerYear}) [${pendingTrade.offer.condition}]`);
+    await print(`   "${trade.message}"`);
+    if (trade.desiredDisk && trade.desiredDisk !== 'unknown') {
+      await print(`\n   They want your "${trade.desiredDisk}".`);
+    }
+    await print('\n   Do you ACCEPT? (Y/N)');
+  }
+
+  function acceptTrade() {
+    if (!pendingTrade) { printInstant('No pending trade.'); return; }
+    const { desiredDisk, offer } = pendingTrade;
+    if (desiredDisk && desiredDisk !== 'unknown') {
+      const idx = collection.findIndex(d => d.title === desiredDisk);
+      if (idx !== -1) {
+        collection.splice(idx, 1);
+        printInstant(`You gave away "${desiredDisk}".`);
+      }
+    }
+    collection.push({ ...offer, completed: false, adventureLog: [] });
+    saveCollection();
+    printInstant(`Trade complete. "${offer.title}" added.`);
+    pendingTrade = null;
+  }
+
+  function declineTrade() {
+    if (pendingTrade) printInstant('Trade declined.');
+    pendingTrade = null;
+  }
+
+  function cmdShow() {
+    if (!collection.length) { printInstant('Your disk box is empty.'); return; }
+    printInstant('\n💾 YOUR COLLECTION:');
+    collection.forEach((d, i) => printInstant(`${i+1}. ${d.title} (${d.year}) [${d.rarity}] $${d.value} - ${d.condition}`));
+  }
+
+  // ── ADVENTURE MODE ────────────────────────────
+  async function cmdPlay(title) {
+    if (adventureMode) { printInstant('Already playing. QUIT first.'); return; }
+    const idx = collection.findIndex(d => d.title.toLowerCase() === title.toLowerCase());
+    if (idx === -1) { printInstant('You don\'t own that disk.'); return; }
+    const disk = collection[idx];
+    printInstant(`\nBooting "${disk.title}"...`);
+    adventureMode = true;
+    currentAdventure = { discObj: disk, adventureLog: [] };
+    currentAdventureHistory = [];
+
+    const sysPrompt = `You are the parser for the 1985 text adventure "${disk.title}" (${disk.genre}). ${disk.description}
+
+RULES:
+- Respond in second-person present tense, like classic Infocom games.
+- Describe the current location, visible objects, and exits.
+- Wait for the player to type a command before advancing the story.
+- NEVER end the game on the first turn. The player must explore and interact.
+- Only output "*** THE END ***" when the player reaches a genuine narrative conclusion (e.g., escapes, solves the mystery, or dies).
+- If the player types LOOK, redescribe the current location in more detail.
+- Keep each response between 100-300 characters.
+- Do not include the player's command in your response.`;
+
+    const initial = await callMistralText(sysPrompt, "START");
+    if (!initial) { printInstant('Disk error.'); adventureMode = false; return; }
+    currentAdventure.adventureLog.push({ input: 'START', output: initial });
+    currentAdventureHistory.push({ role: 'user', content: 'START' }, { role: 'assistant', content: initial });
+    printInstant(initial);
+    printInstant('\n[Type commands, SAVE, or QUIT]');
+  }
+
+  async function processAdventureCommand(cmd) {
+    if (!currentAdventure) return;
+    const upper = cmd.toUpperCase().trim();
+    if (upper === 'SAVE') {
+      const idx = collection.findIndex(d => d.title === currentAdventure.discObj.title);
+      if (idx !== -1) {
+        collection[idx].adventureLog = [...currentAdventure.adventureLog];
+        saveCollection();
+        printInstant('Game saved.');
+      }
+      return;
+    }
+    if (upper === 'QUIT' || upper === 'EXIT') {
+      const idx = collection.findIndex(d => d.title === currentAdventure.discObj.title);
+      if (idx !== -1) {
+        collection[idx].adventureLog = [...currentAdventure.adventureLog];
+        saveCollection();
+      }
+      printInstant('Ejecting disk...');
+      adventureMode = false;
+      currentAdventure = null;
+      currentAdventureHistory = [];
+      return;
+    }
+
+    const sysPrompt = `You are the parser for "${currentAdventure.discObj.title}". Keep responding in character.`;
+    const response = await callMistralText(sysPrompt, cmd, currentAdventureHistory);
+    if (!response) {
+      adventureMode = false;
+      currentAdventure = null;
+      currentAdventureHistory = [];
+      return;
+    }
+    currentAdventure.adventureLog.push({ input: cmd, output: response });
+    currentAdventureHistory.push({ role: 'user', content: cmd }, { role: 'assistant', content: response });
+    printInstant(response);
+    if (response.includes('*** THE END ***')) {
+      currentAdventure.discObj.completed = true;
+      printInstant('Congratulations! You completed the game.');
+      const idx = collection.findIndex(d => d.title === currentAdventure.discObj.title);
+      if (idx !== -1) {
+        collection[idx].adventureLog = [...currentAdventure.adventureLog];
+        collection[idx].completed = true;
+        saveCollection();
+      }
+      adventureMode = false;
+      currentAdventure = null;
+      currentAdventureHistory = [];
+    }
+  }
+
+  // Dungeon Master TALK
+  async function cmdTalk(msg) {
+    if (!MISTRAL_KEY) { printInstant('*** NO API KEY.'); return; }
+    const prompt = `You are the Dungeon Master of DISCWORLD. Reply in riddles and parser puns. Keep under 200 chars.`;
+    const reply = await callMistralText(prompt, msg);
+    if (reply) {
+      outputEl.innerHTML += `<span style="color:#55ff55;">🧙 DM: ${reply}</span>\n`;
+      outputEl.scrollTop = outputEl.scrollHeight;
+    }
+  }
+
+  function cmdHelp() {
+    let help = `
+  COMMANDS:
+  BROWSE / BUY [n] / SELL [title] / SEARCH
+  TRADE / SHOW / PLAY [title] / CRACK [title] / BACKUP [title]
+  REVIEW [title] / WANTED / RANK / WALLET
+  TALK [msg] / ACCEPT / DECLINE / HELP
+  SETKEY / MUTE / UNMUTE / CLEAR
+  During adventure: SAVE, QUIT, or any parser command`;
+    printInstant(help);
+  }
+
+  cmdInput.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter') return;
+    initAudio();
+    const raw = cmdInput.value.trim();
+    cmdInput.value = '';
+    if (!raw) return;
+    if (adventureMode) {
+      printInstant(`> ${raw}`);
+      await processAdventureCommand(raw);
+      return;
+    }
+    printInstant(`> ${raw}`);
+    const upper = raw.toUpperCase();
+    if (upper === 'BROWSE') await cmdBrowse();
+    else if (upper.startsWith('BUY ')) { const n = parseInt(raw.slice(4)); if (!isNaN(n)) await cmdBuy(n); else printInstant('Usage: BUY [number]'); }
+    else if (upper === 'SEARCH') await cmdSearch();
+    else if (upper.startsWith('SELL ')) { const t = raw.slice(5).trim(); if (t) await cmdSell(t); else printInstant('Usage: SELL [title]'); }
+    else if (upper === 'SHOW') cmdShow();
+    else if (upper.startsWith('PLAY ')) { const t = raw.slice(5).trim(); if (t) await cmdPlay(t); else printInstant('Usage: PLAY [title]'); }
+    else if (upper === 'HELP') cmdHelp();
+    else if (upper.startsWith('TALK ')) { const msg = raw.slice(5).trim(); if (msg) await cmdTalk(msg); else printInstant('Usage: TALK [message]'); }
+    else if (upper === 'SETKEY') { MISTRAL_KEY = ''; localStorage.removeItem('dw_api_key'); keyOverlay.classList.remove('hidden'); apiKeyInput.focus(); }
+    else if (upper === 'MUTE') { soundEnabled = false; printInstant('Sounds muted.'); }
+    else if (upper === 'UNMUTE') { soundEnabled = true; printInstant('Sounds unmuted.'); }
+    else if (upper === 'CLEAR') outputEl.innerHTML = '';
+    else if (upper === 'RANK') { printInstant(`Disks: ${collection.length}, Wallet: $${wallet}`); }
+    else if (upper === 'WALLET') printInstant(`💰 $${wallet}`);
+    else if (upper === 'TRADE') await cmdTrade();
+    else if (upper === 'ACCEPT' || upper === 'Y') acceptTrade();
+    else if (upper === 'DECLINE' || upper === 'N') declineTrade();
+    else printInstant('Unknown command. Type HELP.');
+  });
+
+  async function boot() {
+    await print('CONNECTING TO DISCWORLD BBS...');
+    await new Promise(r => setTimeout(r, 1000));
+    await print('HANDSHAKE COMPLETE.');
+    await print('   DISCWORLD - Underground Disk Exchange [1987]\n');
+    printInstant(`Wallet: $${wallet}`);
+    if (collection.length) { cmdShow(); } else { printInstant('Your disk box is empty. Try BROWSE, SEARCH, or TRADE.'); }
+    printInstant('Type HELP for commands.');
+  }
+
+  if (MISTRAL_KEY) { window._booted = true; boot(); }
+})();
+</script>
+</body>
+</html>
