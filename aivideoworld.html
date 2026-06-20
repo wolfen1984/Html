@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <title>VIDEOWORLD (1987)</title>
+  <style>
+    * {
+      margin: 0; padding: 0; box-sizing: border-box;
+    }
+    body {
+      background: #0a0a0a; color: #ff44ff;
+      font-family: 'Press Start 2P', monospace;
+      display: flex; justify-content: center; align-items: center;
+      height: 100vh; overflow: hidden;
+      text-shadow: 0 0 5px rgba(255,68,255,0.6);
+    }
+    body::after {
+      content: ''; position: fixed; top:0; left:0; width:100%; height:100%;
+      background: repeating-linear-gradient(0deg, rgba(0,0,0,0.1) 0px, rgba(0,0,0,0.1) 1px, transparent 1px, transparent 3px);
+      pointer-events: none; z-index: 999;
+    }
+    #wrapper {
+      width: 100%; max-width: 920px; height: 96vh;
+      background: #0c0a0c; border: 3px double #aa44aa;
+      box-shadow: 0 0 30px #441144; display: flex; flex-direction: column;
+      position: relative; z-index: 1;
+    }
+    #wrapper.chat-mode {
+      background: #0a080a; border-color: #cc44cc; box-shadow: 0 0 50px #663366;
+    }
+    #title {
+      padding: 12px; text-align: center; font-size: 1.1em;
+      border-bottom: 2px solid #aa44aa; white-space: pre; letter-spacing: 2px;
+      background: #1a0a1a; color: #ff66ff;
+    }
+    #output {
+      flex: 1; overflow-y: auto; padding: 20px; white-space: pre-wrap;
+      line-height: 1.7; font-size: 1em;
+      background: #0a080a; color: #ff33cc; position: relative; z-index: 3;
+    }
+    #output::-webkit-scrollbar { width: 8px; }
+    #output::-webkit-scrollbar-thumb { background: #aa44aa; }
+    #input-line {
+      display: flex; border-top: 2px solid #aa44aa; background: #1a0a1a; z-index: 3;
+    }
+    #prompt {
+      padding: 12px 8px 12px 18px; font-weight: bold; color: #ff66ff;
+    }
+    #cmd {
+      flex: 1; background: transparent; border: none; color: #ff44ff;
+      font-family: 'Press Start 2P', monospace; font-size: 1em;
+      padding: 12px 10px; outline: none; caret-color: #ff44ff;
+    }
+    #cmd::placeholder { color: #663366; }
+    #key-overlay {
+      position: fixed; top:0; left:0; width:100%; height:100%;
+      background: rgba(0,0,0,0.95); display: flex; justify-content: center;
+      align-items: center; z-index: 1000; flex-direction: column;
+      text-align: center; font-family: 'Press Start 2P', monospace;
+    }
+    #key-box {
+      border: 2px solid #cc44cc; padding: 40px; background: #0a080a;
+      box-shadow: 0 0 30px #663366; width: 90%; max-width: 500px;
+      color: #ff66ff;
+    }
+    #key-box h2 { margin-bottom: 20px; font-size: 1.5em; }
+    #api-key-input {
+      width: 100%; padding: 12px; background: #000; border: 1px solid #aa44aa;
+      color: #ff44ff; font-family: 'Press Start 2P', monospace; font-size: 1em;
+      margin-bottom: 20px; outline: none;
+    }
+    #api-key-input::placeholder { color: #663366; }
+    #save-key-btn {
+      padding: 10px 30px; background: #1a0a1a; border: 1px solid #cc44cc;
+      color: #ff44ff; font-family: 'Press Start 2P', monospace; font-size: 1.2em;
+      cursor: pointer; transition: background 0.2s;
+    }
+    #save-key-btn:hover { background: #2a1a2a; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+<div id="wrapper">
+  <div id="title">
+█▓▒░ VIDEOWORLD ░▒▓█
+  Midnight Video Rental [1987]
+  </div>
+  <div id="output"></div>
+  <div id="input-line">
+    <span id="prompt">&gt;</span>
+    <input type="text" id="cmd" placeholder="TYPE COMMAND..." autofocus>
+  </div>
+</div>
+
+<div id="key-overlay" class="hidden">
+  <div id="key-box">
+    <h2>ENTER MISTRAL API KEY</h2>
+    <input type="text" id="api-key-input" placeholder="Paste your key here..." autocomplete="off" spellcheck="false">
+    <br>
+    <button id="save-key-btn">SAVE KEY</button>
+    <p style="font-size:0.8em; margin-top:20px; color:#996699;">Key stored locally in your browser.</p>
+  </div>
+</div>
+
+<script>
+// ──────────────────────────────────────────────
+// VIDEOWORLD – Midnight Video Rental Sim (1987)
+// ──────────────────────────────────────────────
+let MISTRAL_KEY = '';
+const MODEL = 'mistral-small-latest';
+const API_URL = 'https://api.mistral.ai/v1/chat/completions';
+
+// DOM
+const keyOverlay = document.getElementById('key-overlay');
+const apiKeyInput = document.getElementById('api-key-input');
+const saveKeyBtn = document.getElementById('save-key-btn');
+const outputEl = document.getElementById('output');
+const cmdInput = document.getElementById('cmd');
+const wrapper = document.getElementById('wrapper');
+
+// Audio
+let audioCtx = null, soundEnabled = true;
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+function playClick() {
+  if (!soundEnabled || !audioCtx) return;
+  try {
+    const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.frequency.value = 600 + Math.random()*300;
+    gain.gain.setValueAtTime(0.04, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime+0.03);
+    osc.start(); osc.stop(audioCtx.currentTime+0.03);
+  } catch(e) {}
+}
+
+// Key management
+let savedKey = localStorage.getItem('vw_api_key');
+function setApiKey(key) {
+  MISTRAL_KEY = key;
+  if (key) {
+    localStorage.setItem('vw_api_key', key);
+    keyOverlay.classList.add('hidden');
+    cmdInput.focus();
+  }
+}
+if (!savedKey) {
+  keyOverlay.classList.remove('hidden');
+  apiKeyInput.focus();
+} else {
+  MISTRAL_KEY = savedKey;
+}
+saveKeyBtn.addEventListener('click', () => {
+  const key = apiKeyInput.value.trim();
+  if (!key) { alert('Please enter a valid API key.'); return; }
+  setApiKey(key);
+  if (!window.booted) { window.booted = true; boot(); }
+});
+apiKeyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveKeyBtn.click(); });
+
+// ── Global State ──────────────────────────────
+let cash = parseInt(localStorage.getItem('vw_cash') || '100');
+let inventory = JSON.parse(localStorage.getItem('vw_inventory') || '[]');
+let currentNPC = null, chatHistory = [];
+let currentSign = localStorage.getItem('vw_sign') || 'VIDEOWORLD';
+let npcMemory = JSON.parse(localStorage.getItem('vw_npcMemory') || '{}');
+let townMood = localStorage.getItem('vw_townMood') || 'quiet after sunset';
+
+function saveAll() {
+  localStorage.setItem('vw_cash', cash);
+  localStorage.setItem('vw_inventory', JSON.stringify(inventory));
+  localStorage.setItem('vw_sign', currentSign);
+  localStorage.setItem('vw_npcMemory', JSON.stringify(npcMemory));
+  localStorage.setItem('vw_townMood', townMood);
+}
+
+// Terminal output
+function print(text, delay=15) {
+  return new Promise(resolve => {
+    let i = 0;
+    function type() {
+      if (i < text.length) {
+        outputEl.innerHTML += text.charAt(i);
+        outputEl.scrollTop = outputEl.scrollHeight;
+        if (!currentNPC) playClick();
+        i++;
+        setTimeout(type, delay);
+      } else {
+        outputEl.innerHTML += '\n';
+        outputEl.scrollTop = outputEl.scrollHeight;
+        resolve();
+      }
+    }
+    type();
+  });
+}
+function printInstant(text) {
+  outputEl.innerHTML += text + '\n';
+  outputEl.scrollTop = outputEl.scrollHeight;
+}
+
+// API call JSON
+async function callMistralJSON(systemPrompt, userMessage) {
+  if (!MISTRAL_KEY) { printInstant('*** NO API KEY. Type SETKEY.'); return null; }
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage }
+        ],
+        temperature: 0.9,
+        response_format: { type: 'json_object' }
+      })
+    });
+    if (!res.ok) { printInstant(`*** API ERROR ${res.status}`); return null; }
+    const data = await res.json();
+    const content = data.choices[0]?.message?.content;
+    if (!content) return null;
+    try { return JSON.parse(content); } catch(e) { printInstant('*** JSON parse error.'); return null; }
+  } catch(e) { printInstant(`*** NETWORK ERROR: ${e.message}`); return null; }
+}
+
+// API call text
+async function callMistralText(systemPrompt, userMessage) {
+  if (!MISTRAL_KEY) { printInstant('*** NO API KEY.'); return null; }
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage }
+        ],
+        temperature: 0.9
+      })
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.choices[0]?.message?.content || null;
+  } catch(e) { return null; }
+}
+
+// ── SYSTEM PROMPTS ───────────────────────────
+const SYSTEM_SHOP = `You are the inventory system of VideoWorld, a late-night VHS rental shop in a small 1987 town. All tapes have a dark history or supernatural edge. You generate customer details, tapes, and returns as JSON. Always only valid JSON, no markdown.`.trim();
+const SYSTEM_CHAT = `You are a customer in VideoWorld, talking to the clerk. Reply with JSON: {"dialogue":"your words", "acceptedSuggestion": true/false if the clerk just suggested a different tape and you accept, "newDesire": optional new desired tape, "offeredTape": optional new tape you now want to sell}. Keep personality consistent.`.trim();
+
+// ── NPC Memory ──────────────────────────────
+function rememberNPC(name, event) {
+  if (!npcMemory[name]) npcMemory[name] = [];
+  npcMemory[name].push(event);
+  if (npcMemory[name].length > 10) npcMemory[name].shift();
+  saveAll();
+}
+
+// ── CORE GAME COMMANDS ──────────────────────
+
+async function cmdCustomer() {
+  if (currentNPC) { printInstant('A customer is already here. Finish with them first.'); return; }
+  await print('The bell above the door chimes…');
+  const rentedTapes = inventory.filter(t => t.rented);
+  const invList = inventory.filter(t => !t.rented).map(t => t.title).join(', ') || 'nothing';
+  const rentedList = rentedTapes.map(t => `${t.title} (rented to ${t.renter})`).join('; ') || 'none';
+  const prompt = `A customer enters VideoWorld. The shop sign reads: "${currentSign}". Available tapes on shelf: [${invList}]. Currently rented out tapes: [${rentedList}]. Town mood: ${townMood}.
+Generate a JSON object with:
+- "visitor": { "name", "description", "dialogue": their first line }
+- "returningTape": (optional) if this customer is returning a previously rented tape, provide an object with { "title": (must exactly match a rented tape title), "condition": "description of any physical changes", "changes": "what new content or weird thing happened to the tape" }. If not returning, set to null.
+- "desiredTape": the title of the tape they want to rent tonight (can be a tape that exists in the store, or a made-up title that you don't have).
+- "offeredTape": (optional) if they brought a tape to sell/trade, provide an object { "name", "year", "genre", "description", "value": price they want for it }. If none, set to null.
+Output only the JSON.`;
+  const data = await callMistralJSON(SYSTEM_SHOP, prompt);
+  if (!data || !data.visitor) { printInstant('…but the door opened to an empty street.'); return; }
+
+  // Process return
+  if (data.returningTape && data.returningTape.title) {
+    const idx = inventory.findIndex(t => t.title.toLowerCase() === data.returningTape.title.toLowerCase() && t.rented);
+    if (idx !== -1) {
+      inventory[idx].rented = false;
+      inventory[idx].renter = null;
+      if (data.returningTape.changes) {
+        inventory[idx].description += ` ${data.returningTape.changes}`;
+      }
+      printInstant(`\n📼 RETURN: "${inventory[idx].title}" is back. ${data.returningTape.condition || ''}`);
+      saveAll();
+    } else {
+      printInstant(`(They claimed to return "${data.returningTape.title}", but it's not in our rental records.)`);
+    }
+  }
+
+  // Set up NPC
+  const name = data.visitor.name;
+  if (npcMemory[name]) {
+    const hist = npcMemory[name].slice(-3).join('; ');
+    data.visitor.dialogue = `[Recognising you] ${data.visitor.dialogue} (They recall: ${hist})`;
+  }
+  currentNPC = {
+    visitor: data.visitor,
+    desiredTape: data.desiredTape || '',
+    offeredTape: data.offeredTape || null
+  };
+  chatHistory = [];
+  printInstant(`\n${name} enters. ${data.visitor.description}`);
+  printInstant(`"${data.visitor.dialogue}"`);
+  if (data.offeredTape) {
+    printInstant(`\n📼 OFFERED TAPE: "${data.offeredTape.name}" (${data.offeredTape.year}, ${data.offeredTape.genre})`);
+    printInstant(`  "${data.offeredTape.description}"`);
+    printInstant(`  Asking price: $${data.offeredTape.value}`);
+    printInstant('You can BUY it, TRADE for it, or ignore.');
+  }
+  printInstant(`\nTonight they want: "${data.desiredTape}"`);
+  printInstant('Type RENT, SUGGEST, CREATE, CHAT, or DECLINE.');
+  wrapper.classList.add('chat-mode');
+}
+
+async function cmdRent(tapeName) {
+  if (!currentNPC) { printInstant('No customer here.'); return; }
+  if (!tapeName) { printInstant('Usage: RENT <tape title>'); return; }
+  const idx = inventory.findIndex(t => t.title.toLowerCase() === tapeName.toLowerCase() && !t.rented);
+  if (idx === -1) { printInstant(`"${tapeName}" isn't available right now.`); return; }
+  if (currentNPC.desiredTape && tapeName.toLowerCase() !== currentNPC.desiredTape.toLowerCase()) {
+    printInstant(`${currentNPC.visitor.name} shakes their head. "That's not what I came for…"`);
+    return;
+  }
+  const tape = inventory[idx];
+  tape.rented = true;
+  tape.renter = currentNPC.visitor.name;
+  cash += tape.rentalPrice || 3;
+  saveAll();
+  printInstant(`You rent "${tape.title}" to ${currentNPC.visitor.name} for $${tape.rentalPrice || 3}.`);
+  rememberNPC(currentNPC.visitor.name, `rented "${tape.title}"`);
+  clearNPC();
+}
+
+async function cmdSuggest(tapeName) {
+  if (!currentNPC) { printInstant('No customer here.'); return; }
+  if (!tapeName) { printInstant('Usage: SUGGEST <tape title>'); return; }
+  const idx = inventory.findIndex(t => t.title.toLowerCase() === tapeName.toLowerCase() && !t.rented);
+  if (idx === -1) { printInstant(`"${tapeName}" isn't available.`); return; }
+  const tape = inventory[idx];
+  const prompt = `The customer ${currentNPC.visitor.name} originally wanted "${currentNPC.desiredTape}". The clerk suggests "${tape.title}" (${tape.description}) instead. Do you accept? Reply JSON: {"accepted": true/false, "dialogue": "your response"}.`;
+  const res = await callMistralJSON(SYSTEM_CHAT, prompt);
+  if (!res) return;
+  printInstant(`\n${currentNPC.visitor.name}: "${res.dialogue}"`);
+  if (res.accepted) {
+    currentNPC.desiredTape = tape.title;
+    printInstant('They agree. Now you can RENT it.');
+  }
+}
+
+async function cmdCreate(genre) {
+  if (!genre) { printInstant('Usage: CREATE <genre or description>'); return; }
+  if (cash < 2) { printInstant('You need $2 for a blank tape.'); return; }
+  cash -= 2; saveAll();
+  await print('Recording from the archive…');
+  const prompt = `Generate a fictional VHS tape with a dark, 1980s vibe. Genre/theme: "${genre}". Return JSON: { "title": string, "year": 1975-1989, "genre": string, "description": one lurid sentence, "rentalPrice": integer 2-7, "secret": hidden property or curse }. Only JSON.`;
+  const data = await callMistralJSON(SYSTEM_SHOP, prompt);
+  if (!data || !data.title) { cash += 2; saveAll(); printInstant('Static. The tape is blank.'); return; }
+  const newTape = {
+    title: data.title,
+    year: data.year,
+    genre: data.genre,
+    description: data.description,
+    rentalPrice: data.rentalPrice,
+    value: data.rentalPrice * 5,
+    rented: false,
+    renter: null,
+    secret: data.secret || '',
+    knownSecret: false
+  };
+  inventory.push(newTape);
+  saveAll();
+  printInstant(`\n🎬 NEW TAPE CREATED: "${newTape.title}" (${newTape.year}) [${newTape.genre}]`);
+  printInstant(`  "${newTape.description}"`);
+  printInstant('It is now on your shelf.');
+}
+
+async function cmdBuy() {
+  if (!currentNPC) { printInstant('No customer.'); return; }
+  if (!currentNPC.offeredTape) { printInstant('No tape offered.'); return; }
+  const price = currentNPC.offeredTape.value;
+  if (cash < price) { printInstant(`You need $${price}, but only have $${cash}.`); return; }
+  cash -= price;
+  const newTape = {
+    title: currentNPC.offeredTape.name,
+    year: currentNPC.offeredTape.year,
+    genre: currentNPC.offeredTape.genre,
+    description: currentNPC.offeredTape.description,
+    rentalPrice: Math.ceil(price / 5),
+    value: price,
+    rented: false,
+    renter: null,
+    secret: '',
+    knownSecret: false
+  };
+  inventory.push(newTape);
+  saveAll();
+  printInstant(`You bought "${newTape.title}" for $${price}. Added to inventory.`);
+  currentNPC.offeredTape = null;
+}
+
+async function cmdTrade(yourTapeName) {
+  if (!currentNPC) { printInstant('No customer.'); return; }
+  if (!currentNPC.offeredTape) { printInstant('No tape offered to trade.'); return; }
+  if (!yourTapeName) { printInstant('Usage: TRADE <your tape title>'); return; }
+  const idx = inventory.findIndex(t => t.title.toLowerCase() === yourTapeName.toLowerCase() && !t.rented);
+  if (idx === -1) { printInstant(`"${yourTapeName}" isn't available to trade.`); return; }
+  const yourTape = inventory.splice(idx, 1)[0];
+  const theirTape = {
+    title: currentNPC.offeredTape.name,
+    year: currentNPC.offeredTape.year,
+    genre: currentNPC.offeredTape.genre,
+    description: currentNPC.offeredTape.description,
+    rentalPrice: Math.ceil(currentNPC.offeredTape.value / 5),
+    value: currentNPC.offeredTape.value,
+    rented: false,
+    renter: null,
+    secret: '',
+    knownSecret: false
+  };
+  inventory.push(theirTape);
+  saveAll();
+  printInstant(`You traded "${yourTape.title}" for "${theirTape.title}".`);
+  currentNPC.offeredTape = null;
+  rememberNPC(currentNPC.visitor.name, `traded for "${theirTape.title}"`);
+}
+
+async function cmdChat(message) {
+  if (!currentNPC) { printInstant('No one to talk to.'); return; }
+  if (!message) { printInstant('Usage: CHAT <message>'); return; }
+  const context = {
+    visitor: currentNPC.visitor,
+    desiredTape: currentNPC.desiredTape,
+    offeredTape: currentNPC.offeredTape
+  };
+  const msgs = [
+    { role: 'system', content: SYSTEM_CHAT + '\nContext: ' + JSON.stringify(context) },
+    ...chatHistory,
+    { role: 'user', content: message }
+  ];
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
+      body: JSON.stringify({ model: MODEL, messages: msgs, temperature: 0.9, response_format: { type: 'json_object' } })
+    });
+    const data = await res.json();
+    const content = data.choices[0]?.message?.content;
+    if (!content) return;
+    const reply = JSON.parse(content);
+    printInstant(`\n${currentNPC.visitor.name}: "${reply.dialogue}"`);
+    if (reply.acceptedSuggestion && reply.newDesire) {
+      currentNPC.desiredTape = reply.newDesire;
+      printInstant(`(They now want: "${reply.newDesire}")`);
+    }
+    if (reply.offeredTape) {
+      currentNPC.offeredTape = reply.offeredTape;
+      printInstant(`📼 They now offer: "${reply.offeredTape.name}"`);
+    }
+    chatHistory.push({ role: 'user', content: message });
+    chatHistory.push({ role: 'assistant', content: reply.dialogue });
+  } catch(e) { printInstant('*** Chat error.'); }
+}
+
+function cmdDecline() {
+  if (!currentNPC) { printInstant('Nobody here.'); return; }
+  printInstant(`${currentNPC.visitor.name} leaves, disappointed.`);
+  rememberNPC(currentNPC.visitor.name, 'was declined');
+  clearNPC();
+}
+
+function clearNPC() {
+  currentNPC = null;
+  chatHistory = [];
+  wrapper.classList.remove('chat-mode');
+}
+
+async function cmdReturn(tapeName) {
+  if (!tapeName) { printInstant('Usage: RETURN <tape title>'); return; }
+  const idx = inventory.findIndex(t => t.title.toLowerCase() === tapeName.toLowerCase() && t.rented);
+  if (idx === -1) { printInstant(`"${tapeName}" isn't rented out.`); return; }
+  inventory[idx].rented = false;
+  inventory[idx].renter = null;
+  saveAll();
+  printInstant(`"${inventory[idx].title}" has been returned.`);
+}
+
+async function cmdWatch(tapeName) {
+  if (!tapeName) { printInstant('Usage: WATCH <tape title>'); return; }
+  const idx = inventory.findIndex(t => t.title.toLowerCase() === tapeName.toLowerCase());
+  if (idx === -1) { printInstant(`No tape called "${tapeName}".`); return; }
+  const tape = inventory[idx];
+  if (tape.rented) { printInstant(`That tape is out with ${tape.renter}.`); return; }
+  await print('You slide the tape into the VCR…');
+  const prompt = `Describe a memorable scene from the fictional VHS tape "${tape.title}" (${tape.year}, ${tape.genre}). Keep it under a paragraph, eerie and cinematic.`;
+  const scene = await callMistralText(SYSTEM_SHOP, prompt);
+  if (scene) printInstant(`\n📺 PLAYING: ${scene.trim()}`);
+  else printInstant('The screen fills with static.');
+}
+
+async function cmdAppraise(tapeName) {
+  if (!tapeName) { printInstant('Usage: APPRAISE <tape title>'); return; }
+  const idx = inventory.findIndex(t => t.title.toLowerCase() === tapeName.toLowerCase());
+  if (idx === -1) { printInstant(`No tape "${tapeName}".`); return; }
+  const tape = inventory[idx];
+  if (tape.knownSecret) { printInstant(`Already appraised: ${tape.secret}`); return; }
+  if (cash < 5) { printInstant('Appraisal costs $5.'); return; }
+  cash -= 5; saveAll();
+  await print('Examining the cassette under a flickering light…');
+  if (!tape.secret) {
+    const prompt = `Reveal the hidden secret of the VHS tape "${tape.title}" (${tape.description}). One or two sentences, chilling.`;
+    const secret = await callMistralText(SYSTEM_SHOP, prompt);
+    if (!secret) { cash += 5; saveAll(); return; }
+    tape.secret = secret.trim();
+  }
+  tape.knownSecret = true;
+  saveAll();
+  printInstant(`Secret: ${tape.secret}`);
+}
+
+async function cmdRadio() {
+  await print('You turn on the little radio behind the counter…');
+  const snippet = await callMistralText(SYSTEM_SHOP, 'Generate a short 1987 late-night radio segment (news, weather, or a song intro) that matches the mood of a creepy video store.');
+  if (snippet) printInstant(`\n📻 RADIO: ${snippet.trim()}`);
+  else printInstant('Static.');
+}
+
+function cmdShelf() {
+  const available = inventory.filter(t => !t.rented);
+  const rented = inventory.filter(t => t.rented);
+  printInstant('\n📼 YOUR SHELVES:');
+  if (available.length === 0) printInstant('  (No tapes available)');
+  available.forEach((t, i) => {
+    const secret = t.knownSecret ? ' 👁' : '';
+    printInstant(`  ${i+1}. ${t.title} (${t.year}) [${t.genre}]${secret} — $${t.rentalPrice}/rental`);
+    printInstant(`     "${t.description}"`);
+  });
+  if (rented.length > 0) {
+    printInstant('\n🚫 RENTED OUT:');
+    rented.forEach(t => printInstant(`  - ${t.title} → ${t.renter}`));
+  }
+}
+
+function cmdLedger() {
+  printInstant(`\n💰 Cash: $${cash}   📼 Tapes on shelf: ${inventory.filter(t => !t.rented).length}   🚫 Rented out: ${inventory.filter(t => t.rented).length}`);
+  printInstant(`🪧 Sign: "${currentSign}"   🌙 Town mood: ${townMood}`);
+}
+
+function cmdSign(newSign) {
+  if (!newSign) { printInstant('Usage: SIGN <new text>'); return; }
+  currentSign = newSign;
+  saveAll();
+  printInstant(`Sign changed to: "${currentSign}"`);
+}
+
+function cmdHelp() {
+  printInstant(`
+  COMMANDS:
+  CUSTOMER / NEXT      Wait for a late‑night visitor
+  RENT <tape>          Rent the tape the customer wants (must match their desire)
+  SUGGEST <tape>       Offer an alternative tape; AI decides if they accept
+  CREATE <genre>       Record a new tape from the archive (costs $2)
+  BUY                  Purchase the customer's offered tape
+  TRADE <your tape>    Swap one of your tapes for their offered tape
+  CHAT <message>       Talk to the current customer
+  DECLINE              Send the customer away
+  RETURN <tape>        Manually mark a rented tape as returned
+  WATCH <tape>         View a scene from a tape you own
+  APPRAISE <tape>      Uncover a tape's hidden secret ($5)
+  SHELF / INVENTORY    List all tapes
+  LEDGER               Show cash, rentals, and town mood
+  SIGN <text>          Change the shop sign
+  RADIO                Listen to the 1987 airwaves
+  WAIT / CLOSE         End the night (overnight flavour)
+  TUTORIAL             Read the full gameplay guide
+  CLEAR                Clear screen
+  MUTE / UNMUTE        Toggle sound
+  SETKEY               Change API key
+  HELP                 This list
+  `);
+}
+
+function cmdTutorial() {
+  printInstant(`
+  ╔══════════════════════════════════════════╗
+  ║        VIDEOWORLD TUTORIAL               ║
+  ╚══════════════════════════════════════════╝
+
+  Welcome to your own midnight video rental shop. The sun has set, the VCRs are humming, and the first customer is about to walk through the door.
+
+  ░▒▓ THE BASICS
+  - Every night, townsfolk come looking for a specific tape. Some want a film you already have; others ask for titles you've never heard of.
+  - Use RENT <tape> to loan out a tape if it matches their request. You earn the rental price in cash.
+  - If you don't have the tape they want, you can CREATE one from the archive (costs $2 for a blank tape) – the AI will generate a brand‑new VHS with a title, genre, and a dark secret.
+  - Customers sometimes bring their own tapes to sell. You can BUY them outright or TRADE one of your own tapes for it.
+
+  ░▒▓ TALKING TO CUSTOMERS
+  - CHAT allows you to have freeform conversations. They might reveal why they need a certain film, change their mind, or offer you a completely different deal.
+  - If a customer is unsure, SUGGEST <tape> to propose an alternative. The AI will decide if they accept, and if so, you can rent it to them.
+
+  ░▒▓ TAPE SECRETS & RETURNING TAPES
+  - Every tape has a hidden secret. Use APPRAISE ($5) to learn what lurks beneath the static – a curse, a hidden message, a scene that only plays at 3am.
+  - Some customers return tapes that have physically changed. The AI will describe new scratches, handwritten notes, or even extra footage. These changes are permanent – your inventory evolves over time.
+  - You can also manually process a return with RETURN <tape> if a tape comes back without a customer.
+
+  ░▒▓ THE WORLD AROUND YOU
+  - The town mood shifts based on what people rent. Tune in with RADIO to hear local news, strange broadcasts, or songs that shouldn't exist.
+  - Change your shop's sign with SIGN to attract a different clientele.
+  - There's no winning or losing – only the stories you collect and the tapes that fill your shelves.
+
+  Now – open for business. The night is young, and the first tape is waiting.
+  `);
+}
+
+async function cmdWait() {
+  if (currentNPC) { printInstant('A customer is still here.'); return; }
+  await print('You lock the door. The neon sign buzzes…');
+  const events = [
+    "A tape you don't remember renting is sitting on the counter.",
+    "The VCR rewinds by itself all night.",
+    "A phone call at 3:07 AM – nobody speaks, but you hear a movie playing in the background."
+  ];
+  printInstant(events[Math.floor(Math.random()*events.length)]);
+  printInstant('Morning comes. You open again at dusk.');
+  townMood = ['uneasy', 'curious', 'watchful', 'haunted'][Math.floor(Math.random()*4)];
+  saveAll();
+}
+
+// Input handler
+cmdInput.addEventListener('keydown', async (e) => {
+  if (e.key !== 'Enter') return;
+  initAudio();
+  const raw = cmdInput.value.trim();
+  cmdInput.value = '';
+  if (!raw) return;
+  const upper = raw.toUpperCase();
+  printInstant(`> ${raw}`);
+
+  if (upper === 'CUSTOMER' || upper === 'NEXT') {
+    await cmdCustomer();
+  } else if (upper.startsWith('RENT ')) {
+    await cmdRent(raw.slice(5).trim());
+  } else if (upper.startsWith('SUGGEST ')) {
+    await cmdSuggest(raw.slice(8).trim());
+  } else if (upper.startsWith('CREATE ')) {
+    await cmdCreate(raw.slice(7).trim());
+  } else if (upper === 'BUY') {
+    await cmdBuy();
+  } else if (upper.startsWith('TRADE ')) {
+    await cmdTrade(raw.slice(6).trim());
+  } else if (upper.startsWith('CHAT ')) {
+    await cmdChat(raw.slice(5).trim());
+  } else if (upper === 'DECLINE') {
+    cmdDecline();
+  } else if (upper.startsWith('RETURN ')) {
+    await cmdReturn(raw.slice(7).trim());
+  } else if (upper.startsWith('WATCH ')) {
+    await cmdWatch(raw.slice(6).trim());
+  } else if (upper.startsWith('APPRAISE ')) {
+    await cmdAppraise(raw.slice(9).trim());
+  } else if (upper === 'SHELF' || upper === 'INVENTORY' || upper === 'SHOW' || upper === 'LIST') {
+    cmdShelf();
+  } else if (upper === 'LEDGER') {
+    cmdLedger();
+  } else if (upper.startsWith('SIGN ')) {
+    cmdSign(raw.slice(5).trim());
+  } else if (upper === 'RADIO') {
+    await cmdRadio();
+  } else if (upper === 'WAIT' || upper === 'CLOSE') {
+    await cmdWait();
+  } else if (upper === 'CLEAR') {
+    outputEl.innerHTML = '';
+  } else if (upper === 'HELP') {
+    cmdHelp();
+  } else if (upper === 'TUTORIAL') {
+    cmdTutorial();
+  } else if (upper === 'MUTE') {
+    soundEnabled = false; printInstant('Sound off.');
+  } else if (upper === 'UNMUTE') {
+    soundEnabled = true; printInstant('Sound on.');
+  } else if (upper === 'SETKEY') {
+    MISTRAL_KEY = ''; localStorage.removeItem('vw_api_key');
+    keyOverlay.classList.remove('hidden');
+    apiKeyInput.value = ''; apiKeyInput.focus();
+    printInstant('API key cleared.');
+  } else {
+    printInstant('Unknown command. Type HELP.');
+  }
+});
+
+// Boot
+async function boot() {
+  await print('LOADING VIDEOWORLD INVENTORY SYSTEM…');
+  await new Promise(r => setTimeout(r, 800));
+  await print('  ╔══════════════════════╗');
+  await print('  ║     VIDEOWORLD       ║');
+  await print('  ╚══════════════════════╝');
+  await print('      ──── Midnight Video Rental, 1987 ────');
+  await print('\nThe neon sign flickers on. The shelves are dusty but waiting.');
+  await print('Type HELP for commands, TUTORIAL for a full guide.\n');
+  printInstant(`Cash: $${cash}`);
+  if (inventory.length > 0) { printInstant('Current inventory:'); cmdShelf(); }
+  else printInstant('Your shelf is empty. Type CREATE to record a tape, or CUSTOMER to open the door.');
+}
+
+if (MISTRAL_KEY) { window.booted = true; boot(); }
+</script>
+</body>
+</html>
