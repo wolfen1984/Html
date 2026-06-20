@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <title>GOREBLOX BBS</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      color: #ff3333;
+      font-family: 'Press Start 2P', monospace;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+      text-shadow: 0 0 8px rgba(255, 0, 0, 0.7);
+    }
+    body::after {
+      content: '';
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: repeating-linear-gradient(0deg, rgba(0,0,0,0.15) 0px, rgba(0,0,0,0.15) 1px, transparent 1px, transparent 3px);
+      pointer-events: none; z-index: 999;
+    }
+    #wrapper {
+      width: 100%; max-width: 850px; height: 92vh;
+      background: #0a0000; border: 3px double #800;
+      box-shadow: 0 0 40px #500;
+      display: flex; flex-direction: column;
+      position: relative; z-index: 1;
+      transition: background 0.3s, border-color 0.3s;
+    }
+    #wrapper.flipping {
+      background: #050000; border-color: #b00; box-shadow: 0 0 60px #700;
+    }
+    #film-grain {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4" fill="none"/><rect width="1" height="1" fill="rgba(255,255,255,0.03)" x="0" y="0"/><rect width="1" height="1" fill="rgba(255,255,255,0.02)" x="2" y="1"/><rect width="1" height="1" fill="rgba(255,255,255,0.04)" x="1" y="2"/></svg>') repeat;
+      pointer-events: none; z-index: 2; opacity: 0; transition: opacity 0.5s;
+    }
+    #wrapper.flipping #film-grain { opacity: 1; }
+    #title {
+      padding: 15px; text-align: center; font-size: 1.1em;
+      border-bottom: 2px solid #800; white-space: pre; letter-spacing: 2px;
+      background: #0d0000; color: #ff4444;
+    }
+    #output {
+      flex: 1; overflow-y: auto; padding: 20px;
+      white-space: pre-wrap; line-height: 1.7; font-size: 1.05em;
+      background: #080000; color: #ff3a3a; position: relative; z-index: 3;
+    }
+    #output::-webkit-scrollbar { width: 8px; }
+    #output::-webkit-scrollbar-thumb { background: #a00; }
+    #input-line {
+      display: flex; border-top: 2px solid #800; background: #0d0000; z-index: 3;
+    }
+    #prompt {
+      padding: 12px 8px 12px 18px; font-weight: bold; color: #ff5555;
+    }
+    #cmd {
+      flex: 1; background: transparent; border: none;
+      color: #ff4444; font-family: 'Press Start 2P', monospace;
+      font-size: 1em; padding: 12px 10px; outline: none; caret-color: #ff0000;
+    }
+    #cmd::placeholder { color: #800; }
+    #key-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.95); display: flex; justify-content: center;
+      align-items: center; z-index: 1000; flex-direction: column;
+      text-align: center; font-family: 'Press Start 2P', monospace;
+    }
+    #key-box {
+      border: 2px solid #b00; padding: 40px; background: #0a0000;
+      box-shadow: 0 0 30px #700; width: 90%; max-width: 500px; color: #ff4444;
+    }
+    #key-box h2 { margin-bottom: 20px; font-size: 1.5em; text-shadow: 0 0 10px #f00; }
+    #api-key-input {
+      width: 100%; padding: 12px; background: #000; border: 1px solid #800;
+      color: #ff4444; font-family: 'Press Start 2P', monospace; font-size: 1em;
+      margin-bottom: 20px; outline: none;
+    }
+    #api-key-input::placeholder { color: #800; }
+    #save-key-btn {
+      padding: 10px 30px; background: #200; border: 1px solid #b00;
+      color: #ff4444; font-family: 'Press Start 2P', monospace; font-size: 1.2em;
+      cursor: pointer; transition: background 0.2s;
+    }
+    #save-key-btn:hover { background: #400; }
+    .hidden { display: none !important; }
+    .grin-text {
+      color: #ccff00; text-shadow: 0 0 10px #33ff00, 0 0 20px #006600;
+    }
+
+    /* Visual Binder Overlay */
+    #binder-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.92); display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 500; font-family: 'Press Start 2P', monospace; color: #ff3333;
+    }
+    #binder-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, 230px);
+      gap: 20px; max-width: 90vw; max-height: 80vh; overflow-y: auto;
+      padding: 20px; background: #0a0000; border: 2px solid #800;
+      box-shadow: 0 0 30px #500;
+    }
+    #binder-grid::-webkit-scrollbar { width: 6px; }
+    #binder-grid::-webkit-scrollbar-thumb { background: #a00; }
+    .card-slot {
+      background: #0d0000; border: 1px solid #600; padding: 8px;
+      display: flex; flex-direction: column; align-items: center;
+      box-shadow: 0 0 10px #300; transition: transform 0.1s;
+    }
+    .card-slot:hover { transform: scale(1.03); border-color: #900; }
+    .card-img {
+      width: 220px; height: 180px; object-fit: cover;
+      border: 1px solid #500; background: #111; display: block;
+    }
+    .card-placeholder {
+      background: #111; border: 1px dashed #600;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 3em; color: #600;
+    }
+    .card-info {
+      margin-top: 6px; font-size: 0.6em; text-align: center; line-height: 1.5;
+    }
+    .card-name { color: #ff5555; }
+    .card-rarity { color: #ffaa00; }
+    .card-cond { color: #aa5555; }
+    #binder-close {
+      margin-top: 15px; padding: 10px 25px; background: #200;
+      border: 1px solid #b00; color: #ff4444;
+      font-family: 'Press Start 2P', monospace; font-size: 0.8em;
+      cursor: pointer;
+    }
+    #binder-close:hover { background: #400; }
+  </style>
+</head>
+<body>
+<div id="wrapper">
+  <div id="film-grain"></div>
+  <div id="title">
+█▓▒░ GOREBLOX – SUMMER '85 ░▒▓█
+  A Horror Trading Card BBS
+  </div>
+  <div id="output"></div>
+  <div id="input-line">
+    <span id="prompt">&gt;</span>
+    <input type="text" id="cmd" placeholder="TYPE COMMAND..." autofocus>
+  </div>
+</div>
+
+<!-- API Key Overlay -->
+<div id="key-overlay" class="hidden">
+  <div id="key-box">
+    <h2>ENTER MISTRAL API KEY</h2>
+    <input type="text" id="api-key-input" placeholder="Paste your key here..." autocomplete="off" spellcheck="false">
+    <br>
+    <button id="save-key-btn">SAVE KEY</button>
+    <p style="font-size:0.8em; margin-top:20px; color:#a00;">Key stored locally in your browser.</p>
+  </div>
+</div>
+
+<!-- Visual Binder Overlay -->
+<div id="binder-overlay" class="hidden">
+  <div id="binder-grid"></div>
+  <button id="binder-close">CLOSE BINDER</button>
+</div>
+
+<script>
+// ──────────────────────────────────────────────
+// GOREBLOX – Summer '85 (Full Code with Visual Binder)
+// ──────────────────────────────────────────────
+let MISTRAL_KEY = '';
+const MODEL = 'mistral-small-latest';
+const API_URL = 'https://api.mistral.ai/v1/chat/completions';
+
+// Image cache (card id -> image URL)
+let imageCache = JSON.parse(localStorage.getItem('goreblox_imageCache') || '{}');
+
+const keyOverlay = document.getElementById('key-overlay');
+const apiKeyInput = document.getElementById('api-key-input');
+const saveKeyBtn = document.getElementById('save-key-btn');
+const outputEl = document.getElementById('output');
+const cmdInput = document.getElementById('cmd');
+const wrapper = document.getElementById('wrapper');
+const filmGrain = document.getElementById('film-grain');
+const binderOverlay = document.getElementById('binder-overlay');
+const binderGrid = document.getElementById('binder-grid');
+const binderCloseBtn = document.getElementById('binder-close');
+
+// ── Audio ────────────────────────────────────
+let audioCtx = null;
+let soundEnabled = true;
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+function playClick() {
+  if (!soundEnabled || !audioCtx) return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.frequency.value = 800 + Math.random() * 400;
+    gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.03);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.03);
+  } catch(e) {}
+}
+
+// ── API Key Management ──────────────────────
+let savedKey = localStorage.getItem('goreblox_api_key');
+function setApiKey(key) {
+  MISTRAL_KEY = key;
+  if (key) {
+    localStorage.setItem('goreblox_api_key', key);
+    keyOverlay.classList.add('hidden');
+    cmdInput.focus();
+  }
+}
+if (!savedKey) {
+  keyOverlay.classList.remove('hidden');
+  apiKeyInput.focus();
+} else {
+  MISTRAL_KEY = savedKey;
+}
+saveKeyBtn.addEventListener('click', () => {
+  const key = apiKeyInput.value.trim();
+  if (!key) { alert('Please enter a valid API key.'); return; }
+  setApiKey(key);
+  if (!window.booted) { window.booted = true; boot(); }
+});
+apiKeyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveKeyBtn.click(); });
+
+// ── Game State ──────────────────────────────
+let cardSet = JSON.parse(localStorage.getItem('goreblox_cardSet') || 'null');
+let collection = JSON.parse(localStorage.getItem('goreblox_collection') || '[]');
+let wallet = parseInt(localStorage.getItem('goreblox_wallet') || '20');
+let pendingTrade = null;
+let crateStock = [];
+let grinStock = [];
+let activeFlip = null;
+let talkConversation = [];
+let riddleActive = null;
+let riddlesSolved = parseInt(localStorage.getItem('goreblox_riddles_solved') || '0');
+let grinUnlocked = localStorage.getItem('goreblox_grin_unlocked') === 'true';
+let restoreUnlocked = localStorage.getItem('goreblox_restore_unlocked') === 'true';
+let talkedToUncleGrin = false;
+let milestones = JSON.parse(localStorage.getItem('goreblox_milestones') || '{}');
+let lastRandomEvent = 0;
+const EVENT_COOLDOWN = 60000;
+
+const RARITIES = {
+  'Scum': { chance: 0.55, priceMin: 3, priceMax: 10 },
+  'Slime': { chance: 0.25, priceMin: 12, priceMax: 30 },
+  'Gore': { chance: 0.15, priceMin: 40, priceMax: 80 },
+  'Viscera': { chance: 0.04, priceMin: 150, priceMax: 300 },
+  'Mythic Print Error': { chance: 0.01, priceMin: 1000, priceMax: 2000 }
+};
+
+function rollRarity() {
+  let roll = Math.random();
+  let cum = 0;
+  for (let [name, data] of Object.entries(RARITIES)) {
+    cum += data.chance;
+    if (roll <= cum) return name;
+  }
+  return 'Scum';
+}
+
+const CONDITIONS = ['mint','bent','stained','water-damaged','chewed','sun-bleached'];
+function randomCondition() { return CONDITIONS[Math.floor(Math.random()*CONDITIONS.length)]; }
+
+function sanitizeCard(card) {
+  if (!card) return card;
+  let price = card.price;
+  const rarity = card.rarity || 'Scum';
+  const range = RARITIES[rarity] || RARITIES['Scum'];
+  if (typeof price === 'string') {
+    const parsed = parseInt(price, 10);
+    if (!isNaN(parsed)) price = parsed;
+    else price = Math.floor(Math.random() * (range.priceMax - range.priceMin + 1)) + range.priceMin;
+  }
+  if (typeof price !== 'number' || isNaN(price)) {
+    price = Math.floor(Math.random() * (range.priceMax - range.priceMin + 1)) + range.priceMin;
+  }
+  card.price = price;
+  return card;
+}
+
+function sanitizeCardSet(set) {
+  if (!set || !Array.isArray(set)) return;
+  set.forEach(card => sanitizeCard(card));
+}
+
+if (cardSet) sanitizeCardSet(cardSet);
+
+const MILESTONE_DEFS = [
+  { type: 'unique', threshold: 20, title: 'Starter Album', perk: 'Pack discount 10%' },
+  { type: 'unique', threshold: 40, title: 'Collector', perk: 'Pack size +1' },
+  { type: 'unique', threshold: 75, title: 'Master Binder', perk: 'Sell price +10%' },
+  { type: 'unique', threshold: 100, title: 'The Complete Set', perk: 'Mythic odds doubled' },
+  { type: 'value', threshold: 200, title: 'Cash Spiller', perk: 'Pack discount 15%' },
+  { type: 'value', threshold: 1000, title: 'Black Market Dealer', perk: 'Pack size +2' },
+  { type: 'value', threshold: 5000, title: 'GoreBlox Mogul', perk: 'Sell price +20%' },
+  { type: 'value', threshold: 20000, title: 'Card Kingpin', perk: 'All prices halved' },
+  { type: 'rare', threshold: 5, title: 'Gore Hound', perk: 'Rare+ find chance up' },
+  { type: 'rare', threshold: 15, title: 'Viscera Vault', perk: 'Pack can contain 2 Viscera' },
+  { type: 'rare', threshold: 30, title: 'Mythic Master', perk: 'Mythic cards appear in packs' },
+];
+
+function saveAll() {
+  localStorage.setItem('goreblox_collection', JSON.stringify(collection));
+  localStorage.setItem('goreblox_wallet', wallet.toString());
+  localStorage.setItem('goreblox_riddles_solved', riddlesSolved.toString());
+  localStorage.setItem('goreblox_grin_unlocked', grinUnlocked.toString());
+  localStorage.setItem('goreblox_restore_unlocked', restoreUnlocked.toString());
+  localStorage.setItem('goreblox_milestones', JSON.stringify(milestones));
+  localStorage.setItem('goreblox_imageCache', JSON.stringify(imageCache));
+}
+
+function checkMilestones() {
+  const uniqueIds = new Set(collection.map(c => c.id));
+  const uniqueCount = uniqueIds.size;
+  const totalValue = collection.reduce((sum, c) => sum + (c.price || 0), 0);
+  const rareCount = collection.filter(c => c.rarity && ['Gore','Viscera','Mythic Print Error'].includes(c.rarity)).length;
+
+  for (let ms of MILESTONE_DEFS) {
+    const key = ms.type + '_' + ms.threshold;
+    if (milestones[key]) continue;
+    let current = 0;
+    if (ms.type === 'unique') current = uniqueCount;
+    else if (ms.type === 'value') current = totalValue;
+    else if (ms.type === 'rare') current = rareCount;
+    if (current >= ms.threshold) {
+      milestones[key] = true;
+      saveAll();
+      printInstant(`\n🏆 MILESTONE: ${ms.title} - ${ms.perk}`);
+    }
+  }
+
+  if (!restoreUnlocked && totalValue >= 500 && talkedToUncleGrin) {
+    restoreUnlocked = true;
+    localStorage.setItem('goreblox_restore_unlocked', 'true');
+    printInstant(`\n🪚 Uncle Grin cackles: "Your collection is worth somethin’ now. Let me teach you how to RESTORE them cards."`);
+  }
+}
+
+// ── Output helpers ──────────────────────────
+function print(text, delay = 15) {
+  return new Promise((resolve) => {
+    let i = 0;
+    function type() {
+      if (i < text.length) {
+        outputEl.innerHTML += text.charAt(i);
+        outputEl.scrollTop = outputEl.scrollHeight;
+        if (!activeFlip) playClick();
+        i++;
+        setTimeout(type, delay);
+      } else {
+        outputEl.innerHTML += '\n';
+        outputEl.scrollTop = outputEl.scrollHeight;
+        resolve();
+      }
+    }
+    type();
+  });
+}
+function printFlip(text, delay = 40) {
+  return new Promise((resolve) => {
+    let i = 0;
+    function type() {
+      if (i < text.length) {
+        outputEl.innerHTML += text.charAt(i);
+        outputEl.scrollTop = outputEl.scrollHeight;
+        i++;
+        setTimeout(type, delay);
+      } else {
+        outputEl.innerHTML += '\n';
+        outputEl.scrollTop = outputEl.scrollHeight;
+        resolve();
+      }
+    }
+    type();
+  });
+}
+function printInstant(text) {
+  outputEl.innerHTML += text + '\n';
+  outputEl.scrollTop = outputEl.scrollHeight;
+}
+
+// ── Mistral API ─────────────────────────────
+async function callMistralJSON(systemPrompt, userMessage) {
+  if (!MISTRAL_KEY) { printInstant('*** NO API KEY. Type SETKEY.'); return null; }
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage }
+        ],
+        temperature: 0.95,
+        response_format: { type: 'json_object' }
+      })
+    });
+    if (!res.ok) { const err = await res.text(); printInstant(`*** API ERROR ${res.status}: ${err}`); return null; }
+    const data = await res.json();
+    if (!data.choices?.[0]?.message?.content) { printInstant('*** API returned nothing.'); return null; }
+    const content = data.choices[0].message.content;
+    try { return JSON.parse(content); }
+    catch (e) { printInstant('*** Bad JSON. Raw: ' + content); return null; }
+  } catch (err) { printInstant(`*** NETWORK ERROR: ${err.message}`); return null; }
+}
+
+async function callMistralText(systemPrompt, userMessage) {
+  if (!MISTRAL_KEY) { printInstant('*** NO API KEY. Type SETKEY.'); return null; }
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
+      body: JSON.stringify({ model: MODEL, messages: [{role:'system',content:systemPrompt},{role:'user',content:userMessage}], temperature:0.95 })
+    });
+    if (!res.ok) { const err = await res.text(); printInstant(`*** API ERROR ${res.status}: ${err}`); return null; }
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || null;
+  } catch (err) { printInstant(`*** NETWORK ERROR: ${err.message}`); return null; }
+}
+
+// ── Card Set Generation ─────────────────────
+async function generateCardSet() {
+  printInstant('Summoning the GoreBlox set from the abyss...');
+  const prompt = `Generate the complete 100-card set for the horror trading card series "GoreBlox". Return a JSON object with key "cards" containing an array of 100 objects. Each object must have:
+- "id" (number 1 to 100, unique)
+- "title" (string, a gruesome funny name)
+- "rarity" (one of: Scum, Slime, Gore, Viscera, Mythic Print Error)
+- "art" (one sentence describing the card's disgusting artwork)
+- "funFact" (a short disturbing fact on the card back)
+- "price" (a plain integer, NOT a string, based on rarity: Scum 3-10, Slime 12-30, Gore 40-80, Viscera 150-300, Mythic Print Error 1000-2000). Do NOT output ranges, only single integers.
+
+Distribution: exactly 55 Scum, 25 Slime, 15 Gore, 4 Viscera, 1 Mythic Print Error.
+Output ONLY the JSON object. Do not use markdown.`;
+  const data = await callMistralJSON('You are the deranged artist of GoreBlox cards. Always output valid JSON with integer prices.', prompt);
+  if (!data || !data.cards || data.cards.length !== 100) {
+    printInstant('*** Card generation failed. Try again with GEN.');
+    return false;
+  }
+  cardSet = data.cards.sort((a,b) => a.id - b.id);
+  sanitizeCardSet(cardSet);
+  localStorage.setItem('goreblox_cardSet', JSON.stringify(cardSet));
+  printInstant('GoreBlox set materialised! 100 cards ready to collect.');
+  return true;
+}
+
+// ── Pack / Buy / Sell / Grub ────────────────
+function getPackSize() {
+  let size = 5;
+  if (milestones['unique_40']) size = 6;
+  if (milestones['value_1000']) size = 7;
+  return size;
+}
+function getDiscount() {
+  let disc = 1.0;
+  if (milestones['unique_20']) disc -= 0.10;
+  if (milestones['value_200']) disc -= 0.15;
+  if (milestones['value_20000']) disc = 0.5;
+  return Math.max(0.1, disc);
+}
+function pickRandomCards(count) {
+  const shuffled = [...cardSet].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count).map(c => sanitizeCard({...c, condition: randomCondition()}));
+}
+async function cmdPack() {
+  if (!cardSet) { printInstant('No card set loaded. Type GEN to try generating one.'); return; }
+  await print('You rip open a foil pack of GoreBlox. The stick of gum inside is fossilized...');
+  const cards = pickRandomCards(getPackSize());
+  crateStock = cards.map((c, idx) => ({ ...c, index: idx+1 }));
+  const disc = getDiscount();
+  printInstant(`\n🃏 PACK CONTENTS [${crateStock.length} cards]:`);
+  crateStock.forEach(c => {
+    const finalPrice = Math.floor(c.price * disc);
+    printInstant(`  ${c.index}. #${c.id} ${c.title} [${c.rarity}] - $${finalPrice} (${c.condition})`);
+    printInstant(`     Art: ${c.art}`);
+  });
+  printInstant('\nType BUY [number] to purchase a card from this pack.');
+  await maybeTriggerRandomEvent();
+}
+async function cmdGrub() {
+  if (!cardSet) { printInstant('No cards yet. Type GEN.'); return; }
+  await print('You go hunting through car boot sales, dusty attics, and playground sewer grates...');
+  let rarity = rollRarity();
+  if (milestones['rare_5'] && Math.random() < 0.2) rarity = rollRarity();
+  if (milestones['unique_100'] && rarity === 'Mythic Print Error' && Math.random() < 0.5) rarity = rollRarity();
+
+  const candidates = cardSet.filter(c => c.rarity === rarity);
+  const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+  if (!chosen) { printInstant('You found nothing but a bent 5p piece.'); return; }
+  const newCard = sanitizeCard({ ...chosen, condition: randomCondition() });
+  collection.push(newCard);
+  saveAll();
+
+  const loc = await callMistralText(
+    'You are the narrator of a gross-out horror world. Describe, in 2 sentences, where you found a GoreBlox card.',
+    `Card found: "${newCard.title}" (${newCard.rarity}).`
+  );
+  if (loc) await print(loc);
+  printInstant(`\n🃏 YOU FOUND: #${newCard.id} ${newCard.title} [${newCard.rarity}] - $${newCard.price} (${newCard.condition})`);
+  printInstant(`   Art: ${newCard.art}`);
+  checkMilestones();
+  await maybeTriggerRandomEvent();
+}
+async function cmdBuy(num) {
+  const stockArray = crateStock.length ? crateStock : grinStock;
+  if (!stockArray.length) { printInstant('No stock available. Try PACK or GRIN.'); return; }
+  const card = stockArray.find(c => c.index === num);
+  if (!card) { printInstant('Invalid card number.'); return; }
+  let finalPrice = card.price;
+  if (crateStock.length) {
+    finalPrice = Math.floor(card.price * getDiscount());
+  } else {
+    finalPrice = Math.floor(card.price * 1.2);
+  }
+  if (isNaN(finalPrice)) { printInstant('Error: card price broken. Try again or type GEN to reset set.'); return; }
+  if (wallet < finalPrice) { printInstant(`Need $${finalPrice}, have $${wallet}.`); return; }
+  wallet -= finalPrice;
+  saveAll();
+  const newCard = sanitizeCard({ ...card, condition: card.condition || randomCondition() });
+  delete newCard.index;
+  collection.push(newCard);
+
+  if (crateStock.length) { crateStock = crateStock.filter(c => c.index !== num); }
+  else { grinStock = []; printInstant('Uncle Grin’s stash slams shut.'); }
+  printInstant(`You buy "${newCard.title}" for $${finalPrice}. Wallet: $${wallet}.`);
+  checkMilestones();
+  await maybeTriggerRandomEvent();
+}
+async function cmdSell(title) {
+  const idx = collection.findIndex(c => c.title.toLowerCase() === title.toLowerCase());
+  if (idx === -1) { printInstant('You don’t own that card.'); return; }
+  const card = collection[idx];
+  let sellPrice = Math.floor((card.price || 0) * 0.5);
+  if (milestones['unique_75']) sellPrice = Math.floor(sellPrice * 1.1);
+  if (milestones['value_5000']) sellPrice = Math.floor(sellPrice * 1.2);
+  collection.splice(idx, 1);
+  wallet += sellPrice;
+  saveAll();
+  printInstant(`You sold #${card.id} "${card.title}" for $${sellPrice}. Wallet: $${wallet}.`);
+  checkMilestones();
+}
+
+// ── Visual Binder (replaces text binder) ────
+async function generateCardImage(card) {
+  const prompt = `horror trading card art, card titled "${card.title}", ${card.art}, gruesome, goreblox style, painted, dark`;
+  const encoded = encodeURIComponent(prompt);
+  return `https://image.pollinations.ai/prompt/${encoded}?width=220&height=180&nologo=true`;
+}
+
+async function loadCardImage(cardId, cardData, imgElement) {
+  if (imageCache[cardId]) {
+    imgElement.src = imageCache[cardId];
+    imgElement.classList.remove('card-placeholder');
+    return;
+  }
+  try {
+    const url = await generateCardImage(cardData);
+    imageCache[cardId] = url;
+    saveAll();
+    imgElement.src = url;
+    imgElement.classList.remove('card-placeholder');
+  } catch (err) {
+    console.error('Image generation failed:', err);
+  }
+}
+
+function showVisualBinder() {
+  if (!collection.length) {
+    printInstant('Your binder is empty. Go get some packs.');
+    return;
+  }
+  const grouped = {};
+  collection.forEach(c => {
+    if (!grouped[c.id]) grouped[c.id] = { card: c, copies: [] };
+    grouped[c.id].copies.push(c.condition);
+  });
+  const uniqueCards = Object.values(grouped);
+
+  binderGrid.innerHTML = '';
+  uniqueCards.forEach(entry => {
+    const card = entry.card;
+    const conditions = entry.copies;
+    const condCounts = {};
+    conditions.forEach(c => condCounts[c] = (condCounts[c]||0)+1);
+    const condStr = Object.entries(condCounts).map(([c,n]) => `${n}x ${c}`).join(', ');
+
+    const slot = document.createElement('div');
+    slot.className = 'card-slot';
+
+    const img = document.createElement('img');
+    img.className = 'card-img card-placeholder';
+    img.alt = card.title;
+    loadCardImage(card.id, card, img);
+
+    const info = document.createElement('div');
+    info.className = 'card-info';
+    info.innerHTML = `
+      <div class="card-name">${card.title}</div>
+      <div class="card-rarity">[${card.rarity}]</div>
+      <div class="card-cond">${condStr}</div>
+    `;
+
+    slot.appendChild(img);
+    slot.appendChild(info);
+    binderGrid.appendChild(slot);
+  });
+
+  binderOverlay.classList.remove('hidden');
+  binderCloseBtn.focus();
+}
+
+function hideVisualBinder() {
+  binderOverlay.classList.add('hidden');
+}
+
+binderCloseBtn.addEventListener('click', hideVisualBinder);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !binderOverlay.classList.contains('hidden')) {
+    hideVisualBinder();
+    cmdInput.focus();
+  }
+});
+
+function cmdBinder() {
+  showVisualBinder();
+}
+
+// ── Flip, Swap, Rate, Hunt, Grin, Talk, Restore ──
+function setFlipMode(active) {
+  if (active) { wrapper.classList.add('flipping'); filmGrain.style.opacity = '1'; }
+  else { wrapper.classList.remove('flipping'); filmGrain.style.opacity = '0'; }
+}
+async function cmdFlip(title) {
+  if (activeFlip) { printInstant('Already reading a card. Type STOP first.'); return; }
+  const card = collection.find(c => c.title.toLowerCase() === title.toLowerCase());
+  if (!card) { printInstant('You don’t own that card.'); return; }
+  if (card.script) {
+    printInstant(`\nYou flip over "${card.title}" and the card whispers its story again...`);
+    setFlipMode(true);
+    activeFlip = { card, vignetteParts: [...card.script], partIndex: 0 };
+    for (let part of activeFlip.vignetteParts) {
+      await printFlip(part, 35);
+    }
+    printInstant('\nThe card grows silent.');
+    setFlipMode(false);
+    activeFlip = null;
+    return;
+  }
+  printInstant(`\nYou flip over "${card.title}". The ink seems to writhe...`);
+  setFlipMode(true);
+  const prompt = `Write a 150-200 word horror vignette inspired by this GoreBlox card:
+Title: "${card.title}"
+Art: ${card.art}
+Fun Fact: ${card.funFact}
+Make it creepy and fun, like a campfire story. No markdown.`;
+  const vignette = await callMistralText('You are a twisted storyteller.', prompt);
+  if (!vignette) { printInstant('The card remains silent.'); setFlipMode(false); return; }
+  activeFlip = { card, vignetteParts: [vignette], partIndex: 1 };
+  await printFlip(vignette, 35);
+  printInstant('\n[FLIP END]');
+  setFlipMode(false);
+  const colIdx = collection.findIndex(c => c.id === card.id && c.condition === card.condition && c.title === card.title);
+  if (colIdx !== -1) {
+    collection[colIdx].script = [vignette];
+    saveAll();
+  }
+  activeFlip = null;
+}
+async function cmdSwap() {
+  if (!cardSet) { printInstant('No cards loaded.'); return; }
+  const collectorNames = ["Fingers Malone","Maggot Mandy","Stinky Steve","Lizzie Lacerate","Nosebleed Nick","Granny Gristle"];
+  const name = collectorNames[Math.floor(Math.random()*collectorNames.length)];
+  const myIds = [...new Set(collection.map(c => c.id))];
+  const context = `Full card set (id, title): ${cardSet.map(c=>`#${c.id} ${c.title}`).join(', ')}. Player owns cards with IDs: [${myIds.join(',')}]. Suggest a trade. JSON: fromName, message, offeredCardId (from set, not owned by player), desiredCardId (from player's owned IDs). Output ONLY JSON.`;
+  const trade = await callMistralJSON('You are a gross kid trading GoreBlox cards.', context);
+  if (!trade) return;
+  const offered = cardSet.find(c => c.id === trade.offeredCardId);
+  const desired = trade.desiredCardId ? cardSet.find(c => c.id === trade.desiredCardId) : null;
+  if (!offered) { printInstant('Trade offer fizzled.'); return; }
+  pendingTrade = { from: trade.fromName, offered, desired, message: trade.message };
+  await print(`\n🔄 TRADE from ${trade.fromName}:`);
+  await print(`   Offers: #${offered.id} ${offered.title} [${offered.rarity}]`);
+  if (desired) await print(`   Wants: your #${desired.id} ${desired.title}`);
+  await print(`   "${trade.message}"`);
+  await print('\n   ACCEPT or DECLINE?');
+}
+function acceptTrade() {
+  if (!pendingTrade) { printInstant('No trade pending.'); return; }
+  const { offered, desired } = pendingTrade;
+  if (desired) {
+    const idx = collection.findIndex(c => c.id === desired.id);
+    if (idx !== -1) collection.splice(idx, 1);
+    else printInstant(`You didn't have that card, but the trade continues...`);
+  }
+  collection.push(sanitizeCard({ ...offered, condition: randomCondition() }));
+  saveAll();
+  printInstant(`Trade done! You received #${offered.id} ${offered.title}.`);
+  pendingTrade = null;
+  checkMilestones();
+}
+function declineTrade() {
+  if (!pendingTrade) { printInstant('No trade pending.'); return; }
+  printInstant('Trade declined.');
+  pendingTrade = null;
+}
+async function cmdRate(title) {
+  const card = cardSet?.find(c => c.title.toLowerCase() === title.toLowerCase());
+  if (!card) { printInstant('Card not found in set.'); return; }
+  const prompt = `Write a skull-rated review of this GoreBlox card: "${card.title}". Art: ${card.art}. Rating out of 5 skulls. JSON: reviewer, skulls, body (3 sentences), warning. Output ONLY JSON.`;
+  const review = await callMistralJSON('You are a gross-out critic.', prompt);
+  if (!review) return;
+  await print(`\n💀 RATING: ${card.title}`);
+  await print(`   Reviewer: ${review.reviewer}`);
+  await print(`   Skulls: ${'💀'.repeat(review.skulls)}`);
+  await print(`   "${review.body}"`);
+  await print(`   ⚠ ${review.warning}`);
+}
+async function cmdHunt() {
+  const prompt = `Create an urban legend about a lost GoreBlox card (#101) that doesn't exist. JSON: rumour, lastSeen, fate. Output ONLY JSON.`;
+  const legend = await callMistralJSON('You are a playground myth spreader.', prompt);
+  if (!legend) return;
+  await print(`\n🕵️ LEGEND: The Lost Card #101`);
+  await print(`   ${legend.rumour}`);
+  await print(`   ${legend.lastSeen}`);
+  await print(`   ${legend.fate}`);
+}
+function cmdAlbum() {
+  const unique = new Set(collection.map(c => c.id)).size;
+  const totalValue = collection.reduce((s,c) => s + (c.price||0), 0);
+  const rare = collection.filter(c => ['Gore','Viscera','Mythic Print Error'].includes(c.rarity)).length;
+  printInstant(`\n📊 COLLECTOR ALBUM:`);
+  printInstant(`   Unique cards: ${unique}/100 (${Math.round(unique/100*100)}%)`);
+  printInstant(`   Total value: $${totalValue}`);
+  printInstant(`   Rare+ cards: ${rare}`);
+}
+async function cmdGrin() {
+  if (!grinUnlocked) { printInstant('Uncle Grin just grins. Solve his riddles first.'); return; }
+  if (grinStock.length) { printInstant('The stash is already open. BUY a card.'); return; }
+  if (!cardSet) { printInstant('No cards loaded.'); return; }
+  const rareCards = cardSet.filter(c => ['Gore','Viscera','Mythic Print Error'].includes(c.rarity));
+  const selected = [];
+  for (let i=0; i<3; i++) {
+    const rand = rareCards[Math.floor(Math.random()*rareCards.length)];
+    selected.push(sanitizeCard({...rand, condition: randomCondition(), index: i+1, price: Math.floor(rand.price * 1.2)}));
+  }
+  grinStock = selected;
+  await print(`\n🪚 UNCLE GRIN’S STASH (1 purchase only):`);
+  grinStock.forEach(c => {
+    printInstant(`  ${c.index}. #${c.id} ${c.title} [${c.rarity}] - $${c.price} (${c.condition})`);
+    printInstant(`     Art: ${c.art}`);
+  });
+  printInstant('\nType BUY [number] to grab one. Then the stash vanishes.');
+}
+const UNCLE_GRIN_SYSTEM = `You are Uncle Grin, a hideous ventriloquist dummy that haunts the GoreBlox BBS. You speak in morbid puns, cackle, and love trading cards. Occasionally (20% chance) you ask the player a simple horror riddle with a one-word answer. When you do, end your message with "[RIDDLE]". Keep replies under 200 chars. No markdown.`;
+async function cmdTalk(userMessage) {
+  if (!MISTRAL_KEY) { printInstant('*** NO API KEY. Type SETKEY.'); return; }
+  talkedToUncleGrin = true;
+  if (riddleActive) {
+    const answer = userMessage.trim().toLowerCase();
+    if (answer.includes(riddleActive.answer.toLowerCase())) {
+      printInstant('\n🪚 UNCLE GRIN: "Heh heh heh! You got it, you little monster!"');
+      riddleActive = null;
+      riddlesSolved++;
+      saveAll();
+      if (Math.random() < 0.33) {
+        const rarity = rollRarity();
+        const candidates = cardSet.filter(c => c.rarity === rarity);
+        if (candidates.length) {
+          const card = candidates[Math.floor(Math.random()*candidates.length)];
+          collection.push(sanitizeCard({ ...card, condition: randomCondition() }));
+          saveAll();
+          printInstant(`You receive a card: #${card.id} ${card.title} [${card.rarity}]`);
+        } else {
+          const cash = 15 + Math.floor(Math.random()*20);
+          wallet += cash; saveAll();
+          printInstant(`Uncle Grin tosses you $${cash}.`);
+        }
+      } else {
+        const cash = 10 + Math.floor(Math.random()*20);
+        wallet += cash; saveAll();
+        printInstant(`Uncle Grin hands you $${cash}. "Buy yourself somethin’ nasty."`);
+      }
+      if (riddlesSolved >= 3 && !grinUnlocked) {
+        grinUnlocked = true;
+        localStorage.setItem('goreblox_grin_unlocked', 'true');
+        printInstant('\n🪚 Uncle Grin leans close: "You’ve earned a peek at my private stash. Type GRIN."');
+      }
+      checkMilestones();
+      return;
+    }
+  }
+  const messages = [
+    { role: 'system', content: UNCLE_GRIN_SYSTEM },
+    ...talkConversation.slice(-10),
+    { role: 'user', content: userMessage }
+  ];
+  if (!riddleActive && Math.random() < 0.2) {
+    messages.push({ role: 'system', content: 'Now ask a riddle. End with "[RIDDLE]".' });
+  }
+  const reply = await callMistralText(UNCLE_GRIN_SYSTEM, userMessage);
+  if (!reply) return;
+  if (reply.includes('[RIDDLE]')) {
+    const clean = reply.replace('[RIDDLE]','').trim();
+    const ansRes = await callMistralText('You just asked this riddle: "'+clean+'". Provide ONLY the one-word answer, lowercase, no punctuation.', '');
+    const answer = ansRes?.trim().toLowerCase() || '';
+    riddleActive = { question: clean, answer };
+    outputEl.innerHTML += `<span class="grin-text">🪚 UNCLE GRIN: ${clean}</span>\n`;
+  } else {
+    outputEl.innerHTML += `<span class="grin-text">🪚 UNCLE GRIN: ${reply}</span>\n`;
+  }
+  outputEl.scrollTop = outputEl.scrollHeight;
+  talkConversation.push({ role:'user', content:userMessage }, { role:'assistant', content:reply });
+}
+async function cmdRestore(title) {
+  if (!restoreUnlocked) { printInstant('You don’t know how. Talk to Uncle Grin more.'); return; }
+  const idx = collection.findIndex(c => c.title.toLowerCase() === title.toLowerCase());
+  if (idx === -1) { printInstant('Not in your collection.'); return; }
+  if (wallet < 20) { printInstant('Need $20.'); return; }
+  if (collection[idx].condition === 'mint') { printInstant('Already mint.'); return; }
+  wallet -= 20;
+  collection[idx].condition = 'mint';
+  collection[idx].price = Math.floor((collection[idx].price || 0) * 1.2);
+  saveAll();
+  printInstant(`You restore "${collection[idx].title}" to mint condition. Value: $${collection[idx].price}. Wallet: $${wallet}.`);
+}
+
+// ── Random Events ───────────────────────────
+async function maybeTriggerRandomEvent() {
+  const now = Date.now();
+  if (now - lastRandomEvent < EVENT_COOLDOWN) return;
+  if (Math.random() < 0.2) {
+    lastRandomEvent = now;
+    const events = [
+      "A greasy kid hands you a card... then snatches it back, laughing.",
+      "Your binder flips open to an empty slot. You swear it was full a second ago.",
+      "The BBS emits a wet chewing sound. The cursor blinks in slime.",
+      "Uncle Grin’s dummy head appears in the corner of the screen, winking.",
+    ];
+    await print('\n*** ' + events[Math.floor(Math.random()*events.length)] + ' ***', 25);
+  }
+}
+
+// ── Help ─────────────────────────────────────
+function cmdHelp() {
+  let h = `
+COMMANDS:
+  PACK          - Open a pack of cards
+  BUY [num]     - Buy a card from pack or Grin stash
+  SELL [title]  - Sell a card from your binder
+  GRUB          - Hunt for a card in the wild
+  SWAP          - Trade with another collector
+  RATE [title]  - Read a skull-rating review
+  HUNT          - Urban legend about a lost card
+  BINDER        - Show your collection (visual binder)
+  FLIP [title]  - Read the card’s horror vignette
+  STOP          - Stop reading a card
+  ALBUM         - Check your set completion
+  WALLET        - Check your cash
+  TALK [msg]    - Chat with Uncle Grin
+  ACCEPT / DECLINE - Respond to a swap
+  SETKEY        - Change API key
+  GEN           - Regenerate the card set
+  MUTE / UNMUTE - Toggle sounds
+  CLEAR         - Clear screen
+  HELP          - This list`;
+  if (grinUnlocked) h += '\n  GRIN          - Open Uncle Grin’s private stash';
+  if (restoreUnlocked) h += '\n  RESTORE [title] - Restore a card to mint ($20)';
+  printInstant(h);
+}
+
+// ── Command Routing ──────────────────────────
+cmdInput.addEventListener('keydown', async (e) => {
+  if (e.key !== 'Enter') return;
+  // Block input when binder is open
+  if (!binderOverlay.classList.contains('hidden')) return;
+
+  initAudio();
+  const raw = cmdInput.value.trim();
+  cmdInput.value = '';
+  if (!raw) return;
+  const upperCmd = raw.toUpperCase();
+  printInstant(`> ${raw}`);
+
+  if (activeFlip) {
+    if (upperCmd === 'STOP') {
+      printInstant('You close the card.');
+      setFlipMode(false);
+      activeFlip = null;
+    } else if (upperCmd === 'MUTE') { soundEnabled = false; printInstant('Muted.'); }
+    else if (upperCmd === 'UNMUTE') { soundEnabled = true; printInstant('Unmuted.'); }
+    else { printInstant('You are reading a card. Type STOP to close it.'); }
+    return;
+  }
+
+  if (upperCmd === 'PACK') await cmdPack();
+  else if (upperCmd.startsWith('BUY ')) {
+    const num = parseInt(raw.slice(4).trim());
+    if (isNaN(num)) printInstant('Usage: BUY [number]');
+    else await cmdBuy(num);
+  }
+  else if (upperCmd.startsWith('SELL ')) {
+    const title = raw.slice(5).trim();
+    if (!title) printInstant('Usage: SELL [title]');
+    else await cmdSell(title);
+  }
+  else if (upperCmd === 'GRUB') await cmdGrub();
+  else if (upperCmd === 'SWAP') await cmdSwap();
+  else if (upperCmd.startsWith('RATE ')) {
+    const title = raw.slice(5).trim();
+    if (!title) printInstant('Usage: RATE [title]');
+    else await cmdRate(title);
+  }
+  else if (upperCmd === 'HUNT') await cmdHunt();
+  else if (upperCmd === 'BINDER') cmdBinder();
+  else if (upperCmd.startsWith('FLIP ')) {
+    const title = raw.slice(5).trim();
+    if (!title) printInstant('Usage: FLIP [title]');
+    else await cmdFlip(title);
+  }
+  else if (upperCmd === 'STOP') printInstant('No card is open.');
+  else if (upperCmd === 'ACCEPT' || upperCmd === 'Y') acceptTrade();
+  else if (upperCmd === 'DECLINE' || upperCmd === 'N') declineTrade();
+  else if (upperCmd === 'HELP') cmdHelp();
+  else if (upperCmd === 'SETKEY') {
+    MISTRAL_KEY = ''; localStorage.removeItem('goreblox_api_key');
+    keyOverlay.classList.remove('hidden'); apiKeyInput.value = ''; apiKeyInput.focus();
+    printInstant('API key cleared.');
+  }
+  else if (upperCmd === 'MUTE') { soundEnabled = false; printInstant('Muted.'); }
+  else if (upperCmd === 'UNMUTE') { soundEnabled = true; printInstant('Unmuted.'); }
+  else if (upperCmd === 'CLEAR') outputEl.innerHTML = '';
+  else if (upperCmd === 'ALBUM') cmdAlbum();
+  else if (upperCmd === 'WALLET') printInstant(`💰 $${wallet}`);
+  else if (upperCmd === 'GRIN') await cmdGrin();
+  else if (upperCmd === 'GEN') {
+    printInstant('Forcing card set regeneration...');
+    const ok = await generateCardSet();
+    if (ok) printInstant('You can now open packs with PACK.');
+  }
+  else if (upperCmd.startsWith('RESTORE ')) {
+    const title = raw.slice(8).trim();
+    if (!title) printInstant('Usage: RESTORE [title]');
+    else await cmdRestore(title);
+  }
+  else if (upperCmd.startsWith('TALK ')) {
+    const msg = raw.slice(5).trim();
+    if (!msg) printInstant('Usage: TALK [message]');
+    else await cmdTalk(msg);
+  }
+  else printInstant('Unknown command. Type HELP.');
+});
+
+// ── Boot Sequence ────────────────────────────
+async function boot() {
+  await print('DIALING GOREBLOX BBS...');
+  await new Promise(r => setTimeout(r, 1200));
+  await print('   ██████╗  ██████╗ ██████╗ ███████╗██████╗ ██╗      ██████╗ ██╗  ██╗');
+  await print('  ██╔════╝ ██╔═══██╗██╔══██╗██╔════╝██╔══██╗██║     ██╔═══██╗╚██╗██╔╝');
+  await print('  ██║  ███╗██║   ██║██████╔╝█████╗  ██████╔╝██║     ██║   ██║ ╚███╔╝ ');
+  await print('  ██║   ██║██║   ██║██╔══██╗██╔══╝  ██╔══██╗██║     ██║   ██║ ██╔██╗ ');
+  await print('  ╚██████╔╝╚██████╔╝██║  ██║███████╗██████╔╝███████╗╚██████╔╝██╔╝ ██╗');
+  await print('   ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═════╝ ╚══════╝ ╚═════╝ ╚═╝  ╚═╝');
+  await print('        G O R E B L O X   –   S U M M E R  \' 8 5');
+  await print('   "Collect \'em all… if you\'ve got the guts."\n');
+  
+  if (!cardSet && MISTRAL_KEY) {
+    const success = await generateCardSet();
+    if (!success) {
+      printInstant('Could not generate card set. Check your API key or type GEN to try again.');
+      return;
+    }
+  } else if (!cardSet) {
+    printInstant('No card set found and no API key. Type SETKEY to add your key, then GEN to generate.');
+  }
+
+  printInstant('Type HELP for commands.\n');
+  printInstant(`Wallet: $${wallet}`);
+  if (collection.length) {
+    printInstant('Your binder from last session:');
+    // Show visual binder automatically? (optional) we'll just print count
+    printInstant(`You have ${collection.length} cards. Type BINDER to view them.`);
+  } else {
+    printInstant('Your binder is empty. Try PACK, GRUB, or SWAP.');
+  }
+  checkMilestones();
+  if (!talkedToUncleGrin) {
+    printInstant('\n🪚 A wooden giggle echoes from the modem. Uncle Grin is watching. Type TALK to say hello.');
+  }
+}
+
+if (MISTRAL_KEY) { window.booted = true; boot(); }
+</script>
+</body>
+</html>
