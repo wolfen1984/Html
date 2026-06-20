@@ -186,6 +186,99 @@
       color: #ccff00;
       text-shadow: 0 0 10px #33ff00, 0 0 20px #006600;
     }
+
+    /* ---------- VISUAL BINDER OVERLAY ---------- */
+    #binder-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.94);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 500;
+      font-family: 'Press Start 2P', monospace;
+      color: #ff3333;
+    }
+    #binder-instruction {
+      font-size: 0.8em;
+      margin-top: 15px;
+      color: #aa5555;
+    }
+    #binder-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, 240px);
+      gap: 18px;
+      max-width: 90vw;
+      max-height: 70vh;
+      overflow-y: auto;
+      padding: 25px;
+      background: #0a0000;
+      border: 2px solid #800;
+      box-shadow: 0 0 35px #500;
+    }
+    #binder-grid::-webkit-scrollbar {
+      width: 6px;
+    }
+    #binder-grid::-webkit-scrollbar-thumb {
+      background: #a00;
+    }
+    .card-slot {
+      background: #0d0000;
+      border: 1px solid #600;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      box-shadow: 0 0 12px #300;
+      transition: transform 0.1s;
+    }
+    .card-slot:hover {
+      transform: scale(1.03);
+      border-color: #900;
+    }
+    .card-img {
+      width: 220px;
+      height: 180px;
+      object-fit: cover;
+      border: 1px solid #500;
+      background: #111;
+      display: block;
+    }
+    .card-placeholder {
+      background: #111;
+      border: 1px dashed #600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 3em;
+      color: #600;
+    }
+    .card-info {
+      margin-top: 8px;
+      font-size: 0.55em;
+      text-align: center;
+      line-height: 1.6;
+    }
+    .card-name { color: #ff5555; }
+    .card-rarity { color: #ffaa00; }
+    .card-cond { color: #aa5555; }
+    #binder-close {
+      margin-top: 20px;
+      padding: 12px 30px;
+      background: #200;
+      border: 1px solid #b00;
+      color: #ff4444;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 0.9em;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #binder-close:hover { background: #400; }
+    /* ---------------------------------------- */
   </style>
 </head>
 <body>
@@ -212,13 +305,26 @@
   </div>
 </div>
 
+<!-- VISUAL BINDER OVERLAY (new) -->
+<div id="binder-overlay" class="hidden">
+  <div id="binder-grid"></div>
+  <div id="binder-instruction">Press ESC or click CLOSE to return</div>
+  <button id="binder-close">CLOSE BINDER</button>
+</div>
+
 <script>
 // ──────────────────────────────────────────────
-// VIDEO NASTY EXCHANGE – Complete with Crypt Keeper
+// VIDEO NASTY EXCHANGE – with Visual Binder
 // ──────────────────────────────────────────────
 let MISTRAL_KEY = '';
 const MODEL = 'mistral-small-latest';
 const API_URL = 'https://api.mistral.ai/v1/chat/completions';
+
+// Image cache for binder
+let imageCache = JSON.parse(localStorage.getItem('vn_imageCache') || '{}');
+function saveImageCache() {
+  localStorage.setItem('vn_imageCache', JSON.stringify(imageCache));
+}
 
 // DOM Elements
 const keyOverlay = document.getElementById('key-overlay');
@@ -228,6 +334,9 @@ const outputEl = document.getElementById('output');
 const cmdInput = document.getElementById('cmd');
 const wrapper = document.getElementById('wrapper');
 const filmGrain = document.getElementById('film-grain');
+const binderOverlay = document.getElementById('binder-overlay');
+const binderGrid = document.getElementById('binder-grid');
+const binderCloseBtn = document.getElementById('binder-close');
 
 // Audio
 let audioCtx = null;
@@ -282,17 +391,17 @@ let lastRandomEvent = 0;
 const EVENT_COOLDOWN = 60000;
 
 // Movie watching state
-let activeMovie = null;   // { title, scenes: [], sceneIndex, tapeObj }
+let activeMovie = null;
 
 // Crypt Keeper state
-let cryptKeeperConversation = [];   // [{role, content}]
-let cryptKeeperRiddleActive = null; // {question, answer}
+let cryptKeeperConversation = [];
+let cryptKeeperRiddleActive = null;
 let cryptKeeperRiddlesSolved = parseInt(localStorage.getItem('vn_riddles_solved') || '0');
 let casketUnlocked = localStorage.getItem('vn_casket_unlocked') === 'true';
 let embalmUnlocked = localStorage.getItem('vn_embalm_unlocked') === 'true';
 let casketStock = [];
 let casketActive = false;
-let stockType = 'crate'; // 'crate' or 'casket'
+let stockType = 'crate';
 let talkedToCryptKeeper = false;
 
 // ── Rarity & Perks ────────────────────────────
@@ -358,7 +467,6 @@ function checkMilestones() {
     }
   }
 
-  // EMBALM unlock check
   if (!embalmUnlocked && totalValue >= 500 && talkedToCryptKeeper) {
     embalmUnlocked = true;
     localStorage.setItem('vn_embalm_unlocked', 'true');
@@ -414,7 +522,7 @@ function printInstant(text) {
   outputEl.scrollTop = outputEl.scrollHeight;
 }
 
-// ── Mistral API Call (JSON) ──
+// ── Mistral API Calls ─────────────────────────
 async function callMistral(systemPrompt, userMessage) {
   if (!MISTRAL_KEY) {
     printInstant('*** NO API KEY SET. Type SETKEY to enter your key.');
@@ -423,10 +531,7 @@ async function callMistral(systemPrompt, userMessage) {
   try {
     const res = await fetch(API_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${MISTRAL_KEY}`
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
       body: JSON.stringify({
         model: MODEL,
         messages: [
@@ -461,7 +566,6 @@ async function callMistral(systemPrompt, userMessage) {
   }
 }
 
-// ── Mistral API Call (raw text) ──
 async function callMistralText(systemPrompt, userMessage) {
   if (!MISTRAL_KEY) {
     printInstant('*** NO API KEY SET. Type SETKEY to enter your key.');
@@ -470,10 +574,7 @@ async function callMistralText(systemPrompt, userMessage) {
   try {
     const res = await fetch(API_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${MISTRAL_KEY}`
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
       body: JSON.stringify({
         model: MODEL,
         messages: [
@@ -655,7 +756,6 @@ async function cmdBuy(num) {
   if (stockType === 'crate') {
     crateStock = crateStock.filter(t => t.index !== num);
   } else {
-    // Casket: after buying one, close it
     casketStock = [];
     casketActive = false;
     printInstant('You take the tape. The casket groans shut and disappears.');
@@ -840,7 +940,8 @@ function cmdHelp() {
   TRADE            - Receive a trade offer
   REVIEW [title]   - Read a tape review
   WANTED           - Urban legend about a lost tape
-  SHOW             - Display your collection
+  SHOW             - Display your collection as text
+  BINDER           - Open visual collection binder
   WATCH [title]    - Play a tape (movie mode)
   CONTINUE         - Next scene of the playing tape
   STOP             - Eject the tape
@@ -858,7 +959,7 @@ function cmdHelp() {
   printInstant(helpText);
 }
 
-// ── Movie functions ───────────────────────────
+// ── Movie functions (unchanged) ────────────────
 function setMovieMode(active) {
   if (active) {
     wrapper.classList.add('playing-movie');
@@ -922,7 +1023,6 @@ async function cmdWatch(title) {
   }
   const tape = collection[idx];
 
-  // If the tape already has a recorded script, replay it
   if (tape.script && tape.script.length > 0) {
     printInstant(`\nYou push "${tape.title}" into the VCR. The machine whirs...`);
     await print('A familiar hum fills the room. The screen shows the same film again.\n', 30);
@@ -933,7 +1033,6 @@ async function cmdWatch(title) {
       sceneIndex: 0,
       tapeObj: tape
     };
-    // Replay all scenes
     for (let i = 0; i < activeMovie.scenes.length; i++) {
       await printMovie(activeMovie.scenes[i], 35);
       activeMovie.sceneIndex = i + 1;
@@ -945,7 +1044,6 @@ async function cmdWatch(title) {
     return;
   }
 
-  // Otherwise, generate a new movie
   printInstant(`\nYou push "${tape.title}" into the VCR. The machine whirs, tracking lines flicker...`);
   await print('A low hum fills the room. The screen comes to life.\n', 30);
   
@@ -1024,7 +1122,6 @@ function cmdStop() {
   activeMovie = null;
 }
 
-// ── Export command ────────────────────────────
 function cmdExport(title) {
   const idx = collection.findIndex(t => t.title.toLowerCase() === title.toLowerCase());
   if (idx === -1) {
@@ -1064,7 +1161,6 @@ function cmdExport(title) {
   printWin.print();
 }
 
-// ── EMBALM command ────────────────────────────
 async function cmdEmbalm(title) {
   if (!embalmUnlocked) {
     printInstant('You don\'t know how to do that yet. Talk to the Crypt Keeper more.');
@@ -1108,17 +1204,14 @@ async function cmdTalk(userMessage) {
   }
   talkedToCryptKeeper = true;
 
-  // Check if a riddle is active
   if (cryptKeeperRiddleActive) {
     const answer = userMessage.trim().toLowerCase();
     if (answer.includes(cryptKeeperRiddleActive.answer.toLowerCase())) {
-      // Correct
       printInstant('\n🔪 CRYPT KEEPER: "Heh heh heh! You got it, you sick little tapeworm!"');
       cryptKeeperRiddleActive = null;
       cryptKeeperRiddlesSolved++;
       saveRiddlesSolved();
 
-      // Reward
       if (Math.random() < 0.33) {
         const rarity = rollRarity();
         const tape = await generateTapeWithRarity(rarity);
@@ -1138,7 +1231,6 @@ async function cmdTalk(userMessage) {
         printInstant(`Crypt Keeper hands you $${cash} from his pocket. "Don't spend it all on embalming fluid!"`);
       }
 
-      // CASKET unlock
       if (cryptKeeperRiddlesSolved >= 3 && !casketUnlocked) {
         casketUnlocked = true;
         localStorage.setItem('vn_casket_unlocked', 'true');
@@ -1148,17 +1240,14 @@ async function cmdTalk(userMessage) {
       checkMilestones();
       return;
     }
-    // Wrong answer -> still respond, but don't give reward
   }
 
-  // Build conversation messages
   const messages = [
     { role: 'system', content: CRYPT_KEEPER_SYSTEM },
     ...cryptKeeperConversation.slice(-10),
     { role: 'user', content: userMessage }
   ];
 
-  // If no active riddle and random chance, prompt him to ask one
   if (!cryptKeeperRiddleActive && Math.random() < 0.2) {
     messages.push({ role: 'system', content: 'Now ask the player a riddle. End with "[RIDDLE]" so the system knows it\'s a riddle.' });
   }
@@ -1181,10 +1270,8 @@ async function cmdTalk(userMessage) {
     }
     let reply = data.choices[0].message.content.trim();
 
-    // If the reply contains [RIDDLE], extract it and get the answer
     if (reply.includes('[RIDDLE]')) {
       reply = reply.replace('[RIDDLE]', '').trim();
-      // Ask the model for the answer separately
       const answerRes = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
@@ -1204,11 +1291,9 @@ async function cmdTalk(userMessage) {
       cryptKeeperRiddleActive = { question: reply, answer: answer };
     }
 
-    // Print with green styling
     outputEl.innerHTML += `<span class="crypt-keeper-text">🔪 CRYPT KEEPER: ${reply}</span>\n`;
     outputEl.scrollTop = outputEl.scrollHeight;
 
-    // Save to history
     cryptKeeperConversation.push({ role: 'user', content: userMessage });
     cryptKeeperConversation.push({ role: 'assistant', content: reply });
 
@@ -1216,6 +1301,90 @@ async function cmdTalk(userMessage) {
     printInstant(`*** NETWORK ERROR: ${err.message}`);
   }
 }
+
+// ── VISUAL BINDER ─────────────────────────────
+async function generateCardImage(tape) {
+  const prompt = `VHS cover art for a banned horror film titled "${tape.title}", ${tape.coverDescription}`;
+  const encoded = encodeURIComponent(prompt);
+  return `https://image.pollinations.ai/prompt/${encoded}?width=220&height=180&nologo=true`;
+}
+
+async function loadCardImage(key, tape, imgElement) {
+  if (imageCache[key]) {
+    imgElement.src = imageCache[key];
+    imgElement.classList.remove('card-placeholder');
+    return;
+  }
+  try {
+    const url = await generateCardImage(tape);
+    imageCache[key] = url;
+    saveImageCache();
+    imgElement.src = url;
+    imgElement.classList.remove('card-placeholder');
+  } catch (err) {
+    console.error('Image load error:', err);
+  }
+}
+
+function showVisualBinder() {
+  if (!collection.length) {
+    printInstant('Your collection is empty. Search or buy some tapes first.');
+    return;
+  }
+  const grouped = {};
+  collection.forEach(tape => {
+    const key = tape.title; // group by title
+    if (!grouped[key]) grouped[key] = { tape: tape, copies: [] };
+    grouped[key].copies.push(tape.condition || 'unknown');
+  });
+  const uniqueTapes = Object.values(grouped);
+  binderGrid.innerHTML = '';
+  uniqueTapes.forEach(entry => {
+    const tape = entry.tape;
+    const conditions = entry.copies;
+    const condCounts = {};
+    conditions.forEach(c => condCounts[c] = (condCounts[c]||0)+1);
+    const condStr = Object.entries(condCounts).map(([c,n]) => `${n}x ${c}`).join(', ');
+
+    const slot = document.createElement('div');
+    slot.className = 'card-slot';
+
+    const img = document.createElement('img');
+    img.className = 'card-img card-placeholder';
+    img.alt = tape.title;
+    const key = tape.title;
+    loadCardImage(key, tape, img);
+
+    const info = document.createElement('div');
+    info.className = 'card-info';
+    info.innerHTML = `
+      <div class="card-name">${tape.title}</div>
+      <div class="card-rarity">[${tape.rarity || 'Unknown'}]</div>
+      <div class="card-cond">${condStr}</div>
+    `;
+
+    slot.appendChild(img);
+    slot.appendChild(info);
+    binderGrid.appendChild(slot);
+  });
+
+  binderOverlay.classList.remove('hidden');
+  binderOverlay.style.display = 'flex';
+}
+
+function hideVisualBinder() {
+  binderOverlay.classList.add('hidden');
+  binderOverlay.style.display = '';
+  cmdInput.focus();
+}
+
+// Binder close button and ESC key
+binderCloseBtn.addEventListener('click', hideVisualBinder);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !binderOverlay.classList.contains('hidden')) {
+    hideVisualBinder();
+  }
+});
 
 // ── Input Handler ──────────────────────────────
 cmdInput.addEventListener('keydown', async (e) => {
@@ -1227,95 +1396,77 @@ cmdInput.addEventListener('keydown', async (e) => {
   const upperCmd = raw.toUpperCase();
   printInstant(`> ${raw}`);
 
-  // If a movie is active, only movie commands allowed
   if (activeMovie) {
-    if (upperCmd === 'CONTINUE') {
-      await cmdContinue();
-    } else if (upperCmd === 'STOP' || upperCmd === 'EJECT') {
-      cmdStop();
-    } else if (upperCmd === 'MUTE') {
-      soundEnabled = false; printInstant('Terminal sounds muted.');
-    } else if (upperCmd === 'UNMUTE') {
-      soundEnabled = true; printInstant('Terminal sounds unmuted.');
-    } else if (upperCmd === 'HELP') {
-      cmdHelp();
-    } else {
-      printInstant('You are watching a tape. Type CONTINUE or STOP.');
-    }
+    if (upperCmd === 'CONTINUE') await cmdContinue();
+    else if (upperCmd === 'STOP' || upperCmd === 'EJECT') cmdStop();
+    else if (upperCmd === 'MUTE') { soundEnabled = false; printInstant('Terminal sounds muted.'); }
+    else if (upperCmd === 'UNMUTE') { soundEnabled = true; printInstant('Terminal sounds unmuted.'); }
+    else if (upperCmd === 'HELP') cmdHelp();
+    else printInstant('You are watching a tape. Type CONTINUE or STOP.');
     return;
   }
 
-  // Normal commands
-  if (upperCmd === 'CRATE') {
-    await cmdCrate();
-  } else if (upperCmd.startsWith('BUY ')) {
+  if (upperCmd === 'CRATE') await cmdCrate();
+  else if (upperCmd.startsWith('BUY ')) {
     const num = parseInt(raw.slice(4).trim());
     if (isNaN(num)) printInstant('Usage: BUY [number]');
     else await cmdBuy(num);
-  } else if (upperCmd.startsWith('SELL ')) {
+  }
+  else if (upperCmd.startsWith('SELL ')) {
     const title = raw.slice(5).trim();
     if (!title) printInstant('Usage: SELL [title]');
     else await cmdSell(title);
-  } else if (upperCmd === 'SEARCH') {
-    await cmdSearch();
-  } else if (upperCmd === 'TRADE') {
-    await cmdTrade();
-  } else if (upperCmd.startsWith('REVIEW ')) {
+  }
+  else if (upperCmd === 'SEARCH') await cmdSearch();
+  else if (upperCmd === 'TRADE') await cmdTrade();
+  else if (upperCmd.startsWith('REVIEW ')) {
     const title = raw.slice(7).trim();
     if (!title) printInstant('Usage: REVIEW [title]');
     else await cmdReview(title);
-  } else if (upperCmd === 'WANTED') {
-    await cmdWanted();
-  } else if (upperCmd === 'SHOW') {
-    cmdShowCollection();
-  } else if (upperCmd.startsWith('WATCH ')) {
+  }
+  else if (upperCmd === 'WANTED') await cmdWanted();
+  else if (upperCmd === 'SHOW') cmdShowCollection();
+  else if (upperCmd === 'BINDER') showVisualBinder();   // <-- new command
+  else if (upperCmd.startsWith('WATCH ')) {
     const title = raw.slice(6).trim();
     if (!title) printInstant('Usage: WATCH [title]');
     else await cmdWatch(title);
-  } else if (upperCmd.startsWith('EXPORT ')) {
+  }
+  else if (upperCmd.startsWith('EXPORT ')) {
     const title = raw.slice(7).trim();
     if (!title) printInstant('Usage: EXPORT [title]');
     else cmdExport(title);
-  } else if (upperCmd === 'CONTINUE') {
-    printInstant('No tape is playing. Use WATCH [title] to start one.');
-  } else if (upperCmd === 'STOP') {
-    printInstant('No tape is playing.');
-  } else if (upperCmd === 'ACCEPT' || upperCmd === 'Y') {
-    acceptTrade();
-  } else if (upperCmd === 'DECLINE' || upperCmd === 'N') {
-    declineTrade();
-  } else if (upperCmd === 'HELP') {
-    cmdHelp();
-  } else if (upperCmd === 'SETKEY') {
+  }
+  else if (upperCmd === 'CONTINUE') printInstant('No tape is playing. Use WATCH [title] to start one.');
+  else if (upperCmd === 'STOP') printInstant('No tape is playing.');
+  else if (upperCmd === 'ACCEPT' || upperCmd === 'Y') acceptTrade();
+  else if (upperCmd === 'DECLINE' || upperCmd === 'N') declineTrade();
+  else if (upperCmd === 'HELP') cmdHelp();
+  else if (upperCmd === 'SETKEY') {
     MISTRAL_KEY = '';
     localStorage.removeItem('vn_api_key');
     keyOverlay.classList.remove('hidden');
     apiKeyInput.value = '';
     apiKeyInput.focus();
     printInstant('API key cleared. Please enter a new one.');
-  } else if (upperCmd === 'MUTE') {
-    soundEnabled = false; printInstant('Terminal sounds muted.');
-  } else if (upperCmd === 'UNMUTE') {
-    soundEnabled = true; printInstant('Terminal sounds unmuted.');
-  } else if (upperCmd === 'CLEAR') {
-    outputEl.innerHTML = '';
-  } else if (upperCmd === 'RANK') {
-    cmdRank();
-  } else if (upperCmd === 'WALLET') {
-    cmdWallet();
-  } else if (upperCmd === 'CASKET') {
-    await cmdCasket();
-  } else if (upperCmd.startsWith('EMBALM ')) {
+  }
+  else if (upperCmd === 'MUTE') { soundEnabled = false; printInstant('Terminal sounds muted.'); }
+  else if (upperCmd === 'UNMUTE') { soundEnabled = true; printInstant('Terminal sounds unmuted.'); }
+  else if (upperCmd === 'CLEAR') outputEl.innerHTML = '';
+  else if (upperCmd === 'RANK') cmdRank();
+  else if (upperCmd === 'WALLET') cmdWallet();
+  else if (upperCmd === 'CASKET') await cmdCasket();
+  else if (upperCmd.startsWith('EMBALM ')) {
     const title = raw.slice(7).trim();
     if (!title) printInstant('Usage: EMBALM [title]');
     else await cmdEmbalm(title);
-  } else if (upperCmd.startsWith('TALK ')) {
+  }
+  else if (upperCmd.startsWith('TALK ')) {
     const msg = raw.slice(5).trim();
     if (!msg) printInstant('Usage: TALK [message]');
     else await cmdTalk(msg);
-  } else {
-    printInstant('Unknown command. Type HELP.');
   }
+  else printInstant('Unknown command. Type HELP.');
 });
 
 // ── Boot ──────────────────────────────────────
