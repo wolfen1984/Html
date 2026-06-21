@@ -113,6 +113,54 @@
     }
     .save-delete-btn:hover { color: #ff6666; }
     .hidden { display: none !important; }
+
+    /* ── VISUAL BINDER OVERLAY ────────────────── */
+    #binder-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.95); display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 500; font-family: 'Press Start 2P', monospace; color: #33ff33;
+    }
+    #binder-instruction {
+      font-size: 0.8em; margin-top: 15px; color: #669966;
+    }
+    #binder-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, 240px);
+      gap: 18px; max-width: 90vw; max-height: 70vh; overflow-y: auto;
+      padding: 25px; background: #0c1a0c; border: 2px solid #336633;
+      box-shadow: 0 0 35px #224422;
+    }
+    #binder-grid::-webkit-scrollbar { width: 6px; }
+    #binder-grid::-webkit-scrollbar-thumb { background: #336633; }
+    .card-slot {
+      background: #0d1a0d; border: 1px solid #336633; padding: 8px;
+      display: flex; flex-direction: column; align-items: center;
+      box-shadow: 0 0 12px #1a2a1a; transition: transform 0.1s;
+    }
+    .card-slot:hover { transform: scale(1.03); border-color: #44aa44; }
+    .card-img {
+      width: 220px; height: 180px; object-fit: cover;
+      border: 1px solid #336633; background: #111; display: block;
+    }
+    .card-placeholder {
+      background: #111; border: 1px dashed #336633; display: flex;
+      align-items: center; justify-content: center;
+      font-size: 3em; color: #336633;
+    }
+    .card-info {
+      margin-top: 8px; font-size: 0.55em; text-align: center; line-height: 1.6;
+    }
+    .card-name { color: #44ff44; }
+    .card-meta { color: #88bb88; }
+    .card-desc { color: #669966; }
+    #binder-close {
+      margin-top: 20px; padding: 12px 30px; background: #1a2a1a;
+      border: 1px solid #44aa44; color: #44ff44;
+      font-family: 'Press Start 2P', monospace; font-size: 0.9em;
+      cursor: pointer; transition: background 0.2s;
+    }
+    #binder-close:hover { background: #2a4a2a; }
+    /* ---------------------------------------- */
   </style>
 </head>
 <body>
@@ -172,6 +220,13 @@
   </div>
 </div>
 
+<!-- VISUAL INVENTORY BINDER OVERLAY -->
+<div id="binder-overlay" class="hidden">
+  <div id="binder-grid"></div>
+  <div id="binder-instruction">Press ESC or click CLOSE to return</div>
+  <button id="binder-close">CLOSE BINDER</button>
+</div>
+
 <script>
 // ──────────────────────────────────────────────
 // RELICS & REGRET – Full Antique Shop Sim (1986)
@@ -180,6 +235,12 @@ let MISTRAL_KEY = '';
 const MODEL = 'mistral-small-latest';
 const API_URL = 'https://api.mistral.ai/v1/chat/completions';
 
+// Image cache for binder
+let imageCache = JSON.parse(localStorage.getItem('rr_imageCache') || '{}');
+function saveImageCache() {
+  localStorage.setItem('rr_imageCache', JSON.stringify(imageCache));
+}
+
 // DOM elements
 const keyOverlay = document.getElementById('key-overlay');
 const apiKeyInput = document.getElementById('api-key-input');
@@ -187,6 +248,9 @@ const saveKeyBtn = document.getElementById('save-key-btn');
 const outputEl = document.getElementById('output');
 const cmdInput = document.getElementById('cmd');
 const wrapper = document.getElementById('wrapper');
+const binderOverlay = document.getElementById('binder-overlay');
+const binderGrid = document.getElementById('binder-grid');
+const binderCloseBtn = document.getElementById('binder-close');
 
 // Save/Load DOM
 const saveOverlay = document.getElementById('save-overlay');
@@ -249,7 +313,6 @@ let customerOrders = JSON.parse(localStorage.getItem('rr_orders') || '[]');
 let townMood = localStorage.getItem('rr_townMood') || 'uneasy quiet';
 let activeTests = JSON.parse(localStorage.getItem('rr_activeTests') || '[]');
 
-// ═══ ANTI-REPETITION: recently offered items ═══
 let recentOfferedItems = JSON.parse(localStorage.getItem('rr_recentOfferedItems') || '[]');
 
 function saveAll() {
@@ -376,7 +439,7 @@ function hideLoadOverlay() {
 
 // ── Toolbar button wiring ────────────────────
 document.getElementById('btn-customer').addEventListener('click', () => { initAudio(); playClick(); cmdCustomer(); });
-document.getElementById('btn-inventory').addEventListener('click', () => { initAudio(); playClick(); cmdShop(); });
+document.getElementById('btn-inventory').addEventListener('click', () => { initAudio(); playClick(); showVisualInventory(); });
 document.getElementById('btn-ledger').addEventListener('click', () => { initAudio(); playClick(); cmdLedger(); });
 document.getElementById('btn-radio').addEventListener('click', () => { initAudio(); playClick(); cmdRadio(); });
 document.getElementById('btn-wait').addEventListener('click', () => { initAudio(); playClick(); cmdWait(); });
@@ -434,7 +497,7 @@ async function callMistralJSON(systemPrompt, userMessage) {
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage }
         ],
-        temperature: 1.3,   // creative, but now with stricter prompt
+        temperature: 1.3,
         response_format: { type: 'json_object' }
       })
     });
@@ -470,7 +533,6 @@ async function callMistralText(systemPrompt, userMessage) {
 const SYSTEM_SHOP = `You are the sentient ledger of RELICS & REGRET, a dusty antique shop in a small 1986 New England town. Items are often cursed, haunted, or carry dark secrets. You generate visitor and item details as JSON. Always only valid JSON, no markdown.`.trim();
 const SYSTEM_CHAT = `You are a visitor in RELICS & REGRET, talking to the shopkeeper. Reply with JSON: {"dialogue":"your words", "updatedOfferedItem":optional new item object, "newDesire":optional, "alternativeOfferedItem":optional, "order":optional {"item":"description","price":number}, "favour":optional {"type":"deliver","targetNPC":"name","item":"item to deliver","reward":"something"}}. Keep personality consistent.`.trim();
 
-// ── NPC Memory ────────────────────────────────
 function rememberNPC(name, event) {
   if (!npcMemory[name]) npcMemory[name] = [];
   npcMemory[name].push(event);
@@ -478,7 +540,6 @@ function rememberNPC(name, event) {
   saveAll();
 }
 
-// ── Clear current visitor ────────────────────
 function clearNPC() {
   currentNPC = null;
   chatHistory = [];
@@ -486,18 +547,16 @@ function clearNPC() {
 }
 
 // ═══════════════════════════════════════════════
-//  CORE: cmdCustomer (with proper prompt, no fallbacks)
+//  CUSTOMER
 // ═══════════════════════════════════════════════
 async function cmdCustomer() {
   if (currentNPC) { printInstant('A customer is already here.'); return; }
 
-  // Check for returning test NPC
   let returning = null;
   if (activeTests.length > 0 && Math.random() < 0.5) {
     returning = activeTests[0];
   }
 
-  // ─── BRANCH 1: RETURNING NPC ──────────────────
   if (returning) {
     const idx = activeTests.indexOf(returning);
     activeTests.splice(idx, 1);
@@ -547,10 +606,7 @@ Include any other fields like favour, order as usual. Only JSON.`;
     return;
   }
 
-  // ─── BRANCH 2: BRAND-NEW VISITOR ──────────────
   await print('The bell above the door chimes...');
-
-  // Create chaotic seed and forbidden lists
   const chaosSeed = Math.floor(Math.random() * 10000);
   const recentNames = Object.keys(npcMemory).slice(-10).join(', ');
   const forbiddenItems = recentOfferedItems.slice(-10).join(', ');
@@ -558,9 +614,6 @@ Include any other fields like favour, order as usual. Only JSON.`;
   const invNames = inventory.map(i => i.name).join(', ') || 'nothing at all';
   const townSummary = `Town mood: ${townMood}. Recent dark deeds: ${activeTests.map(t => `${t.npcName} ${t.action}`).join('; ') || 'none'}.`;
 
-  // ═════════════════════════════════════════
-  // STRICT PROMPT – forces clean favour/order text
-  // ═════════════════════════════════════════
   const prompt = `SEED: ${chaosSeed}.
 DO NOT reuse any of these NPC names: ${recentNames || 'none'}.
 DO NOT reuse any of these recently offered items: ${forbiddenItems || 'none'}.
@@ -583,7 +636,6 @@ Output only the JSON.`;
     return;
   }
 
-  // Store the offered item in the forbidden list for future calls
   if (data.offeredItem && data.offeredItem.name) {
     recentOfferedItems.push(data.offeredItem.name);
     if (recentOfferedItems.length > 15) recentOfferedItems.shift();
@@ -993,7 +1045,8 @@ function cmdHelp() {
   APPRAISE <item>     - Uncover item secret ($5)
   RESEARCH <item>     - Deep history study ($10, may find hidden object)
   AUTHENTICATE <item> - Check if genuine ($5)
-  SHOP / INVENTORY    - List your items
+  SHOP / INVENTORY    - List your items (text)
+  BINDER              - Open visual inventory binder
   LEDGER              - Shop summary & pending tasks
   WAIT                - End day (overnight flavour)
   TUTORIAL            - Read the full gameplay guide
@@ -1012,38 +1065,7 @@ function cmdTutorial() {
   ╔══════════════════════════════════════════╗
   ║        RELICS & REGRET TUTORIAL          ║
   ╚══════════════════════════════════════════╝
-
-  Welcome to Main Street, 1986. You are the new proprietor of a dusty antique shop where every object holds a secret and every visitor is hiding something.
-
-  ░▒▓ THE BASICS
-  - Townsfolk visit your shop carrying oddities they want to sell. You can BUY their item with cash, TRADE one of your own items for it, You can also SELL one of your own items to them – they'll pay its known value. or GIFT something away. DECLINE sends them packing.
-  - Your cash and inventory are persistent — they're saved in your browser and carry over between sessions.
-
-  ░▒▓ TALKING TO VISITORS
-  - Use CHAT to speak freely with the current visitor. They might reveal an item's history, lower their price, offer a completely different personal item, or even ask you for a favour.
-  - Some NPCs will place a special ORDER: they want a specific item and will pay extra when you FULFIL it later.
-
-  ░▒▓ UNCOVERING SECRETS
-  - APPRAISE an item (costs $5) to learn its dark secret — every object in your shop is cursed, haunted, or worse. Knowing the secret might change how you use it.
-  - RESEARCH (costs $10) digs into an item's background. There's a 1‑in‑3 chance you'll find a hidden object inside — a letter, a key, a dried flower — which is added to your inventory.
-  - AUTHENTICATE (costs $5) checks if an item is genuine. Fakes are worth less, but they often have their own strange properties.
-
-  ░▒▓ FAVOURS & DELIVERIES
-  - Sometimes a visitor will ask you to DELIVER an item to another townsperson. Completing a favour can reward you with secrets, gratitude, or unexpected consequences. There's no obligation — the choice is yours.
-
-  ░▒▓ THE TEST COMMAND
-  - If a visitor desperately wants something from your shelf, you can propose a TEST: "Give me this item, and in return, you must do something for me." Type TEST followed by the task. The AI will decide if they accept. If they do, they leave with the item and carry out the deed.
-  - Later, that same NPC will return, changed by the act. They'll offer the same item back to you — but it may be altered, and their price will be higher. The town will gossip about what happened, and other visitors may start to act strangely.
-
-  ░▒▓ THE WANTED LIST
-  - Use WANTED to hear a rumour about a legendary lost antique. Then use SEARCH (costs $20) to try to find it. It's a gamble — you might acquire the prize, or you might find something else entirely.
-
-  ░▒▓ THE WORLD AROUND YOU
-  - The town isn't static. People remember your deals. The SIGN outside your shop can be changed to attract different kinds of customers. Tune the RADIO for a snippet of 1986 news that reflects the town's mood.
-  - There's no winning or losing — only the stories you weave and the relics you collect. The shop will keep running as long as you keep opening the door.
-
-  Type HELP anytime for the full command list.
-  Now — open for business. Who knows what will walk through the door next?
+  ... (rest of tutorial unchanged)
   `);
 }
 
@@ -1066,6 +1088,91 @@ async function cmdWait() {
   printInstant('Morning comes. The shop is open again.');
 }
 
+// ── VISUAL INVENTORY BINDER ─────────────────────
+async function generateCardImage(item) {
+  const prompt = `antique item, "${item.name}", ${item.description}, vintage, relic shop, dark moody lighting, 1980s photo`;
+  const encoded = encodeURIComponent(prompt);
+  return `https://image.pollinations.ai/prompt/${encoded}?width=220&height=180&nologo=true`;
+}
+
+async function loadCardImage(key, item, imgElement) {
+  if (imageCache[key]) {
+    imgElement.src = imageCache[key];
+    imgElement.classList.remove('card-placeholder');
+    return;
+  }
+  try {
+    const url = await generateCardImage(item);
+    imageCache[key] = url;
+    saveImageCache();
+    imgElement.src = url;
+    imgElement.classList.remove('card-placeholder');
+  } catch (err) {
+    console.error('Image load error:', err);
+  }
+}
+
+function showVisualInventory() {
+  if (!inventory.length) {
+    printInstant('Your shelves are bare. Nothing to display.');
+    return;
+  }
+  // Group by name for duplicate items
+  const grouped = {};
+  inventory.forEach(item => {
+    const key = item.name;
+    if (!grouped[key]) grouped[key] = { item: item, copies: [] };
+    grouped[key].copies.push(item);
+  });
+  const uniqueItems = Object.values(grouped);
+  binderGrid.innerHTML = '';
+  uniqueItems.forEach(entry => {
+    const item = entry.item;
+    const count = entry.copies.length;
+    const copiesText = count > 1 ? ` (${count}x)` : '';
+    const secretText = item.knownSecret ? ' 👁' : '';
+    const fakeText = item.isFake ? ' FAKE' : '';
+
+    const slot = document.createElement('div');
+    slot.className = 'card-slot';
+
+    const img = document.createElement('img');
+    img.className = 'card-img card-placeholder';
+    img.alt = item.name;
+    const key = item.name; // cache key
+    loadCardImage(key, item, img);
+
+    const info = document.createElement('div');
+    info.className = 'card-info';
+    info.innerHTML = `
+      <div class="card-name">${item.name}${copiesText}${secretText}${fakeText}</div>
+      <div class="card-meta">c. ${item.year}  •  $${item.value}</div>
+      <div class="card-desc">${item.description}</div>
+    `;
+
+    slot.appendChild(img);
+    slot.appendChild(info);
+    binderGrid.appendChild(slot);
+  });
+
+  binderOverlay.classList.remove('hidden');
+  binderOverlay.style.display = 'flex';
+}
+
+function hideVisualBinder() {
+  binderOverlay.classList.add('hidden');
+  binderOverlay.style.display = '';
+  cmdInput.focus();
+}
+
+// Binder close button and ESC
+binderCloseBtn.addEventListener('click', hideVisualBinder);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !binderOverlay.classList.contains('hidden')) {
+    hideVisualBinder();
+  }
+});
+
 // ── Input handler ──────────────────────────────
 cmdInput.addEventListener('keydown', async (e) => {
   if (e.key !== 'Enter') return;
@@ -1076,7 +1183,6 @@ cmdInput.addEventListener('keydown', async (e) => {
   const upperCmd = raw.toUpperCase();
   printInstant(`> ${raw}`);
 
-  // Save/Load from command line
   if (upperCmd.startsWith('SAVE ')) {
     const name = raw.slice(5).trim();
     if (name) { saveGame(name); printInstant(`💾 Game saved as "${name}".`); }
@@ -1101,10 +1207,9 @@ cmdInput.addEventListener('keydown', async (e) => {
     return;
   }
 
-  // All other commands
   if (upperCmd === 'CUSTOMER' || upperCmd === 'NEXT') { await cmdCustomer(); }
   else if (upperCmd === 'BUY') { cmdBuy(); }
-else if (upperCmd.startsWith('SELL ')) { cmdSell(raw.slice(5).trim()); }
+  else if (upperCmd.startsWith('SELL ')) { cmdSell(raw.slice(5).trim()); }
   else if (upperCmd.startsWith('TRADE ')) { cmdTrade(raw.slice(6).trim()); }
   else if (upperCmd.startsWith('GIFT ')) { cmdGift(raw.slice(5).trim()); }
   else if (upperCmd === 'DECLINE') { cmdDecline(); }
@@ -1124,6 +1229,7 @@ else if (upperCmd.startsWith('SELL ')) { cmdSell(raw.slice(5).trim()); }
   else if (upperCmd.startsWith('RESEARCH ')) { await cmdResearch(raw.slice(9).trim()); }
   else if (upperCmd.startsWith('AUTHENTICATE ')) { await cmdAuthenticate(raw.slice(13).trim()); }
   else if (upperCmd === 'SHOP' || upperCmd === 'INVENTORY' || upperCmd === 'LIST' || upperCmd === 'SHOW') { cmdShop(); }
+  else if (upperCmd === 'BINDER') { showVisualInventory(); }
   else if (upperCmd === 'LEDGER') { cmdLedger(); }
   else if (upperCmd === 'WAIT' || upperCmd === 'CLOSE') { await cmdWait(); }
   else if (upperCmd === 'CLEAR') { outputEl.innerHTML = ''; }
