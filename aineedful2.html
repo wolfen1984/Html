@@ -507,6 +507,11 @@ function clearNPC() {
   saveAll();
 }
 
+function getItemByNumber(num) {
+  const index = parseInt(num, 10);
+  if (isNaN(index) || index < 1 || index > inventory.length) return null;
+  return inventory[index - 1];  // user sees numbers starting from 1
+}
 // ─── SEARCH command ──────────────────────────────
 async function cmdSearch() {
   if (currentNPC) { printInstant('Close the current deal first.'); return; }
@@ -657,25 +662,42 @@ function cmdBuy(itemName) {
   }
 }
 
-function cmdSell(itemName) {
+function cmdSell(arg) {
   if (!currentNPC || currentNPC.type !== 'buyer') { printInstant('No buyer to sell to.'); return; }
-  if (!itemName) { printInstant('Usage: SELL <item name>'); return; }
-  const idx = inventory.findIndex(i => i.name.toLowerCase() === itemName.toLowerCase());
-  if (idx === -1) { printInstant(`You don't own "${itemName}".`); return; }
-  const item = inventory[idx];
+  if (!arg) { printInstant('Usage: SELL <item name or number>'); return; }
+
+  let item = null;
+
+  // Check if argument is a number
+  const num = parseInt(arg, 10);
+  if (!isNaN(num) && num >= 1 && num <= inventory.length) {
+    item = inventory[num - 1];
+  } else {
+    // Fallback to name matching (case‑insensitive)
+    const search = arg.toLowerCase();
+    item = inventory.find(i => i.name.toLowerCase() === search);
+  }
+
+  if (!item) {
+    printInstant(`You don't have "${arg}".`);
+    return;
+  }
+
+  // Make sure the item is what the buyer wants
   if (item.name.toLowerCase() !== currentNPC.desiredItem.toLowerCase()) {
     printInstant(`${currentNPC.visitor.name} isn't interested in "${item.name}".`);
     return;
   }
+
+  // Complete the sale
   const price = currentNPC.offerPrice;
-  inventory.splice(idx, 1);
+  inventory.splice(inventory.indexOf(item), 1);
   cash += price;
   saveAll();
   printInstant(`You sold "${item.name}" for $${price}.`);
   rememberNPC(currentNPC.visitor.name, `bought "${item.name}" for $${price}`);
   clearNPC();
 }
-
 function cmdTrade(itemName) {
   if (!currentNPC || !currentNPC.alternativeItem) { printInstant('They have nothing to trade.'); return; }
   const idx = inventory.findIndex(i => i.name.toLowerCase() === itemName.toLowerCase());
@@ -800,7 +822,7 @@ async function cmdChat(message) {
     maxOffer: currentNPC.maxOffer || null,
     willingToDeal: currentNPC.willingToDeal || false,
     alternativeItem: currentNPC.alternativeItem || null,
-    inventory: inventory.map(i => i.name).join(', '),
+    inventory: inventory.map((i, idx) => `#${idx+1}: ${i.name}`).join(', '),
     debts: npcMemory[currentNPC.visitor.name] ? npcMemory[currentNPC.visitor.name].filter(e => e.includes('owes')) : []
   };
 
@@ -865,7 +887,15 @@ async function cmdChat(message) {
         }
       }
       // If they gave an updatedDesiredItem
-      if (typeof reply.updatedDesiredItem === 'string') currentNPC.desiredItem = reply.updatedDesiredItem;
+      if (typeof reply.updatedDesiredItem === 'string') {
+  // Only accept the new name if it actually matches an inventory item
+  const match = inventory.find(i => i.name.toLowerCase() === reply.updatedDesiredItem.toLowerCase());
+  if (match) {
+    currentNPC.desiredItem = match.name;  // use the exact inventory name
+  } else {
+    printInstant(`(The buyer murmurs about "${reply.updatedDesiredItem}" but you don't have it.)`);
+  }
+}
     } else if (currentNPC.type === 'seller') {
       if (reply.updatedOfferedItem) currentNPC.offeredItem = reply.updatedOfferedItem;
       if (reply.alternativeItem && reply.alternativeItem.name) currentNPC.alternativeItem = reply.alternativeItem;
@@ -895,12 +925,17 @@ async function cmdRadio() {
 
 function cmdShop() {
   printInstant(`\n💰 Cash: $${cash}`);
-  if (inventory.length === 0) { printInstant('📦 INVENTORY: empty'); return; }
-  printInstant('📦 INVENTORY:');
-  inventory.forEach((i, idx) => printInstant(`${idx+1}. ${i.name} (${i.year}) — ${i.description} [$${i.value}]`));
+  if (inventory.length === 0) {
+    printInstant('📦 INVENTORY: empty');
+    return;
+  }
+  printInstant('📦 INVENTORY (use SELL <number> to sell):');
+  inventory.forEach((i, idx) => {
+    const num = idx + 1;
+    printInstant(`${num}. ${i.name} (${i.year}) — ${i.description} [$${i.value}]`);
+  });
   printInstant('── End of shelf ──');
 }
-
 function cmdLedger() {
   printInstant(`\n💰 Cash: $${cash}   📜 Items: ${inventory.length}   🪧 Sign: "${currentSign}"`);
   if (Object.keys(npcMemory).length > 0) {
@@ -923,7 +958,7 @@ function cmdHelp() {
   SEARCH / LISTINGS   - Browse local items for sale
   BUY <item>          - Buy from current listings (or from seller NPC)
   CUSTOMER / NEXT     - Wait for a visitor (buyer or seller)
-  SELL <item>         - Sell item to current buyer
+  SELL <item name or number>  - Sell item to current buyer
   TRADE <your item>   - Trade your item for theirs
   DECLINE             - Send visitor away
   CHAT <message>      - Talk to visitor (bargain, threaten, offer dark deal)
