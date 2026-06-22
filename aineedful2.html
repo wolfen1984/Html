@@ -167,7 +167,7 @@
     <button class="tb-btn" id="btn-inventory">INVENTORY</button>
     <button class="tb-btn" id="btn-ledger">LEDGER</button>
     <button class="tb-btn" id="btn-radio">RADIO</button>
-    <button class="tb-btn" id="btn-wait">WAIT</button>
+    <button class="tb-btn" id="btn-observe">OBSERVE</button>
     <button class="tb-btn" id="btn-help">HELP</button>
     <button class="tb-btn" id="btn-tutorial">TUTORIAL</button>
     <button class="tb-btn" id="btn-save">SAVE</button>
@@ -215,7 +215,7 @@
 
 <script>
 // ──────────────────────────────────────────────
-// RELICS & REGRET – Manipulation Sim (v2.6 – numeric safety)
+// RELICS & REGRET – Manipulation Sim (v2.7 – OBSERVE replaces WAIT)
 // ──────────────────────────────────────────────
 let MISTRAL_KEY = '';
 const MODEL = 'mistral-small-latest';
@@ -392,12 +392,13 @@ function showLoadOverlay() {
 }
 function hideLoadOverlay() { loadOverlay.classList.add('hidden'); cmdInput.focus(); }
 
+// ── Toolbar button listeners ──
 document.getElementById('btn-search').addEventListener('click', () => { initAudio(); playClick(); cmdSearch(); });
 document.getElementById('btn-customer').addEventListener('click', () => { initAudio(); playClick(); cmdCustomer(); });
 document.getElementById('btn-inventory').addEventListener('click', () => { initAudio(); playClick(); showVisualInventory(); });
 document.getElementById('btn-ledger').addEventListener('click', () => { initAudio(); playClick(); cmdLedger(); });
 document.getElementById('btn-radio').addEventListener('click', () => { initAudio(); playClick(); cmdRadio(); });
-document.getElementById('btn-wait').addEventListener('click', () => { initAudio(); playClick(); cmdWait(); });
+document.getElementById('btn-observe').addEventListener('click', () => { initAudio(); playClick(); cmdObserve(); });
 document.getElementById('btn-help').addEventListener('click', () => { initAudio(); playClick(); cmdHelp(); });
 document.getElementById('btn-tutorial').addEventListener('click', () => { initAudio(); playClick(); cmdTutorial(); });
 document.getElementById('btn-save').addEventListener('click', () => { initAudio(); playClick(); showSaveOverlay(); });
@@ -483,8 +484,10 @@ async function callMistralText(systemPrompt, userMessage) {
   } catch(e) { return null; }
 }
 
-// ─── System Prompts (price‑safe) ───
+// ─── System Prompts ───
 const SYSTEM_SHOP = `You are the sentient ledger of RELICS & REGRET, a dusty antique shop in a small 1986 New England town. Items are often cursed, haunted, or carry dark secrets. Generate the requested JSON. Only valid JSON, no markdown.`;
+
+const SYSTEM_TOWN = `You are the town of Millhaven itself, a small New England place in 1986. You narrate the events that happen outside the antique shop RELICS & REGRET. You know about dark pacts, grudges, and secrets. Keep your responses in character: a whispering, atmospheric storyteller.`;
 
 const SYSTEM_BUYER = `You are the sentient ledger of RELICS & REGRET. Generate a buyer visitor who enters the shop seeking a specific item TO BUY FROM THE SHOPKEEPER. Their dialogue MUST be a non-empty string reflecting that they want to buy. Never say "Pay me". Include ALL fields: "visitor": {"name","description","dialogue"}, "desiredItem": string, "offerPrice": number (20-100), "maxOffer": number, "willingToDeal": boolean, and optionally "alternativeItem": {"name","year","description","value"}. If you include alternativeItem, make sure "name" is a non-empty string. Only JSON.`;
 
@@ -508,6 +511,7 @@ You may also include, when appropriate:
 - "agreedAction": a string (if you agree to do a strange or dark favour in exchange for the item)
 
 If you agree to a dark favour, you MUST set "agreedAction" to a short description of what you will do. Do NOT set "dealAccepted" when you agree to a favour – the shopkeeper will decide the final terms later.`;
+
 function rememberNPC(name, event) {
   if (!npcMemory[name]) npcMemory[name] = [];
   npcMemory[name].push(event);
@@ -523,11 +527,6 @@ function clearNPC() {
   saveAll();
 }
 
-function getItemByNumber(num) {
-  const index = parseInt(num, 10);
-  if (isNaN(index) || index < 1 || index > inventory.length) return null;
-  return inventory[index - 1];  // user sees numbers starting from 1
-}
 // ─── SEARCH command ──────────────────────────────
 async function cmdSearch() {
   if (currentNPC) { printInstant('Close the current deal first.'); return; }
@@ -683,13 +682,10 @@ function cmdSell(arg) {
   if (!arg) { printInstant('Usage: SELL <item name or number>'); return; }
 
   let item = null;
-
-  // Check if argument is a number
   const num = parseInt(arg, 10);
   if (!isNaN(num) && num >= 1 && num <= inventory.length) {
     item = inventory[num - 1];
   } else {
-    // Fallback to name matching (case‑insensitive)
     const search = arg.toLowerCase();
     item = inventory.find(i => i.name.toLowerCase() === search);
   }
@@ -699,13 +695,11 @@ function cmdSell(arg) {
     return;
   }
 
-  // Make sure the item is what the buyer wants
   if (item.name.toLowerCase() !== currentNPC.desiredItem.toLowerCase()) {
     printInstant(`${currentNPC.visitor.name} isn't interested in "${item.name}".`);
     return;
   }
 
-  // Complete the sale
   const price = currentNPC.offerPrice;
   inventory.splice(inventory.indexOf(item), 1);
   cash += price;
@@ -714,6 +708,7 @@ function cmdSell(arg) {
   rememberNPC(currentNPC.visitor.name, `bought "${item.name}" for $${price}`);
   clearNPC();
 }
+
 function cmdTrade(itemName) {
   if (!currentNPC || !currentNPC.alternativeItem) { printInstant('They have nothing to trade.'); return; }
   const idx = inventory.findIndex(i => i.name.toLowerCase() === itemName.toLowerCase());
@@ -867,18 +862,14 @@ async function cmdChat(message) {
     printInstant(`\n${currentNPC.visitor.name}: "${reply.dialogue || '...'}"`);
 
     if (currentNPC.type === 'buyer') {
-      // --- Sanitise all numeric fields ---
       if (typeof reply.updatedOfferPrice === 'number') currentNPC.offerPrice = reply.updatedOfferPrice;
       if (typeof reply.counterOffer === 'number') {
-  currentNPC.offerPrice = reply.counterOffer;
-  printInstant(`(New offer: $${reply.counterOffer})`);
-  // Remind the player they can now complete the sale
-  if (!reply.dealAccepted) {
-    printInstant(`Type SELL ${currentNPC.desiredItem} to finalize.`);
-  }
-}
-
-      // --- Priority order: agreedAction > dealAccepted > nothing ---
+        currentNPC.offerPrice = reply.counterOffer;
+        printInstant(`(New offer: $${reply.counterOffer})`);
+        if (!reply.dealAccepted) {
+          printInstant(`Type SELL ${currentNPC.desiredItem} to finalize.`);
+        }
+      }
       if (reply.agreedAction && typeof reply.agreedAction === 'string') {
         const idx = inventory.findIndex(i => i.name.toLowerCase() === currentNPC.desiredItem.toLowerCase());
         if (idx !== -1) {
@@ -902,16 +893,14 @@ async function cmdChat(message) {
           printInstant('You no longer have that item.');
         }
       }
-      // If they gave an updatedDesiredItem
       if (typeof reply.updatedDesiredItem === 'string') {
-  // Only accept the new name if it actually matches an inventory item
-  const match = inventory.find(i => i.name.toLowerCase() === reply.updatedDesiredItem.toLowerCase());
-  if (match) {
-    currentNPC.desiredItem = match.name;  // use the exact inventory name
-  } else {
-    printInstant(`(The buyer murmurs about "${reply.updatedDesiredItem}" but you don't have it.)`);
-  }
-}
+        const match = inventory.find(i => i.name.toLowerCase() === reply.updatedDesiredItem.toLowerCase());
+        if (match) {
+          currentNPC.desiredItem = match.name;
+        } else {
+          printInstant(`(The buyer murmurs about "${reply.updatedDesiredItem}" but you don't have it.)`);
+        }
+      }
     } else if (currentNPC.type === 'seller') {
       if (reply.updatedOfferedItem) currentNPC.offeredItem = reply.updatedOfferedItem;
       if (reply.alternativeItem && reply.alternativeItem.name) currentNPC.alternativeItem = reply.alternativeItem;
@@ -925,6 +914,7 @@ async function cmdChat(message) {
     chatHistory.push({ role: 'assistant', content: reply.dialogue || '...' });
   } catch(e) { printInstant('*** Chat error.'); }
 }
+
 function cmdSign(newSign) {
   if (!newSign) { printInstant('Usage: SIGN <new sign text>'); return; }
   currentSign = newSign;
@@ -968,6 +958,45 @@ function cmdLedger() {
   if (pendingPact) printInstant(`⏳ Pending pact: ${pendingPact.npcName} waiting for PACT command.`);
 }
 
+// ─── NEW: OBSERVE command (replaces WAIT) ──────────────────────
+async function cmdObserve() {
+  if (currentNPC) { printInstant('Finish with the customer first.'); return; }
+  await print('You step to the window, watching the town...');
+
+  let prompt;
+  if (activeTests.length > 0) {
+    const pactDetails = activeTests.map(t => 
+      `Pact: ${t.npcName} agreed to "${t.action}" in exchange for "${t.itemName}".`
+    ).join('\n');
+    prompt = `Active dark pacts:\n${pactDetails}\n\nCurrent town mood: "${townMood}"\nKnown NPC histories: ${JSON.stringify(npcMemory)}\n\nDescribe what happens outside the shop today as these pacts unfold. Show arguments, backlash, or eerie consequences. Return JSON: { "narrative": "string", "newTownMood": "short mood string", "consequences": [ {"npcName": "name", "memory": "event"} ] }`;
+  } else {
+    prompt = `No major pacts are active today. Current town mood: "${townMood}"\nKnown NPC histories: ${JSON.stringify(npcMemory)}\n\nDescribe a quiet but atmospheric day in town. Return JSON: { "narrative": "string", "newTownMood": "short mood string", "consequences": [] }`;
+  }
+
+  const data = await callMistralJSON(SYSTEM_TOWN, prompt);
+  if (!data) {
+    printInstant('...the window fogs up and you see nothing clear.');
+    return;
+  }
+
+  printInstant(`\n🌆 ${data.narrative || 'A day passes.'}`);
+  if (data.newTownMood) {
+    townMood = data.newTownMood;
+  }
+  if (data.consequences && Array.isArray(data.consequences)) {
+    data.consequences.forEach(c => {
+      if (c.npcName && c.memory) {
+        rememberNPC(c.npcName, c.memory);
+      }
+    });
+  }
+  // Pacts have been witnessed – remove them
+  activeTests = [];
+  saveAll();
+  printInstant(`(Town mood: ${townMood})`);
+}
+
+// ─── Help & Tutorial ──────────────────────────
 function cmdHelp() {
   printInstant(`
   COMMANDS:
@@ -981,12 +1010,12 @@ function cmdHelp() {
   TEST <item> FOR <action>  - Give item in exchange for a dark deed (instant)
   PACT <action>       - Set the exact favour after a buyer agrees via CHAT
   BARGAIN <price>     - Propose a different selling price (shortcut)
+  OBSERVE / WAIT      - Watch the town; resolves active pacts, shows consequences
   SIGN <text>         - Change shop sign
   RADIO               - Listen to 1986 radio
   SHOP / INVENTORY    - List your items (text)
   BINDER              - Visual inventory binder
   LEDGER              - Cash, debts, pending dark deals
-  WAIT                - End day (overnight events)
   TUTORIAL            - Full gameplay guide
   SAVE <name> / LOAD <name> / SAVES
   CLEAR               - Clear screen
@@ -1010,28 +1039,15 @@ function cmdTutorial() {
   ▸ BARGAIN <price> to counter-offer directly.
   ▸ If they can't pay, use CHAT to propose a dark favour. When they agree, type PACT <action> to specify what they must do.
   ▸ Or use TEST <item> FOR <action> to instantly demand a dark deed.
-  ▸ Occasional sellers will visit – you can buy from them too.
+  ▸ OBSERVE – after making pacts, use OBSERVE to see the consequences unfold outside. The town will change.
   ▸ LEDGER tracks your finances, debts, and outstanding pacts.
-  ▸ WAIT to pass time. The radio reflects the town's decay.
+  ▸ RADIO reflects the town's decay.
 
   GOAL: Build wealth and influence, but beware the consequences.
   `);
 }
 
-async function cmdWait() {
-  if (currentNPC) { printInstant('Close the shop? A customer is still here.'); return; }
-  await print('You lock up. The town falls quiet...');
-  if (activeTests.length > 0 && Math.random() < 0.3) printInstant(`A pact echoes in the dark.`);
-  const events = [
-    'A distant scream, then silence.',
-    'A knock at the back door. A small, wet cardboard box sits on the step. It contains a single, human tooth.',
-    'The radio turns on by itself, whispering a weather report from 1943.',
-  ];
-  printInstant(events[Math.floor(Math.random()*events.length)]);
-  printInstant('Morning comes. The shop is open again.');
-}
-
-// ── Visual binder ──
+// ─── Visual binder ──
 async function generateCardImage(item) {
   const prompt = `antique item, "${item.name}", ${item.description}, vintage, relic shop, dark moody lighting, 1980s pixel art 8bit`;
   const encoded = encodeURIComponent(prompt);
@@ -1123,7 +1139,7 @@ cmdInput.addEventListener('keydown', async (e) => {
   else if (upperCmd === 'SHOP' || upperCmd === 'INVENTORY' || upperCmd === 'LIST') { cmdShop(); }
   else if (upperCmd === 'BINDER') { showVisualInventory(); }
   else if (upperCmd === 'LEDGER') { cmdLedger(); }
-  else if (upperCmd === 'WAIT' || upperCmd === 'CLOSE') { await cmdWait(); }
+  else if (upperCmd === 'OBSERVE' || upperCmd === 'WAIT' || upperCmd === 'CLOSE') { await cmdObserve(); }
   else if (upperCmd === 'CLEAR') { outputEl.innerHTML = ''; }
   else if (upperCmd === 'HELP') { cmdHelp(); }
   else if (upperCmd === 'TUTORIAL') { cmdTutorial(); }
