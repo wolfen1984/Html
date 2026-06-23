@@ -864,7 +864,17 @@
         const COLLECTORS = [ { name: "Vince Razorback", trait: "paranoid survivalist" }, { name: "Mama Crypt", trait: "elderly bootlegger" }, { name: "The Degausser", trait: "obsessed with self-erasing tapes" }, { name: "Gristle", trait: "former mortician" }, { name: "Wendy Lacerate", trait: "runaway teen" }, { name: "Father Abscess", trait: "defrocked priest" } ];
         function randomCollector() { return COLLECTORS[Math.floor(Math.random() * COLLECTORS.length)]; }
         function getDiscount() { let disc = 1.0; if (milestones['tapes_5']) disc -= 0.10; if (milestones['value_100']) disc -= 0.15; if (milestones['value_10000']) disc = 0.5; return Math.max(0.1, disc); }
-
+async function generateTapeWithRarity(rarity) {
+  const prompt = `Generate a single fictional banned horror VHS tape. It must be of rarity "${rarity.name}".
+Return a JSON object with exactly these keys:
+- "title" (string)
+- "year" (number, 1975-1989)
+- "coverDescription" (one lurid sentence)
+- "rarity" (exactly "${rarity.name}")
+- "price" (number between ${rarity.priceMin} and ${rarity.priceMax})
+Output ONLY the JSON object. No markdown.`;
+  return await callMistral(SYSTEM_PROMPT, prompt);
+}
         // ── Commands ─────────────────────────────────
         async function cmdCrate() { playOpen(); await print('The Archivist opens his footlocker, breath misting in the cold...'); const disc = getDiscount(); let size = 4; if (milestones['tapes_10']) size = 5; if (milestones['value_500']) size = 6; const prompt = `Generate an array of ${size} fictional banned horror VHS tapes that The Archivist has for sale. Each: title, year(1975-1989), coverDescription, rarity(Common,Uncommon,Rare,Ultra Rare,Mythic), price(integer), condition(pristine,worn,mouldy,covered in suspicious stains). Return JSON with key "tapes".`; const data = await callMistral(SYSTEM_PROMPT, prompt); if (!data || !data.tapes) { printInstant('The Archivist grumbles.'); playError(); return; } crateStock = data.tapes.map((t, idx) => ({ ...t, index: idx + 1 })); stockType = 'crate'; await print(`\n📦 THE ARCHIVIST'S CRATE [${size} tapes]:`); crateStock.forEach(t => { printInstant(`  ${t.index}. ${t.title} (${t.year}) - ${colorRarity(t.rarity)} - $${Math.floor(t.price*disc)} [${t.condition}]`); }); printInstant('\nType BUY [number] to purchase.'); }
 
@@ -963,71 +973,148 @@
             showOverlay(talkOverlay);
             chatInput.focus();
         }
-        const CRYPT_KEEPER_SYS = `You are the Crypt Keeper, pun-loving horror host. Talk in groaning puns, occasionally ask a riddle with answer. Keep under 200 chars.`;
-        async function sendTalkMessage() {
-            const msg = chatInput.value.trim();
-            if (!msg) return;
-            chatInput.value = '';
-            const userDiv = document.createElement('div');
-            userDiv.className = 'chat-msg chat-user';
-            userDiv.textContent = '> ' + msg;
-            chatArea.appendChild(userDiv);
-            playClick();
-            talkedToCryptKeeper = true;
-            if (cryptKeeperRiddleActive) {
-                if (msg.toLowerCase().includes(cryptKeeperRiddleActive.answer.toLowerCase())) {
-                    const assistantDiv = document.createElement('div');
-                    assistantDiv.className = 'chat-msg chat-assistant';
-                    assistantDiv.textContent = '🔪 "Heh heh! Correct!"';
-                    chatArea.appendChild(assistantDiv);
-                    cryptKeeperRiddleActive = null;
-                    cryptKeeperRiddlesSolved++;
-                    saveRiddlesSolved();
-                    playSuccess();
-                    if (Math.random() < 0.5) {
-                        const cash = 10 + Math.floor(Math.random() * 20);
-                        wallet += cash;
-                        saveWallet();
-                        const cashMsg = document.createElement('div');
-                        cashMsg.textContent = `You got $${cash}.`;
-                        chatArea.appendChild(cashMsg);
-                        playCash();
-                    }
-                    if (cryptKeeperRiddlesSolved >= 3 && !casketUnlocked) {
-                        casketUnlocked = true;
-                        localStorage.setItem('vn_casket_unlocked', 'true');
-                        updateStatusBar();
-                        const casketMsg = document.createElement('div');
-                        casketMsg.textContent = '🪦 "Try CASKET."';
-                        chatArea.appendChild(casketMsg);
-                        playCreepy();
-                    }
-                    checkMilestones();
-                    chatArea.scrollTop = chatArea.scrollHeight;
-                    return;
-                }
-            }
-            const messages = [ { role: 'system', content: CRYPT_KEEPER_SYS }, ...cryptKeeperConversation.slice(-10), { role: 'user', content: msg } ];
-            try {
-                const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` }, body: JSON.stringify({ model: MODEL, messages, temperature: 0.95 }) });
-                const data = await res.json();
-                let reply = data.choices?.[0]?.message?.content?.trim() || '...';
-                const assistantDiv = document.createElement('div');
-                assistantDiv.className = 'chat-msg chat-assistant';
-                assistantDiv.textContent = '🔪 ' + reply;
-                chatArea.appendChild(assistantDiv);
-                cryptKeeperConversation.push({ role: 'user', content: msg }, { role: 'assistant', content: reply });
-            } catch (e) { const errDiv = document.createElement('div');
-                errDiv.textContent = '*** Error';
-                chatArea.appendChild(errDiv); playError(); }
-            chatArea.scrollTop = chatArea.scrollHeight;
-        }
+        const CRYPT_KEEPER_SYS = `You are the Crypt Keeper, the Grotesque Jester of the VIDEO NASTY EXCHANGE BBS.
+You are a rotting, pun-loving horror host who cackles, tells morbid jokes, and speaks in a gleeful, macabre style.
+You love wordplay about death, decay, and VHS tapes.
+Occasionally (about 20% of the time) you ask the player a riddle. The riddle should be a simple horror-themed riddle with a clear one-word answer.
+If the player answers correctly, you reward them with a rare tape or cash.
+Keep all replies under 200 characters, full of groaning puns. No markdown.`;
 
-        // WATCH overlay
-        const watchTapeList = document.getElementById('watchTapeList');
-        const watchPlayback = document.getElementById('watch-playback');
-        const movieOutput = document.getElementById('movieOutput');
-        async function generateTapeThumbnail(tape) { const key = tape.title; if (imageCache[key]) return imageCache[key]; try { const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(`VHS cover for banned horror film "${tape.title}", ${tape.coverDescription}`)}?width=140&height=110&nologo=true`; imageCache[key] = url; saveImageCache(); return url; } catch (e) { return null; } }
+       async function sendTalkMessage() {
+  const msg = chatInput.value.trim();
+  if (!msg) return;
+  chatInput.value = '';
+  const userDiv = document.createElement('div');
+  userDiv.className = 'chat-msg chat-user';
+  userDiv.textContent = '> ' + msg;
+  chatArea.appendChild(userDiv);
+  playClick();
+  talkedToCryptKeeper = true;
+
+  // --- RIDDLE CHECK ---
+  if (cryptKeeperRiddleActive) {
+    const answer = msg.trim().toLowerCase();
+    if (answer.includes(cryptKeeperRiddleActive.answer.toLowerCase())) {
+      // Correct!
+      const assistantDiv = document.createElement('div');
+      assistantDiv.className = 'chat-msg chat-assistant';
+      assistantDiv.textContent = '🔪 "Heh heh! Correct!"';
+      chatArea.appendChild(assistantDiv);
+      cryptKeeperRiddleActive = null;
+      cryptKeeperRiddlesSolved++;
+      saveRiddlesSolved();
+      playSuccess();
+
+      // Reward
+      if (Math.random() < 0.33) {
+        const rarity = rollRarity();
+        const tape = await generateTapeWithRarity(rarity);
+        if (tape && tape.title) {
+          tape.condition = randomCondition();
+          collection.push(tape);
+          saveCollection();
+          const rewardDiv = document.createElement('div');
+          rewardDiv.className = 'chat-msg chat-assistant';
+          rewardDiv.textContent = `You receive: "${tape.title}" (${tape.rarity}) [${tape.condition}]`;
+          chatArea.appendChild(rewardDiv);
+          playSuccess();
+        } else {
+          // fallback cash
+          const cash = 15 + Math.floor(Math.random() * 20);
+          wallet += cash; saveWallet();
+          const cashDiv = document.createElement('div');
+          cashDiv.className = 'chat-msg chat-assistant';
+          cashDiv.textContent = `Crypt Keeper tosses you $${cash}.`;
+          chatArea.appendChild(cashDiv);
+          playCash();
+        }
+      } else {
+        const cash = 10 + Math.floor(Math.random() * 20);
+        wallet += cash; saveWallet();
+        const cashDiv = document.createElement('div');
+        cashDiv.className = 'chat-msg chat-assistant';
+        cashDiv.textContent = `Crypt Keeper hands you $${cash}. "Don't spend it all on embalming fluid!"`;
+        chatArea.appendChild(cashDiv);
+        playCash();
+      }
+
+      // CASKET unlock after 3
+      if (cryptKeeperRiddlesSolved >= 3 && !casketUnlocked) {
+        casketUnlocked = true;
+        localStorage.setItem('vn_casket_unlocked', 'true');
+        updateStatusBar();
+        const casketDiv = document.createElement('div');
+        casketDiv.className = 'chat-msg chat-assistant';
+        casketDiv.textContent = '🪦 "Try CASKET."';
+        chatArea.appendChild(casketDiv);
+        playCreepy();
+      }
+      checkMilestones();
+      chatArea.scrollTop = chatArea.scrollHeight;
+      return; // skip normal reply
+    }
+    // wrong answer – falls through to normal chat
+  }
+
+  // Build messages for API
+  const messages = [
+    { role: 'system', content: CRYPT_KEEPER_SYS },
+    ...cryptKeeperConversation.slice(-10),
+    { role: 'user', content: msg }
+  ];
+
+  // Randomly inject a riddle prompt
+  if (!cryptKeeperRiddleActive && Math.random() < 0.2) {
+    messages.push({ role: 'system', content: 'Now ask the player a riddle. End with "[RIDDLE]" so the system knows it\'s a riddle.' });
+  }
+
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
+      body: JSON.stringify({ model: MODEL, messages, temperature: 0.95 })
+    });
+    const data = await res.json();
+    let reply = data.choices?.[0]?.message?.content?.trim() || '...';
+
+    // Riddle detection
+    if (reply.includes('[RIDDLE]')) {
+      reply = reply.replace('[RIDDLE]', '').trim();
+      // Get the answer via a second call
+      const answerRes = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
+        body: JSON.stringify({
+          model: MODEL,
+          messages: [
+            { role: 'system', content: 'You just asked this riddle: "' + reply + '". Provide ONLY the one-word answer, lowercase, no punctuation.' }
+          ],
+          temperature: 0
+        })
+      });
+      let answer = '';
+      if (answerRes.ok) {
+        const ansData = await answerRes.json();
+        answer = ansData.choices?.[0]?.message?.content?.trim().toLowerCase() || '';
+      }
+      cryptKeeperRiddleActive = { question: reply, answer: answer };
+    }
+
+    const assistantDiv = document.createElement('div');
+    assistantDiv.className = 'chat-msg chat-assistant';
+    assistantDiv.textContent = '🔪 ' + reply;
+    chatArea.appendChild(assistantDiv);
+
+    cryptKeeperConversation.push({ role: 'user', content: msg }, { role: 'assistant', content: reply });
+
+  } catch (e) {
+    const errDiv = document.createElement('div');
+    errDiv.textContent = '*** Error';
+    chatArea.appendChild(errDiv);
+    playError();
+  }
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
         function openWatch() {
             if (!collection.length) { printInstant('No tapes.'); playError(); return; }
             watchTapeList.innerHTML = '';
