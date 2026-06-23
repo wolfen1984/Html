@@ -119,6 +119,26 @@
 
 <script>
 (function() {
+    'use strict';
+
+    // ---------- Safe local storage ----------
+    function storeGet(key, fallback = '') {
+        try { return localStorage.getItem(key) || fallback; } catch(e) { return fallback; }
+    }
+    function storeSet(key, value) {
+        try { localStorage.setItem(key, value); } catch(e) {}
+    }
+    function storeRemove(key) {
+        try { localStorage.removeItem(key); } catch(e) {}
+    }
+
+    // ---------- XSS prevention ----------
+    function escapeHtml(text) {
+        if (typeof text !== 'string') return '';
+        const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+        return text.replace(/[&<>"']/g, m => map[m]);
+    }
+
     // ---------- DOM references ----------
     const listContainer = document.getElementById('listContainer');
     const rightHeader = document.getElementById('rightHeader');
@@ -146,12 +166,13 @@
     const navBtns = document.querySelectorAll('.nav-btn');
     const refreshBtn = document.getElementById('refreshBtn');
 
-    // ---------- State ----------
-    let mistralKey = localStorage.getItem('heartline_key') || '';
+    // ---------- Globals ----------
+    let mistralKey = storeGet('heartline_key', '');
     let currentView = 'mailbox';
     let selectedConversationUser = null;
     let selectedBoard = null;
     let backgroundTimer = null;
+    let isRefreshing = false; // prevent concurrent refresh
 
     const STORAGE_KEY = 'heartline_bbs_robust';
     let G = {
@@ -186,20 +207,31 @@
     }
 
     function sanitizeAllUsers() { G.users.forEach(u => ensureUserObject(u)); }
-    function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(G)); }
 
-    function load() {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-            G = JSON.parse(saved);
-            if (!G.boards) G.boards = { 'personals': [], 'interests': [], 'confessions': [] };
-            if (!G.conversations) G.conversations = [];
-            if (!G.lore) G.lore = [];
-            if (!G.feuds) G.feuds = [];
-            for (let board in G.boards) G.boards[board].forEach(p => { if (!p.replies) p.replies = []; });
-            sanitizeAllUsers();
-            return true;
-        }
+    function saveGame() {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(G)); } catch(e) {}
+    }
+
+    function loadGame() {
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                G = JSON.parse(saved);
+                if (!G.boards) G.boards = { 'personals': [], 'interests': [], 'confessions': [] };
+                if (!G.conversations) G.conversations = [];
+                if (!G.lore) G.lore = [];
+                if (!G.feuds) G.feuds = [];
+                for (let board in G.boards) {
+                    G.boards[board].forEach(p => {
+                        if (!p.replies) p.replies = [];
+                        // FIX: assign unique id to posts missing it
+                        if (!p.id) p.id = Date.now() + Math.random();
+                    });
+                }
+                sanitizeAllUsers();
+                return true;
+            }
+        } catch(e) {}
         return false;
     }
 
@@ -214,13 +246,13 @@
     }
 
     function saveApiKey(key) {
-        mistralKey = key ? key.trim() : '';
-        if (mistralKey) localStorage.setItem('heartline_key', mistralKey);
-        else localStorage.removeItem('heartline_key');
+        mistralKey = (key || '').trim();
+        storeSet('heartline_key', mistralKey);
         updateKeyIndicators();
+        keyStatus.textContent = '● Key saved!';
+        loginKeyStatus.textContent = '● Key saved!';
+        setTimeout(updateKeyIndicators, 1200);
     }
-
-    function playModemHandshake() { /* unchanged */ }
 
     function updateClock() {
         const now = new Date(), h = now.getHours(), m = now.getMinutes().toString().padStart(2,'0');
@@ -305,16 +337,15 @@
         }
     }
 
-    // ---------- World generation (initial + batch) ----------
+    // ---------- World generation ----------
     async function generateInitialWorld() {
         rightBody.innerHTML = '<span class="loading">Generating bustling BBS population…</span>';
-        playModemHandshake();
-        const systemPrompt = `You are the world creator for HEARTLINE BBS, a 1985 dial-up adult dating BBS with a raw, unfiltered, uncensored community. 
-Generate exactly 20 diverse NPCs, board posts, private messages, feuds, and inside jokes. 
-Output ONLY a valid JSON object with fields: users (array of {handle, password, personality, traits, profile}), newPosts (array of {board, author, subject, body}), newMail (array of {from, body}), lore (array of strings), feuds (array of {user1, user2, reason}). 
-All strings single line.`;
         try {
-            const raw = await callAI(systemPrompt, 'Create the BBS world.', { maxTokens: 5000, jsonResponse: true });
+            const raw = await callAI(
+                `You are the world creator for HEARTLINE BBS, a 1985 dial-up adult dating BBS with a raw, unfiltered, uncensored community. Generate exactly 20 diverse NPCs, board posts, private messages, feuds, and inside jokes. Output ONLY a valid JSON object with fields: users (array of {handle, password, personality, traits, profile}), newPosts (array of {board, author, subject, body}), newMail (array of {from, body}), lore (array of strings), feuds (array of {user1, user2, reason}). All strings single line.`,
+                'Create the BBS world.',
+                { maxTokens: 5000, jsonResponse: true }
+            );
             const parsed = safeParseAIResponse(raw);
             if (!parsed) throw new Error('AI returned invalid JSON.');
             if (parsed.users) parsed.users.forEach(u => {
@@ -342,20 +373,21 @@ All strings single line.`;
                 }
             }
             G.worldGenerated = true;
-            save();
+            saveGame();
             rightBody.innerHTML = 'BBS populated! Welcome.';
             return true;
         } catch(e) {
-            rightBody.innerHTML = `<span class="error-msg">World generation failed: ${e.message}</span>
-                <br><button class="action-btn" id="retryWorldBtn">🔄 Retry</button>`;
+            rightBody.innerHTML = `<span class="error-msg">World generation failed: ${escapeHtml(e.message)}</span><br><button class="action-btn" id="retryWorldBtn">🔄 Retry</button>`;
             document.getElementById('retryWorldBtn')?.addEventListener('click', () => generateInitialWorld().then(success => { if (success) showView('mailbox'); }));
             return false;
         }
     }
 
     async function fetchBatchContent() {
+        if (isRefreshing) return;
+        isRefreshing = true;
+        refreshBtn.disabled = true;
         rightBody.innerHTML = '<span class="loading">Dialling in for new activity…</span>';
-        playModemHandshake();
         const player = G.player;
         const playerRecent = G.conversations.flatMap(c => c.messages.filter(m => m.from === player.handle).slice(-3)).map(m => m.body).join(' | ');
         const context = {
@@ -392,21 +424,25 @@ All strings single line.`;
             }
         } catch(e) { console.warn('Batch fetch AI failed:', e); }
 
+        // Minimal fallback
         if (addedMail === 0) {
-            for (let i = 0; i < 2; i++) {
-                const fbMsg = createFallbackMessage();
-                if (fbMsg) { ensureConversation(fbMsg.from).messages.push({ from: fbMsg.from, body: fbMsg.body, timestamp: new Date().toISOString(), read: false }); addedMail++; }
-            }
+            const fbMsg = createFallbackMessage();
+            if (fbMsg) { ensureConversation(fbMsg.from).messages.push({ from: fbMsg.from, body: fbMsg.body, timestamp: new Date().toISOString(), read: false }); addedMail++; }
         }
         if (addedPosts < 2) {
-            for (let i = 0; i < 3; i++) {
+            for (let i = 0; i < 2; i++) {
                 const fbPost = createFallbackPost();
-                if (fbPost) { G.boards[fbPost.board].push({ id: Date.now() + Math.random(), author: fbPost.author, subject: fbPost.subject, body: fbPost.body, timestamp: new Date().toISOString(), replies: [] }); addedPosts++; }
+                if (fbPost && G.boards[fbPost.board]) {
+                    G.boards[fbPost.board].push({ id: Date.now() + Math.random(), author: fbPost.author, subject: fbPost.subject, body: fbPost.body, timestamp: new Date().toISOString(), replies: [] });
+                    addedPosts++;
+                }
             }
         }
-        save();
+        saveGame();
         rightBody.innerHTML = `<em>${addedMail} new message(s), ${addedPosts} new post(s)${addedUsers>0?`, and ${addedUsers} new user(s)!`:''}</em>`;
         setTimeout(() => showView(currentView), 800);
+        isRefreshing = false;
+        refreshBtn.disabled = false;
     }
 
     function createFallbackMessage() {
@@ -425,14 +461,16 @@ All strings single line.`;
         return { board, author: npc.handle, subject: subjects[Math.floor(Math.random()*subjects.length)], body: bodies[Math.floor(Math.random()*bodies.length)] };
     }
 
-    // ---------- Background activity ----------
     function startBackgroundActivity() {
         if (backgroundTimer) clearInterval(backgroundTimer);
-        backgroundTimer = setInterval(performBackgroundActivity, 180000); // 3 min
+        backgroundTimer = setInterval(performBackgroundActivity, 180000);
     }
 
     async function performBackgroundActivity() {
         if (!G.player) return;
+        // Skip if user is composing a message or editing profile
+        if (composeArea.style.display === 'flex') return;
+        if (rightBody.querySelector('#saveProfileBtn')) return;
         let addedPosts = 0;
         if (mistralKey) {
             try {
@@ -457,7 +495,7 @@ All strings single line.`;
         if (addedPosts < 2) {
             for (let i = 0; i < 2; i++) {
                 const fb = createFallbackPost();
-                if (fb) {
+                if (fb && G.boards[fb.board]) {
                     G.boards[fb.board].push({
                         id: Date.now() + Math.random(),
                         author: fb.author, subject: fb.subject, body: fb.body,
@@ -502,7 +540,7 @@ All strings single line.`;
                 });
             }
         }
-        save();
+        saveGame();
         if (currentView === 'boards' && selectedBoard) selectBoard(selectedBoard);
         else if (currentView === 'mailbox' && selectedConversationUser) selectConversation(selectedConversationUser);
         else showView(currentView);
@@ -518,7 +556,8 @@ All strings single line.`;
     function showView(view) {
         currentView = view;
         navBtns.forEach(b => b.classList.remove('active'));
-        document.querySelector(`.nav-btn[data-view="${view}"]`).classList.add('active');
+        const activeBtn = document.querySelector(`.nav-btn[data-view="${view}"]`);
+        if (activeBtn) activeBtn.classList.add('active');
         selectedConversationUser = null; selectedBoard = null;
         rightHeader.textContent = {mailbox:'Conversations',boards:'Boards',who:"Who's Online",directory:'Directory Search',profile:'Profile'}[view]||'';
         rightBody.innerHTML = ''; actionBar.innerHTML = '';
@@ -555,6 +594,7 @@ All strings single line.`;
         const onlineNPCs = shuffled.slice(0, onlineCount);
         const onlineList = [G.player, ...onlineNPCs];
         onlineList.forEach(u => {
+            if (!u) return;
             const div = document.createElement('div');
             div.className = 'list-item';
             div.textContent = u.handle + (u.handle === G.player.handle ? ' (you)' : '');
@@ -578,7 +618,7 @@ All strings single line.`;
             convs.forEach(conv => {
                 const div = document.createElement('div');
                 div.className = 'list-item' + (selectedConversationUser === conv.with ? ' selected' : '');
-                div.innerHTML = `${conversationHasUnread(conv) ? '<span class="unread-badge">●</span>' : ''} <strong>${conv.with}</strong> (${conv.messages.length})`;
+                div.innerHTML = `${conversationHasUnread(conv) ? '<span class="unread-badge">●</span>' : ''} <strong>${escapeHtml(conv.with)}</strong> (${conv.messages.length})`;
                 div.addEventListener('click', () => selectConversation(conv.with));
                 listContainer.appendChild(div);
             });
@@ -586,14 +626,13 @@ All strings single line.`;
             Object.keys(G.boards).forEach(bName => {
                 const div = document.createElement('div');
                 div.className = 'list-item' + (selectedBoard === bName ? ' selected' : '');
-                div.innerHTML = `<strong>${bName.toUpperCase()}</strong> (${G.boards[bName].length})`;
+                div.innerHTML = `<strong>${escapeHtml(bName.toUpperCase())}</strong> (${G.boards[bName].length})`;
                 div.addEventListener('click', () => selectBoard(bName));
                 listContainer.appendChild(div);
             });
         }
     }
 
-    // ---------- Directory ----------
     async function performDirectorySearch() {
         if (!G.player || currentView !== 'directory') return;
         const sex = (document.getElementById('dirSex')?.value || '').trim().toLowerCase();
@@ -604,31 +643,22 @@ All strings single line.`;
             rightBody.innerHTML = '<span class="error-msg">🔑 No API key set.</span>';
             return;
         }
-        const debugEl = document.getElementById('dirDebug');
-        if (debugEl) debugEl.textContent = 'Generating new handles…';
         rightBody.innerHTML = '<span class="loading">Inventing fresh faces for the directory…</span>';
         const existingHandles = G.users.map(u => u.handle.toLowerCase());
         const system = `You are a creative BBS handle generator. Given search criteria and existing handles, invent 5‑8 brand‑new, unique 80s‑style handles. Return ONLY JSON: {"newUsers": [{"handle":"...", "description":"A short one‑sentence description."}]}. Handles must be original, not in the existing list.`;
         const userMessage = `SEARCH CRITERIA: Sex: ${sex || 'any'}, Age: ${minAge} – ${maxAge}, Looking for: ${lookingFor || 'any'}. EXISTING HANDLES: ${existingHandles.join(', ') || 'none'}. Generate JSON.`;
         try {
-            if (currentView !== 'directory') return;
             const raw = await callAI(system, userMessage, { maxTokens: 800, jsonResponse: true, temperature: 0.9 });
-            if (currentView !== 'directory') return;
             const parsed = safeParseAIResponse(raw);
             if (!parsed || !Array.isArray(parsed.newUsers)) throw new Error('Invalid newUsers.');
             const newUsers = parsed.newUsers.filter(u => u.handle).map(u => ({ handle: u.handle, description: u.description || '' }));
             if (newUsers.length === 0) {
                 rightBody.innerHTML = '<em>No new users matched your criteria. Try broader filters.</em>';
-                if (debugEl) debugEl.textContent = 'AI returned empty newUsers.';
                 return;
             }
             displayDirectoryResults(newUsers);
         } catch (err) {
-            console.error('Directory error:', err);
-            if (currentView === 'directory') {
-                if (debugEl) debugEl.textContent = 'Error: ' + err.message;
-                rightBody.innerHTML = `<span class="error-msg">❌ ${err.message}</span>`;
-            }
+            rightBody.innerHTML = `<span class="error-msg">❌ ${escapeHtml(err.message)}</span>`;
         }
     }
 
@@ -636,9 +666,9 @@ All strings single line.`;
         if (currentView !== 'directory') return;
         rightHeader.textContent = 'Directory Results';
         let html = newUsers.map(u => `
-            <div class="result-item list-item" data-handle="${u.handle}">
-                <span>📇 <strong>${u.handle}</strong> – ${u.description}</span>
-                <button class="action-btn add-user-btn" data-handle="${u.handle}" data-desc="${encodeURIComponent(u.description)}">➕ Add</button>
+            <div class="result-item list-item" data-handle="${escapeHtml(u.handle)}">
+                <span>📇 <strong>${escapeHtml(u.handle)}</strong> – ${escapeHtml(u.description)}</span>
+                <button class="action-btn add-user-btn" data-handle="${escapeHtml(u.handle)}" data-desc="${encodeURIComponent(u.description)}">➕ Add</button>
             </div>`).join('');
         rightBody.innerHTML = html;
         document.querySelectorAll('.add-user-btn').forEach(btn => {
@@ -646,7 +676,7 @@ All strings single line.`;
                 e.stopPropagation();
                 const handle = btn.dataset.handle;
                 const desc = decodeURIComponent(btn.dataset.desc);
-                rightBody.innerHTML = `<span class="loading">Bringing ${handle} online…</span>`;
+                rightBody.innerHTML = `<span class="loading">Bringing ${escapeHtml(handle)} online…</span>`;
                 try {
                     const profile = await generateProfileForUser(handle, desc);
                     addUserToGame(handle, profile);
@@ -661,13 +691,13 @@ All strings single line.`;
                 const handle = item.dataset.handle;
                 const user = newUsers.find(u => u.handle === handle);
                 if (user) {
-                    rightBody.innerHTML = `<strong>Handle:</strong> ${user.handle}<br><em>${user.description}</em><br><br>
-                        <button class="action-btn add-user-btn" data-handle="${user.handle}" data-desc="${encodeURIComponent(user.description)}">➕ Add this user to the BBS</button>`;
+                    rightBody.innerHTML = `<strong>Handle:</strong> ${escapeHtml(user.handle)}<br><em>${escapeHtml(user.description)}</em><br><br>
+                        <button class="action-btn add-user-btn" data-handle="${escapeHtml(user.handle)}" data-desc="${encodeURIComponent(user.description)}">➕ Add this user to the BBS</button>`;
                     document.querySelector('.add-user-btn')?.addEventListener('click', async (e2) => {
                         e2.stopPropagation();
                         const handle2 = e2.target.dataset.handle;
                         const desc2 = decodeURIComponent(e2.target.dataset.desc);
-                        rightBody.innerHTML = `<span class="loading">Bringing ${handle2} online…</span>`;
+                        rightBody.innerHTML = `<span class="loading">Bringing ${escapeHtml(handle2)} online…</span>`;
                         try { const p = await generateProfileForUser(handle2, desc2); addUserToGame(handle2, p); }
                         catch (err) { addUserToGame(handle2, null); }
                     });
@@ -709,23 +739,22 @@ All strings single line.`;
             timestamp: new Date().toISOString(),
             read: false
         });
-        save();
-        rightBody.innerHTML = `<em>${handle} has been added to the BBS! Check your mailbox.</em>`;
+        saveGame();
+        rightBody.innerHTML = `<em>${escapeHtml(handle)} has been added to the BBS! Check your mailbox.</em>`;
         renderList();
     }
 
-    // ---------- Messaging ----------
     function selectConversation(handle) {
         selectedConversationUser = handle; selectedBoard = null;
         const conv = ensureConversation(handle);
-        rightHeader.textContent = `Conversation with ${conv.with}`;
+        rightHeader.textContent = `Conversation with ${escapeHtml(conv.with)}`;
         let html = conv.messages.map(m => {
             const cls = m.from === G.player.handle ? 'me' : 'other';
             if (m.from !== G.player.handle) m.read = true;
-            return `<div class="thread-msg"><span class="author ${cls}">${m.from}:</span> ${m.body}</div>`;
+            return `<div class="thread-msg"><span class="author ${cls}">${escapeHtml(m.from)}:</span> ${escapeHtml(m.body)}</div>`;
         }).join('') || '<em>No messages yet.</em>';
         rightBody.innerHTML = html;
-        save();
+        saveGame();
         actionBar.innerHTML = `<textarea id="threadReplyInput" style="flex:1; background:#000; border:1px solid #0a0; color:#0f0; height:40px; resize:none;" placeholder="Reply..."></textarea>
             <button class="action-btn" id="threadReplyBtn">Send</button>`;
         document.getElementById('threadReplyBtn').addEventListener('click', () => sendThreadReply(conv));
@@ -757,19 +786,18 @@ All strings single line.`;
                 { maxTokens: 300 }
             );
             conv.messages.push({ from: conv.with, body: reply.trim(), timestamp: new Date().toISOString(), read: false });
-            save();
+            saveGame();
         } catch(e) {
             conv.messages.push({ from: conv.with, body: `(static) Couldn't reply: ${e.message}`, timestamp: new Date().toISOString(), read: false });
-            save();
+            saveGame();
         }
     }
 
-    // ---------- Boards (with persistent thread participants) ----------
     function selectBoard(bName) {
         selectedBoard = bName; selectedConversationUser = null;
         const posts = G.boards[bName];
-        rightHeader.textContent = `Board: ${bName.toUpperCase()}`;
-        let html = posts.length ? posts.map(p => `<div style="cursor:pointer; border-bottom:1px dotted #040; padding:4px;" onclick="window.selectPost(${p.id})"><strong>${p.author}</strong> - ${p.subject} (${p.replies.length} replies)</div>`).join('') : '<em>No posts yet.</em>';
+        rightHeader.textContent = `Board: ${escapeHtml(bName.toUpperCase())}`;
+        let html = posts.length ? posts.map(p => `<div style="cursor:pointer; border-bottom:1px dotted #040; padding:4px;" onclick="window.selectPost(${p.id})"><strong>${escapeHtml(p.author)}</strong> - ${escapeHtml(p.subject)} (${p.replies.length} replies)</div>`).join('') : '<em>No posts yet.</em>';
         rightBody.innerHTML = html;
         actionBar.innerHTML = '<button class="action-btn" id="newPostBtn">➕ New Post</button>';
         document.getElementById('newPostBtn').addEventListener('click', () => startNewPost(bName));
@@ -783,8 +811,8 @@ All strings single line.`;
         const post = G.boards[selectedBoard].find(p => p.id===postId);
         if(!post) return;
         if(!post.replies) post.replies=[];
-        let html = `<div class="thread-msg"><span class="author">${post.author}</span> - ${post.subject}<br>${post.body}</div>`;
-        post.replies.forEach(r => html += `<div class="thread-msg" style="margin-left:20px;"><span class="author">${r.author}:</span> ${r.body}</div>`);
+        let html = `<div class="thread-msg"><span class="author">${escapeHtml(post.author)}</span> - ${escapeHtml(post.subject)}<br>${escapeHtml(post.body)}</div>`;
+        post.replies.forEach(r => html += `<div class="thread-msg" style="margin-left:20px;"><span class="author">${escapeHtml(r.author)}:</span> ${escapeHtml(r.body)}</div>`);
         rightBody.innerHTML = html;
         actionBar.innerHTML = `<textarea id="boardReplyInput" style="flex:1; background:#000; border:1px solid #0a0; color:#0f0; height:40px; resize:none;" placeholder="Reply..."></textarea>
             <button class="action-btn" id="boardReplyBtn">Send</button>`;
@@ -796,12 +824,10 @@ All strings single line.`;
         const input = document.getElementById('boardReplyInput');
         const body = input.value.trim();
         if (!body) return;
-        const playerHandle = G.player.handle;
-        post.replies.push({ author: playerHandle, body, timestamp: new Date().toISOString() });
+        post.replies.push({ author: G.player.handle, body, timestamp: new Date().toISOString() });
         input.value = '';
-        save();
+        saveGame();
         window.selectPost(post.id);
-        // Pass player message for mention detection
         await generateBoardNPCReply(post, body);
         window.selectPost(post.id);
     }
@@ -812,12 +838,10 @@ All strings single line.`;
         const allNPCs = G.users.filter(u => u.handle !== playerHandle);
         if (!allNPCs.length) return;
 
-        // Build participant set: original author + everyone who already replied
         const participants = new Set();
         if (post.author && post.author !== playerHandle) participants.add(post.author);
         post.replies.forEach(r => { if (r.author !== playerHandle) participants.add(r.author); });
 
-        // Check for mentions in the player's latest message
         let mentionedNPC = null;
         if (playerMessage) {
             const lowerMsg = playerMessage.toLowerCase();
@@ -826,17 +850,14 @@ All strings single line.`;
 
         let selectedNPC;
         if (mentionedNPC) {
-            // Definitely use the mentioned NPC
             selectedNPC = allNPCs.find(u => u.handle === mentionedNPC.handle);
         } else {
-            // Weighted selection: 70% chance to use an existing participant, 30% new NPC
             if (Math.random() < 0.7 && participants.size > 0) {
                 const participantHandles = Array.from(participants);
                 const randomParticipant = participantHandles[Math.floor(Math.random() * participantHandles.length)];
                 selectedNPC = allNPCs.find(u => u.handle === randomParticipant);
             }
             if (!selectedNPC) {
-                // Fallback: random NPC not already a participant (for freshness)
                 const freshNPCs = allNPCs.filter(u => !participants.has(u.handle));
                 if (freshNPCs.length > 0) {
                     selectedNPC = freshNPCs[Math.floor(Math.random() * freshNPCs.length)];
@@ -847,21 +868,18 @@ All strings single line.`;
         }
 
         const participantNames = Array.from(participants).join(', ');
-        const sys = `You are ${selectedNPC.handle}. Personality: ${selectedNPC.personality}. Traits: ${selectedNPC.traits?.join(', ') || ''}. 
-You are participating in a BBS thread. Other participants: ${participantNames || 'just the post author'}. 
-Reply in character, 1-3 sentences. Only output your reply, nothing else.`;
+        const sys = `You are ${selectedNPC.handle}. Personality: ${selectedNPC.personality}. Traits: ${selectedNPC.traits?.join(', ') || ''}. You are participating in a BBS thread. Other participants: ${participantNames || 'just the post author'}. Reply in character, 1-3 sentences. Only output your reply.`;
         const msg = `Board: ${selectedBoard}. Post by ${post.author}: ${post.subject}\n${post.body}\n\nRecent replies: ${post.replies.map(r => `${r.author}: ${r.body}`).join('\n')}`;
         try {
             const reply = await callAI(sys, msg, { maxTokens: 250 });
             post.replies.push({ author: selectedNPC.handle, body: reply.trim(), timestamp: new Date().toISOString() });
-            save();
+            saveGame();
         } catch(e) {
             post.replies.push({ author: selectedNPC.handle, body: `(static) Couldn't reply right now.`, timestamp: new Date().toISOString() });
-            save();
+            saveGame();
         }
     }
 
-    // ---------- Compose ----------
     function startNewPost(board) {
         composeTo.innerHTML = ''; composeSubject.value=''; composeBody.value='';
         rightBody.style.display = 'none'; actionBar.style.display = 'none';
@@ -869,7 +887,14 @@ Reply in character, 1-3 sentences. Only output your reply, nothing else.`;
     }
 
     function startNewMessage(toHandle) {
-        composeTo.innerHTML = G.users.filter(u=>u.handle!==G.player.handle).map(u => `<option value="${u.handle}">${u.handle}</option>`).join('');
+        // Build recipient dropdown safely (no raw HTML injection)
+        composeTo.innerHTML = '';
+        G.users.filter(u=>u.handle!==G.player.handle).forEach(u => {
+            const opt = document.createElement('option');
+            opt.value = u.handle;
+            opt.textContent = u.handle;
+            composeTo.appendChild(opt);
+        });
         if(toHandle) composeTo.value = toHandle;
         composeSubject.value=''; composeBody.value='';
         rightBody.style.display = 'none'; actionBar.style.display = 'none';
@@ -884,37 +909,44 @@ Reply in character, 1-3 sentences. Only output your reply, nothing else.`;
             const newPost = { id: Date.now(), author: G.player.handle, subject, body, timestamp: new Date().toISOString(), replies: [] };
             G.boards[board].push(newPost);
             composeArea.style.display='none'; rightBody.style.display = ''; actionBar.style.display = '';
-            save();
-            // Trigger an NPC reply (no player message yet, but we can still bias toward participants)
+            saveGame();
             await generateBoardNPCReply(newPost);
-            save();
+            saveGame();
             if(currentView==='boards' && selectedBoard===board) selectBoard(board);
             else renderList();
         } else {
             const toHandle = composeTo.value;
-            if(!toHandle || !composeSubject.value.trim() || !composeBody.value.trim()) return;
+            if(!toHandle) {
+                // No recipient selected
+                rightBody.innerHTML = '<span class="error-msg">Select a recipient.</span>';
+                return;
+            }
+            const subject = composeSubject.value.trim();
+            const body = composeBody.value.trim();
+            if(!subject && !body) return;
+            // Incorporate subject into message body
+            const fullBody = subject ? `[${subject}] ${body}` : body;
             const conv = ensureConversation(toHandle);
-            conv.messages.push({ from: G.player.handle, body: composeBody.value.trim(), timestamp: new Date().toISOString(), read: true });
+            conv.messages.push({ from: G.player.handle, body: fullBody, timestamp: new Date().toISOString(), read: true });
             composeArea.style.display='none'; rightBody.style.display = ''; actionBar.style.display = '';
-            save();
+            saveGame();
             await generateImmediateReplyInThread(conv);
             showView('mailbox');
             selectConversation(toHandle);
         }
     }
 
-    // ---------- Profile ----------
     function showUserProfile(handle) {
         const user = G.users.find(u => u.handle===handle);
         if(!user) { rightBody.innerHTML='<em>User not found.</em>'; return; }
         ensureUserObject(user);
-        rightHeader.textContent = `Profile: ${user.handle}`;
-        rightBody.innerHTML = `<strong>Real Name:</strong> ${user.profile.realName||'?'}<br>
-            <strong>Age:</strong> ${user.profile.age||'?'}<br>
-            <strong>Gender:</strong> ${user.profile.gender||'?'}<br>
-            <strong>Looking for:</strong> ${user.profile.lookingFor||'?'}<br>
-            <strong>Interests:</strong> ${(user.profile.interests||[]).join(', ')||'None'}<br>
-            <strong>Public Message:</strong> "${user.profile.publicMessage||''}"`;
+        rightHeader.textContent = `Profile: ${escapeHtml(user.handle)}`;
+        rightBody.innerHTML = `<strong>Real Name:</strong> ${escapeHtml(user.profile.realName||'?')}<br>
+            <strong>Age:</strong> ${escapeHtml(String(user.profile.age||'?'))}<br>
+            <strong>Gender:</strong> ${escapeHtml(user.profile.gender||'?')}<br>
+            <strong>Looking for:</strong> ${escapeHtml(user.profile.lookingFor||'?')}<br>
+            <strong>Interests:</strong> ${escapeHtml((user.profile.interests||[]).join(', ')||'None')}<br>
+            <strong>Public Message:</strong> "${escapeHtml(user.profile.publicMessage||'')}"`;
         actionBar.innerHTML = user.handle===G.player.handle ? '<button class="action-btn" id="editProfileBtn">✏️ Edit Profile</button>' : '<button class="action-btn" id="msgUserBtn">✉ Send Message</button>';
         if(user.handle===G.player.handle) document.getElementById('editProfileBtn').addEventListener('click', showProfileEditor);
         else document.getElementById('msgUserBtn').addEventListener('click', () => startNewMessage(user.handle));
@@ -923,12 +955,12 @@ Reply in character, 1-3 sentences. Only output your reply, nothing else.`;
     function showProfileEditor() {
         const p = G.player.profile;
         rightBody.innerHTML = `<div style="display:flex; flex-direction:column; gap:8px;">
-            <label>Real Name: <input type="text" id="editRealName" value="${p.realName||''}"></label>
-            <label>Age: <input type="number" id="editAge" value="${p.age||0}"></label>
-            <label>Gender: <input type="text" id="editGender" value="${p.gender||''}"></label>
-            <label>Looking For: <input type="text" id="editLookingFor" value="${p.lookingFor||''}"></label>
-            <label>Interests: <input type="text" id="editInterests" value="${(p.interests||[]).join(', ')}"></label>
-            <label>Public Message: <input type="text" id="editPublicMessage" value="${p.publicMessage||''}"></label>
+            <label>Real Name: <input type="text" id="editRealName" value="${escapeHtml(p.realName||'')}"></label>
+            <label>Age: <input type="number" id="editAge" value="${escapeHtml(String(p.age||0))}"></label>
+            <label>Gender: <input type="text" id="editGender" value="${escapeHtml(p.gender||'')}"></label>
+            <label>Looking For: <input type="text" id="editLookingFor" value="${escapeHtml(p.lookingFor||'')}"></label>
+            <label>Interests: <input type="text" id="editInterests" value="${escapeHtml((p.interests||[]).join(', '))}"></label>
+            <label>Public Message: <input type="text" id="editPublicMessage" value="${escapeHtml(p.publicMessage||'')}"></label>
             <div><button class="action-btn" id="saveProfileBtn">💾 Save</button> <button class="action-btn" id="cancelEditBtn">❌ Cancel</button></div></div>`;
         actionBar.innerHTML='';
         document.getElementById('saveProfileBtn').addEventListener('click', () => {
@@ -938,7 +970,7 @@ Reply in character, 1-3 sentences. Only output your reply, nothing else.`;
             G.player.profile.lookingFor = document.getElementById('editLookingFor').value;
             G.player.profile.interests = document.getElementById('editInterests').value.split(',').map(s=>s.trim()).filter(s=>s);
             G.player.profile.publicMessage = document.getElementById('editPublicMessage').value;
-            save(); showUserProfile(G.player.handle);
+            saveGame(); showUserProfile(G.player.handle);
         });
         document.getElementById('cancelEditBtn').addEventListener('click', () => showUserProfile(G.player.handle));
     }
@@ -948,7 +980,6 @@ Reply in character, 1-3 sentences. Only output your reply, nothing else.`;
         const handle = loginHandleInput.value.trim(), pass = loginPassInput.value.trim();
         if(!handle||!pass) { loginError.textContent='Enter handle and password.'; return; }
         if(!mistralKey) { loginError.textContent='Set Mistral API key first.'; return; }
-        playModemHandshake();
         let user = G.users.find(u => u.handle.toLowerCase()===handle.toLowerCase());
         if(user) {
             if(user.password !== pass) { loginError.textContent='Invalid password.'; return; }
@@ -958,7 +989,7 @@ Reply in character, 1-3 sentences. Only output your reply, nothing else.`;
         }
         G.player = user; G.lastLogin = new Date().toISOString(); G.sessions++;
         loginOverlay.classList.add('hidden'); userStatus.textContent = `Logged in: ${user.handle}`;
-        save();
+        saveGame();
         startBackgroundActivity();
         if(G.users.length===1 && !G.worldGenerated) {
             const success = await generateInitialWorld();
@@ -969,7 +1000,7 @@ Reply in character, 1-3 sentences. Only output your reply, nothing else.`;
         }
     }
 
-    // ---------- Event binding ----------
+    // ---------- Attach events ----------
     navBtns.forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
     loginBtn.addEventListener('click', doLogin);
     loginPassInput.addEventListener('keypress', e => { if(e.key==='Enter') doLogin(); });
@@ -980,8 +1011,8 @@ Reply in character, 1-3 sentences. Only output your reply, nothing else.`;
     loginSaveKeyBtn.addEventListener('click', () => saveApiKey(loginApiKeyInput.value));
     updateKeyIndicators();
 
-    // ---------- Initialisation ----------
-    const hasSave = load();
+    // ---------- Init ----------
+    const hasSave = loadGame();
     if(hasSave && G.player) {
         loginOverlay.classList.add('hidden'); userStatus.textContent = `Logged in: ${G.player.handle}`;
         showView('mailbox');
@@ -990,6 +1021,7 @@ Reply in character, 1-3 sentences. Only output your reply, nothing else.`;
     } else {
         loginOverlay.classList.remove('hidden'); G.player = null; showView('mailbox');
     }
+
 })();
 </script>
 </body>
