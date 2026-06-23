@@ -467,84 +467,131 @@
     }
 
     async function performBackgroundActivity() {
-        if (!G.player) return;
-        // Skip if user is composing a message or editing profile
-        if (composeArea.style.display === 'flex') return;
-        if (rightBody.querySelector('#saveProfileBtn')) return;
-        let addedPosts = 0;
-        if (mistralKey) {
-            try {
-                const raw = await callAI(
-                    `Generate 2-3 new board posts for the BBS. Pick random boards from 'personals', 'interests', 'confessions'. Use existing NPCs or invent 1-2 new handles. Return ONLY JSON: { "newPosts": [{"board":"...", "author":"...", "subject":"...", "body":"..."}] }`,
-                    'Background activity', { maxTokens: 800, jsonResponse: true }
-                );
-                const parsed = safeParseAIResponse(raw);
-                if (parsed && parsed.newPosts) {
-                    parsed.newPosts.forEach(p => {
-                        if (!G.boards[p.board]) G.boards[p.board] = [];
-                        G.boards[p.board].push({
-                            id: Date.now() + Math.random(),
-                            author: p.author, subject: p.subject, body: p.body,
-                            timestamp: new Date().toISOString(), replies: []
-                        });
-                        addedPosts++;
-                    });
-                }
-            } catch (e) { console.warn('Background AI failed, using fallback:', e); }
-        }
-        if (addedPosts < 2) {
-            for (let i = 0; i < 2; i++) {
-                const fb = createFallbackPost();
-                if (fb && G.boards[fb.board]) {
-                    G.boards[fb.board].push({
+    if (!G.player) return;
+    // Skip if user is composing a message or editing profile
+    if (composeArea.style.display === 'flex') return;
+    if (rightBody.querySelector('#saveProfileBtn')) return;
+
+    let addedPosts = 0;
+
+    // ---- Create new board posts (unchanged) ----
+    if (mistralKey) {
+        try {
+            const raw = await callAI(
+                `Generate 2-3 new board posts for the BBS. Pick random boards from 'personals', 'interests', 'confessions'. Use existing NPCs or invent 1-2 new handles. Return ONLY JSON: { "newPosts": [{"board":"...", "author":"...", "subject":"...", "body":"..."}] }`,
+                'Background activity',
+                { maxTokens: 800, jsonResponse: true }
+            );
+            const parsed = safeParseAIResponse(raw);
+            if (parsed && parsed.newPosts) {
+                parsed.newPosts.forEach(p => {
+                    if (!G.boards[p.board]) G.boards[p.board] = [];
+                    G.boards[p.board].push({
                         id: Date.now() + Math.random(),
-                        author: fb.author, subject: fb.subject, body: fb.body,
-                        timestamp: new Date().toISOString(), replies: []
+                        author: p.author,
+                        subject: p.subject,
+                        body: p.body,
+                        timestamp: new Date().toISOString(),
+                        replies: []
                     });
-                }
-            }
-        }
-        if (Math.random() < 0.4 && G.users.length < 50) {
-            const handle = generateRandomHandle();
-            if (!G.users.find(u => u.handle.toLowerCase() === handle.toLowerCase())) {
-                const newUser = {
-                    handle: handle,
-                    password: 'bbs',
-                    personality: `${handle} is a new user exploring the BBS.`,
-                    traits: [],
-                    profile: {
-                        realName: handle,
-                        age: Math.floor(Math.random()*30)+18,
-                        gender: ['male','female','unspecified'][Math.floor(Math.random()*3)],
-                        lookingFor: ['chat','friendship','relationships'][Math.floor(Math.random()*3)],
-                        interests: ['vintage computing','music','movies'],
-                        publicMessage: 'New to this, hi everyone!'
-                    }
-                };
-                G.users.push(ensureUserObject(newUser));
-                const conv = ensureConversation(handle);
-                conv.messages.push({
-                    from: handle,
-                    body: 'Hey everyone, just logged on for the first time!',
-                    timestamp: new Date().toISOString(),
-                    read: false
+                    addedPosts++;
                 });
-                const board = ['personals','interests','confessions'][Math.floor(Math.random()*3)];
-                G.boards[board].push({
+            }
+        } catch (e) { console.warn('Background AI failed, using fallback:', e); }
+    }
+
+    // Fallback new posts
+    if (addedPosts < 2) {
+        for (let i = 0; i < 2; i++) {
+            const fb = createFallbackPost();
+            if (fb && G.boards[fb.board]) {
+                G.boards[fb.board].push({
                     id: Date.now() + Math.random(),
-                    author: handle,
-                    subject: 'New here!',
-                    body: 'Hi, I just joined the BBS. Anyone around?',
+                    author: fb.author,
+                    subject: fb.subject,
+                    body: fb.body,
                     timestamp: new Date().toISOString(),
                     replies: []
                 });
             }
         }
-        saveGame();
-        if (currentView === 'boards' && selectedBoard) selectBoard(selectedBoard);
-        else if (currentView === 'mailbox' && selectedConversationUser) selectConversation(selectedConversationUser);
-        else showView(currentView);
     }
+
+    // ---- ✨ NEW: NPCs reply to existing posts ----
+    const allPosts = [];
+    for (let board in G.boards) {
+        G.boards[board].forEach(post => allPosts.push({ board, post }));
+    }
+
+    // Choose a few posts that aren't too crowded yet
+    const eligiblePosts = allPosts.filter(({ post }) => {
+        const replyCount = post.replies ? post.replies.length : 0;
+        return replyCount < 5; // avoid super long threads
+    });
+
+    // Add 1–2 NPC replies
+    const repliesToAdd = Math.min(2, eligiblePosts.length);
+    if (repliesToAdd > 0) {
+        // Shuffle and pick random ones
+        const shuffled = [...eligiblePosts].sort(() => Math.random() - 0.5);
+        for (let i = 0; i < repliesToAdd; i++) {
+            const { board, post } = shuffled[i];
+            // Simulate a reply (we call generateBoardNPCReply but without player message)
+            // We need to temporarily set selectedBoard for the function's context
+            const previousBoard = selectedBoard;
+            selectedBoard = board;
+            try {
+                await generateBoardNPCReply(post, '');  // no player message
+            } catch (e) {
+                console.warn('NPC reply failed for post', post.id, e);
+            }
+            selectedBoard = previousBoard;
+        }
+    }
+
+    // ---- New user creation (unchanged) ----
+    if (Math.random() < 0.4 && G.users.length < 50) {
+        const handle = generateRandomHandle();
+        if (!G.users.find(u => u.handle.toLowerCase() === handle.toLowerCase())) {
+            const newUser = {
+                handle: handle,
+                password: 'bbs',
+                personality: `${handle} is a new user exploring the BBS.`,
+                traits: [],
+                profile: {
+                    realName: handle,
+                    age: Math.floor(Math.random() * 30) + 18,
+                    gender: ['male', 'female', 'unspecified'][Math.floor(Math.random() * 3)],
+                    lookingFor: ['chat', 'friendship', 'relationships'][Math.floor(Math.random() * 3)],
+                    interests: ['vintage computing', 'music', 'movies'],
+                    publicMessage: 'New to this, hi everyone!'
+                }
+            };
+            G.users.push(ensureUserObject(newUser));
+            const conv = ensureConversation(handle);
+            conv.messages.push({
+                from: handle,
+                body: 'Hey everyone, just logged on for the first time!',
+                timestamp: new Date().toISOString(),
+                read: false
+            });
+            const board = ['personals', 'interests', 'confessions'][Math.floor(Math.random() * 3)];
+            G.boards[board].push({
+                id: Date.now() + Math.random(),
+                author: handle,
+                subject: 'New here!',
+                body: 'Hi, I just joined the BBS. Anyone around?',
+                timestamp: new Date().toISOString(),
+                replies: []
+            });
+        }
+    }
+
+    saveGame();
+    if (currentView === 'boards' && selectedBoard) selectBoard(selectedBoard);
+    else if (currentView === 'mailbox' && selectedConversationUser) selectConversation(selectedConversationUser);
+    else showView(currentView);
+}
 
     function generateRandomHandle() {
         const prefixes = ['Neon', 'Byte', 'Pixel', 'Cyber', 'Retro', 'Vapor', 'Synth', 'Modem', 'Dial', 'Wave'];
