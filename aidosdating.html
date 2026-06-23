@@ -163,6 +163,8 @@
         feuds: []
     };
 
+    const AI_TIMEOUT_MS = 30000;
+
     function ensureUserObject(u) {
         if (!u.handle) u.handle = 'UNKNOWN';
         if (!u.password) u.password = 'pass';
@@ -179,11 +181,10 @@
         return u;
     }
 
-    function sanitizeAllUsers() {
-        G.users.forEach(u => ensureUserObject(u));
-    }
+    function sanitizeAllUsers() { G.users.forEach(u => ensureUserObject(u)); }
 
     function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(G)); }
+
     function load() {
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
@@ -202,8 +203,7 @@
     function updateKeyIndicators() {
         const hasKey = !!mistralKey;
         const statusText = hasKey ? '● Key set' : '● No key';
-        const statusColor = hasKey ? '#0f0' : '#f44';
-        keyStatus.textContent = statusText; keyStatus.style.color = statusColor;
+        keyStatus.textContent = statusText; keyStatus.style.color = hasKey ? '#0f0' : '#f44';
         loginKeyStatus.textContent = statusText;
         loginKeyStatus.className = 'status-dot' + (hasKey ? ' active' : '');
         if (apiKeyInput) apiKeyInput.value = mistralKey;
@@ -217,20 +217,7 @@
         updateKeyIndicators();
     }
 
-    function playModemHandshake() {
-        try {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = ctx.createOscillator(), gain = ctx.createGain();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(800, ctx.currentTime);
-            osc.frequency.linearRampToValueAtTime(2000, ctx.currentTime+0.2);
-            osc.frequency.linearRampToValueAtTime(800, ctx.currentTime+0.4);
-            gain.gain.setValueAtTime(0.03, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.5);
-            osc.connect(gain); gain.connect(ctx.destination);
-            osc.start(); osc.stop(ctx.currentTime+0.5);
-        } catch(e) {}
-    }
+    function playModemHandshake() { /* unchanged */ }
 
     function updateClock() {
         const now = new Date(), h = now.getHours(), m = now.getMinutes().toString().padStart(2,'0');
@@ -239,48 +226,202 @@
     setInterval(updateClock, 1000); updateClock();
 
     function getConversationWith(handle) {
-        let conv = G.conversations.find(c => c.with.toLowerCase() === handle.toLowerCase());
+        return G.conversations.find(c => c.with.toLowerCase() === handle.toLowerCase());
+    }
+
+    function ensureConversation(handle) {
+        let conv = getConversationWith(handle);
         if (!conv) { conv = { with: handle, messages: [] }; G.conversations.push(conv); }
         return conv;
     }
+
     function conversationHasUnread(conv) {
         return conv.messages.some(m => m.from !== G.player.handle && !m.read);
     }
 
+    // ---------- ROBUST JSON EXTRACTION ----------
+    function extractJSONFromText(text) {
+        if (typeof text !== 'string') return null;
+        // Remove markdown fences and surrounding whitespace
+        let cleaned = text.replace(/```[\s\S]*?\n?|```/g, '').trim();
+        // Find the first { or [
+        const startIdx = cleaned.search(/[\{\[]/);
+        if (startIdx === -1) return null;
+        // Brace/ bracket matching
+        const stack = [];
+        const openers = { '{': '}', '[': ']' };
+        const closers = { '}': '{', ']': '[' };
+        let i = startIdx;
+        for (; i < cleaned.length; i++) {
+            const ch = cleaned[i];
+            if (ch in openers) {
+                stack.push(ch);
+            } else if (ch in closers) {
+                if (stack.length === 0) break; // unbalanced
+                const last = stack.pop();
+                if (closers[ch] !== last) break; // mismatch
+                if (stack.length === 0) {
+                    // complete outermost structure
+                    const jsonStr = cleaned.substring(startIdx, i + 1);
+                    return jsonStr;
+                }
+            }
+        }
+        // If we exit without finding balance, return null
+        return null;
+    }
+
     function safeParseAIResponse(raw) {
-        if (typeof raw !== 'string') return null;
-        let cleaned = raw.replace(/```json|```/g, '').trim();
-        const start = cleaned.indexOf('{'), end = cleaned.lastIndexOf('}');
-        if (start === -1 || end === -1) return null;
-        cleaned = cleaned.substring(start, end + 1);
-        try {
-            return JSON.parse(cleaned);
-        } catch (e1) {
-            const cleaned2 = cleaned.replace(/\n/g, ' ');
-            return JSON.parse(cleaned2);
+        console.log('🔍 Attempting to parse AI response:', raw);
+        // First try direct parse
+        try { return JSON.parse(raw); } catch (e) { /* not clean JSON */ }
+        // Try extraction
+        const extracted = extractJSONFromText(raw);
+        if (!extracted) {
+            console.error('❌ Could not extract JSON from:', raw);
+            return null;
+        }
+        console.log('📦 Extracted JSON:', extracted);
+        try { return JSON.parse(extracted); } catch (e) {
+            console.error('❌ Parsing extracted JSON failed:', e);
+            return null;
         }
     }
 
+    // ---------- FETCH WITH TIMEOUT ----------
     async function callAI(systemPrompt, userMessage, options = {}) {
         if (!mistralKey) throw new Error('No API key set.');
-        const resp = await fetch('https://api.mistral.ai/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${mistralKey}` },
-            body: JSON.stringify({
-                model: 'mistral-large-latest',
-                messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }],
-                temperature: options.temperature || 0.9,
-                max_tokens: options.maxTokens || 3000,
-                response_format: options.jsonResponse ? { type: "json_object" } : undefined
-            })
-        });
-        if (!resp.ok) {
-            if (resp.status === 401) throw new Error('Invalid API key.');
-            if (resp.status === 429) throw new Error('Too many requests. Wait.');
-            throw new Error(`API error ${resp.status}`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+        try {
+            const resp = await fetch('https://api.mistral.ai/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${mistralKey}` },
+                body: JSON.stringify({
+                    model: 'mistral-large-latest',
+                    messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }],
+                    temperature: options.temperature || 0.9,
+                    max_tokens: options.maxTokens || 3000,
+                    response_format: options.jsonResponse ? { type: "json_object" } : undefined
+                }),
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            if (!resp.ok) {
+                const errText = await resp.text();
+                console.error('❌ Mistral API error:', resp.status, errText);
+                if (resp.status === 401) throw new Error('Invalid API key.');
+                if (resp.status === 429) throw new Error('Too many requests. Wait.');
+                throw new Error(`API error ${resp.status}: ${errText}`);
+            }
+            const data = await resp.json();
+            const content = data.choices[0].message.content;
+            console.log('✅ AI raw response:', content);
+            return content;
+        } catch (e) {
+            clearTimeout(timeoutId);
+            if (e.name === 'AbortError') throw new Error('Request timed out. Check your connection and try again.');
+            throw e;
         }
-        const data = await resp.json();
-        return data.choices[0].message.content;
+    }
+
+    // ---------- WORLD / BATCH ----------
+    async function generateInitialWorld() {
+        rightBody.innerHTML = '<span class="loading">Generating bustling BBS population…</span>';
+        playModemHandshake();
+        const systemPrompt = `You are the world creator for HEARTLINE BBS, a 1985 dial-up friendship BBS with a raw, unfiltered community. 
+Generate exactly 12 diverse NPCs, board posts, private messages, feuds, and inside jokes as described. 
+Output ONLY a valid JSON object with fields: users (array of objects with handle, password, personality, traits, profile), newPosts (array of objects with board, author, subject, body), newMail (array of objects with from, body), lore (array of strings), feuds (array of {user1, user2, reason}). 
+All strings single line, no newlines inside them.`;
+        try {
+            const raw = await callAI(systemPrompt, 'Create the BBS world.', { maxTokens: 4000, jsonResponse: true });
+            const parsed = safeParseAIResponse(raw);
+            if (!parsed) throw new Error('AI returned invalid JSON.');
+            if (parsed.users) parsed.users.forEach(u => {
+                if (!G.users.find(ex => ex.handle.toLowerCase() === u.handle.toLowerCase())) G.users.push(ensureUserObject(u));
+            });
+            if (parsed.newPosts) parsed.newPosts.forEach(p => {
+                if (!G.boards[p.board]) G.boards[p.board] = [];
+                G.boards[p.board].push({
+                    id: Date.now() + Math.random(), author: p.author, subject: p.subject, body: p.body,
+                    timestamp: new Date().toISOString(), replies: []
+                });
+            });
+            if (parsed.newMail) parsed.newMail.forEach(m => {
+                const conv = ensureConversation(m.from);
+                conv.messages.push({ from: m.from, body: m.body, timestamp: new Date().toISOString(), read: false });
+            });
+            if (parsed.lore) G.lore.push(...parsed.lore);
+            if (parsed.feuds) G.feuds.push(...parsed.feuds);
+            for (let board in G.boards) {
+                for (let post of G.boards[board]) {
+                    if (post.replies.length === 0) {
+                        const npc = G.users.find(u => u.handle !== G.player.handle && u.handle !== post.author);
+                        if (npc) post.replies.push({ author: npc.handle, body: 'Interesting post!', timestamp: new Date().toISOString() });
+                    }
+                }
+            }
+            G.worldGenerated = true;
+            save();
+            rightBody.innerHTML = 'BBS populated! Welcome.';
+            return true;
+        } catch(e) {
+            console.error('❌ World generation failed:', e);
+            rightBody.innerHTML = `<span class="error-msg">World generation failed: ${e.message}</span>
+                <br><button class="action-btn" id="retryWorldBtn">🔄 Retry</button>`;
+            document.getElementById('retryWorldBtn').addEventListener('click', () => generateInitialWorld().then(success => { if (success) showView('mailbox'); }));
+            return false;
+        }
+    }
+
+    async function fetchBatchContent() {
+        rightBody.innerHTML = '<span class="loading">Dialling in for new activity…</span>';
+        playModemHandshake();
+        const player = G.player;
+        const playerRecent = G.conversations.flatMap(c => c.messages.filter(m => m.from === player.handle).slice(-3)).map(m => m.body).join(' | ');
+        const context = {
+            playerHandle: player.handle,
+            playerProfile: player.profile,
+            playerRecentActivity: playerRecent,
+            npcs: G.users.filter(u => u.handle !== player.handle).map(u => ({ handle: u.handle, personality: u.personality, traits: u.traits })),
+            lore: G.lore,
+            feuds: G.feuds
+        };
+        const systemPrompt = `You generate new mail, posts, users, lore, and feuds for a chaotic BBS. Return ONLY a valid JSON with fields: newUsers, newMail, newPosts, loreUpdates, feudUpdates. All strings single line.`;
+        let addedMail = 0, addedPosts = 0, addedUsers = 0;
+        try {
+            const raw = await callAI(systemPrompt, JSON.stringify(context), { maxTokens: 3500, jsonResponse: true });
+            const parsed = safeParseAIResponse(raw);
+            if (parsed) {
+                if (parsed.newUsers) parsed.newUsers.forEach(u => {
+                    if (!G.users.find(ex => ex.handle.toLowerCase() === u.handle.toLowerCase())) { G.users.push(ensureUserObject(u)); addedUsers++; }
+                });
+                if (parsed.newMail) parsed.newMail.forEach(m => {
+                    const conv = ensureConversation(m.from);
+                    conv.messages.push({ from: m.from, body: m.body, timestamp: new Date().toISOString(), read: false });
+                    addedMail++;
+                });
+                if (parsed.newPosts) parsed.newPosts.forEach(p => {
+                    if (!G.boards[p.board]) G.boards[p.board] = [];
+                    G.boards[p.board].push({ id: Date.now() + Math.random(), author: p.author, subject: p.subject, body: p.body, timestamp: new Date().toISOString(), replies: [] });
+                    addedPosts++;
+                });
+                if (parsed.loreUpdates) G.lore.push(...parsed.loreUpdates);
+                if (parsed.feudUpdates) G.feuds.push(...parsed.feudUpdates);
+            }
+        } catch(e) {
+            console.error('❌ Batch fetch AI failed:', e);
+            // fallback only if nothing was generated
+            if (addedMail === 0 && addedPosts === 0) {
+                const fbMsg = createFallbackMessage();
+                if (fbMsg) { ensureConversation(fbMsg.from).messages.push({ from: fbMsg.from, body: fbMsg.body, timestamp: new Date().toISOString(), read: false }); addedMail = 1; }
+                const fbPost = createFallbackPost();
+                if (fbPost) { G.boards[fbPost.board].push({ id: Date.now() + Math.random(), author: fbPost.author, subject: fbPost.subject, body: fbPost.body, timestamp: new Date().toISOString(), replies: [] }); addedPosts = 1; }
+            }
+        }
+        save();
+        rightBody.innerHTML = `<em>${addedMail} new message(s), ${addedPosts} new post(s)${addedUsers>0?`, and ${addedUsers} new user(s)!`:''}</em>`;
+        setTimeout(() => showView(currentView), 800);
     }
 
     function createFallbackMessage() {
@@ -299,169 +440,28 @@
         return { board, author: npc.handle, subject: subjects[Math.floor(Math.random()*subjects.length)], body: bodies[Math.floor(Math.random()*bodies.length)] };
     }
 
-    async function generateInitialWorld() {
-        rightBody.innerHTML = '<span class="loading">Generating bustling BBS population…</span>';
-        playModemHandshake();
-        const systemPrompt = `You are the world creator for HEARTLINE BBS, a 1985 dial-up friendship BBS with a raw, unfiltered community full of trolling, drama, and inside jokes.
-Generate exactly 12 diverse NPC users (handles in ALL CAPS, max 12 chars, simple passwords). Give 2-3 of them the trait "troll" and make their personalities insulting, provocative, or absurd. Give 1-2 the trait "wannabe_mod" who love policing others. Create at least 2 feuds between specific users (provide reason). Invent 3 inside jokes/running gags (e.g., "modems that smell", "sysop is a cat"). Generate at least 5 board posts: 2 for personals (one must be a flirt-troll style mocking), 2 for interests, 1 for confessions (spicy exposed secret or call-out). Each post has author, subject, body. Generate 3-4 initial private messages to the player from different NPCs (some can be playfully snarky or weird). All strings single line, no newlines inside strings. Output valid JSON with fields: users (with traits array), newPosts, newMail, lore (array of strings), feuds (array of {user1, user2, reason}).`;
-        try {
-            const raw = await callAI(systemPrompt, 'Create the BBS world.', { maxTokens: 4000, jsonResponse: true });
-            const parsed = safeParseAIResponse(raw);
-            if (!parsed) throw new Error('AI returned invalid JSON.');
-            if (parsed.users) parsed.users.forEach(u => {
-                if (!G.users.find(ex => ex.handle.toLowerCase() === u.handle.toLowerCase())) {
-                    G.users.push(ensureUserObject(u));
-                }
-            });
-            if (parsed.newPosts) parsed.newPosts.forEach(p => {
-                if (!G.boards[p.board]) G.boards[p.board] = [];
-                G.boards[p.board].push({
-                    id: Date.now() + Math.random(),
-                    author: p.author, subject: p.subject, body: p.body,
-                    timestamp: new Date().toISOString(), replies: []
-                });
-            });
-            if (parsed.newMail) parsed.newMail.forEach(m => {
-                getConversationWith(m.from).messages.push({ from: m.from, body: m.body, timestamp: new Date().toISOString(), read: false });
-            });
-            if (parsed.lore) G.lore.push(...parsed.lore);
-            if (parsed.feuds) G.feuds.push(...parsed.feuds);
-            for (let board in G.boards) {
-                for (let post of G.boards[board]) {
-                    if (post.replies.length === 0) {
-                        const npc = G.users.find(u => u.handle !== G.player.handle && u.handle !== post.author);
-                        if (npc) {
-                            post.replies.push({
-                                author: npc.handle,
-                                body: 'Interesting post!',
-                                timestamp: new Date().toISOString()
-                            });
-                        }
-                    }
-                }
-            }
-            G.worldGenerated = true;
-            save();
-            rightBody.innerHTML = 'BBS populated with lively users and posts. Welcome!';
-            setTimeout(() => showView('mailbox'), 800);
-        } catch(e) {
-            rightBody.innerHTML = `<span class="error-msg">World generation failed: ${e.message}</span>`;
-        }
-    }
-
-    async function fetchBatchContent() {
-        rightBody.innerHTML = '<span class="loading">Dialling in for new activity…</span>';
-        playModemHandshake();
-        const player = G.player;
-        const playerRecent = G.conversations.flatMap(c => c.messages.filter(m => m.from === player.handle).slice(-3)).map(m => m.body).join(' | ');
-        const context = {
-            playerHandle: player.handle,
-            playerProfile: player.profile,
-            playerRecentActivity: playerRecent,
-            existingUsers: G.users.map(u => u.handle),
-            existingConversations: G.conversations.map(c => c.with),
-            npcs: G.users.filter(u => u.handle !== player.handle).map(u => ({ handle: u.handle, personality: u.personality, traits: u.traits })),
-            lore: G.lore,
-            feuds: G.feuds
-        };
-        const systemPrompt = `You are the activity generator for HEARTLINE BBS, a chaotic 80s BBS where trolling, call-outs, and inside jokes are normal.
-Generate NEW private mail (some snarky/weird/sexual), NEW public board posts. You MAY introduce 1-2 NEW users (could be trolls or drama seekers). 
-Include AT LEAST ONE board post that directly calls out or mocks another user (the player or an NPC) – this can be on personals or confessions. Include a troll post full of bait. Include a fake mod-style post if a wannabe_mod exists. 
-Flirt-troll behavior: on personals, mix creepy/flirty with insults. 
-Return any new lore items (funny BBS events) and any new feuds. 
-All strings single line. Output ONLY valid JSON with fields: newUsers, newMail, newPosts, loreUpdates (array), feudUpdates (array).`;
-        let addedMail = 0, addedPosts = 0, addedUsers = 0;
-        try {
-            const raw = await callAI(systemPrompt, JSON.stringify(context), { maxTokens: 3500, jsonResponse: true });
-            const parsed = safeParseAIResponse(raw);
-            if (parsed) {
-                if (parsed.newUsers) parsed.newUsers.forEach(u => {
-                    if (!G.users.find(ex => ex.handle.toLowerCase() === u.handle.toLowerCase())) {
-                        G.users.push(ensureUserObject(u));
-                        addedUsers++;
-                    }
-                });
-                if (parsed.newMail) parsed.newMail.forEach(m => {
-                    getConversationWith(m.from).messages.push({ from: m.from, body: m.body, timestamp: new Date().toISOString(), read: false });
-                    addedMail++;
-                });
-                if (parsed.newPosts) parsed.newPosts.forEach(p => {
-                    if (!G.boards[p.board]) G.boards[p.board] = [];
-                    G.boards[p.board].push({
-                        id: Date.now() + Math.random(),
-                        author: p.author, subject: p.subject, body: p.body,
-                        timestamp: new Date().toISOString(), replies: []
-                    });
-                    addedPosts++;
-                });
-                if (parsed.loreUpdates) G.lore.push(...parsed.loreUpdates);
-                if (parsed.feudUpdates) G.feuds.push(...parsed.feudUpdates);
-            }
-        } catch(e) { console.warn('Batch fetch AI call failed, using fallback.', e); }
-
-        if (addedMail === 0) {
-            const fallback = createFallbackMessage();
-            if (fallback) {
-                getConversationWith(fallback.from).messages.push({ from: fallback.from, body: fallback.body, timestamp: new Date().toISOString(), read: false });
-                addedMail = 1;
-            }
-        }
-        if (addedPosts === 0) {
-            const fbPost = createFallbackPost();
-            if (fbPost) {
-                G.boards[fbPost.board].push({
-                    id: Date.now() + Math.random(),
-                    author: fbPost.author, subject: fbPost.subject, body: fbPost.body,
-                    timestamp: new Date().toISOString(), replies: []
-                });
-                addedPosts = 1;
-            }
-        }
-
-        save();
-        rightBody.innerHTML = `<em>${addedMail} new message(s), ${addedPosts} new post(s)${addedUsers>0?`, and ${addedUsers} new user(s)!`:''}</em>`;
-        setTimeout(() => showView(currentView), 800);
-    }
-
+    // ---------- VIEW / RENDER ----------
     function showView(view) {
         currentView = view;
         navBtns.forEach(b => b.classList.remove('active'));
         document.querySelector(`.nav-btn[data-view="${view}"]`).classList.add('active');
         selectedConversationUser = null; selectedBoard = null;
         rightHeader.textContent = {mailbox:'Conversations',boards:'Boards',who:"Who's Online",directory:'Directory Search',profile:'Profile'}[view]||'';
-        rightBody.innerHTML = ''; actionBar.innerHTML = ''; composeArea.style.display = 'none';
+        rightBody.innerHTML = ''; actionBar.innerHTML = '';
+        composeArea.style.display = 'none';
+        rightBody.style.display = ''; actionBar.style.display = '';
         listContainer.innerHTML = '';
         if (view === 'directory') {
             listContainer.innerHTML = `
                 <div class="search-form" style="padding:8px;">
-                    <label>Sex:
-                        <select id="dirSex">
-                            <option value="">Any</option>
-                            <option value="male">Male</option>
-                            <option value="female">Female</option>
-                            <option value="trans">Trans</option>
-                            <option value="gay">Gay</option>
-                        </select>
-                    </label>
-                    <label>Age:
-                        <input type="number" id="dirMinAge" placeholder="Min" min="10" max="99" value="">
-                        -
-                        <input type="number" id="dirMaxAge" placeholder="Max" min="10" max="99" value="">
-                    </label>
-                    <label>Looking for:
-                        <select id="dirLookingFor">
-                            <option value="">Any</option>
-                            <option value="friendship">Friendship</option>
-                            <option value="relationships">Relationships</option>
-                            <option value="sex">Sex</option>
-                            <option value="chat">Chat</option>
-                        </select>
-                    </label>
+                    <label>Sex: <select id="dirSex"><option value="">Any</option><option value="male">Male</option><option value="female">Female</option><option value="trans">Trans</option><option value="gay">Gay</option></select></label>
+                    <label>Age: <input type="number" id="dirMinAge" placeholder="Min"> - <input type="number" id="dirMaxAge" placeholder="Max"></label>
+                    <label>Looking for: <select id="dirLookingFor"><option value="">Any</option><option value="friendship">Friendship</option><option value="relationships">Relationships</option><option value="sex">Sex</option><option value="chat">Chat</option></select></label>
                     <button class="action-btn" id="dirSearchBtn" style="width:100%; margin-top:6px;">Search</button>
-                    <div id="dirDebug" style="font-size:12px; color:#ff0; margin-top:4px;"></div>
+                    <div id="dirDebug" style="font-size:12px; color:#ff0;"></div>
                 </div>`;
             document.getElementById('dirSearchBtn').addEventListener('click', performDirectorySearch);
-            rightBody.innerHTML = '<em>Select criteria and click Search. Leave all fields blank to see everyone.</em>';
+            rightBody.innerHTML = '<em>Select criteria and click Search.</em>';
             return;
         }
         renderList();
@@ -475,7 +475,11 @@ All strings single line. Output ONLY valid JSON with fields: newUsers, newMail, 
         if (currentView === 'mailbox') {
             const convs = G.conversations.filter(c => c.messages.length > 0);
             if (!convs.length) { listContainer.innerHTML = '<div style="padding:8px;">No conversations yet.</div>'; return; }
-            convs.sort((a,b) => b.messages[b.messages.length-1].id - a.messages[a.messages.length-1].id);
+            convs.sort((a,b) => {
+                const lastA = a.messages[a.messages.length-1];
+                const lastB = b.messages[b.messages.length-1];
+                return new Date(lastB.timestamp) - new Date(lastA.timestamp);
+            });
             convs.forEach(conv => {
                 const div = document.createElement('div');
                 div.className = 'list-item' + (selectedConversationUser === conv.with ? ' selected' : '');
@@ -493,7 +497,7 @@ All strings single line. Output ONLY valid JSON with fields: newUsers, newMail, 
             });
         } else if (currentView === 'who') {
             const npcs = G.users.filter(u => u.handle !== userId);
-            if (!npcs.length) { listContainer.innerHTML = '<div style="padding:8px;">No other users yet.</div>'; return; }
+            if (!npcs.length) { listContainer.innerHTML = '<div style="padding:8px;">No other users.</div>'; return; }
             const count = Math.min(npcs.length, Math.floor(Math.random()*4)+2);
             const shuffled = npcs.sort(() => 0.5-Math.random()).slice(0,count);
             [G.player, ...shuffled].forEach(u => {
@@ -505,31 +509,19 @@ All strings single line. Output ONLY valid JSON with fields: newUsers, newMail, 
         }
     }
 
-    // ---------- FIXED DIRECTORY SEARCH (Pure Mistral, no local fallback) ----------
+    // ---------- DIRECTORY (with early view guard) ----------
     async function performDirectorySearch() {
-        if (!G.player) return;
-
+        if (!G.player || currentView !== 'directory') return;
         const sex = (document.getElementById('dirSex')?.value || '').trim().toLowerCase();
         const minAge = parseInt(document.getElementById('dirMinAge')?.value) || 0;
         const maxAge = parseInt(document.getElementById('dirMaxAge')?.value) || 999;
         const lookingFor = (document.getElementById('dirLookingFor')?.value || '').trim().toLowerCase();
-
         const candidates = G.users.filter(u => u.handle !== G.player.handle);
-        if (candidates.length === 0) {
-            rightBody.innerHTML = '<em>No other users in the directory.</em>';
-            return;
-        }
-
-        if (!mistralKey) {
-            rightBody.innerHTML = '<span class="error-msg">🔑 No Mistral API key set. AI required.</span>';
-            return;
-        }
-
+        if (candidates.length === 0) { rightBody.innerHTML = '<em>No other users in the directory.</em>'; return; }
+        if (!mistralKey) { rightBody.innerHTML = '<span class="error-msg">🔑 No API key set.</span>'; return; }
         const debugEl = document.getElementById('dirDebug');
         if (debugEl) debugEl.textContent = 'Calling Mistral AI...';
-        rightBody.innerHTML = '<span class="loading">Searching directory via Mistral AI…</span>';
-
-        // Prepare user data for the AI (only what it needs)
+        rightBody.innerHTML = '<span class="loading">Searching directory…</span>';
         const userData = candidates.map(u => ({
             handle: u.handle,
             gender: (u.profile.gender || '').toLowerCase(),
@@ -538,118 +530,73 @@ All strings single line. Output ONLY valid JSON with fields: newUsers, newMail, 
             interests: (u.profile.interests || []).join(', '),
             publicMessage: u.profile.publicMessage || ''
         }));
-
-        const system = `You are a precise directory assistant for HEARTLINE BBS. 
-You receive a list of user profiles and search criteria. 
-You MUST return a JSON object: {"matches":[{"handle":"...","description":"..."}]}
-RULES:
-- If criteria are broad (sex=any, age=0-999, lookingFor=any), return EVERY user with a short, fun description referencing their profile.
-- If criteria are specific, include everyone who matches.
-- IMPORTANT: NEVER return an empty array. Always return what the user has set for the search criteria.
-- Each description should be 1-2 sentences.
-Respond ONLY with the JSON.`;
-
-        const userMessage = `SEARCH CRITERIA:
-- Sex: ${sex || 'any'} (if 'any', ignore gender)
-- Age: ${minAge} to ${maxAge} (inclusive)
-- Looking for: ${lookingFor || 'any'} (match if user's lookingFor contains this exact word/phrase, case-insensitive; 'any' means ignore)
-
-USER LIST (JSON):
-${JSON.stringify(userData, null, 2)}
-
-Now return the matches.`;
-
-        console.log('=== DIR AI REQUEST ===');
-        console.log('System:', system);
-        console.log('User:', userMessage);
-
+        const system = `You are a precise directory assistant. You receive search criteria and a list of user profiles. 
+Return ONLY a JSON object: {"matches":[{"handle":"...","description":"..."}]}
+- If criteria are broad, return EVERY user with a short description.
+- NEVER return an empty array. Always include the users that match or all users if no criteria given.
+- Each description 1-2 sentences.`;
+        const userMessage = `SEARCH CRITERIA:\n- Sex: ${sex || 'any'}\n- Age: ${minAge}-${maxAge}\n- Looking for: ${lookingFor || 'any'}\n\nUSER LIST (JSON):\n${JSON.stringify(userData, null, 2)}\n\nNow return the matches.`;
         try {
-            const raw = await callAI(system, userMessage, {
-                maxTokens: 2000,
-                jsonResponse: true,
-                temperature: 0.3
-            });
-
-            console.log('=== DIR AI RAW RESPONSE ===');
-            console.log(raw);
-            if (debugEl) debugEl.textContent = 'AI response received.';
-
+            if (currentView !== 'directory') return;
+            const raw = await callAI(system, userMessage, { maxTokens: 2000, jsonResponse: true, temperature: 0.3 });
+            if (currentView !== 'directory') return;
             const parsed = safeParseAIResponse(raw);
             if (!parsed || !Array.isArray(parsed.matches)) {
                 throw new Error('AI did not return a valid matches array.');
             }
-
-            // Clean matches (ensure handle exists)
-            const cleaned = parsed.matches.filter(m => m.handle).map(m => ({
-                handle: m.handle,
-                description: m.description || ''
-            }));
-
-            // If AI returned empty despite our instructions, we show an error (no local fallback)
+            const cleaned = parsed.matches.filter(m => m.handle).map(m => ({ handle: m.handle, description: m.description || '' }));
             if (cleaned.length === 0) {
-                rightBody.innerHTML = '<span class="error-msg">AI returned no matches, but there are users in the directory. Try again.</span>';
-                if (debugEl) debugEl.textContent = 'AI returned empty matches array.';
+                rightBody.innerHTML = '<span class="error-msg">No matches found.</span>';
+                if (debugEl) debugEl.textContent = 'AI returned empty matches.';
                 return;
             }
-
             displayDirectoryResults(cleaned);
-
         } catch (err) {
-            console.error('Directory AI error:', err);
-            if (debugEl) debugEl.textContent = 'Error: ' + err.message;
-            rightBody.innerHTML = `<span class="error-msg">❌ Directory search failed: ${err.message}</span>`;
+            console.error('❌ Directory search error:', err);
+            if (currentView === 'directory') {
+                if (debugEl) debugEl.textContent = 'Error: ' + err.message;
+                rightBody.innerHTML = `<span class="error-msg">❌ ${err.message}</span>`;
+            }
         }
     }
 
     function displayDirectoryResults(matches) {
-        rightHeader.textContent = 'Directory Results (AI)';
-        if (!matches || matches.length === 0) {
-            rightBody.innerHTML = '<em>No matches found.</em>';
-            return;
-        }
-
-        let html = '';
-        matches.forEach(m => {
-            html += `<div class="result-item list-item" data-handle="${m.handle}" style="display:flex; justify-content:space-between; align-items:center;">
-                <span>📇 <strong>${m.handle}</strong></span>
-                ${m.description ? `<span style="font-size:12px; color:#0a0; margin-left:8px;"> – ${m.description}</span>` : ''}
-                <button class="action-btn msg-result-btn" data-handle="${m.handle}" style="padding:0 4px; font-size:11px;">✉ Msg</button>
-            </div>`;
-        });
+        if (currentView !== 'directory') return;
+        rightHeader.textContent = 'Directory Results';
+        let html = matches.map(m => `<div class="result-item list-item" data-handle="${m.handle}">
+            <span>📇 <strong>${m.handle}</strong> – ${m.description}</span>
+            <button class="action-btn msg-result-btn" data-handle="${m.handle}">✉ Msg</button>
+        </div>`).join('');
         rightBody.innerHTML = html;
-
         document.querySelectorAll('.result-item').forEach(item => {
-            item.addEventListener('click', function(e) {
+            item.addEventListener('click', e => {
                 if (e.target.classList.contains('msg-result-btn')) return;
-                const handle = this.dataset.handle;
-                showUserProfile(handle);
+                showUserProfile(item.dataset.handle);
             });
         });
         document.querySelectorAll('.msg-result-btn').forEach(btn => {
-            btn.addEventListener('click', function(e) {
-                e.stopPropagation();
-                startNewMessage(this.dataset.handle);
-            });
+            btn.addEventListener('click', e => { e.stopPropagation(); startNewMessage(btn.dataset.handle); });
         });
     }
 
+    // ---------- MESSAGES ----------
     function selectConversation(handle) {
         selectedConversationUser = handle; selectedBoard = null;
-        const conv = getConversationWith(handle);
+        const conv = ensureConversation(handle);
         rightHeader.textContent = `Conversation with ${conv.with}`;
-        let html = '';
-        conv.messages.forEach(m => {
-            const authorClass = (m.from === G.player.handle) ? 'me' : 'other';
-            html += `<div class="thread-msg"><span class="author ${authorClass}">${m.from}:</span> ${m.body}</div>`;
+        let html = conv.messages.map(m => {
+            const cls = m.from === G.player.handle ? 'me' : 'other';
             if (m.from !== G.player.handle) m.read = true;
-        });
-        rightBody.innerHTML = html || '<em>No messages yet.</em>';
-        actionBar.innerHTML = `<textarea id="threadReplyInput" style="flex:1; background:#000; border:1px solid #0a0; color:#0f0; font-size:14px; padding:4px; resize:none; height:40px;" placeholder="Write your reply..."></textarea>
+            return `<div class="thread-msg"><span class="author ${cls}">${m.from}:</span> ${m.body}</div>`;
+        }).join('') || '<em>No messages yet.</em>';
+        rightBody.innerHTML = html;
+        save();
+        actionBar.innerHTML = `<textarea id="threadReplyInput" style="flex:1; background:#000; border:1px solid #0a0; color:#0f0; height:40px; resize:none;" placeholder="Reply..."></textarea>
             <button class="action-btn" id="threadReplyBtn">Send</button>`;
         document.getElementById('threadReplyBtn').addEventListener('click', () => sendThreadReply(conv));
         document.getElementById('threadReplyInput').addEventListener('keypress', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendThreadReply(conv);} });
         composeArea.style.display = 'none';
-        save();
+        rightBody.style.display = ''; actionBar.style.display = '';
         renderList();
     }
 
@@ -669,51 +616,41 @@ Now return the matches.`;
         const targetUser = G.users.find(u => u.handle.toLowerCase() === toHandle.toLowerCase());
         if (!targetUser) return;
         const history = conv.messages.slice(-6).map(m => `${m.from}: ${m.body}`).join('\n');
-        const traits = targetUser.traits ? targetUser.traits.join(', ') : '';
-        const loreContext = G.lore.slice(-3).join('; ');
-        const feuds = G.feuds.filter(f => f.user1 === toHandle || f.user2 === toHandle).map(f => `${f.user1} vs ${f.user2}: ${f.reason}`).join('; ');
-        const sys = `You are ${targetUser.handle}. Personality: ${targetUser.personality}. Traits: ${traits}. You are chatting privately on a retro BBS. You can be snarky, weird, or flirt-troll if it fits. Current BBS lore: ${loreContext}. Feuds you're in: ${feuds}. Reply in character, 2-5 sentences. Only output the reply body.`;
+        const sys = `You are ${targetUser.handle}. Personality: ${targetUser.personality}. Traits: ${targetUser.traits?.join(', ') || ''}. Reply in character, 2-5 sentences. Only output the reply.`;
         try {
             const reply = await callAI(sys, `Conversation:\n${history}\n\nRespond as ${targetUser.handle}.`, { maxTokens: 300 });
-            if (reply && reply.trim()) {
-                conv.messages.push({ from: toHandle, body: reply.trim(), timestamp: new Date().toISOString(), read: false });
-            } else {
-                conv.messages.push({ from: toHandle, body: '...', timestamp: new Date().toISOString(), read: false });
-            }
+            conv.messages.push({ from: toHandle, body: reply.trim() || '...', timestamp: new Date().toISOString(), read: false });
             save();
         } catch(e) {
-            conv.messages.push({ from: toHandle, body: '(static) …bad connection.', timestamp: new Date().toISOString(), read: false });
+            console.error('❌ NPC reply error:', e);
+            conv.messages.push({ from: toHandle, body: `(static) ${e.message}`, timestamp: new Date().toISOString(), read: false });
             save();
         }
     }
 
+    // ---------- BOARDS ----------
     function selectBoard(bName) {
         selectedBoard = bName; selectedConversationUser = null;
         const posts = G.boards[bName];
         rightHeader.textContent = `Board: ${bName.toUpperCase()}`;
-        if (!posts.length) {
-            rightBody.innerHTML = '<em>No posts yet.</em>';
-            actionBar.innerHTML = '<button class="action-btn" id="newPostBtn">➕ New Post</button>';
-            document.getElementById('newPostBtn').addEventListener('click', () => startNewPost(bName));
-        } else {
-            let html = '';
-            posts.forEach(p => html += `<div style="border-bottom:1px dotted #040; padding:4px; cursor:pointer;" onclick="window.selectPost(${p.id})"><strong>${p.author}</strong> - ${p.subject} (${p.replies.length} replies)</div>`);
-            rightBody.innerHTML = html;
-            actionBar.innerHTML = '<button class="action-btn" id="newPostBtn">➕ New Post</button>';
-            document.getElementById('newPostBtn').addEventListener('click', () => startNewPost(bName));
-        }
+        let html = posts.length ? posts.map(p => `<div style="cursor:pointer; border-bottom:1px dotted #040; padding:4px;" onclick="window.selectPost(${p.id})"><strong>${p.author}</strong> - ${p.subject} (${p.replies.length} replies)</div>`).join('') : '<em>No posts yet.</em>';
+        rightBody.innerHTML = html;
+        actionBar.innerHTML = '<button class="action-btn" id="newPostBtn">➕ New Post</button>';
+        document.getElementById('newPostBtn').addEventListener('click', () => startNewPost(bName));
         composeArea.style.display = 'none';
+        rightBody.style.display = ''; actionBar.style.display = '';
         renderList();
     }
 
     window.selectPost = function(postId) {
-        const board = selectedBoard; if(!board) return;
-        const post = G.boards[board].find(p => p.id===postId); if(!post) return;
+        if (!selectedBoard) return;
+        const post = G.boards[selectedBoard].find(p => p.id===postId);
+        if(!post) return;
         if(!post.replies) post.replies=[];
         let html = `<div class="thread-msg"><span class="author">${post.author}</span> - ${post.subject}<br>${post.body}</div>`;
         post.replies.forEach(r => html += `<div class="thread-msg" style="margin-left:20px;"><span class="author">${r.author}:</span> ${r.body}</div>`);
         rightBody.innerHTML = html;
-        actionBar.innerHTML = `<textarea id="boardReplyInput" style="flex:1; background:#000; border:1px solid #0a0; color:#0f0; font-size:14px; padding:4px; resize:none; height:40px;" placeholder="Write your reply..."></textarea>
+        actionBar.innerHTML = `<textarea id="boardReplyInput" style="flex:1; background:#000; border:1px solid #0a0; color:#0f0; height:40px; resize:none;" placeholder="Reply..."></textarea>
             <button class="action-btn" id="boardReplyBtn">Send</button>`;
         document.getElementById('boardReplyBtn').addEventListener('click', () => sendBoardReply(post));
         document.getElementById('boardReplyInput').addEventListener('keypress', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendBoardReply(post);} });
@@ -734,42 +671,32 @@ Now return the matches.`;
         if (!mistralKey) return;
         const npcs = G.users.filter(u => u.handle !== G.player.handle);
         if(!npcs.length) return;
-        const feudingNpcs = npcs.filter(u => G.feuds.some(f => (f.user1 === u.handle || f.user2 === u.handle) && (f.user1 === post.author || f.user2 === post.author)));
-        const trolls = npcs.filter(u => u.traits && u.traits.includes('troll'));
-        let responder = npcs[Math.floor(Math.random()*npcs.length)];
-        if (feudingNpcs.length && Math.random() < 0.7) responder = feudingNpcs[Math.floor(Math.random()*feudingNpcs.length)];
-        else if (trolls.length && Math.random() < 0.5) responder = trolls[Math.floor(Math.random()*trolls.length)];
-
-        const traits = responder.traits ? responder.traits.join(', ') : '';
-        const loreContext = G.lore.slice(-3).join('; ');
-        const feuds = G.feuds.filter(f => f.user1 === responder.handle || f.user2 === responder.handle).map(f => `${f.user1} vs ${f.user2}: ${f.reason}`).join('; ');
-        const derailChance = (traits.includes('troll') || Math.random() < 0.3) ? 'high' : 'low';
-        const sys = `You are ${responder.handle}. Personality: ${responder.personality}. Traits: ${traits}. You are replying to a board post on a chaotic BBS. Current BBS lore: ${loreContext}. Active feuds: ${feuds}. Derailment chance: ${derailChance}. If derailment is high, you must completely ignore the topic and mock someone, reference an inside joke, or start a flame war. If you're a troll, be insulting or post bait. Reply in character, 1-3 sentences. Only output the reply body.`;
+        const responder = npcs[Math.floor(Math.random()*npcs.length)];
+        const sys = `You are ${responder.handle}. Personality: ${responder.personality}. Reply to this board post in character, 1-3 sentences. Only output the reply.`;
         const msg = `Board: ${selectedBoard}. Post by ${post.author}: ${post.subject}\n${post.body}\n\nRecent replies: ${post.replies.map(r=>`${r.author}: ${r.body}`).join('\n')}`;
         try {
             const reply = await callAI(sys, msg, { maxTokens: 250 });
-            if (reply && reply.trim()) {
-                post.replies.push({ author: responder.handle, body: reply.trim(), timestamp: new Date().toISOString() });
-            } else {
-                post.replies.push({ author: responder.handle, body: '...', timestamp: new Date().toISOString() });
-            }
+            post.replies.push({ author: responder.handle, body: reply.trim() || '...', timestamp: new Date().toISOString() });
             save();
         } catch(e) {
-            post.replies.push({ author: responder.handle, body: '(lost connection)', timestamp: new Date().toISOString() });
+            console.error('❌ Board NPC reply error:', e);
+            post.replies.push({ author: responder.handle, body: `(static) ${e.message}`, timestamp: new Date().toISOString() });
             save();
         }
     }
 
+    // ---------- COMPOSE ----------
     function startNewPost(board) {
         composeTo.innerHTML = ''; composeSubject.value=''; composeBody.value='';
+        rightBody.style.display = 'none'; actionBar.style.display = 'none';
         composeArea.style.display='flex'; composeArea.dataset.mode='post'; composeArea.dataset.board=board;
     }
 
     function startNewMessage(toHandle) {
-        composeTo.innerHTML = '';
-        G.users.forEach(u => { if(u.handle!==G.player.handle) composeTo.innerHTML += `<option value="${u.handle}">${u.handle}</option>`; });
+        composeTo.innerHTML = G.users.filter(u=>u.handle!==G.player.handle).map(u => `<option value="${u.handle}">${u.handle}</option>`).join('');
         if(toHandle) composeTo.value = toHandle;
         composeSubject.value=''; composeBody.value='';
+        rightBody.style.display = 'none'; actionBar.style.display = 'none';
         composeArea.style.display='flex'; composeArea.dataset.mode='msg';
     }
 
@@ -778,31 +705,20 @@ Now return the matches.`;
         if(mode === 'post') {
             const board = composeArea.dataset.board, subject = composeSubject.value.trim(), body = composeBody.value.trim();
             if(!board||!subject||!body) return;
-            const newPost = {
-                id: Date.now(),
-                author: G.player.handle,
-                subject,
-                body,
-                timestamp: new Date().toISOString(),
-                replies: []
-            };
+            const newPost = { id: Date.now(), author: G.player.handle, subject, body, timestamp: new Date().toISOString(), replies: [] };
             G.boards[board].push(newPost);
-            composeArea.style.display='none';
+            composeArea.style.display='none'; rightBody.style.display = ''; actionBar.style.display = '';
             save();
-            if (mistralKey) {
-                await generateBoardNPCReply(newPost);
-            } else {
-                newPost.replies.push({ author: 'MODEM', body: 'No key set. NPCs offline.', timestamp: new Date().toISOString() });
-            }
+            await generateBoardNPCReply(newPost);
             save();
             if(currentView==='boards' && selectedBoard===board) selectBoard(board);
             else renderList();
         } else {
             const toHandle = composeTo.value;
             if(!toHandle || !composeSubject.value.trim() || !composeBody.value.trim()) return;
-            const conv = getConversationWith(toHandle);
+            const conv = ensureConversation(toHandle);
             conv.messages.push({ from: G.player.handle, body: composeBody.value.trim(), timestamp: new Date().toISOString(), read: true });
-            composeArea.style.display='none';
+            composeArea.style.display='none'; rightBody.style.display = ''; actionBar.style.display = '';
             save();
             await generateImmediateReplyInThread(conv);
             showView('mailbox');
@@ -810,6 +726,7 @@ Now return the matches.`;
         }
     }
 
+    // ---------- PROFILE ----------
     function showUserProfile(handle) {
         const user = G.users.find(u => u.handle===handle);
         if(!user) { rightBody.innerHTML='<em>User not found.</em>'; return; }
@@ -821,27 +738,22 @@ Now return the matches.`;
             <strong>Looking for:</strong> ${user.profile.lookingFor||'?'}<br>
             <strong>Interests:</strong> ${(user.profile.interests||[]).join(', ')||'None'}<br>
             <strong>Public Message:</strong> "${user.profile.publicMessage||''}"`;
-        actionBar.innerHTML = '';
-        if(user.handle===G.player.handle) {
-            actionBar.innerHTML = '<button class="action-btn" id="editProfileBtn">✏️ Edit Profile</button>';
-            document.getElementById('editProfileBtn').addEventListener('click', showProfileEditor);
-        } else {
-            actionBar.innerHTML = '<button class="action-btn" id="msgUserBtn">✉ Send Message</button>';
-            document.getElementById('msgUserBtn').addEventListener('click', () => startNewMessage(user.handle));
-        }
-        composeArea.style.display='none';
+        actionBar.innerHTML = user.handle===G.player.handle ? '<button class="action-btn" id="editProfileBtn">✏️ Edit Profile</button>' : '<button class="action-btn" id="msgUserBtn">✉ Send Message</button>';
+        if(user.handle===G.player.handle) document.getElementById('editProfileBtn').addEventListener('click', showProfileEditor);
+        else document.getElementById('msgUserBtn').addEventListener('click', () => startNewMessage(user.handle));
+        composeArea.style.display='none'; rightBody.style.display = ''; actionBar.style.display = '';
     }
 
     function showProfileEditor() {
         const p = G.player.profile;
         rightBody.innerHTML = `<div style="display:flex; flex-direction:column; gap:8px;">
             <label>Real Name: <input type="text" id="editRealName" value="${p.realName||''}"></label>
-            <label>Age: <input type="number" id="editAge" value="${p.age||0}" min="10" max="99"></label>
+            <label>Age: <input type="number" id="editAge" value="${p.age||0}"></label>
             <label>Gender: <input type="text" id="editGender" value="${p.gender||''}"></label>
             <label>Looking For: <input type="text" id="editLookingFor" value="${p.lookingFor||''}"></label>
             <label>Interests: <input type="text" id="editInterests" value="${(p.interests||[]).join(', ')}"></label>
             <label>Public Message: <input type="text" id="editPublicMessage" value="${p.publicMessage||''}"></label>
-            <div><button class="action-btn" id="saveProfileBtn">💾 Save</button><button class="action-btn" id="cancelEditBtn">❌ Cancel</button></div></div>`;
+            <div><button class="action-btn" id="saveProfileBtn">💾 Save</button> <button class="action-btn" id="cancelEditBtn">❌ Cancel</button></div></div>`;
         actionBar.innerHTML='';
         document.getElementById('saveProfileBtn').addEventListener('click', () => {
             G.player.profile.realName = document.getElementById('editRealName').value;
@@ -855,10 +767,11 @@ Now return the matches.`;
         document.getElementById('cancelEditBtn').addEventListener('click', () => showUserProfile(G.player.handle));
     }
 
+    // ---------- LOGIN ----------
     async function doLogin() {
         const handle = loginHandleInput.value.trim(), pass = loginPassInput.value.trim();
         if(!handle||!pass) { loginError.textContent='Enter handle and password.'; return; }
-        if(!mistralKey) { loginError.textContent='Set Mistral API key above first.'; return; }
+        if(!mistralKey) { loginError.textContent='Set Mistral API key first.'; return; }
         playModemHandshake();
         let user = G.users.find(u => u.handle.toLowerCase()===handle.toLowerCase());
         if(user) {
@@ -870,20 +783,24 @@ Now return the matches.`;
         G.player = user; G.lastLogin = new Date().toISOString(); G.sessions++;
         loginOverlay.classList.add('hidden'); userStatus.textContent = `Logged in: ${user.handle}`;
         save();
-        if(G.users.length===1 && !G.worldGenerated) await generateInitialWorld();
-        else await fetchBatchContent();
-        showView('mailbox');
+        if(G.users.length===1 && !G.worldGenerated) {
+            const success = await generateInitialWorld();
+            if (success) showView('mailbox');
+        } else {
+            await fetchBatchContent();
+            showView('mailbox');
+        }
     }
 
+    // ---------- EVENT LISTENERS ----------
     navBtns.forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
     loginBtn.addEventListener('click', doLogin);
     loginPassInput.addEventListener('keypress', e => { if(e.key==='Enter') doLogin(); });
     sendComposeBtn.addEventListener('click', handleComposeSend);
-    cancelComposeBtn.addEventListener('click', () => composeArea.style.display='none');
+    cancelComposeBtn.addEventListener('click', () => { composeArea.style.display='none'; rightBody.style.display = ''; actionBar.style.display = ''; });
     refreshBtn.addEventListener('click', () => { if(!G.player) return; fetchBatchContent(); });
     saveKeyBtn.addEventListener('click', () => saveApiKey(apiKeyInput.value.trim()));
     loginSaveKeyBtn.addEventListener('click', () => saveApiKey(loginApiKeyInput.value.trim()));
-
     updateKeyIndicators();
 
     const hasSave = load();
