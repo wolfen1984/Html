@@ -511,54 +511,70 @@ All strings single line, no newlines inside them.`;
 
     // ---------- DIRECTORY (with early view guard) ----------
     async function performDirectorySearch() {
-        if (!G.player || currentView !== 'directory') return;
-        const sex = (document.getElementById('dirSex')?.value || '').trim().toLowerCase();
-        const minAge = parseInt(document.getElementById('dirMinAge')?.value) || 0;
-        const maxAge = parseInt(document.getElementById('dirMaxAge')?.value) || 999;
-        const lookingFor = (document.getElementById('dirLookingFor')?.value || '').trim().toLowerCase();
-        const candidates = G.users.filter(u => u.handle !== G.player.handle);
-        if (candidates.length === 0) { rightBody.innerHTML = '<em>No other users in the directory.</em>'; return; }
-        if (!mistralKey) { rightBody.innerHTML = '<span class="error-msg">🔑 No API key set.</span>'; return; }
-        const debugEl = document.getElementById('dirDebug');
-        if (debugEl) debugEl.textContent = 'Calling Mistral AI...';
-        rightBody.innerHTML = '<span class="loading">Searching directory…</span>';
-        const userData = candidates.map(u => ({
+    if (!G.player || currentView !== 'directory') return;
+    const sex = (document.getElementById('dirSex')?.value || '').trim().toLowerCase();
+    const minAge = parseInt(document.getElementById('dirMinAge')?.value) || 0;
+    const maxAge = parseInt(document.getElementById('dirMaxAge')?.value) || 999;
+    const lookingFor = (document.getElementById('dirLookingFor')?.value || '').trim().toLowerCase();
+    if (!mistralKey) {
+        rightBody.innerHTML = '<span class="error-msg">🔑 No API key set.</span>';
+        return;
+    }
+
+    const debugEl = document.getElementById('dirDebug');
+    if (debugEl) debugEl.textContent = 'Generating new users…';
+    rightBody.innerHTML = '<span class="loading">Inventing fresh faces for the directory…</span>';
+
+    // Pass existing handles so the AI avoids duplicates
+    const existingHandles = G.users.map(u => u.handle.toLowerCase());
+
+    const system = `You are a creative NPC generator for a 1985 BBS dating scene.
+You will receive search criteria (sex, age range, looking for) and a list of existing usernames.
+Create 6-8 brand‑new, unique user profiles that match the criteria as closely as possible.
+Rules:
+- Each handle must be original, not in the existing list, and feel like a real 80s BBS handle (e.g., "NeonDream", "ByteMaster").
+- Generate a short one‑sentence description that captures their vibe.
+- For each user, also provide a full profile object (realName, age, gender, lookingFor, interests, publicMessage).
+- Return ONLY a JSON object: { "newUsers": [ { "handle": "...", "description": "...", "profile": { ... } }, ... ] }
+- All strings single line, no markdown.
+Now wait for the criteria and existing handles.`;
+
+    const userMessage = `SEARCH CRITERIA:
+Sex: ${sex || 'any'}
+Age: ${minAge} – ${maxAge}
+Looking for: ${lookingFor || 'any'}
+
+EXISTING HANDLES (DO NOT REUSE): ${existingHandles.join(', ') || 'none'}
+
+Now generate 6-8 new users that fit. Output the JSON.`;
+
+    try {
+        if (currentView !== 'directory') return;
+        const raw = await callAI(system, userMessage, { maxTokens: 2000, jsonResponse: true, temperature: 0.9 }); // higher temp for creativity
+        if (currentView !== 'directory') return;
+        const parsed = safeParseAIResponse(raw);
+        if (!parsed || !Array.isArray(parsed.newUsers)) {
+            throw new Error('AI did not return a valid newUsers array.');
+        }
+        const newUsers = parsed.newUsers.filter(u => u.handle && u.profile).map(u => ({
             handle: u.handle,
-            gender: (u.profile.gender || '').toLowerCase(),
-            age: u.profile.age || 0,
-            lookingFor: (u.profile.lookingFor || '').toLowerCase(),
-            interests: (u.profile.interests || []).join(', '),
-            publicMessage: u.profile.publicMessage || ''
+            description: u.description || '',
+            profile: u.profile
         }));
-        const system = `You are a precise directory assistant. You receive search criteria and a list of user profiles. 
-Return ONLY a JSON object: {"matches":[{"handle":"...","description":"..."}]}
-- If criteria are broad, return EVERY user with a short description.
-- NEVER return an empty array. Always include the users that match or all users if no criteria given.
-- Each description 1-2 sentences.`;
-        const userMessage = `SEARCH CRITERIA:\n- Sex: ${sex || 'any'}\n- Age: ${minAge}-${maxAge}\n- Looking for: ${lookingFor || 'any'}\n\nUSER LIST (JSON):\n${JSON.stringify(userData, null, 2)}\n\nNow return the matches.`;
-        try {
-            if (currentView !== 'directory') return;
-            const raw = await callAI(system, userMessage, { maxTokens: 2000, jsonResponse: true, temperature: 0.3 });
-            if (currentView !== 'directory') return;
-            const parsed = safeParseAIResponse(raw);
-            if (!parsed || !Array.isArray(parsed.matches)) {
-                throw new Error('AI did not return a valid matches array.');
-            }
-            const cleaned = parsed.matches.filter(m => m.handle).map(m => ({ handle: m.handle, description: m.description || '' }));
-            if (cleaned.length === 0) {
-                rightBody.innerHTML = '<span class="error-msg">No matches found.</span>';
-                if (debugEl) debugEl.textContent = 'AI returned empty matches.';
-                return;
-            }
-            displayDirectoryResults(cleaned);
-        } catch (err) {
-            console.error('❌ Directory search error:', err);
-            if (currentView === 'directory') {
-                if (debugEl) debugEl.textContent = 'Error: ' + err.message;
-                rightBody.innerHTML = `<span class="error-msg">❌ ${err.message}</span>`;
-            }
+        if (newUsers.length === 0) {
+            rightBody.innerHTML = '<em>No new users matched your criteria. Try broader filters.</em>';
+            if (debugEl) debugEl.textContent = 'AI returned empty newUsers.';
+            return;
+        }
+        displayDirectoryResults(newUsers);
+    } catch (err) {
+        console.error('❌ Directory generation error:', err);
+        if (currentView === 'directory') {
+            if (debugEl) debugEl.textContent = 'Error: ' + err.message;
+            rightBody.innerHTML = `<span class="error-msg">❌ ${err.message}</span>`;
         }
     }
+}
 
     function displayDirectoryResults(matches) {
         if (currentView !== 'directory') return;
@@ -791,6 +807,45 @@ Return ONLY a JSON object: {"matches":[{"handle":"...","description":"..."}]}
             showView('mailbox');
         }
     }
+
+    function addUserToGame(newUser) {
+    // Don't add duplicates
+    if (G.users.find(u => u.handle.toLowerCase() === newUser.handle.toLowerCase())) {
+        rightBody.innerHTML = '<em>This user is already in the BBS.</em>';
+        return;
+    }
+    // Build a full user object
+    const freshUser = {
+        handle: newUser.handle,
+        password: 'bbs', // default, could be randomised
+        personality: `${newUser.handle} is ${newUser.profile.lookingFor || 'friendly'} and loves ${(newUser.profile.interests||[]).slice(0,2).join(' and ')}.`,
+        traits: [],
+        profile: {
+            realName: newUser.profile.realName || newUser.handle,
+            age: newUser.profile.age || 25,
+            gender: newUser.profile.gender || 'unspecified',
+            lookingFor: newUser.profile.lookingFor || 'chat',
+            interests: newUser.profile.interests || ['computers'],
+            publicMessage: newUser.profile.publicMessage || 'Hi!'
+        }
+    };
+    G.users.push(ensureUserObject(freshUser));
+    save();
+
+    // Immediately give the new NPC a starting conversation with the player
+    const conv = ensureConversation(newUser.handle);
+    conv.messages.push({
+        from: newUser.handle,
+        body: `Hey, I just joined! ${newUser.profile.publicMessage || "Wanna chat?"}`,
+        timestamp: new Date().toISOString(),
+        read: false
+    });
+    save();
+
+    rightBody.innerHTML = `<em>${newUser.handle} has been added to the BBS! Check your mailbox.</em>`;
+    // Refresh the left panel in case they're still in directory view
+    renderList();
+}
 
     // ---------- EVENT LISTENERS ----------
     navBtns.forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
