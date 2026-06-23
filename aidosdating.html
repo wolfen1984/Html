@@ -119,6 +119,7 @@
 
 <script>
 (function() {
+    // ---------- DOM references ----------
     const listContainer = document.getElementById('listContainer');
     const rightHeader = document.getElementById('rightHeader');
     const rightBody = document.getElementById('rightBody');
@@ -145,10 +146,12 @@
     const navBtns = document.querySelectorAll('.nav-btn');
     const refreshBtn = document.getElementById('refreshBtn');
 
+    // ---------- State ----------
     let mistralKey = localStorage.getItem('heartline_key') || '';
     let currentView = 'mailbox';
     let selectedConversationUser = null;
     let selectedBoard = null;
+    let backgroundTimer = null;
 
     const STORAGE_KEY = 'heartline_bbs_robust';
     let G = {
@@ -165,6 +168,7 @@
 
     const AI_TIMEOUT_MS = 30000;
 
+    // ---------- Helper functions ----------
     function ensureUserObject(u) {
         if (!u.handle) u.handle = 'UNKNOWN';
         if (!u.password) u.password = 'pass';
@@ -182,7 +186,6 @@
     }
 
     function sanitizeAllUsers() { G.users.forEach(u => ensureUserObject(u)); }
-
     function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(G)); }
 
     function load() {
@@ -202,16 +205,16 @@
 
     function updateKeyIndicators() {
         const hasKey = !!mistralKey;
-        const statusText = hasKey ? '● Key set' : '● No key';
-        keyStatus.textContent = statusText; keyStatus.style.color = hasKey ? '#0f0' : '#f44';
-        loginKeyStatus.textContent = statusText;
+        keyStatus.textContent = hasKey ? '● Key set' : '● No key';
+        keyStatus.style.color = hasKey ? '#0f0' : '#f44';
+        loginKeyStatus.textContent = hasKey ? '● Key set' : '● No key';
         loginKeyStatus.className = 'status-dot' + (hasKey ? ' active' : '');
         if (apiKeyInput) apiKeyInput.value = mistralKey;
         if (loginApiKeyInput) loginApiKeyInput.value = mistralKey;
     }
 
     function saveApiKey(key) {
-        mistralKey = key ? key : '';
+        mistralKey = key ? key.trim() : '';
         if (mistralKey) localStorage.setItem('heartline_key', mistralKey);
         else localStorage.removeItem('heartline_key');
         updateKeyIndicators();
@@ -239,7 +242,7 @@
         return conv.messages.some(m => m.from !== G.player.handle && !m.read);
     }
 
-    // ---------- ROBUST JSON EXTRACTION ----------
+    // ---------- JSON parsing ----------
     function extractJSONFromText(text) {
         if (typeof text !== 'string') return null;
         let cleaned = text.replace(/```[\s\S]*?\n?|```/g, '').trim();
@@ -251,37 +254,24 @@
         let i = startIdx;
         for (; i < cleaned.length; i++) {
             const ch = cleaned[i];
-            if (ch in openers) {
-                stack.push(ch);
-            } else if (ch in closers) {
+            if (ch in openers) stack.push(ch);
+            else if (ch in closers) {
                 if (stack.length === 0) break;
                 const last = stack.pop();
                 if (closers[ch] !== last) break;
-                if (stack.length === 0) {
-                    const jsonStr = cleaned.substring(startIdx, i + 1);
-                    return jsonStr;
-                }
+                if (stack.length === 0) return cleaned.substring(startIdx, i + 1);
             }
         }
         return null;
     }
 
     function safeParseAIResponse(raw) {
-        console.log('🔍 Attempting to parse AI response:', raw);
-        try { return JSON.parse(raw); } catch (e) { }
+        try { return JSON.parse(raw); } catch (e) {}
         const extracted = extractJSONFromText(raw);
-        if (!extracted) {
-            console.error('❌ Could not extract JSON from:', raw);
-            return null;
-        }
-        console.log('📦 Extracted JSON:', extracted);
-        try { return JSON.parse(extracted); } catch (e) {
-            console.error('❌ Parsing extracted JSON failed:', e);
-            return null;
-        }
+        if (!extracted) return null;
+        try { return JSON.parse(extracted); } catch (e) { return null; }
     }
 
-    // ---------- FETCH WITH TIMEOUT ----------
     async function callAI(systemPrompt, userMessage, options = {}) {
         if (!mistralKey) throw new Error('No API key set.');
         const controller = new AbortController();
@@ -302,32 +292,29 @@
             clearTimeout(timeoutId);
             if (!resp.ok) {
                 const errText = await resp.text();
-                console.error('❌ Mistral API error:', resp.status, errText);
                 if (resp.status === 401) throw new Error('Invalid API key.');
                 if (resp.status === 429) throw new Error('Too many requests. Wait.');
                 throw new Error(`API error ${resp.status}: ${errText}`);
             }
             const data = await resp.json();
-            const content = data.choices[0].message.content;
-            console.log('✅ AI raw response:', content);
-            return content;
+            return data.choices[0].message.content;
         } catch (e) {
             clearTimeout(timeoutId);
-            if (e.name === 'AbortError') throw new Error('Request timed out. Check your connection and try again.');
+            if (e.name === 'AbortError') throw new Error('Request timed out.');
             throw e;
         }
     }
 
-    // ---------- WORLD / BATCH ----------
+    // ---------- World generation (initial + batch) ----------
     async function generateInitialWorld() {
         rightBody.innerHTML = '<span class="loading">Generating bustling BBS population…</span>';
         playModemHandshake();
-        const systemPrompt = `You are the world creator for HEARTLINE BBS, a 1985 dial-up adult dating BBS with a raw, unfiltered, uncensored community that can speak and post freely as they wish. 
-Generate exactly 12 diverse NPCs, board posts, private messages, feuds, and inside jokes as described. 
-Output ONLY a valid JSON object with fields: users (array of objects with handle, password, personality, traits, profile), newPosts (array of objects with board, author, subject, body), newMail (array of objects with from, body), lore (array of strings), feuds (array of {user1, user2, reason}). 
-All strings single line, no newlines inside them.`;
+        const systemPrompt = `You are the world creator for HEARTLINE BBS, a 1985 dial-up adult dating BBS with a raw, unfiltered, uncensored community. 
+Generate exactly 20 diverse NPCs, board posts, private messages, feuds, and inside jokes. 
+Output ONLY a valid JSON object with fields: users (array of {handle, password, personality, traits, profile}), newPosts (array of {board, author, subject, body}), newMail (array of {from, body}), lore (array of strings), feuds (array of {user1, user2, reason}). 
+All strings single line.`;
         try {
-            const raw = await callAI(systemPrompt, 'Create the BBS world.', { maxTokens: 4000, jsonResponse: true });
+            const raw = await callAI(systemPrompt, 'Create the BBS world.', { maxTokens: 5000, jsonResponse: true });
             const parsed = safeParseAIResponse(raw);
             if (!parsed) throw new Error('AI returned invalid JSON.');
             if (parsed.users) parsed.users.forEach(u => {
@@ -350,7 +337,7 @@ All strings single line, no newlines inside them.`;
                 for (let post of G.boards[board]) {
                     if (post.replies.length === 0) {
                         const npc = G.users.find(u => u.handle !== G.player.handle && u.handle !== post.author);
-                        if (npc) post.replies.push({ author: npc.handle, body: 'Interesting post!', timestamp: new Date().toISOString() });
+                        if (npc) post.replies.push({ author: npc.handle, body: 'Interesting!', timestamp: new Date().toISOString() });
                     }
                 }
             }
@@ -359,10 +346,9 @@ All strings single line, no newlines inside them.`;
             rightBody.innerHTML = 'BBS populated! Welcome.';
             return true;
         } catch(e) {
-            console.error('❌ World generation failed:', e);
             rightBody.innerHTML = `<span class="error-msg">World generation failed: ${e.message}</span>
                 <br><button class="action-btn" id="retryWorldBtn">🔄 Retry</button>`;
-            document.getElementById('retryWorldBtn').addEventListener('click', () => generateInitialWorld().then(success => { if (success) showView('mailbox'); }));
+            document.getElementById('retryWorldBtn')?.addEventListener('click', () => generateInitialWorld().then(success => { if (success) showView('mailbox'); }));
             return false;
         }
     }
@@ -380,18 +366,20 @@ All strings single line, no newlines inside them.`;
             lore: G.lore,
             feuds: G.feuds
         };
-        const systemPrompt = `You generate new mail, posts, users, lore, and feuds for a chaotic BBS. Return ONLY a valid JSON with fields: newUsers, newMail, newPosts, loreUpdates, feudUpdates. All strings single line.`;
         let addedMail = 0, addedPosts = 0, addedUsers = 0;
         try {
-            const raw = await callAI(systemPrompt, JSON.stringify(context), { maxTokens: 3500, jsonResponse: true });
+            const raw = await callAI(
+                `You generate new mail, posts, users, lore, and feuds for a chaotic BBS. Return ONLY a valid JSON with fields: newUsers, newMail, newPosts, loreUpdates, feudUpdates. All strings single line.`,
+                JSON.stringify(context),
+                { maxTokens: 3500, jsonResponse: true }
+            );
             const parsed = safeParseAIResponse(raw);
             if (parsed) {
                 if (parsed.newUsers) parsed.newUsers.forEach(u => {
                     if (!G.users.find(ex => ex.handle.toLowerCase() === u.handle.toLowerCase())) { G.users.push(ensureUserObject(u)); addedUsers++; }
                 });
                 if (parsed.newMail) parsed.newMail.forEach(m => {
-                    const conv = ensureConversation(m.from);
-                    conv.messages.push({ from: m.from, body: m.body, timestamp: new Date().toISOString(), read: false });
+                    ensureConversation(m.from).messages.push({ from: m.from, body: m.body, timestamp: new Date().toISOString(), read: false });
                     addedMail++;
                 });
                 if (parsed.newPosts) parsed.newPosts.forEach(p => {
@@ -402,13 +390,18 @@ All strings single line, no newlines inside them.`;
                 if (parsed.loreUpdates) G.lore.push(...parsed.loreUpdates);
                 if (parsed.feudUpdates) G.feuds.push(...parsed.feudUpdates);
             }
-        } catch(e) {
-            console.error('❌ Batch fetch AI failed:', e);
-            if (addedMail === 0 && addedPosts === 0) {
+        } catch(e) { console.warn('Batch fetch AI failed:', e); }
+
+        if (addedMail === 0) {
+            for (let i = 0; i < 2; i++) {
                 const fbMsg = createFallbackMessage();
-                if (fbMsg) { ensureConversation(fbMsg.from).messages.push({ from: fbMsg.from, body: fbMsg.body, timestamp: new Date().toISOString(), read: false }); addedMail = 1; }
+                if (fbMsg) { ensureConversation(fbMsg.from).messages.push({ from: fbMsg.from, body: fbMsg.body, timestamp: new Date().toISOString(), read: false }); addedMail++; }
+            }
+        }
+        if (addedPosts < 2) {
+            for (let i = 0; i < 3; i++) {
                 const fbPost = createFallbackPost();
-                if (fbPost) { G.boards[fbPost.board].push({ id: Date.now() + Math.random(), author: fbPost.author, subject: fbPost.subject, body: fbPost.body, timestamp: new Date().toISOString(), replies: [] }); addedPosts = 1; }
+                if (fbPost) { G.boards[fbPost.board].push({ id: Date.now() + Math.random(), author: fbPost.author, subject: fbPost.subject, body: fbPost.body, timestamp: new Date().toISOString(), replies: [] }); addedPosts++; }
             }
         }
         save();
@@ -427,12 +420,101 @@ All strings single line, no newlines inside them.`;
         const npc = G.users.find(u => u.handle !== G.player.handle);
         if (!npc) return null;
         const board = ['personals','interests','confessions'][Math.floor(Math.random()*3)];
-        const subjects = ["Looking for chat", "Anyone into vintage computing?", "Late night thoughts..."];
-        const bodies = ["Just seeing who's out there.", "Drop me a line if you like similar music.", "Confession: I still use dial-up sounds for nostalgia."];
+        const subjects = ["Looking for chat", "Anyone into vintage computing?", "Late night thoughts...", "What's your favorite dial-up memory?", "Confession time"];
+        const bodies = ["Just seeing who's out there.", "Drop me a line if you like similar music.", "Confession: I still use dial-up sounds for nostalgia.", "Any other late-night owls around?", "I'm new here, say hi!"];
         return { board, author: npc.handle, subject: subjects[Math.floor(Math.random()*subjects.length)], body: bodies[Math.floor(Math.random()*bodies.length)] };
     }
 
-    // ---------- VIEW / RENDER ----------
+    // ---------- Background activity ----------
+    function startBackgroundActivity() {
+        if (backgroundTimer) clearInterval(backgroundTimer);
+        backgroundTimer = setInterval(performBackgroundActivity, 180000); // 3 min
+    }
+
+    async function performBackgroundActivity() {
+        if (!G.player) return;
+        let addedPosts = 0;
+        if (mistralKey) {
+            try {
+                const raw = await callAI(
+                    `Generate 2-3 new board posts for the BBS. Pick random boards from 'personals', 'interests', 'confessions'. Use existing NPCs or invent 1-2 new handles. Return ONLY JSON: { "newPosts": [{"board":"...", "author":"...", "subject":"...", "body":"..."}] }`,
+                    'Background activity', { maxTokens: 800, jsonResponse: true }
+                );
+                const parsed = safeParseAIResponse(raw);
+                if (parsed && parsed.newPosts) {
+                    parsed.newPosts.forEach(p => {
+                        if (!G.boards[p.board]) G.boards[p.board] = [];
+                        G.boards[p.board].push({
+                            id: Date.now() + Math.random(),
+                            author: p.author, subject: p.subject, body: p.body,
+                            timestamp: new Date().toISOString(), replies: []
+                        });
+                        addedPosts++;
+                    });
+                }
+            } catch (e) { console.warn('Background AI failed, using fallback:', e); }
+        }
+        if (addedPosts < 2) {
+            for (let i = 0; i < 2; i++) {
+                const fb = createFallbackPost();
+                if (fb) {
+                    G.boards[fb.board].push({
+                        id: Date.now() + Math.random(),
+                        author: fb.author, subject: fb.subject, body: fb.body,
+                        timestamp: new Date().toISOString(), replies: []
+                    });
+                }
+            }
+        }
+        if (Math.random() < 0.4 && G.users.length < 50) {
+            const handle = generateRandomHandle();
+            if (!G.users.find(u => u.handle.toLowerCase() === handle.toLowerCase())) {
+                const newUser = {
+                    handle: handle,
+                    password: 'bbs',
+                    personality: `${handle} is a new user exploring the BBS.`,
+                    traits: [],
+                    profile: {
+                        realName: handle,
+                        age: Math.floor(Math.random()*30)+18,
+                        gender: ['male','female','unspecified'][Math.floor(Math.random()*3)],
+                        lookingFor: ['chat','friendship','relationships'][Math.floor(Math.random()*3)],
+                        interests: ['vintage computing','music','movies'],
+                        publicMessage: 'New to this, hi everyone!'
+                    }
+                };
+                G.users.push(ensureUserObject(newUser));
+                const conv = ensureConversation(handle);
+                conv.messages.push({
+                    from: handle,
+                    body: 'Hey everyone, just logged on for the first time!',
+                    timestamp: new Date().toISOString(),
+                    read: false
+                });
+                const board = ['personals','interests','confessions'][Math.floor(Math.random()*3)];
+                G.boards[board].push({
+                    id: Date.now() + Math.random(),
+                    author: handle,
+                    subject: 'New here!',
+                    body: 'Hi, I just joined the BBS. Anyone around?',
+                    timestamp: new Date().toISOString(),
+                    replies: []
+                });
+            }
+        }
+        save();
+        if (currentView === 'boards' && selectedBoard) selectBoard(selectedBoard);
+        else if (currentView === 'mailbox' && selectedConversationUser) selectConversation(selectedConversationUser);
+        else showView(currentView);
+    }
+
+    function generateRandomHandle() {
+        const prefixes = ['Neon', 'Byte', 'Pixel', 'Cyber', 'Retro', 'Vapor', 'Synth', 'Modem', 'Dial', 'Wave'];
+        const suffixes = ['Dream', 'Master', 'Wolf', 'Cat', 'Star', 'Geek', 'Queen', 'King', 'Phreak', 'Lord'];
+        return prefixes[Math.floor(Math.random()*prefixes.length)] + suffixes[Math.floor(Math.random()*suffixes.length)];
+    }
+
+    // ---------- View switching ----------
     function showView(view) {
         currentView = view;
         navBtns.forEach(b => b.classList.remove('active'));
@@ -456,14 +538,35 @@ All strings single line, no newlines inside them.`;
             rightBody.innerHTML = '<em>Select criteria and click Search.</em>';
             return;
         }
+        if (view === 'who') {
+            renderWhoOnline();
+            return;
+        }
         renderList();
         if (view === 'profile' && G.player) showUserProfile(G.player.handle);
+    }
+
+    function renderWhoOnline() {
+        listContainer.innerHTML = '';
+        if (!G.player) return;
+        const npcs = G.users.filter(u => u.handle !== G.player.handle);
+        const onlineCount = Math.min(npcs.length, Math.floor(Math.random()*6)+3);
+        const shuffled = [...npcs].sort(() => 0.5 - Math.random());
+        const onlineNPCs = shuffled.slice(0, onlineCount);
+        const onlineList = [G.player, ...onlineNPCs];
+        onlineList.forEach(u => {
+            const div = document.createElement('div');
+            div.className = 'list-item';
+            div.textContent = u.handle + (u.handle === G.player.handle ? ' (you)' : '');
+            div.addEventListener('click', () => showUserProfile(u.handle));
+            listContainer.appendChild(div);
+        });
+        rightBody.innerHTML = '<em>Click a handle to view their profile.</em>';
     }
 
     function renderList() {
         listContainer.innerHTML = '';
         if (!G.player) return;
-        const userId = G.player.handle;
         if (currentView === 'mailbox') {
             const convs = G.conversations.filter(c => c.messages.length > 0);
             if (!convs.length) { listContainer.innerHTML = '<div style="padding:8px;">No conversations yet.</div>'; return; }
@@ -487,21 +590,10 @@ All strings single line, no newlines inside them.`;
                 div.addEventListener('click', () => selectBoard(bName));
                 listContainer.appendChild(div);
             });
-        } else if (currentView === 'who') {
-            const npcs = G.users.filter(u => u.handle !== userId);
-            if (!npcs.length) { listContainer.innerHTML = '<div style="padding:8px;">No other users.</div>'; return; }
-            const count = Math.min(npcs.length, Math.floor(Math.random()*4)+2);
-            const shuffled = npcs.sort(() => 0.5-Math.random()).slice(0,count);
-            [G.player, ...shuffled].forEach(u => {
-                const div = document.createElement('div'); div.className = 'list-item';
-                div.textContent = u.handle + (u.handle===userId?' (you)':'');
-                div.addEventListener('click', () => showUserProfile(u.handle));
-                listContainer.appendChild(div);
-            });
         }
     }
 
-    // ---------- DIRECTORY (SPLIT APPROACH – FAST GENERATION) ----------
+    // ---------- Directory ----------
     async function performDirectorySearch() {
         if (!G.player || currentView !== 'directory') return;
         const sex = (document.getElementById('dirSex')?.value || '').trim().toLowerCase();
@@ -512,44 +604,19 @@ All strings single line, no newlines inside them.`;
             rightBody.innerHTML = '<span class="error-msg">🔑 No API key set.</span>';
             return;
         }
-
         const debugEl = document.getElementById('dirDebug');
         if (debugEl) debugEl.textContent = 'Generating new handles…';
         rightBody.innerHTML = '<span class="loading">Inventing fresh faces for the directory…</span>';
-
         const existingHandles = G.users.map(u => u.handle.toLowerCase());
-
-        // Lightweight prompt – only handles and a brief description, no heavy profiles
-        const system = `You are a creative BBS handle generator.
-The player is browsing a dating BBS directory and wants to meet new people.
-Given search criteria and a list of existing handles, invent 5‑8 brand‑new, unique 80s‑style handles.
-Return ONLY a JSON object: {"newUsers": [{"handle":"...", "description":"A short one‑sentence description."}]}
-Rules:
-- Handles must be original, not in the existing list, and feel like real BBS handles (e.g. "NeonDream", "ByteMaster").
-- Descriptions one sentence, capturing their vibe.
-- Output pure JSON, no markdown.`;
-
-        const userMessage = `SEARCH CRITERIA:
-Sex: ${sex || 'any'}
-Age: ${minAge} – ${maxAge}
-Looking for: ${lookingFor || 'any'}
-
-EXISTING HANDLES (do NOT reuse): ${existingHandles.join(', ') || 'none'}
-
-Now generate the JSON.`;
-
+        const system = `You are a creative BBS handle generator. Given search criteria and existing handles, invent 5‑8 brand‑new, unique 80s‑style handles. Return ONLY JSON: {"newUsers": [{"handle":"...", "description":"A short one‑sentence description."}]}. Handles must be original, not in the existing list.`;
+        const userMessage = `SEARCH CRITERIA: Sex: ${sex || 'any'}, Age: ${minAge} – ${maxAge}, Looking for: ${lookingFor || 'any'}. EXISTING HANDLES: ${existingHandles.join(', ') || 'none'}. Generate JSON.`;
         try {
             if (currentView !== 'directory') return;
             const raw = await callAI(system, userMessage, { maxTokens: 800, jsonResponse: true, temperature: 0.9 });
             if (currentView !== 'directory') return;
             const parsed = safeParseAIResponse(raw);
-            if (!parsed || !Array.isArray(parsed.newUsers)) {
-                throw new Error('AI did not return a valid newUsers array.');
-            }
-            const newUsers = parsed.newUsers.filter(u => u.handle).map(u => ({
-                handle: u.handle,
-                description: u.description || ''
-            }));
+            if (!parsed || !Array.isArray(parsed.newUsers)) throw new Error('Invalid newUsers.');
+            const newUsers = parsed.newUsers.filter(u => u.handle).map(u => ({ handle: u.handle, description: u.description || '' }));
             if (newUsers.length === 0) {
                 rightBody.innerHTML = '<em>No new users matched your criteria. Try broader filters.</em>';
                 if (debugEl) debugEl.textContent = 'AI returned empty newUsers.';
@@ -557,7 +624,7 @@ Now generate the JSON.`;
             }
             displayDirectoryResults(newUsers);
         } catch (err) {
-            console.error('❌ Directory generation error:', err);
+            console.error('Directory error:', err);
             if (currentView === 'directory') {
                 if (debugEl) debugEl.textContent = 'Error: ' + err.message;
                 rightBody.innerHTML = `<span class="error-msg">❌ ${err.message}</span>`;
@@ -574,7 +641,6 @@ Now generate the JSON.`;
                 <button class="action-btn add-user-btn" data-handle="${u.handle}" data-desc="${encodeURIComponent(u.description)}">➕ Add</button>
             </div>`).join('');
         rightBody.innerHTML = html;
-
         document.querySelectorAll('.add-user-btn').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
@@ -585,36 +651,25 @@ Now generate the JSON.`;
                     const profile = await generateProfileForUser(handle, desc);
                     addUserToGame(handle, profile);
                 } catch (err) {
-                    console.error('Profile generation failed, using basic info:', err);
-                    // Fallback to minimal profile if AI fails (should be rare with small payloads)
                     addUserToGame(handle, null);
                 }
             });
         });
-
-        // Clicking the row can show a quick preview
         document.querySelectorAll('.result-item').forEach(item => {
             item.addEventListener('click', (e) => {
                 if (e.target.classList.contains('add-user-btn')) return;
                 const handle = item.dataset.handle;
                 const user = newUsers.find(u => u.handle === handle);
                 if (user) {
-                    rightBody.innerHTML = `
-                        <strong>Handle:</strong> ${user.handle}<br>
-                        <em>${user.description}</em><br><br>
-                        <button class="action-btn add-user-btn" data-handle="${user.handle}" data-desc="${encodeURIComponent(user.description)}">➕ Add this user to the BBS</button>
-                    `;
-                    document.querySelector('.add-user-btn').addEventListener('click', async (e2) => {
+                    rightBody.innerHTML = `<strong>Handle:</strong> ${user.handle}<br><em>${user.description}</em><br><br>
+                        <button class="action-btn add-user-btn" data-handle="${user.handle}" data-desc="${encodeURIComponent(user.description)}">➕ Add this user to the BBS</button>`;
+                    document.querySelector('.add-user-btn')?.addEventListener('click', async (e2) => {
                         e2.stopPropagation();
                         const handle2 = e2.target.dataset.handle;
                         const desc2 = decodeURIComponent(e2.target.dataset.desc);
                         rightBody.innerHTML = `<span class="loading">Bringing ${handle2} online…</span>`;
-                        try {
-                            const profile = await generateProfileForUser(handle2, desc2);
-                            addUserToGame(handle2, profile);
-                        } catch (err) {
-                            addUserToGame(handle2, null);
-                        }
+                        try { const p = await generateProfileForUser(handle2, desc2); addUserToGame(handle2, p); }
+                        catch (err) { addUserToGame(handle2, null); }
                     });
                 }
             });
@@ -622,13 +677,8 @@ Now generate the JSON.`;
     }
 
     async function generateProfileForUser(handle, description) {
-        const system = `You are creating a profile for a new BBS user named "${handle}".
-The user's vibe: "${description}".
-Return ONLY a valid JSON object with these fields: realName, age, gender, lookingFor, interests (array of 3‑5 strings), publicMessage.
-All strings single line, no extra text.`;
-
-        const userMessage = `Create a profile for ${handle}.`;
-        const raw = await callAI(system, userMessage, { maxTokens: 300, jsonResponse: true, temperature: 0.8 });
+        const system = `You are creating a profile for a new BBS user named "${handle}". Vibe: "${description}". Return ONLY a valid JSON with realName, age, gender, lookingFor, interests (array of 3‑5 strings), publicMessage. All strings single line.`;
+        const raw = await callAI(system, `Create profile for ${handle}.`, { maxTokens: 300, jsonResponse: true, temperature: 0.8 });
         const parsed = safeParseAIResponse(raw);
         if (!parsed) throw new Error('Profile generation failed');
         return {
@@ -647,23 +697,13 @@ All strings single line, no extra text.`;
             return;
         }
         const p = profile || {
-            realName: handle,
-            age: 25,
-            gender: 'unspecified',
-            lookingFor: 'chat',
-            interests: ['computers'],
-            publicMessage: 'Hey!'
+            realName: handle, age: 25, gender: 'unspecified', lookingFor: 'chat',
+            interests: ['computers'], publicMessage: 'Hey!'
         };
-        const freshUser = {
-            handle: handle,
-            password: 'bbs',
-            personality: `${handle} is ${p.lookingFor} and loves ${(p.interests || []).slice(0,2).join(', ')}.`,
-            traits: [],
-            profile: p
-        };
-        G.users.push(ensureUserObject(freshUser));
-        const conv = ensureConversation(handle);
-        conv.messages.push({
+        G.users.push(ensureUserObject({
+            handle, password: 'bbs', personality: `${handle} is ${p.lookingFor}.`, traits: [], profile: p
+        }));
+        ensureConversation(handle).messages.push({
             from: handle,
             body: `Hey, I just joined! ${p.publicMessage || 'Wanna chat?'}`,
             timestamp: new Date().toISOString(),
@@ -674,7 +714,7 @@ All strings single line, no extra text.`;
         renderList();
     }
 
-    // ---------- MESSAGES ----------
+    // ---------- Messaging ----------
     function selectConversation(handle) {
         selectedConversationUser = handle; selectedBoard = null;
         const conv = ensureConversation(handle);
@@ -707,23 +747,24 @@ All strings single line, no extra text.`;
 
     async function generateImmediateReplyInThread(conv) {
         if (!mistralKey) return;
-        const toHandle = conv.with;
-        const targetUser = G.users.find(u => u.handle.toLowerCase() === toHandle.toLowerCase());
+        const targetUser = G.users.find(u => u.handle.toLowerCase() === conv.with.toLowerCase());
         if (!targetUser) return;
         const history = conv.messages.slice(-6).map(m => `${m.from}: ${m.body}`).join('\n');
-        const sys = `You are ${targetUser.handle}. Personality: ${targetUser.personality}. Traits: ${targetUser.traits?.join(', ') || ''}. Reply in character, 2-5 sentences. Only output the reply.`;
         try {
-            const reply = await callAI(sys, `Conversation:\n${history}\n\nRespond as ${targetUser.handle}.`, { maxTokens: 300 });
-            conv.messages.push({ from: toHandle, body: reply.trim() || '...', timestamp: new Date().toISOString(), read: false });
+            const reply = await callAI(
+                `You are ${targetUser.handle}. Personality: ${targetUser.personality}. Traits: ${targetUser.traits?.join(', ') || ''}. Reply in character, 2-5 sentences. Only output the reply.`,
+                `Conversation:\n${history}\n\nRespond as ${targetUser.handle}.`,
+                { maxTokens: 300 }
+            );
+            conv.messages.push({ from: conv.with, body: reply.trim(), timestamp: new Date().toISOString(), read: false });
             save();
         } catch(e) {
-            console.error('❌ NPC reply error:', e);
-            conv.messages.push({ from: toHandle, body: `(static) ${e.message}`, timestamp: new Date().toISOString(), read: false });
+            conv.messages.push({ from: conv.with, body: `(static) Couldn't reply: ${e.message}`, timestamp: new Date().toISOString(), read: false });
             save();
         }
     }
 
-    // ---------- BOARDS ----------
+    // ---------- Boards (with persistent thread participants) ----------
     function selectBoard(bName) {
         selectedBoard = bName; selectedConversationUser = null;
         const posts = G.boards[bName];
@@ -753,34 +794,74 @@ All strings single line, no extra text.`;
 
     async function sendBoardReply(post) {
         const input = document.getElementById('boardReplyInput');
-        const body = input.value.trim(); if(!body) return;
-        post.replies.push({ author: G.player.handle, body, timestamp: new Date().toISOString() });
+        const body = input.value.trim();
+        if (!body) return;
+        const playerHandle = G.player.handle;
+        post.replies.push({ author: playerHandle, body, timestamp: new Date().toISOString() });
         input.value = '';
         save();
         window.selectPost(post.id);
-        await generateBoardNPCReply(post);
+        // Pass player message for mention detection
+        await generateBoardNPCReply(post, body);
         window.selectPost(post.id);
     }
 
-    async function generateBoardNPCReply(post) {
+    async function generateBoardNPCReply(post, playerMessage = '') {
         if (!mistralKey) return;
-        const npcs = G.users.filter(u => u.handle !== G.player.handle);
-        if(!npcs.length) return;
-        const responder = npcs[Math.floor(Math.random()*npcs.length)];
-        const sys = `You are ${responder.handle}. Personality: ${responder.personality}. Reply to this board post in character, 1-3 sentences. Only output the reply.`;
-        const msg = `Board: ${selectedBoard}. Post by ${post.author}: ${post.subject}\n${post.body}\n\nRecent replies: ${post.replies.map(r=>`${r.author}: ${r.body}`).join('\n')}`;
+        const playerHandle = G.player.handle;
+        const allNPCs = G.users.filter(u => u.handle !== playerHandle);
+        if (!allNPCs.length) return;
+
+        // Build participant set: original author + everyone who already replied
+        const participants = new Set();
+        if (post.author && post.author !== playerHandle) participants.add(post.author);
+        post.replies.forEach(r => { if (r.author !== playerHandle) participants.add(r.author); });
+
+        // Check for mentions in the player's latest message
+        let mentionedNPC = null;
+        if (playerMessage) {
+            const lowerMsg = playerMessage.toLowerCase();
+            mentionedNPC = allNPCs.find(npc => lowerMsg.includes(npc.handle.toLowerCase()));
+        }
+
+        let selectedNPC;
+        if (mentionedNPC) {
+            // Definitely use the mentioned NPC
+            selectedNPC = allNPCs.find(u => u.handle === mentionedNPC.handle);
+        } else {
+            // Weighted selection: 70% chance to use an existing participant, 30% new NPC
+            if (Math.random() < 0.7 && participants.size > 0) {
+                const participantHandles = Array.from(participants);
+                const randomParticipant = participantHandles[Math.floor(Math.random() * participantHandles.length)];
+                selectedNPC = allNPCs.find(u => u.handle === randomParticipant);
+            }
+            if (!selectedNPC) {
+                // Fallback: random NPC not already a participant (for freshness)
+                const freshNPCs = allNPCs.filter(u => !participants.has(u.handle));
+                if (freshNPCs.length > 0) {
+                    selectedNPC = freshNPCs[Math.floor(Math.random() * freshNPCs.length)];
+                } else {
+                    selectedNPC = allNPCs[Math.floor(Math.random() * allNPCs.length)];
+                }
+            }
+        }
+
+        const participantNames = Array.from(participants).join(', ');
+        const sys = `You are ${selectedNPC.handle}. Personality: ${selectedNPC.personality}. Traits: ${selectedNPC.traits?.join(', ') || ''}. 
+You are participating in a BBS thread. Other participants: ${participantNames || 'just the post author'}. 
+Reply in character, 1-3 sentences. Only output your reply, nothing else.`;
+        const msg = `Board: ${selectedBoard}. Post by ${post.author}: ${post.subject}\n${post.body}\n\nRecent replies: ${post.replies.map(r => `${r.author}: ${r.body}`).join('\n')}`;
         try {
             const reply = await callAI(sys, msg, { maxTokens: 250 });
-            post.replies.push({ author: responder.handle, body: reply.trim() || '...', timestamp: new Date().toISOString() });
+            post.replies.push({ author: selectedNPC.handle, body: reply.trim(), timestamp: new Date().toISOString() });
             save();
         } catch(e) {
-            console.error('❌ Board NPC reply error:', e);
-            post.replies.push({ author: responder.handle, body: `(static) ${e.message}`, timestamp: new Date().toISOString() });
+            post.replies.push({ author: selectedNPC.handle, body: `(static) Couldn't reply right now.`, timestamp: new Date().toISOString() });
             save();
         }
     }
 
-    // ---------- COMPOSE ----------
+    // ---------- Compose ----------
     function startNewPost(board) {
         composeTo.innerHTML = ''; composeSubject.value=''; composeBody.value='';
         rightBody.style.display = 'none'; actionBar.style.display = 'none';
@@ -804,6 +885,7 @@ All strings single line, no extra text.`;
             G.boards[board].push(newPost);
             composeArea.style.display='none'; rightBody.style.display = ''; actionBar.style.display = '';
             save();
+            // Trigger an NPC reply (no player message yet, but we can still bias toward participants)
             await generateBoardNPCReply(newPost);
             save();
             if(currentView==='boards' && selectedBoard===board) selectBoard(board);
@@ -821,7 +903,7 @@ All strings single line, no extra text.`;
         }
     }
 
-    // ---------- PROFILE ----------
+    // ---------- Profile ----------
     function showUserProfile(handle) {
         const user = G.users.find(u => u.handle===handle);
         if(!user) { rightBody.innerHTML='<em>User not found.</em>'; return; }
@@ -836,7 +918,6 @@ All strings single line, no extra text.`;
         actionBar.innerHTML = user.handle===G.player.handle ? '<button class="action-btn" id="editProfileBtn">✏️ Edit Profile</button>' : '<button class="action-btn" id="msgUserBtn">✉ Send Message</button>';
         if(user.handle===G.player.handle) document.getElementById('editProfileBtn').addEventListener('click', showProfileEditor);
         else document.getElementById('msgUserBtn').addEventListener('click', () => startNewMessage(user.handle));
-        composeArea.style.display='none'; rightBody.style.display = ''; actionBar.style.display = '';
     }
 
     function showProfileEditor() {
@@ -862,7 +943,7 @@ All strings single line, no extra text.`;
         document.getElementById('cancelEditBtn').addEventListener('click', () => showUserProfile(G.player.handle));
     }
 
-    // ---------- LOGIN ----------
+    // ---------- Login ----------
     async function doLogin() {
         const handle = loginHandleInput.value.trim(), pass = loginPassInput.value.trim();
         if(!handle||!pass) { loginError.textContent='Enter handle and password.'; return; }
@@ -878,6 +959,7 @@ All strings single line, no extra text.`;
         G.player = user; G.lastLogin = new Date().toISOString(); G.sessions++;
         loginOverlay.classList.add('hidden'); userStatus.textContent = `Logged in: ${user.handle}`;
         save();
+        startBackgroundActivity();
         if(G.users.length===1 && !G.worldGenerated) {
             const success = await generateInitialWorld();
             if (success) showView('mailbox');
@@ -887,21 +969,24 @@ All strings single line, no extra text.`;
         }
     }
 
-    // ---------- EVENT LISTENERS ----------
+    // ---------- Event binding ----------
     navBtns.forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
     loginBtn.addEventListener('click', doLogin);
     loginPassInput.addEventListener('keypress', e => { if(e.key==='Enter') doLogin(); });
     sendComposeBtn.addEventListener('click', handleComposeSend);
     cancelComposeBtn.addEventListener('click', () => { composeArea.style.display='none'; rightBody.style.display = ''; actionBar.style.display = ''; });
     refreshBtn.addEventListener('click', () => { if(!G.player) return; fetchBatchContent(); });
-    saveKeyBtn.addEventListener('click', () => saveApiKey(apiKeyInput.value.trim()));
-    loginSaveKeyBtn.addEventListener('click', () => saveApiKey(loginApiKeyInput.value.trim()));
+    saveKeyBtn.addEventListener('click', () => saveApiKey(apiKeyInput.value));
+    loginSaveKeyBtn.addEventListener('click', () => saveApiKey(loginApiKeyInput.value));
     updateKeyIndicators();
 
+    // ---------- Initialisation ----------
     const hasSave = load();
     if(hasSave && G.player) {
         loginOverlay.classList.add('hidden'); userStatus.textContent = `Logged in: ${G.player.handle}`;
-        showView('mailbox'); fetchBatchContent();
+        showView('mailbox');
+        fetchBatchContent();
+        startBackgroundActivity();
     } else {
         loginOverlay.classList.remove('hidden'); G.player = null; showView('mailbox');
     }
