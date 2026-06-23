@@ -242,12 +242,9 @@
     // ---------- ROBUST JSON EXTRACTION ----------
     function extractJSONFromText(text) {
         if (typeof text !== 'string') return null;
-        // Remove markdown fences and surrounding whitespace
         let cleaned = text.replace(/```[\s\S]*?\n?|```/g, '').trim();
-        // Find the first { or [
         const startIdx = cleaned.search(/[\{\[]/);
         if (startIdx === -1) return null;
-        // Brace/ bracket matching
         const stack = [];
         const openers = { '{': '}', '[': ']' };
         const closers = { '}': '{', ']': '[' };
@@ -257,25 +254,21 @@
             if (ch in openers) {
                 stack.push(ch);
             } else if (ch in closers) {
-                if (stack.length === 0) break; // unbalanced
+                if (stack.length === 0) break;
                 const last = stack.pop();
-                if (closers[ch] !== last) break; // mismatch
+                if (closers[ch] !== last) break;
                 if (stack.length === 0) {
-                    // complete outermost structure
                     const jsonStr = cleaned.substring(startIdx, i + 1);
                     return jsonStr;
                 }
             }
         }
-        // If we exit without finding balance, return null
         return null;
     }
 
     function safeParseAIResponse(raw) {
         console.log('🔍 Attempting to parse AI response:', raw);
-        // First try direct parse
-        try { return JSON.parse(raw); } catch (e) { /* not clean JSON */ }
-        // Try extraction
+        try { return JSON.parse(raw); } catch (e) { }
         const extracted = extractJSONFromText(raw);
         if (!extracted) {
             console.error('❌ Could not extract JSON from:', raw);
@@ -411,7 +404,6 @@ All strings single line, no newlines inside them.`;
             }
         } catch(e) {
             console.error('❌ Batch fetch AI failed:', e);
-            // fallback only if nothing was generated
             if (addedMail === 0 && addedPosts === 0) {
                 const fbMsg = createFallbackMessage();
                 if (fbMsg) { ensureConversation(fbMsg.from).messages.push({ from: fbMsg.from, body: fbMsg.body, timestamp: new Date().toISOString(), read: false }); addedMail = 1; }
@@ -509,90 +501,177 @@ All strings single line, no newlines inside them.`;
         }
     }
 
-    // ---------- DIRECTORY (with early view guard) ----------
+    // ---------- DIRECTORY (SPLIT APPROACH – FAST GENERATION) ----------
     async function performDirectorySearch() {
-    if (!G.player || currentView !== 'directory') return;
-    const sex = (document.getElementById('dirSex')?.value || '').trim().toLowerCase();
-    const minAge = parseInt(document.getElementById('dirMinAge')?.value) || 0;
-    const maxAge = parseInt(document.getElementById('dirMaxAge')?.value) || 999;
-    const lookingFor = (document.getElementById('dirLookingFor')?.value || '').trim().toLowerCase();
-    if (!mistralKey) {
-        rightBody.innerHTML = '<span class="error-msg">🔑 No API key set.</span>';
-        return;
-    }
+        if (!G.player || currentView !== 'directory') return;
+        const sex = (document.getElementById('dirSex')?.value || '').trim().toLowerCase();
+        const minAge = parseInt(document.getElementById('dirMinAge')?.value) || 0;
+        const maxAge = parseInt(document.getElementById('dirMaxAge')?.value) || 999;
+        const lookingFor = (document.getElementById('dirLookingFor')?.value || '').trim().toLowerCase();
+        if (!mistralKey) {
+            rightBody.innerHTML = '<span class="error-msg">🔑 No API key set.</span>';
+            return;
+        }
 
-    const debugEl = document.getElementById('dirDebug');
-    if (debugEl) debugEl.textContent = 'Generating new users…';
-    rightBody.innerHTML = '<span class="loading">Inventing fresh faces for the directory…</span>';
+        const debugEl = document.getElementById('dirDebug');
+        if (debugEl) debugEl.textContent = 'Generating new handles…';
+        rightBody.innerHTML = '<span class="loading">Inventing fresh faces for the directory…</span>';
 
-    // Pass existing handles so the AI avoids duplicates
-    const existingHandles = G.users.map(u => u.handle.toLowerCase());
+        const existingHandles = G.users.map(u => u.handle.toLowerCase());
 
-    const system = `You are a creative NPC generator for a 1985 BBS dating scene.
-You will receive search criteria (sex, age range, looking for) and a list of existing usernames.
-Create 6-8 brand‑new, unique user profiles that match the criteria as closely as possible.
+        // Lightweight prompt – only handles and a brief description, no heavy profiles
+        const system = `You are a creative BBS handle generator.
+The player is browsing a dating BBS directory and wants to meet new people.
+Given search criteria and a list of existing handles, invent 5‑8 brand‑new, unique 80s‑style handles.
+Return ONLY a JSON object: {"newUsers": [{"handle":"...", "description":"A short one‑sentence description."}]}
 Rules:
-- Each handle must be original, not in the existing list, and feel like a real 80s BBS handle (e.g., "NeonDream", "ByteMaster").
-- Generate a short one‑sentence description that captures their vibe.
-- For each user, also provide a full profile object (realName, age, gender, lookingFor, interests, publicMessage).
-- Return ONLY a JSON object: { "newUsers": [ { "handle": "...", "description": "...", "profile": { ... } }, ... ] }
-- All strings single line, no markdown.
-Now wait for the criteria and existing handles.`;
+- Handles must be original, not in the existing list, and feel like real BBS handles (e.g. "NeonDream", "ByteMaster").
+- Descriptions one sentence, capturing their vibe.
+- Output pure JSON, no markdown.`;
 
-    const userMessage = `SEARCH CRITERIA:
+        const userMessage = `SEARCH CRITERIA:
 Sex: ${sex || 'any'}
 Age: ${minAge} – ${maxAge}
 Looking for: ${lookingFor || 'any'}
 
-EXISTING HANDLES (DO NOT REUSE): ${existingHandles.join(', ') || 'none'}
+EXISTING HANDLES (do NOT reuse): ${existingHandles.join(', ') || 'none'}
 
-Now generate 6-8 new users that fit. Output the JSON.`;
+Now generate the JSON.`;
 
-    try {
-        if (currentView !== 'directory') return;
-        const raw = await callAI(system, userMessage, { maxTokens: 2000, jsonResponse: true, temperature: 0.9 }); // higher temp for creativity
-        if (currentView !== 'directory') return;
-        const parsed = safeParseAIResponse(raw);
-        if (!parsed || !Array.isArray(parsed.newUsers)) {
-            throw new Error('AI did not return a valid newUsers array.');
-        }
-        const newUsers = parsed.newUsers.filter(u => u.handle && u.profile).map(u => ({
-            handle: u.handle,
-            description: u.description || '',
-            profile: u.profile
-        }));
-        if (newUsers.length === 0) {
-            rightBody.innerHTML = '<em>No new users matched your criteria. Try broader filters.</em>';
-            if (debugEl) debugEl.textContent = 'AI returned empty newUsers.';
-            return;
-        }
-        displayDirectoryResults(newUsers);
-    } catch (err) {
-        console.error('❌ Directory generation error:', err);
-        if (currentView === 'directory') {
-            if (debugEl) debugEl.textContent = 'Error: ' + err.message;
-            rightBody.innerHTML = `<span class="error-msg">❌ ${err.message}</span>`;
+        try {
+            if (currentView !== 'directory') return;
+            const raw = await callAI(system, userMessage, { maxTokens: 800, jsonResponse: true, temperature: 0.9 });
+            if (currentView !== 'directory') return;
+            const parsed = safeParseAIResponse(raw);
+            if (!parsed || !Array.isArray(parsed.newUsers)) {
+                throw new Error('AI did not return a valid newUsers array.');
+            }
+            const newUsers = parsed.newUsers.filter(u => u.handle).map(u => ({
+                handle: u.handle,
+                description: u.description || ''
+            }));
+            if (newUsers.length === 0) {
+                rightBody.innerHTML = '<em>No new users matched your criteria. Try broader filters.</em>';
+                if (debugEl) debugEl.textContent = 'AI returned empty newUsers.';
+                return;
+            }
+            displayDirectoryResults(newUsers);
+        } catch (err) {
+            console.error('❌ Directory generation error:', err);
+            if (currentView === 'directory') {
+                if (debugEl) debugEl.textContent = 'Error: ' + err.message;
+                rightBody.innerHTML = `<span class="error-msg">❌ ${err.message}</span>`;
+            }
         }
     }
-}
 
-    function displayDirectoryResults(matches) {
+    function displayDirectoryResults(newUsers) {
         if (currentView !== 'directory') return;
         rightHeader.textContent = 'Directory Results';
-        let html = matches.map(m => `<div class="result-item list-item" data-handle="${m.handle}">
-            <span>📇 <strong>${m.handle}</strong> – ${m.description}</span>
-            <button class="action-btn msg-result-btn" data-handle="${m.handle}">✉ Msg</button>
-        </div>`).join('');
+        let html = newUsers.map(u => `
+            <div class="result-item list-item" data-handle="${u.handle}">
+                <span>📇 <strong>${u.handle}</strong> – ${u.description}</span>
+                <button class="action-btn add-user-btn" data-handle="${u.handle}" data-desc="${encodeURIComponent(u.description)}">➕ Add</button>
+            </div>`).join('');
         rightBody.innerHTML = html;
-        document.querySelectorAll('.result-item').forEach(item => {
-            item.addEventListener('click', e => {
-                if (e.target.classList.contains('msg-result-btn')) return;
-                showUserProfile(item.dataset.handle);
+
+        document.querySelectorAll('.add-user-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const handle = btn.dataset.handle;
+                const desc = decodeURIComponent(btn.dataset.desc);
+                rightBody.innerHTML = `<span class="loading">Bringing ${handle} online…</span>`;
+                try {
+                    const profile = await generateProfileForUser(handle, desc);
+                    addUserToGame(handle, profile);
+                } catch (err) {
+                    console.error('Profile generation failed, using basic info:', err);
+                    // Fallback to minimal profile if AI fails (should be rare with small payloads)
+                    addUserToGame(handle, null);
+                }
             });
         });
-        document.querySelectorAll('.msg-result-btn').forEach(btn => {
-            btn.addEventListener('click', e => { e.stopPropagation(); startNewMessage(btn.dataset.handle); });
+
+        // Clicking the row can show a quick preview
+        document.querySelectorAll('.result-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                if (e.target.classList.contains('add-user-btn')) return;
+                const handle = item.dataset.handle;
+                const user = newUsers.find(u => u.handle === handle);
+                if (user) {
+                    rightBody.innerHTML = `
+                        <strong>Handle:</strong> ${user.handle}<br>
+                        <em>${user.description}</em><br><br>
+                        <button class="action-btn add-user-btn" data-handle="${user.handle}" data-desc="${encodeURIComponent(user.description)}">➕ Add this user to the BBS</button>
+                    `;
+                    document.querySelector('.add-user-btn').addEventListener('click', async (e2) => {
+                        e2.stopPropagation();
+                        const handle2 = e2.target.dataset.handle;
+                        const desc2 = decodeURIComponent(e2.target.dataset.desc);
+                        rightBody.innerHTML = `<span class="loading">Bringing ${handle2} online…</span>`;
+                        try {
+                            const profile = await generateProfileForUser(handle2, desc2);
+                            addUserToGame(handle2, profile);
+                        } catch (err) {
+                            addUserToGame(handle2, null);
+                        }
+                    });
+                }
+            });
         });
+    }
+
+    async function generateProfileForUser(handle, description) {
+        const system = `You are creating a profile for a new BBS user named "${handle}".
+The user's vibe: "${description}".
+Return ONLY a valid JSON object with these fields: realName, age, gender, lookingFor, interests (array of 3‑5 strings), publicMessage.
+All strings single line, no extra text.`;
+
+        const userMessage = `Create a profile for ${handle}.`;
+        const raw = await callAI(system, userMessage, { maxTokens: 300, jsonResponse: true, temperature: 0.8 });
+        const parsed = safeParseAIResponse(raw);
+        if (!parsed) throw new Error('Profile generation failed');
+        return {
+            realName: parsed.realName || handle,
+            age: parsed.age || 25,
+            gender: parsed.gender || 'unspecified',
+            lookingFor: parsed.lookingFor || 'chat',
+            interests: parsed.interests || ['chatting'],
+            publicMessage: parsed.publicMessage || 'Hello!'
+        };
+    }
+
+    function addUserToGame(handle, profile) {
+        if (G.users.find(u => u.handle.toLowerCase() === handle.toLowerCase())) {
+            rightBody.innerHTML = '<em>This user is already in the BBS.</em>';
+            return;
+        }
+        const p = profile || {
+            realName: handle,
+            age: 25,
+            gender: 'unspecified',
+            lookingFor: 'chat',
+            interests: ['computers'],
+            publicMessage: 'Hey!'
+        };
+        const freshUser = {
+            handle: handle,
+            password: 'bbs',
+            personality: `${handle} is ${p.lookingFor} and loves ${(p.interests || []).slice(0,2).join(', ')}.`,
+            traits: [],
+            profile: p
+        };
+        G.users.push(ensureUserObject(freshUser));
+        const conv = ensureConversation(handle);
+        conv.messages.push({
+            from: handle,
+            body: `Hey, I just joined! ${p.publicMessage || 'Wanna chat?'}`,
+            timestamp: new Date().toISOString(),
+            read: false
+        });
+        save();
+        rightBody.innerHTML = `<em>${handle} has been added to the BBS! Check your mailbox.</em>`;
+        renderList();
     }
 
     // ---------- MESSAGES ----------
@@ -807,45 +886,6 @@ Now generate 6-8 new users that fit. Output the JSON.`;
             showView('mailbox');
         }
     }
-
-    function addUserToGame(newUser) {
-    // Don't add duplicates
-    if (G.users.find(u => u.handle.toLowerCase() === newUser.handle.toLowerCase())) {
-        rightBody.innerHTML = '<em>This user is already in the BBS.</em>';
-        return;
-    }
-    // Build a full user object
-    const freshUser = {
-        handle: newUser.handle,
-        password: 'bbs', // default, could be randomised
-        personality: `${newUser.handle} is ${newUser.profile.lookingFor || 'friendly'} and loves ${(newUser.profile.interests||[]).slice(0,2).join(' and ')}.`,
-        traits: [],
-        profile: {
-            realName: newUser.profile.realName || newUser.handle,
-            age: newUser.profile.age || 25,
-            gender: newUser.profile.gender || 'unspecified',
-            lookingFor: newUser.profile.lookingFor || 'chat',
-            interests: newUser.profile.interests || ['computers'],
-            publicMessage: newUser.profile.publicMessage || 'Hi!'
-        }
-    };
-    G.users.push(ensureUserObject(freshUser));
-    save();
-
-    // Immediately give the new NPC a starting conversation with the player
-    const conv = ensureConversation(newUser.handle);
-    conv.messages.push({
-        from: newUser.handle,
-        body: `Hey, I just joined! ${newUser.profile.publicMessage || "Wanna chat?"}`,
-        timestamp: new Date().toISOString(),
-        read: false
-    });
-    save();
-
-    rightBody.innerHTML = `<em>${newUser.handle} has been added to the BBS! Check your mailbox.</em>`;
-    // Refresh the left panel in case they're still in directory view
-    renderList();
-}
 
     // ---------- EVENT LISTENERS ----------
     navBtns.forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
