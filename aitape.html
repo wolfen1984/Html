@@ -992,11 +992,17 @@ Keep all replies under 200 characters, full of groaning puns. No markdown.`;
   playClick();
   talkedToCryptKeeper = true;
 
-  // --- RIDDLE CHECK (if one is active) ---
+  console.log('[TALK] user msg:', msg);
+  console.log('[TALK] cryptKeeperRiddleActive before check:', cryptKeeperRiddleActive);
+
+  // --- RIDDLE CHECK ---
   if (cryptKeeperRiddleActive) {
+    console.log('[RIDDLE] Active riddle:', cryptKeeperRiddleActive);
     const answer = msg.trim().toLowerCase();
-    if (answer.includes(cryptKeeperRiddleActive.answer.toLowerCase())) {
-      // Correct answer
+    const correctAnswer = cryptKeeperRiddleActive.answer.toLowerCase();
+    console.log('[RIDDLE] user answer:', answer, '| correct answer:', correctAnswer);
+    if (answer.includes(correctAnswer)) {
+      console.log('[RIDDLE] CORRECT! Triggering reward...');
       const assistantDiv = document.createElement('div');
       assistantDiv.className = 'chat-msg chat-assistant';
       assistantDiv.textContent = '🔪 "Heh heh! Correct!"';
@@ -1009,7 +1015,9 @@ Keep all replies under 200 characters, full of groaning puns. No markdown.`;
       // Reward
       if (Math.random() < 0.33) {
         const rarity = rollRarity();
+        console.log('[REWARD] Attempting to generate tape with rarity', rarity.name);
         const tape = await generateTapeWithRarity(rarity);
+        console.log('[REWARD] API returned tape:', tape);
         if (tape && tape.title) {
           tape.condition = randomCondition();
           collection.push(tape);
@@ -1019,6 +1027,7 @@ Keep all replies under 200 characters, full of groaning puns. No markdown.`;
           rewardDiv.textContent = `You receive: "${tape.title}" (${tape.rarity}) [${tape.condition}]`;
           chatArea.appendChild(rewardDiv);
           playSuccess();
+          console.log('[REWARD] Tape added to collection. New length:', collection.length);
         } else {
           const cash = 15 + Math.floor(Math.random() * 20);
           wallet += cash; saveWallet();
@@ -1027,6 +1036,7 @@ Keep all replies under 200 characters, full of groaning puns. No markdown.`;
           cashDiv.textContent = `Crypt Keeper tosses you $${cash}.`;
           chatArea.appendChild(cashDiv);
           playCash();
+          console.log('[REWARD] Fallback cash:', cash);
         }
       } else {
         const cash = 10 + Math.floor(Math.random() * 20);
@@ -1036,9 +1046,9 @@ Keep all replies under 200 characters, full of groaning puns. No markdown.`;
         cashDiv.textContent = `Crypt Keeper hands you $${cash}. "Don't spend it all on embalming fluid!"`;
         chatArea.appendChild(cashDiv);
         playCash();
+        console.log('[REWARD] Cash reward:', cash);
       }
 
-      // Unlock casket after 3 solved riddles
       if (cryptKeeperRiddlesSolved >= 3 && !casketUnlocked) {
         casketUnlocked = true;
         localStorage.setItem('vn_casket_unlocked', 'true');
@@ -1051,9 +1061,10 @@ Keep all replies under 200 characters, full of groaning puns. No markdown.`;
       }
       checkMilestones();
       chatArea.scrollTop = chatArea.scrollHeight;
-      return; // skip normal reply
+      return;
+    } else {
+      console.log('[RIDDLE] Wrong answer, falling through to normal chat.');
     }
-    // Wrong answer – fall through to normal chat
   }
 
   // Build messages for API
@@ -1063,12 +1074,15 @@ Keep all replies under 200 characters, full of groaning puns. No markdown.`;
     { role: 'user', content: msg }
   ];
 
-  // Force the AI to ask a riddle (change 0.2 → 1.0 for testing)
+  // Force riddle (set to 1.0 for testing, change back to 0.2 later)
   if (!cryptKeeperRiddleActive && Math.random() < 1.0) {
-    messages.push({ role: 'system', content: 'Now ask the player a riddle. End your entire response with "[RIDDLE]". Do not add any other text after it.' });
+    const injection = 'Now ask the player a riddle. End your entire response with "[RIDDLE]". Do not add any other text after it.';
+    messages.push({ role: 'system', content: injection });
+    console.log('[API] Injected riddle prompt.');
   }
 
   try {
+    console.log('[API] Sending request...');
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
@@ -1076,15 +1090,16 @@ Keep all replies under 200 characters, full of groaning puns. No markdown.`;
     });
     const data = await res.json();
     let reply = data.choices?.[0]?.message?.content?.trim() || '...';
+    console.log('[API] Raw reply:', reply);
 
-    // Display reply
     const assistantDiv = document.createElement('div');
     assistantDiv.className = 'chat-msg chat-assistant';
     assistantDiv.textContent = '🔪 ' + reply;
     chatArea.appendChild(assistantDiv);
 
-    // Detect if the AI ended with [RIDDLE] and extract answer
+    // Riddle detection
     if (reply.includes('[RIDDLE]')) {
+      console.log('[RIDDLE DETECT] Found [RIDDLE] tag, extracting answer...');
       reply = reply.replace('[RIDDLE]', '').trim();
       const answerRes = await fetch(API_URL, {
         method: 'POST',
@@ -1101,19 +1116,27 @@ Keep all replies under 200 characters, full of groaning puns. No markdown.`;
       if (answerRes.ok) {
         const ansData = await answerRes.json();
         answer = ansData.choices?.[0]?.message?.content?.trim().toLowerCase() || '';
+        console.log('[RIDDLE DETECT] Extracted answer:', answer);
+      } else {
+        console.error('[RIDDLE DETECT] Answer API error:', answerRes.status);
       }
       cryptKeeperRiddleActive = { question: reply, answer: answer };
+      console.log('[RIDDLE DETECT] cryptKeeperRiddleActive set to:', cryptKeeperRiddleActive);
+    } else {
+      console.log('[RIDDLE DETECT] No [RIDDLE] tag found.');
     }
 
     cryptKeeperConversation.push({ role: 'user', content: msg }, { role: 'assistant', content: reply });
 
   } catch (e) {
+    console.error('[API] Fetch error:', e);
     const errDiv = document.createElement('div');
     errDiv.textContent = '*** Error';
     chatArea.appendChild(errDiv);
     playError();
   }
   chatArea.scrollTop = chatArea.scrollHeight;
+  console.log('[TALK] End of function. cryptKeeperRiddleActive:', cryptKeeperRiddleActive);
 }
         function openWatch() {
             if (!collection.length) { printInstant('No tapes.'); playError(); return; }
