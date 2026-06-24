@@ -492,37 +492,112 @@
     if (composeArea.style.display === 'flex') return;
     if (rightBody.querySelector('#saveProfileBtn')) return;
 
-    let addedPosts = 0;
+    // 1. Collect all posts across all boards
+    const allPosts = [];
+    for (let board in G.boards) {
+        G.boards[board].forEach(post => allPosts.push({ board, post }));
+    }
 
-    // AI-driven new posts
-    if (mistralKey) {
+    // 2. Prioritise posts with few replies
+    const needyPosts = allPosts
+        .filter(({ post }) => (post.replies ? post.replies.length : 0) < 5)
+        .sort((a, b) => (a.post.replies?.length || 0) - (b.post.replies?.length || 0));
+
+    const repliesToGenerate = Math.min(5, needyPosts.length);  // up to 5 replies per cycle
+    const postsToReply = needyPosts.slice(0, repliesToGenerate);
+
+    // 3. Generate NPC replies for each selected post (AI or fallback)
+    for (const { board, post } of postsToReply) {
+        const previousBoard = selectedBoard;
+        selectedBoard = board;
         try {
-            const raw = await callAI(
-                `Generate 2-3 new board posts for the BBS. Pick random boards from 'personals', 'interests', 'confessions'. Use existing NPCs or invent 1-2 new handles. Return ONLY JSON: { "newPosts": [{"board":"...", "author":"...", "subject":"...", "body":"..."}] }`,
-                'Background activity',
-                { maxTokens: 800, jsonResponse: true }
-            );
-            const parsed = safeParseAIResponse(raw);
-            if (parsed && parsed.newPosts) {
-                parsed.newPosts.forEach(p => {
-                    if (!G.boards[p.board]) G.boards[p.board] = [];
-                    G.boards[p.board].push({
+            // Use AI if key is set, otherwise fallback
+            if (mistralKey) {
+                await generateBoardNPCReply(post, '');
+            } else {
+                // Quick fallback reply without AI
+                const npcs = G.users.filter(u => u.handle !== G.player.handle);
+                if (npcs.length) {
+                    const npc = npcs[Math.floor(Math.random() * npcs.length)];
+                    const fallbacks = [
+                        `Interesting take.`,
+                        `I agree!`,
+                        `Couldn't have said it better.`,
+                        `What do you mean by that?`,
+                        `* grabs popcorn *`
+                    ];
+                    post.replies.push({
+                        author: npc.handle,
+                        body: fallbacks[Math.floor(Math.random() * fallbacks.length)],
+                        timestamp: new Date().toISOString()
+                    });
+                }
+            }
+        } catch (e) {
+            console.warn('NPC reply failed for post', post.id, e);
+        }
+        selectedBoard = previousBoard;
+    }
+
+    // 4. Drama: instead of a new thread, inject a feuding reply into a random existing post
+    if (allPosts.length > 0 && G.feuds.length > 0 && Math.random() < 0.6) {
+        const randomPost = allPosts[Math.floor(Math.random() * allPosts.length)];
+        const feud = G.feuds[Math.floor(Math.random() * G.feuds.length)];
+        const board = randomPost.board;
+        const post = randomPost.post;
+
+        // Pick one feuding user who isn't the post author
+        const candidates = [feud.user1, feud.user2].filter(h => h !== post.author);
+        if (candidates.length) {
+            const dramaAuthor = candidates[Math.floor(Math.random() * candidates.length)];
+            const target = dramaAuthor === feud.user1 ? feud.user2 : feud.user1;
+            const dramaBody = `@${target} You really gonna show your face here after ${feud.reason}?`;
+
+            post.replies.push({
+                author: dramaAuthor,
+                body: dramaBody,
+                timestamp: new Date().toISOString()
+            });
+
+            // Maybe a retort from the target
+            if (Math.random() < 0.4) {
+                post.replies.push({
+                    author: target,
+                    body: `@${dramaAuthor} Keep my name out of your mouth.`,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        }
+    }
+
+    // 5. Only create a brand new post if the board is very quiet or by slim chance
+    const totalPosts = allPosts.length;
+    const shouldCreateNewPost = totalPosts < 3 || (Math.random() < 0.15 && totalPosts < 20);
+
+    if (shouldCreateNewPost) {
+        let newPostCreated = false;
+        if (mistralKey) {
+            try {
+                const raw = await callAI(
+                    `Generate exactly ONE new board post for a 1985 BBS. Pick a random board from 'personals', 'interests', 'confessions'. Return ONLY JSON: { "board": "...", "author": "...", "subject": "...", "body": "..." }. Use existing NPCs or invent a new handle. Keep it short.`,
+                    'Rare new post',
+                    { maxTokens: 300, jsonResponse: true }
+                );
+                const parsed = safeParseAIResponse(raw);
+                if (parsed && parsed.board && G.boards[parsed.board]) {
+                    G.boards[parsed.board].push({
                         id: Date.now() + Math.random(),
-                        author: p.author,
-                        subject: p.subject,
-                        body: p.body,
+                        author: parsed.author || 'Anonymous',
+                        subject: parsed.subject || 'No subject',
+                        body: parsed.body || '...',
                         timestamp: new Date().toISOString(),
                         replies: []
                     });
-                    addedPosts++;
-                });
-            }
-        } catch (e) { console.warn('Background AI failed, using fallback:', e); }
-    }
-
-    // Fallback posts if AI produced nothing
-    if (addedPosts < 2) {
-        for (let i = 0; i < 2; i++) {
+                    newPostCreated = true;
+                }
+            } catch (e) { /* fallback below */ }
+        }
+        if (!newPostCreated) {
             const fb = createFallbackPost();
             if (fb && G.boards[fb.board]) {
                 G.boards[fb.board].push({
@@ -535,37 +610,6 @@
                 });
             }
         }
-    }
-
-    // NPC replies to existing posts (AI-driven)
-    const allPosts = [];
-    for (let board in G.boards) {
-        G.boards[board].forEach(post => allPosts.push({ board, post }));
-    }
-    const eligiblePosts = allPosts.filter(({ post }) => {
-        const replyCount = post.replies ? post.replies.length : 0;
-        return replyCount < 5;
-    });
-    const repliesToAdd = Math.min(2, eligiblePosts.length);
-    if (repliesToAdd > 0) {
-        const shuffled = [...eligiblePosts].sort(() => Math.random() - 0.5);
-        for (let i = 0; i < repliesToAdd; i++) {
-            const { board, post } = shuffled[i];
-            const previousBoard = selectedBoard;
-            selectedBoard = board;
-            try {
-                await generateBoardNPCReply(post, '');
-            } catch (e) {
-                console.warn('NPC reply failed for post', post.id, e);
-            }
-            selectedBoard = previousBoard;
-        }
-    }
-
-    // --- Inject NPC arguments (NEW) ---
-    const dramaCount = 1 + Math.floor(Math.random() * 2); // 1-2 drama threads per cycle
-    for (let i = 0; i < dramaCount; i++) {
-        startNPCDrama();
     }
 
     saveGame();
