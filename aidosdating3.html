@@ -1,0 +1,1615 @@
+<!DOCTYPE html>
+<html lang="en" class="theme-green">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HEARTLINE BBS — 2400 BAUD</title>
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+    <style>
+        /* ========== CSS VARIABLES & THEMES ========== */
+        :root {
+            --glow: #33ff33;
+            --glow-dim: #1a8c1a;
+            --bg: #0a0a0a;
+            --panel-bg: #0d0d0d;
+            --text: #33ff33;
+            --text-shadow: 0 0 5px var(--glow);
+            --border-color: #1a8c1a;
+            --title-bg: #1a8c1a;
+            --title-fg: #000;
+            --btn-hover-bg: #33ff33;
+            --btn-hover-fg: #000;
+            --badge-color: #ff0;
+            --error-color: #f44;
+            --loading-color: #ff0;
+            --scrollbar-thumb: #1a8c1a;
+            --scanline-opacity: 0.15;
+            --flicker-amount: 0.01;
+            --border-radius: 8px;
+            --double-border: 2px double var(--border-color);
+        }
+
+        .theme-amber {
+            --glow: #ffb000;
+            --glow-dim: #cc8c00;
+            --bg: #0a0800;
+            --panel-bg: #0d0b00;
+            --text: #ffb000;
+            --text-shadow: 0 0 5px var(--glow);
+            --border-color: #cc8c00;
+            --title-bg: #cc8c00;
+            --title-fg: #000;
+            --btn-hover-bg: #ffb000;
+            --btn-hover-fg: #000;
+            --scrollbar-thumb: #cc8c00;
+        }
+
+        .theme-white {
+            --glow: #dddddd;
+            --glow-dim: #aaaaaa;
+            --bg: #0a0a0a;
+            --panel-bg: #0d0d0d;
+            --text: #dddddd;
+            --text-shadow: 0 0 5px var(--glow);
+            --border-color: #aaaaaa;
+            --title-bg: #aaaaaa;
+            --title-fg: #000;
+            --btn-hover-bg: #dddddd;
+            --btn-hover-fg: #000;
+            --scrollbar-thumb: #aaaaaa;
+        }
+
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'VT323', 'Courier New', monospace;
+            color: var(--text);
+            font-size: 18px;
+            letter-spacing: 0.5px;
+        }
+
+        /* ---- TERMINAL CRT EFFECT ---- */
+        .terminal {
+            width: 100%;
+            max-width: 900px;
+            height: 90vh;
+            background: var(--bg);
+            border: var(--double-border);
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 0 40px var(--glow), inset 0 0 80px rgba(0,0,0,0.7);
+            overflow: hidden;
+            position: relative;
+            border-radius: var(--border-radius);
+            animation: flicker 0.15s infinite alternate;
+        }
+
+        @keyframes flicker {
+            0%   { opacity: 0.99; }
+            5%   { opacity: 1; }
+            10%  { opacity: 0.98; }
+            15%  { opacity: 1; }
+            50%  { opacity: 1; }
+            51%  { opacity: 0.97; }
+            52%  { opacity: 1; }
+            100% { opacity: 1; }
+        }
+
+        /* Scanlines overlay */
+        .terminal::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0,0,0, var(--scanline-opacity)) 0px,
+                rgba(0,0,0, var(--scanline-opacity)) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 1000;
+            border-radius: var(--border-radius);
+        }
+
+        /* Make sure overlay doesn't block clicks */
+        .terminal > * { position: relative; z-index: 1; }
+
+        /* ---- TITLE BAR WITH ASCII ART ---- */
+        .title-bar {
+            background: var(--title-bg);
+            color: var(--title-fg);
+            font-weight: bold;
+            text-align: center;
+            padding: 6px;
+            font-size: 16px;
+            letter-spacing: 2px;
+            text-shadow: none;
+            border-bottom: 2px solid var(--border-color);
+        }
+        .title-bar pre {
+            margin: 0;
+            font-family: 'VT323', monospace;
+            font-size: 10px;
+            line-height: 1;
+            color: var(--title-fg);
+        }
+
+        .status-line {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 10px;
+            background: var(--panel-bg);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 16px;
+        }
+
+        /* ---- MAIN LAYOUT ---- */
+        .main-area { flex: 1; display: flex; overflow: hidden; }
+
+        .left-panel {
+            width: 280px;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            background: var(--panel-bg);
+        }
+
+        .nav-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            padding: 6px;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--panel-bg);
+        }
+        .nav-btn {
+            background: var(--bg);
+            border: 1px solid var(--border-color);
+            color: var(--text);
+            font-family: 'VT323', monospace;
+            font-size: 16px;
+            padding: 3px 10px;
+            cursor: pointer;
+            border-radius: 3px;
+            text-shadow: var(--text-shadow);
+            transition: all 0.1s;
+        }
+        .nav-btn:hover, .nav-btn.active {
+            background: var(--btn-hover-bg);
+            color: var(--btn-hover-fg);
+            font-weight: bold;
+            box-shadow: 0 0 8px var(--glow);
+        }
+
+        .list-container { flex: 1; overflow-y: auto; padding: 4px; background: var(--bg); }
+
+        .list-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 5px 8px;
+            border-bottom: 1px dotted var(--border-color);
+            cursor: pointer;
+            font-size: 17px;
+            text-shadow: var(--text-shadow);
+            transition: background 0.1s;
+        }
+        .list-item:hover { background: var(--panel-bg); }
+        .list-item.selected { background: rgba(255,255,255,0.1); color: #fff; }
+
+        .unread-badge { color: var(--badge-color); font-weight: bold; margin-right: 4px; }
+
+        .right-panel { flex: 1; display: flex; flex-direction: column; background: var(--bg); }
+
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--panel-bg);
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: var(--text-shadow);
+        }
+
+        .message-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+            font-size: 17px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            text-shadow: var(--text-shadow);
+        }
+
+        .action-bar {
+            display: flex;
+            gap: 8px;
+            padding: 8px 12px;
+            border-top: 1px solid var(--border-color);
+            background: var(--panel-bg);
+            flex-wrap: wrap;
+        }
+
+        .action-btn {
+            background: var(--bg);
+            border: 1px solid var(--border-color);
+            color: var(--text);
+            font-family: 'VT323', monospace;
+            font-size: 16px;
+            padding: 5px 14px;
+            cursor: pointer;
+            border-radius: 3px;
+            text-shadow: var(--text-shadow);
+            transition: all 0.1s;
+        }
+        .action-btn:hover {
+            background: var(--btn-hover-bg);
+            color: var(--btn-hover-fg);
+            font-weight: bold;
+            box-shadow: 0 0 8px var(--glow);
+        }
+
+        .compose-area { display: none; padding: 12px; flex-direction: column; gap: 10px; }
+
+        .compose-area textarea, .compose-area input, .compose-area select {
+            background: var(--bg);
+            border: 1px solid var(--border-color);
+            color: var(--text);
+            font-family: 'VT323', monospace;
+            font-size: 16px;
+            padding: 6px 8px;
+            border-radius: 3px;
+            text-shadow: var(--text-shadow);
+            caret-color: var(--glow);
+        }
+        .compose-area textarea { resize: vertical; width: 100%; height: 80px; }
+        .compose-area select { padding: 5px; }
+
+        /* ---- LOGIN OVERLAY (now with connection sequence) ---- */
+        .login-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            z-index: 200;
+            padding: 20px;
+            border-radius: var(--border-radius);
+        }
+        .login-overlay h1 { font-size: 32px; text-shadow: 0 0 15px var(--glow); margin: 0; }
+        .login-overlay .ascii-heart {
+            font-size: 14px;
+            line-height: 1.2;
+            color: var(--text);
+            text-shadow: 0 0 5px var(--glow);
+            white-space: pre;
+            text-align: center;
+        }
+        .login-overlay input {
+            background: var(--bg);
+            border: 2px solid var(--border-color);
+            color: var(--text);
+            font-family: 'VT323', monospace;
+            font-size: 18px;
+            padding: 8px 16px;
+            text-align: center;
+            width: 260px;
+            border-radius: 4px;
+            text-shadow: var(--text-shadow);
+            caret-color: var(--glow);
+        }
+        .login-overlay button {
+            background: var(--title-bg);
+            color: var(--title-fg);
+            font-weight: bold;
+            border: none;
+            padding: 10px 30px;
+            font-size: 20px;
+            cursor: pointer;
+            font-family: 'VT323', monospace;
+            border-radius: 4px;
+            box-shadow: 0 0 10px var(--glow);
+            transition: box-shadow 0.2s;
+        }
+        .login-overlay button:hover {
+            box-shadow: 0 0 20px var(--glow);
+        }
+        .login-overlay .key-section { display: flex; flex-direction: column; align-items: center; gap: 5px; margin: 10px 0; }
+        .login-overlay .key-section input { width: 320px; }
+
+        /* ---- API KEY ROW (bottom bar) ---- */
+        .api-key-row {
+            display: flex;
+            padding: 6px 10px;
+            border-top: 1px dashed var(--border-color);
+            gap: 8px;
+            align-items: center;
+            font-size: 15px;
+            background: var(--panel-bg);
+        }
+        .api-key-row input {
+            flex: 1;
+            background: var(--bg);
+            border: 1px solid var(--border-color);
+            color: var(--text);
+            font-family: 'VT323', monospace;
+            padding: 3px 8px;
+            border-radius: 3px;
+            text-shadow: var(--text-shadow);
+            caret-color: var(--glow);
+        }
+        .api-key-row button {
+            background: var(--title-bg);
+            color: var(--title-fg);
+            font-weight: bold;
+            border: none;
+            padding: 3px 12px;
+            cursor: pointer;
+            font-family: 'VT323', monospace;
+            border-radius: 3px;
+        }
+
+        /* ---- UTILITY CLASSES & MISC ---- */
+        .hidden { display: none !important; }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+
+        .thread-msg { margin-bottom: 8px; border-bottom: 1px dotted var(--border-color); padding-bottom: 4px; }
+        .thread-msg .author { color: var(--glow); font-weight: bold; }
+        .thread-msg .me { color: #fff; }
+
+        .loading { color: var(--loading-color); }
+        .error-msg { color: var(--error-color); }
+
+        .status-dot { color: var(--error-color); }
+        .status-dot.active { color: var(--glow); }
+
+        .search-form label { display: block; margin-bottom: 5px; font-size: 15px; }
+        .search-form select, .search-form input {
+            background: var(--bg);
+            border: 1px solid var(--border-color);
+            color: var(--text);
+            font-family: 'VT323', monospace;
+            font-size: 15px;
+            padding: 3px 6px;
+            width: 100%;
+            border-radius: 3px;
+            text-shadow: var(--text-shadow);
+        }
+        .search-form input[type="number"] { width: 70px; }
+        .result-item { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+
+        /* Theme switcher */
+        .theme-switcher {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+            font-size: 14px;
+            margin-left: 10px;
+        }
+        .theme-btn {
+            background: var(--bg);
+            border: 1px solid var(--border-color);
+            color: var(--text);
+            font-family: 'VT323', monospace;
+            font-size: 13px;
+            padding: 2px 8px;
+            cursor: pointer;
+            border-radius: 2px;
+            transition: all 0.1s;
+        }
+        .theme-btn.active, .theme-btn:hover {
+            background: var(--btn-hover-bg);
+            color: var(--btn-hover-fg);
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+<div class="terminal">
+    <div class="title-bar">
+        <pre>
+ _   _  _____  ____  _____  _      ___ _   _ _____ 
+| | | || ____||  _ \| ____|| |    |_ _| \ | | ____|
+| |_| ||  _|  | |_) |  _|  | |     | ||  \| |  _|  
+|  _  || |___ |  _ <| |___ | |___  | || |\  | |___ 
+|_| |_||_____||_| \_\_____||_____||___|_| \_|_____|
+        </pre>
+        <span style="font-size: 14px;">NODE 1 · 2400 BAUD</span>
+    </div>
+    <div class="status-line">
+        <span id="userStatus">Not logged in</span>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <span class="theme-switcher">
+                THEME:
+                <button class="theme-btn active" data-theme="green">GREEN</button>
+                <button class="theme-btn" data-theme="amber">AMBER</button>
+                <button class="theme-btn" data-theme="white">WHITE</button>
+            </span>
+            <span id="clockDisplay">12:00 AM</span>
+        </div>
+    </div>
+    <div class="main-area">
+        <div class="left-panel">
+            <div class="nav-buttons">
+                <button class="nav-btn active" data-view="mailbox">📬 Mail</button>
+                <button class="nav-btn" data-view="boards">📋 Boards</button>
+                <button class="nav-btn" data-view="who">👥 Who</button>
+                <button class="nav-btn" data-view="directory">📇 Directory</button>
+                <button class="nav-btn" data-view="profile">👤 Profile</button>
+            </div>
+            <div class="list-container" id="listContainer"></div>
+        </div>
+        <div class="right-panel">
+            <div class="message-header">
+                <span id="rightHeader">Select a conversation</span>
+                <button class="action-btn" id="refreshBtn" style="font-size:14px; padding:3px 10px;">🔄 REFRESH</button>
+            </div>
+            <div class="message-body" id="rightBody"></div>
+            <div class="action-bar" id="actionBar"></div>
+            <div class="compose-area" id="composeArea">
+                <div style="display:flex; gap:8px; align-items:center;"><span>To:</span><select id="composeTo"></select></div>
+                <input type="text" id="composeSubject" placeholder="Subject">
+                <textarea id="composeBody" placeholder="Type your message..."></textarea>
+                <div>
+                    <button class="action-btn" id="sendComposeBtn">Send</button>
+                    <button class="action-btn" id="cancelComposeBtn">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="api-key-row">
+        <span>🔑 API Key:</span>
+        <input type="password" id="apiKeyInput" placeholder="Paste Mistral key">
+        <button id="saveKeyBtn">SAVE</button>
+        <span id="keyStatus">● No key</span>
+    </div>
+
+    <!-- Login overlay with ASCII heart and optional modem sound -->
+    <div class="login-overlay" id="loginOverlay">
+        <div class="ascii-heart">
+        ██   ██ ███████  █████  ██████  ████████ ██      ██ ███    ██ ███████ 
+        ██   ██ ██      ██   ██ ██   ██    ██    ██      ██ ████   ██ ██      
+        ███████ █████   ███████ ██████     ██    ██      ██ ██ ██  ██ █████   
+        ██   ██ ██      ██   ██ ██   ██    ██    ██      ██ ██  ██ ██ ██      
+        ██   ██ ███████ ██   ██ ██   ██    ██    ███████ ██ ██   ████ ███████ 
+        </div>
+        <h1>HEARTLINE BBS</h1>
+        <p style="font-size:18px; color:var(--text);">Enter your handle to login or create an account</p>
+        <input type="text" id="loginHandleInput" placeholder="Your handle" maxlength="20">
+        <input type="password" id="loginPassInput" placeholder="Password (new users: choose one)">
+        <div class="key-section">
+            <label>🔑 Mistral API Key:</label>
+            <input type="password" id="loginApiKeyInput" placeholder="Paste your Mistral key">
+            <div style="display:flex; gap:8px; align-items:center;">
+                <button id="loginSaveKeyBtn" style="padding:4px 12px; font-size:16px;">SAVE KEY</button>
+                <span id="loginKeyStatus" class="status-dot">● No key</span>
+            </div>
+        </div>
+        <label style="display: flex; align-items: center; gap: 6px; font-size: 16px;">
+            <input type="checkbox" id="modemSoundCheck"> 🔊 Modem sounds
+        </label>
+        <button id="loginBtn">Connect 2400</button>
+        <div id="loginError" style="color:var(--error-color);"></div>
+    </div>
+</div>
+
+<script>
+(function() {
+    'use strict';
+
+    // ---------- Safe local storage ----------
+    function storeGet(key, fallback = '') {
+        try { return localStorage.getItem(key) || fallback; } catch(e) { return fallback; }
+    }
+    function storeSet(key, value) {
+        try { localStorage.setItem(key, value); } catch(e) {}
+    }
+    function storeRemove(key) {
+        try { localStorage.removeItem(key); } catch(e) {}
+    }
+
+    // ---------- XSS prevention ----------
+    function escapeHtml(text) {
+        if (typeof text !== 'string') return '';
+        const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+        return text.replace(/[&<>"']/g, m => map[m]);
+    }
+
+    // ---------- DOM references ----------
+    const listContainer = document.getElementById('listContainer');
+    const rightHeader = document.getElementById('rightHeader');
+    const rightBody = document.getElementById('rightBody');
+    const actionBar = document.getElementById('actionBar');
+    const composeArea = document.getElementById('composeArea');
+    const composeTo = document.getElementById('composeTo');
+    const composeSubject = document.getElementById('composeSubject');
+    const composeBody = document.getElementById('composeBody');
+    const sendComposeBtn = document.getElementById('sendComposeBtn');
+    const cancelComposeBtn = document.getElementById('cancelComposeBtn');
+    const userStatus = document.getElementById('userStatus');
+    const clockDisplay = document.getElementById('clockDisplay');
+    const loginOverlay = document.getElementById('loginOverlay');
+    const loginHandleInput = document.getElementById('loginHandleInput');
+    const loginPassInput = document.getElementById('loginPassInput');
+    const loginBtn = document.getElementById('loginBtn');
+    const loginError = document.getElementById('loginError');
+    const apiKeyInput = document.getElementById('apiKeyInput');
+    const saveKeyBtn = document.getElementById('saveKeyBtn');
+    const keyStatus = document.getElementById('keyStatus');
+    const loginApiKeyInput = document.getElementById('loginApiKeyInput');
+    const loginSaveKeyBtn = document.getElementById('loginSaveKeyBtn');
+    const loginKeyStatus = document.getElementById('loginKeyStatus');
+    const navBtns = document.querySelectorAll('.nav-btn');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const modemSoundCheck = document.getElementById('modemSoundCheck');
+
+    // ---------- Theme switcher (NEW: UI enhancement) ----------
+    const themeBtns = document.querySelectorAll('.theme-btn');
+    const root = document.documentElement;
+    function setTheme(theme) {
+        root.className = theme === 'green' ? 'theme-green' : theme === 'amber' ? 'theme-amber' : 'theme-white';
+        storeSet('heartline_theme', theme);
+        themeBtns.forEach(b => b.classList.toggle('active', b.dataset.theme === theme));
+    }
+    themeBtns.forEach(b => b.addEventListener('click', () => setTheme(b.dataset.theme)));
+    const savedTheme = storeGet('heartline_theme', 'green');
+    setTheme(savedTheme);
+
+    // ---------- Simple modem sound (Web Audio) (NEW: atmosphere) ----------
+    let audioCtx = null;
+    function playDialUpSound() {
+        if (!modemSoundCheck.checked) return;
+        try {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const now = audioCtx.currentTime;
+            const osc1 = audioCtx.createOscillator();
+            const osc2 = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            gain.gain.setValueAtTime(0.1, now);
+            gain.gain.linearRampToValueAtTime(0, now + 3);
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(1070, now);
+            osc1.frequency.linearRampToValueAtTime(2100, now + 0.8);
+            osc2.type = 'sine';
+            osc2.frequency.setValueAtTime(1270, now);
+            osc2.frequency.linearRampToValueAtTime(2300, now + 0.8);
+            osc1.connect(gain);
+            osc2.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc1.start(now);
+            osc2.start(now);
+            osc1.stop(now + 3);
+            osc2.stop(now + 3);
+        } catch(e) { /* ignore */ }
+    }
+
+    // ---------- Globals ----------
+    let mistralKey = storeGet('heartline_key', '');
+    let currentView = 'mailbox';
+    let selectedConversationUser = null;
+    let selectedBoard = null;
+    let backgroundTimer = null;
+    let isRefreshing = false; // prevent concurrent refresh
+
+    const STORAGE_KEY = 'heartline_bbs_robust';
+    let G = {
+        player: null,
+        users: [],
+        conversations: [],
+        boards: { 'personals': [], 'interests': [], 'confessions': [] },
+        lastLogin: null,
+        sessions: 0,
+        worldGenerated: false,
+        lore: [],
+        feuds: []
+    };
+
+    const AI_TIMEOUT_MS = 30000;
+
+    // ---------- Helper functions ----------
+   function ensureUserObject(u) {
+    if (!u.handle) u.handle = 'UNKNOWN';
+    if (!u.password) u.password = 'pass';
+    if (!u.personality) u.personality = 'a regular BBS user';
+    
+    // --- Social traits assignment (NEW) ---
+    if (!u.traits || !Array.isArray(u.traits) || u.traits.length === 0) {
+        const traitPool = [
+            'troll',
+            'drama_queen',
+            'gossip',
+            'white_knight',
+            'flirt',
+            'elder',
+            'newbie',
+            'stalker'
+        ];
+        // Give 1-2 random traits
+        const count = 1 + Math.floor(Math.random() * 2);
+        u.traits = [];
+        const shuffled = [...traitPool].sort(() => 0.5 - Math.random());
+        for (let i = 0; i < count; i++) {
+            u.traits.push(shuffled[i]);
+        }
+    }
+    // --- End of new traits logic ---
+    
+    if (!u.profile || typeof u.profile !== 'object') u.profile = {};
+    const p = u.profile;
+    if (!p.realName) p.realName = 'Unknown';
+    if (!p.age) p.age = Math.floor(Math.random() * 30) + 18;
+    if (!p.lookingFor) p.lookingFor = 'friendship';
+    if (!p.interests || !Array.isArray(p.interests)) p.interests = ['chatting', 'vintage computing'];
+    if (!p.publicMessage) p.publicMessage = 'Hello, world!';
+    if (!p.gender) p.gender = 'unspecified';
+    
+    return u;
+}
+
+    function sanitizeAllUsers() { G.users.forEach(u => ensureUserObject(u)); }
+
+    function saveGame() {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(G)); } catch(e) {}
+    }
+
+    function loadGame() {
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                G = JSON.parse(saved);
+                if (!G.boards) G.boards = { 'personals': [], 'interests': [], 'confessions': [] };
+                if (!G.conversations) G.conversations = [];
+                if (!G.lore) G.lore = [];
+                if (!G.feuds) G.feuds = [];
+                for (let board in G.boards) {
+                    G.boards[board].forEach(p => {
+                        if (!p.replies) p.replies = [];
+                        // FIX: assign unique id to posts missing it
+                        if (!p.id) p.id = Date.now() + Math.random();
+                    });
+                }
+                sanitizeAllUsers();
+                return true;
+            }
+        } catch(e) {}
+        return false;
+    }
+
+    function updateKeyIndicators() {
+        const hasKey = !!mistralKey;
+        keyStatus.textContent = hasKey ? '● Key set' : '● No key';
+        keyStatus.style.color = hasKey ? 'var(--glow)' : 'var(--error-color)';
+        loginKeyStatus.textContent = hasKey ? '● Key set' : '● No key';
+        loginKeyStatus.className = 'status-dot' + (hasKey ? ' active' : '');
+        if (apiKeyInput) apiKeyInput.value = mistralKey;
+        if (loginApiKeyInput) loginApiKeyInput.value = mistralKey;
+    }
+
+    function saveApiKey(key) {
+        mistralKey = (key || '').trim();
+        storeSet('heartline_key', mistralKey);
+        updateKeyIndicators();
+        keyStatus.textContent = '● Key saved!';
+        loginKeyStatus.textContent = '● Key saved!';
+        setTimeout(updateKeyIndicators, 1200);
+    }
+
+    function updateClock() {
+        const now = new Date(), h = now.getHours(), m = now.getMinutes().toString().padStart(2,'0');
+        clockDisplay.textContent = `${h%12||12}:${m} ${h>=12?'PM':'AM'}`;
+    }
+    setInterval(updateClock, 1000); updateClock();
+
+    function getConversationWith(handle) {
+        return G.conversations.find(c => c.with.toLowerCase() === handle.toLowerCase());
+    }
+
+    function ensureConversation(handle) {
+        let conv = getConversationWith(handle);
+        if (!conv) { conv = { with: handle, messages: [] }; G.conversations.push(conv); }
+        return conv;
+    }
+
+    function conversationHasUnread(conv) {
+        return conv.messages.some(m => m.from !== G.player.handle && !m.read);
+    }
+
+    // ---------- JSON parsing ----------
+    function extractJSONFromText(text) {
+        if (typeof text !== 'string') return null;
+        let cleaned = text.replace(/```[\s\S]*?\n?|```/g, '').trim();
+        const startIdx = cleaned.search(/[\{\[]/);
+        if (startIdx === -1) return null;
+        const stack = [];
+        const openers = { '{': '}', '[': ']' };
+        const closers = { '}': '{', ']': '[' };
+        let i = startIdx;
+        for (; i < cleaned.length; i++) {
+            const ch = cleaned[i];
+            if (ch in openers) stack.push(ch);
+            else if (ch in closers) {
+                if (stack.length === 0) break;
+                const last = stack.pop();
+                if (closers[ch] !== last) break;
+                if (stack.length === 0) return cleaned.substring(startIdx, i + 1);
+            }
+        }
+        return null;
+    }
+
+    function safeParseAIResponse(raw) {
+        try { return JSON.parse(raw); } catch (e) {}
+        const extracted = extractJSONFromText(raw);
+        if (!extracted) return null;
+        try { return JSON.parse(extracted); } catch (e) { return null; }
+    }
+
+    async function callAI(systemPrompt, userMessage, options = {}) {
+        if (!mistralKey) throw new Error('No API key set.');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+        try {
+            const resp = await fetch('https://api.mistral.ai/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${mistralKey}` },
+                body: JSON.stringify({
+                    model: 'mistral-large-latest',
+                    messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }],
+                    temperature: options.temperature || 0.9,
+                    max_tokens: options.maxTokens || 3000,
+                    response_format: options.jsonResponse ? { type: "json_object" } : undefined
+                }),
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            if (!resp.ok) {
+                const errText = await resp.text();
+                if (resp.status === 401) throw new Error('Invalid API key.');
+                if (resp.status === 429) throw new Error('Too many requests. Wait.');
+                throw new Error(`API error ${resp.status}: ${errText}`);
+            }
+            const data = await resp.json();
+            return data.choices[0].message.content;
+        } catch (e) {
+            clearTimeout(timeoutId);
+            if (e.name === 'AbortError') throw new Error('Request timed out.');
+            throw e;
+        }
+    }
+
+    // ---------- World generation ----------
+    async function generateInitialWorld() {
+        rightBody.innerHTML = '<span class="loading">Generating bustling BBS population…</span>';
+        try {
+            const raw = await callAI(
+                `You are the world creator for HEARTLINE BBS, a 1985 dial-up adult dating BBS with a raw, unfiltered, uncensored community. Generate exactly 20 diverse NPCs, board posts, private messages, feuds, arguments, and inside jokes. Output ONLY a valid JSON object with fields: users (array of {handle, password, personality, traits, profile}), newPosts (array of {board, author, subject, body}), newMail (array of {from, body}), lore (array of strings), feuds (array of {user1, user2, reason}). All strings single line.`,
+                'Create the BBS world.',
+                { maxTokens: 5000, jsonResponse: true }
+            );
+            const parsed = safeParseAIResponse(raw);
+            if (!parsed) throw new Error('AI returned invalid JSON.');
+            if (parsed.users) parsed.users.forEach(u => {
+                if (!G.users.find(ex => ex.handle.toLowerCase() === u.handle.toLowerCase())) G.users.push(ensureUserObject(u));
+            });
+            if (parsed.newPosts) parsed.newPosts.forEach(p => {
+                if (!G.boards[p.board]) G.boards[p.board] = [];
+                G.boards[p.board].push({
+                    id: Date.now() + Math.random(), author: p.author, subject: p.subject, body: p.body,
+                    timestamp: new Date().toISOString(), replies: []
+                });
+            });
+            if (parsed.newMail) parsed.newMail.forEach(m => {
+                const conv = ensureConversation(m.from);
+                conv.messages.push({ from: m.from, body: m.body, timestamp: new Date().toISOString(), read: false });
+            });
+            if (parsed.lore) G.lore.push(...parsed.lore);
+            if (parsed.feuds) {
+    parsed.feuds.forEach(f => {
+        if (!G.feuds.find(ex => ex.user1 === f.user1 && ex.user2 === f.user2)) {
+            G.feuds.push({ ...f, intensity: Math.floor(Math.random() * 8) + 2 }); // 2-10
+        }
+    });
+}
+            G.worldGenerated = true;
+            saveGame();
+            rightBody.innerHTML = 'BBS populated! Welcome.';
+            return true;
+        } catch(e) {
+            rightBody.innerHTML = `<span class="error-msg">World generation failed: ${escapeHtml(e.message)}</span><br><button class="action-btn" id="retryWorldBtn">🔄 Retry</button>`;
+            document.getElementById('retryWorldBtn')?.addEventListener('click', () => generateInitialWorld().then(success => { if (success) showView('mailbox'); }));
+            return false;
+        }
+    }
+
+    async function fetchBatchContent() {
+        if (isRefreshing) return;
+        isRefreshing = true;
+        refreshBtn.disabled = true;
+        rightBody.innerHTML = '<span class="loading">Dialling in for new activity…</span>';
+        const player = G.player;
+        const playerRecent = G.conversations.flatMap(c => c.messages.filter(m => m.from === player.handle).slice(-3)).map(m => m.body).join(' | ');
+        const context = {
+            playerHandle: player.handle,
+            playerProfile: player.profile,
+            playerRecentActivity: playerRecent,
+            npcs: G.users.filter(u => u.handle !== player.handle).map(u => ({ handle: u.handle, personality: u.personality, traits: u.traits })),
+            lore: G.lore,
+            feuds: G.feuds
+        };
+        let addedMail = 0, addedPosts = 0, addedUsers = 0;
+        try {
+            const raw = await callAI(
+                `You generate new mail, posts, users, lore, and feuds for a chaotic BBS. Return ONLY a valid JSON with fields: newUsers, newMail, newPosts, loreUpdates, feudUpdates. All strings single line.`,
+                JSON.stringify(context),
+                { maxTokens: 3500, jsonResponse: true }
+            );
+            const parsed = safeParseAIResponse(raw);
+            if (parsed) {
+                if (parsed.newUsers) parsed.newUsers.forEach(u => {
+                    if (!G.users.find(ex => ex.handle.toLowerCase() === u.handle.toLowerCase())) { G.users.push(ensureUserObject(u)); addedUsers++; }
+                });
+                if (parsed.newMail) parsed.newMail.forEach(m => {
+                    ensureConversation(m.from).messages.push({ from: m.from, body: m.body, timestamp: new Date().toISOString(), read: false });
+                    addedMail++;
+                });
+                if (parsed.newPosts) parsed.newPosts.forEach(p => {
+                    if (!G.boards[p.board]) G.boards[p.board] = [];
+                    G.boards[p.board].push({ id: Date.now() + Math.random(), author: p.author, subject: p.subject, body: p.body, timestamp: new Date().toISOString(), replies: [] });
+                    addedPosts++;
+                });
+                if (parsed.loreUpdates) G.lore.push(...parsed.loreUpdates);
+                if (parsed.feudUpdates) G.feuds.push(...parsed.feudUpdates);
+            }
+        } catch(e) { console.warn('Batch fetch AI failed:', e); }
+
+        // Minimal fallback
+        if (addedMail === 0) {
+            const fbMsg = createFallbackMessage();
+            if (fbMsg) { ensureConversation(fbMsg.from).messages.push({ from: fbMsg.from, body: fbMsg.body, timestamp: new Date().toISOString(), read: false }); addedMail++; }
+        }
+        if (addedPosts < 2) {
+            for (let i = 0; i < 2; i++) {
+                const fbPost = createFallbackPost();
+                if (fbPost && G.boards[fbPost.board]) {
+                    G.boards[fbPost.board].push({ id: Date.now() + Math.random(), author: fbPost.author, subject: fbPost.subject, body: fbPost.body, timestamp: new Date().toISOString(), replies: [] });
+                    addedPosts++;
+                }
+            }
+        }
+        saveGame();
+        rightBody.innerHTML = `<em>${addedMail} new message(s), ${addedPosts} new post(s)${addedUsers>0?`, and ${addedUsers} new user(s)!`:''}</em>`;
+        setTimeout(() => showView(currentView), 800);
+        isRefreshing = false;
+        refreshBtn.disabled = false;
+    }
+
+    function createFallbackMessage() {
+        const npc = G.users.find(u => u.handle !== G.player.handle);
+        if (!npc) return null;
+        const bodies = ["Hey, noticed you around the BBS. Wanna chat?", "I saw your profile – I think we'd get along.", "Bored and browsing. What's up?", "New to this board but you seem cool."];
+        return { from: npc.handle, body: bodies[Math.floor(Math.random() * bodies.length)] };
+    }
+
+    function createFallbackPost() {
+        const npc = G.users.find(u => u.handle !== G.player.handle);
+        if (!npc) return null;
+        const board = ['personals','interests','confessions'][Math.floor(Math.random()*3)];
+        const subjects = ["Looking for chat", "Anyone into vintage computing?", "Late night thoughts...", "What's your favorite dial-up memory?", "Confession time"];
+        const bodies = ["Just seeing who's out there.", "Drop me a line if you like similar music.", "Confession: I still use dial-up sounds for nostalgia.", "Any other late-night owls around?", "I'm new here, say hi!"];
+        return { board, author: npc.handle, subject: subjects[Math.floor(Math.random()*subjects.length)], body: bodies[Math.floor(Math.random()*bodies.length)] };
+    }
+
+    function startBackgroundActivity() {
+        if (backgroundTimer) clearInterval(backgroundTimer);
+        backgroundTimer = setInterval(performBackgroundActivity, 180000);
+    }
+
+    async function performBackgroundActivity() {
+    if (!G.player) return;
+    if (composeArea.style.display === 'flex') return;
+    if (rightBody.querySelector('#saveProfileBtn')) return;
+
+    // 1. Collect all posts across all boards
+    const allPosts = [];
+    for (let board in G.boards) {
+        G.boards[board].forEach(post => allPosts.push({ board, post }));
+    }
+
+    // 2. Prioritise posts with few replies
+    const needyPosts = allPosts
+        .filter(({ post }) => (post.replies ? post.replies.length : 0) < 5)
+        .sort((a, b) => (a.post.replies?.length || 0) - (b.post.replies?.length || 0));
+
+    const repliesToGenerate = Math.min(5, needyPosts.length);  // up to 5 replies per cycle
+    const postsToReply = needyPosts.slice(0, repliesToGenerate);
+
+    // 3. Generate NPC replies for each selected post (AI or fallback)
+    for (const { board, post } of postsToReply) {
+        const previousBoard = selectedBoard;
+        selectedBoard = board;
+        try {
+            // Use AI if key is set, otherwise fallback
+            if (mistralKey) {
+                await generateBoardNPCReply(post, '');
+            } else {
+                // Quick fallback reply without AI
+                const npcs = G.users.filter(u => u.handle !== G.player.handle);
+                if (npcs.length) {
+                    const npc = npcs[Math.floor(Math.random() * npcs.length)];
+                    const fallbacks = [
+                        `Interesting take.`,
+                        `I agree!`,
+                        `Couldn't have said it better.`,
+                        `What do you mean by that?`,
+                        `* grabs popcorn *`
+                    ];
+                    post.replies.push({
+                        author: npc.handle,
+                        body: fallbacks[Math.floor(Math.random() * fallbacks.length)],
+                        timestamp: new Date().toISOString()
+                    });
+                }
+            }
+        } catch (e) {
+            console.warn('NPC reply failed for post', post.id, e);
+        }
+        selectedBoard = previousBoard;
+    }
+
+    // 4. Drama: instead of a new thread, inject a feuding reply into a random existing post
+    if (allPosts.length > 0 && G.feuds.length > 0 && Math.random() < 0.6) {
+        const randomPost = allPosts[Math.floor(Math.random() * allPosts.length)];
+        const feud = G.feuds[Math.floor(Math.random() * G.feuds.length)];
+        const board = randomPost.board;
+        const post = randomPost.post;
+
+        // Pick one feuding user who isn't the post author
+        const candidates = [feud.user1, feud.user2].filter(h => h !== post.author);
+        if (candidates.length) {
+            const dramaAuthor = candidates[Math.floor(Math.random() * candidates.length)];
+            const target = dramaAuthor === feud.user1 ? feud.user2 : feud.user1;
+            const dramaBody = `@${target} You really gonna show your face here after ${feud.reason}?`;
+
+            post.replies.push({
+                author: dramaAuthor,
+                body: dramaBody,
+                timestamp: new Date().toISOString()
+            });
+
+            // Maybe a retort from the target
+            if (Math.random() < 0.4) {
+                post.replies.push({
+                    author: target,
+                    body: `@${dramaAuthor} Keep my name out of your mouth.`,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        }
+    }
+
+    // 5. Only create a brand new post if the board is very quiet or by slim chance
+    const totalPosts = allPosts.length;
+    const shouldCreateNewPost = totalPosts < 3 || (Math.random() < 0.15 && totalPosts < 20);
+
+    if (shouldCreateNewPost) {
+        let newPostCreated = false;
+        if (mistralKey) {
+            try {
+                const raw = await callAI(
+                    `Generate exactly ONE new board post for a 1985 BBS. Pick a random board from 'personals', 'interests', 'confessions'. Return ONLY JSON: { "board": "...", "author": "...", "subject": "...", "body": "..." }. Use existing NPCs or invent a new handle. Keep it short.`,
+                    'Rare new post',
+                    { maxTokens: 300, jsonResponse: true }
+                );
+                const parsed = safeParseAIResponse(raw);
+                if (parsed && parsed.board && G.boards[parsed.board]) {
+                    G.boards[parsed.board].push({
+                        id: Date.now() + Math.random(),
+                        author: parsed.author || 'Anonymous',
+                        subject: parsed.subject || 'No subject',
+                        body: parsed.body || '...',
+                        timestamp: new Date().toISOString(),
+                        replies: []
+                    });
+                    newPostCreated = true;
+                }
+            } catch (e) { /* fallback below */ }
+        }
+        if (!newPostCreated) {
+            const fb = createFallbackPost();
+            if (fb && G.boards[fb.board]) {
+                G.boards[fb.board].push({
+                    id: Date.now() + Math.random(),
+                    author: fb.author,
+                    subject: fb.subject,
+                    body: fb.body,
+                    timestamp: new Date().toISOString(),
+                    replies: []
+                });
+            }
+        }
+    }
+
+    saveGame();
+    if (currentView === 'boards' && selectedBoard) selectBoard(selectedBoard);
+    else if (currentView === 'mailbox' && selectedConversationUser) selectConversation(selectedConversationUser);
+    else showView(currentView);
+}
+
+    
+    // ---------- View switching ----------
+    function showView(view) {
+        currentView = view;
+        navBtns.forEach(b => b.classList.remove('active'));
+        const activeBtn = document.querySelector(`.nav-btn[data-view="${view}"]`);
+        if (activeBtn) activeBtn.classList.add('active');
+        selectedConversationUser = null; selectedBoard = null;
+        rightHeader.textContent = {mailbox:'Conversations',boards:'Boards',who:"Who's Online",directory:'Directory Search',profile:'Profile'}[view]||'';
+        rightBody.innerHTML = ''; actionBar.innerHTML = '';
+        composeArea.style.display = 'none';
+        rightBody.style.display = ''; actionBar.style.display = '';
+        listContainer.innerHTML = '';
+        if (view === 'directory') {
+            listContainer.innerHTML = `
+                <div class="search-form" style="padding:8px;">
+                    <label>Sex: <select id="dirSex"><option value="">Any</option><option value="male">Male</option><option value="female">Female</option><option value="trans">Trans</option><option value="gay">Gay</option></select></label>
+                    <label>Age: <input type="number" id="dirMinAge" placeholder="Min"> - <input type="number" id="dirMaxAge" placeholder="Max"></label>
+                    <label>Looking for: <select id="dirLookingFor"><option value="">Any</option><option value="friendship">Friendship</option><option value="relationships">Relationships</option><option value="sex">Sex</option><option value="chat">Chat</option></select></label>
+                    <button class="action-btn" id="dirSearchBtn" style="width:100%; margin-top:6px;">Search</button>
+                    <div id="dirDebug" style="font-size:12px; color:#ff0;"></div>
+                </div>`;
+            document.getElementById('dirSearchBtn').addEventListener('click', performDirectorySearch);
+            rightBody.innerHTML = '<em>Select criteria and click Search.</em>';
+            return;
+        }
+        if (view === 'who') {
+            renderWhoOnline();
+            return;
+        }
+        renderList();
+        if (view === 'profile' && G.player) showUserProfile(G.player.handle);
+    }
+
+    function renderWhoOnline() {
+        listContainer.innerHTML = '';
+        if (!G.player) return;
+        const npcs = G.users.filter(u => u.handle !== G.player.handle);
+        const onlineCount = Math.min(npcs.length, Math.floor(Math.random()*6)+3);
+        const shuffled = [...npcs].sort(() => 0.5 - Math.random());
+        const onlineNPCs = shuffled.slice(0, onlineCount);
+        const onlineList = [G.player, ...onlineNPCs];
+        onlineList.forEach(u => {
+            if (!u) return;
+            const div = document.createElement('div');
+            div.className = 'list-item';
+            div.textContent = u.handle + (u.handle === G.player.handle ? ' (you)' : '');
+            div.addEventListener('click', () => showUserProfile(u.handle));
+            listContainer.appendChild(div);
+        });
+        rightBody.innerHTML = '<em>Click a handle to view their profile.</em>';
+    }
+
+    function renderList() {
+        listContainer.innerHTML = '';
+        if (!G.player) return;
+        if (currentView === 'mailbox') {
+            const convs = G.conversations.filter(c => c.messages.length > 0);
+            if (!convs.length) { listContainer.innerHTML = '<div style="padding:8px;">No conversations yet.</div>'; return; }
+            convs.sort((a,b) => {
+                const lastA = a.messages[a.messages.length-1];
+                const lastB = b.messages[b.messages.length-1];
+                return new Date(lastB.timestamp) - new Date(lastA.timestamp);
+            });
+            convs.forEach(conv => {
+                const div = document.createElement('div');
+                div.className = 'list-item' + (selectedConversationUser === conv.with ? ' selected' : '');
+                div.innerHTML = `${conversationHasUnread(conv) ? '<span class="unread-badge">●</span>' : ''} <strong>${escapeHtml(conv.with)}</strong> (${conv.messages.length})`;
+                div.addEventListener('click', () => selectConversation(conv.with));
+                listContainer.appendChild(div);
+            });
+        } else if (currentView === 'boards') {
+            Object.keys(G.boards).forEach(bName => {
+                const div = document.createElement('div');
+                div.className = 'list-item' + (selectedBoard === bName ? ' selected' : '');
+                div.innerHTML = `<strong>${escapeHtml(bName.toUpperCase())}</strong> (${G.boards[bName].length})`;
+                div.addEventListener('click', () => selectBoard(bName));
+                listContainer.appendChild(div);
+            });
+        }
+    }
+
+    async function performDirectorySearch() {
+        if (!G.player || currentView !== 'directory') return;
+        const sex = (document.getElementById('dirSex')?.value || '').trim().toLowerCase();
+        const minAge = parseInt(document.getElementById('dirMinAge')?.value) || 0;
+        const maxAge = parseInt(document.getElementById('dirMaxAge')?.value) || 999;
+        const lookingFor = (document.getElementById('dirLookingFor')?.value || '').trim().toLowerCase();
+        if (!mistralKey) {
+            rightBody.innerHTML = '<span class="error-msg">🔑 No API key set.</span>';
+            return;
+        }
+        rightBody.innerHTML = '<span class="loading">Inventing fresh faces for the directory…</span>';
+        const existingHandles = G.users.map(u => u.handle.toLowerCase());
+        const system = `You are a creative BBS handle generator. Given search criteria and existing handles, invent 5‑8 brand‑new, unique 80s‑style handles. Return ONLY JSON: {"newUsers": [{"handle":"...", "description":"A short one‑sentence description."}]}. Handles must be original, not in the existing list.`;
+        const userMessage = `SEARCH CRITERIA: Sex: ${sex || 'any'}, Age: ${minAge} – ${maxAge}, Looking for: ${lookingFor || 'any'}. EXISTING HANDLES: ${existingHandles.join(', ') || 'none'}. Generate JSON.`;
+        try {
+            const raw = await callAI(system, userMessage, { maxTokens: 800, jsonResponse: true, temperature: 0.9 });
+            const parsed = safeParseAIResponse(raw);
+            if (!parsed || !Array.isArray(parsed.newUsers)) throw new Error('Invalid newUsers.');
+            const newUsers = parsed.newUsers.filter(u => u.handle).map(u => ({ handle: u.handle, description: u.description || '' }));
+            if (newUsers.length === 0) {
+                rightBody.innerHTML = '<em>No new users matched your criteria. Try broader filters.</em>';
+                return;
+            }
+            displayDirectoryResults(newUsers);
+        } catch (err) {
+            rightBody.innerHTML = `<span class="error-msg">❌ ${escapeHtml(err.message)}</span>`;
+        }
+    }
+
+    function displayDirectoryResults(newUsers) {
+        if (currentView !== 'directory') return;
+        rightHeader.textContent = 'Directory Results';
+        let html = newUsers.map(u => `
+            <div class="result-item list-item" data-handle="${escapeHtml(u.handle)}">
+                <span>📇 <strong>${escapeHtml(u.handle)}</strong> – ${escapeHtml(u.description)}</span>
+                <button class="action-btn add-user-btn" data-handle="${escapeHtml(u.handle)}" data-desc="${encodeURIComponent(u.description)}">➕ Add</button>
+            </div>`).join('');
+        rightBody.innerHTML = html;
+        document.querySelectorAll('.add-user-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const handle = btn.dataset.handle;
+                const desc = decodeURIComponent(btn.dataset.desc);
+                rightBody.innerHTML = `<span class="loading">Bringing ${escapeHtml(handle)} online…</span>`;
+                try {
+                    const profile = await generateProfileForUser(handle, desc);
+                    addUserToGame(handle, profile);
+                } catch (err) {
+                    addUserToGame(handle, null);
+                }
+            });
+        });
+        document.querySelectorAll('.result-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                if (e.target.classList.contains('add-user-btn')) return;
+                const handle = item.dataset.handle;
+                const user = newUsers.find(u => u.handle === handle);
+                if (user) {
+                    rightBody.innerHTML = `<strong>Handle:</strong> ${escapeHtml(user.handle)}<br><em>${escapeHtml(user.description)}</em><br><br>
+                        <button class="action-btn add-user-btn" data-handle="${escapeHtml(user.handle)}" data-desc="${encodeURIComponent(user.description)}">➕ Add this user to the BBS</button>`;
+                    document.querySelector('.add-user-btn')?.addEventListener('click', async (e2) => {
+                        e2.stopPropagation();
+                        const handle2 = e2.target.dataset.handle;
+                        const desc2 = decodeURIComponent(e2.target.dataset.desc);
+                        rightBody.innerHTML = `<span class="loading">Bringing ${escapeHtml(handle2)} online…</span>`;
+                        try { const p = await generateProfileForUser(handle2, desc2); addUserToGame(handle2, p); }
+                        catch (err) { addUserToGame(handle2, null); }
+                    });
+                }
+            });
+        });
+    }
+
+    async function generateProfileForUser(handle, description) {
+        const system = `You are creating a profile for a new BBS user named "${handle}". Vibe: "${description}". Return ONLY a valid JSON with realName, age, gender, lookingFor, interests (array of 3‑5 strings), publicMessage. All strings single line.`;
+        const raw = await callAI(system, `Create profile for ${handle}.`, { maxTokens: 300, jsonResponse: true, temperature: 0.8 });
+        const parsed = safeParseAIResponse(raw);
+        if (!parsed) throw new Error('Profile generation failed');
+        return {
+            realName: parsed.realName || handle,
+            age: parsed.age || 25,
+            gender: parsed.gender || 'unspecified',
+            lookingFor: parsed.lookingFor || 'chat',
+            interests: parsed.interests || ['chatting'],
+            publicMessage: parsed.publicMessage || 'Hello!'
+        };
+    }
+
+    function addUserToGame(handle, profile) {
+        if (G.users.find(u => u.handle.toLowerCase() === handle.toLowerCase())) {
+            rightBody.innerHTML = '<em>This user is already in the BBS.</em>';
+            return;
+        }
+        const p = profile || {
+            realName: handle, age: 25, gender: 'unspecified', lookingFor: 'chat',
+            interests: ['computers'], publicMessage: 'Hey!'
+        };
+        G.users.push(ensureUserObject({
+            handle, password: 'bbs', personality: `${handle} is ${p.lookingFor}.`, traits: [], profile: p
+        }));
+        ensureConversation(handle).messages.push({
+            from: handle,
+            body: `Hey, I just joined! ${p.publicMessage || 'Wanna chat?'}`,
+            timestamp: new Date().toISOString(),
+            read: false
+        });
+        saveGame();
+        rightBody.innerHTML = `<em>${escapeHtml(handle)} has been added to the BBS! Check your mailbox.</em>`;
+        renderList();
+    }
+
+    function selectConversation(handle) {
+        selectedConversationUser = handle; selectedBoard = null;
+        const conv = ensureConversation(handle);
+        rightHeader.textContent = `Conversation with ${escapeHtml(conv.with)}`;
+        let html = conv.messages.map(m => {
+            const cls = m.from === G.player.handle ? 'me' : 'other';
+            if (m.from !== G.player.handle) m.read = true;
+            return `<div class="thread-msg"><span class="author ${cls}">${escapeHtml(m.from)}:</span> ${escapeHtml(m.body)}</div>`;
+        }).join('') || '<em>No messages yet.</em>';
+        rightBody.innerHTML = html;
+        saveGame();
+        actionBar.innerHTML = `<textarea id="threadReplyInput" style="flex:1; background:var(--bg); border:1px solid var(--border-color); color:var(--text); height:40px; resize:none;" placeholder="Reply..."></textarea>
+            <button class="action-btn" id="threadReplyBtn">Send</button>`;
+        document.getElementById('threadReplyBtn').addEventListener('click', () => sendThreadReply(conv));
+        document.getElementById('threadReplyInput').addEventListener('keypress', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendThreadReply(conv);} });
+        composeArea.style.display = 'none';
+        rightBody.style.display = ''; actionBar.style.display = '';
+        renderList();
+    }
+
+    async function sendThreadReply(conv) {
+        const input = document.getElementById('threadReplyInput');
+        const body = input.value.trim(); if(!body) return;
+        conv.messages.push({ from: G.player.handle, body, timestamp: new Date().toISOString(), read: true });
+        input.value = '';
+        selectConversation(conv.with);
+        await generateImmediateReplyInThread(conv);
+        selectConversation(conv.with);
+    }
+
+    async function generateImmediateReplyInThread(conv) {
+        if (!mistralKey) return;
+        const targetUser = G.users.find(u => u.handle.toLowerCase() === conv.with.toLowerCase());
+        if (!targetUser) return;
+        const history = conv.messages.slice(-6).map(m => `${m.from}: ${m.body}`).join('\n');
+        try {
+            const reply = await callAI(
+                `You are ${targetUser.handle}. Personality: ${targetUser.personality}. Traits: ${targetUser.traits?.join(', ') || ''}. Reply in character, 2-5 sentences. Only output the reply.`,
+                `Conversation:\n${history}\n\nRespond as ${targetUser.handle}.`,
+                { maxTokens: 300 }
+            );
+            conv.messages.push({ from: conv.with, body: reply.trim(), timestamp: new Date().toISOString(), read: false });
+            saveGame();
+        } catch(e) {
+            conv.messages.push({ from: conv.with, body: `(static) Couldn't reply: ${e.message}`, timestamp: new Date().toISOString(), read: false });
+            saveGame();
+        }
+    }
+
+    function selectBoard(bName) {
+        selectedBoard = bName; selectedConversationUser = null;
+        const posts = G.boards[bName];
+        rightHeader.textContent = `Board: ${escapeHtml(bName.toUpperCase())}`;
+        let html = posts.length ? posts.map(p => `<div style="cursor:pointer; border-bottom:1px dotted var(--border-color); padding:4px;" onclick="window.selectPost(${p.id})"><strong>${escapeHtml(p.author)}</strong> - ${escapeHtml(p.subject)} (${p.replies.length} replies)</div>`).join('') : '<em>No posts yet.</em>';
+        rightBody.innerHTML = html;
+        actionBar.innerHTML = '<button class="action-btn" id="newPostBtn">➕ New Post</button>';
+        document.getElementById('newPostBtn').addEventListener('click', () => startNewPost(bName));
+        composeArea.style.display = 'none';
+        rightBody.style.display = ''; actionBar.style.display = '';
+        renderList();
+    }
+
+    window.selectPost = function(postId) {
+        if (!selectedBoard) return;
+        const post = G.boards[selectedBoard].find(p => p.id===postId);
+        if(!post) return;
+        if(!post.replies) post.replies=[];
+        let html = `<div class="thread-msg"><span class="author">${escapeHtml(post.author)}</span> - ${escapeHtml(post.subject)}<br>${escapeHtml(post.body)}</div>`;
+        post.replies.forEach(r => html += `<div class="thread-msg" style="margin-left:20px;"><span class="author">${escapeHtml(r.author)}:</span> ${escapeHtml(r.body)}</div>`);
+        rightBody.innerHTML = html;
+        actionBar.innerHTML = `<textarea id="boardReplyInput" style="flex:1; background:var(--bg); border:1px solid var(--border-color); color:var(--text); height:40px; resize:none;" placeholder="Reply..."></textarea>
+            <button class="action-btn" id="boardReplyBtn">Send</button>`;
+        document.getElementById('boardReplyBtn').addEventListener('click', () => sendBoardReply(post));
+        document.getElementById('boardReplyInput').addEventListener('keypress', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendBoardReply(post);} });
+    };
+
+    async function sendBoardReply(post) {
+        const input = document.getElementById('boardReplyInput');
+        const body = input.value.trim();
+        if (!body) return;
+
+        post.replies.push({ author: G.player.handle, body, timestamp: new Date().toISOString() });
+        input.value = '';
+        saveGame();
+        window.selectPost(post.id);
+
+        // ---- NEW: chance to spawn a drama post about the player ----
+        if (Math.random() < 0.3) { // 30% chance after the player replies
+            playerTargetedPost(post);
+        }
+
+        await generateBoardNPCReply(post, body);
+        window.selectPost(post.id);
+    }
+
+    async function generateBoardNPCReply(post, playerMessage = '') {
+        if (!mistralKey) return;
+        const playerHandle = G.player.handle;
+        const allNPCs = G.users.filter(u => u.handle !== playerHandle);
+        if (!allNPCs.length) return;
+
+        const participants = new Set();
+        if (post.author && post.author !== playerHandle) participants.add(post.author);
+        post.replies.forEach(r => { if (r.author !== playerHandle) participants.add(r.author); });
+
+        // --- Select a replying NPC, preferring feuding participants or random trolls ---
+        let selectedNPC = null;
+
+        // Check for feuds between existing participants
+        const feudsInThread = G.feuds.filter(f =>
+            participants.has(f.user1) || participants.has(f.user2)
+        );
+        if (feudsInThread.length > 0 && Math.random() < 0.6) {
+            // Pick a random feud and use one of the two participants
+            const feud = feudsInThread[Math.floor(Math.random() * feudsInThread.length)];
+            const candidate = participants.has(feud.user1) ? feud.user1 : feud.user2;
+            selectedNPC = allNPCs.find(u => u.handle === candidate);
+        }
+
+        // If no feud-based selection, look for a troll in the thread
+        if (!selectedNPC) {
+            const trollInThread = Array.from(participants)
+                .map(h => allNPCs.find(u => u.handle === h))
+                .find(u => u && u.traits.includes('troll'));
+            if (trollInThread && Math.random() < 0.8) selectedNPC = trollInThread;
+        }
+
+        // Fallback: any participant not yet replied
+        if (!selectedNPC) {
+            const freshNPCs = allNPCs.filter(u => !participants.has(u.handle));
+            selectedNPC = freshNPCs.length > 0
+                ? freshNPCs[Math.floor(Math.random() * freshNPCs.length)]
+                : allNPCs[Math.floor(Math.random() * allNPCs.length)];
+        }
+
+        // --- Build a rich prompt ---
+        const participantNames = Array.from(participants).join(', ');
+        const isTroll = selectedNPC.traits.includes('troll');
+        const feud = G.feuds.find(f =>
+            (f.user1 === selectedNPC.handle && participants.has(f.user2)) ||
+            (f.user2 === selectedNPC.handle && participants.has(f.user1))
+        );
+
+        let systemPrompt = `You are ${selectedNPC.handle}. Personality: ${selectedNPC.personality}. Traits: ${selectedNPC.traits.join(', ')}. `;
+        if (isTroll) systemPrompt += `You are a classic 80s BBS troll. Always reply with sarcasm, mockery, or absurd non-sequiturs. Never be helpful. `;
+        if (feud) systemPrompt += `You have an ongoing feud with ${feud.user1 === selectedNPC.handle ? feud.user2 : feud.user1} about "${feud.reason}". Be passive-aggressive or directly insulting. `;
+        systemPrompt += `Other thread participants: ${participantNames || 'just the post author'}. `;
+        systemPrompt += `Keep your reply to 1-3 sentences, raw and unfiltered 1985 BBS style. Only output your reply.`;
+
+        const threadHistory = `Board: ${selectedBoard}. Post by ${post.author}: ${post.subject}\n${post.body}\n\nRecent replies:\n${post.replies.map(r => `${r.author}: ${r.body}`).join('\n')}`;
+
+        try {
+            const reply = await callAI(systemPrompt, threadHistory, { maxTokens: 250 });
+            post.replies.push({ author: selectedNPC.handle, body: reply.trim(), timestamp: new Date().toISOString() });
+        } catch(e) {
+            post.replies.push({ author: selectedNPC.handle, body: '(static) Couldn\'t reply right now.', timestamp: new Date().toISOString() });
+        }
+        saveGame();
+    }
+
+    // ---------- NPC Drama Generation (RESTORED – exactly as original) ----------
+    function startNPCDrama() {
+        if (G.users.length < 3) return; // Need at least two NPCs besides the player
+
+        const npcs = G.users.filter(u => u.handle !== G.player.handle);
+        let user1, user2, reason;
+
+        // Prefer a pair with an existing feud
+        if (G.feuds.length > 0 && Math.random() < 0.7) {
+            const feud = G.feuds[Math.floor(Math.random() * G.feuds.length)];
+            user1 = npcs.find(u => u.handle === feud.user1);
+            user2 = npcs.find(u => u.handle === feud.user2);
+            reason = feud.reason;
+        }
+
+        // Fallback: pick two random NPCs, create a new feud if they don't have one
+        if (!user1 || !user2) {
+            const shuffled = npcs.sort(() => 0.5 - Math.random());
+            user1 = shuffled[0];
+            user2 = shuffled[1];
+            reason = 'old grudge';
+            // Add a new feud
+            if (!G.feuds.find(f => (f.user1 === user1.handle && f.user2 === user2.handle) || (f.user1 === user2.handle && f.user2 === user1.handle))) {
+                G.feuds.push({ user1: user1.handle, user2: user2.handle, reason });
+            }
+        }
+
+        const board = ['personals','interests','confessions'][Math.floor(Math.random()*3)];
+
+        // Create an argument thread: user1 posts a call-out, user2 immediately replies
+        const postSubject = `${user2.handle}, you ${reason === 'old grudge' ? 'are a total phony' : reason}`;
+        const postBody = `I can't believe @${user2.handle} is still around. Remember when they ${reason}? It was pathetic.`;
+        const newPost = {
+            id: Date.now() + Math.random(),
+            author: user1.handle,
+            subject: postSubject,
+            body: postBody,
+            timestamp: new Date().toISOString(),
+            replies: []
+        };
+        G.boards[board].push(newPost);
+
+        // Add a furious reply from user2
+        const replyBody = `Oh please, @${user1.handle}, you're just jealous because everyone knows you ${reason} too! Get a life.`;
+        newPost.replies.push({
+            author: user2.handle,
+            body: replyBody,
+            timestamp: new Date().toISOString()
+        });
+
+        // Optionally add a bystander comment
+        if (Math.random() < 0.5) {
+            const bystanders = npcs.filter(u => u.handle !== user1.handle && u.handle !== user2.handle);
+            if (bystanders.length) {
+                const bystander = bystanders[Math.floor(Math.random() * bystanders.length)];
+                const bystanderReply = '🍿 Grab the popcorn, folks.';
+                newPost.replies.push({ author: bystander.handle, body: bystanderReply, timestamp: new Date().toISOString() });
+            }
+        }
+
+        saveGame();
+        console.log(`💥 Drama started on ${board}: ${user1.handle} vs ${user2.handle}`);
+    }
+
+    function startNewPost(board) {
+        composeTo.innerHTML = ''; composeSubject.value=''; composeBody.value='';
+        rightBody.style.display = 'none'; actionBar.style.display = 'none';
+        composeArea.style.display='flex'; composeArea.dataset.mode='post'; composeArea.dataset.board=board;
+    }
+
+    function startNewMessage(toHandle) {
+        // Build recipient dropdown safely (no raw HTML injection)
+        composeTo.innerHTML = '';
+        G.users.filter(u=>u.handle!==G.player.handle).forEach(u => {
+            const opt = document.createElement('option');
+            opt.value = u.handle;
+            opt.textContent = u.handle;
+            composeTo.appendChild(opt);
+        });
+        if(toHandle) composeTo.value = toHandle;
+        composeSubject.value=''; composeBody.value='';
+        rightBody.style.display = 'none'; actionBar.style.display = 'none';
+        composeArea.style.display='flex'; composeArea.dataset.mode='msg';
+    }
+
+    async function handleComposeSend() {
+        const mode = composeArea.dataset.mode || 'msg';
+        if(mode === 'post') {
+            const board = composeArea.dataset.board, subject = composeSubject.value.trim(), body = composeBody.value.trim();
+            if(!board||!subject||!body) return;
+            const newPost = { id: Date.now(), author: G.player.handle, subject, body, timestamp: new Date().toISOString(), replies: [] };
+            G.boards[board].push(newPost);
+            composeArea.style.display='none'; rightBody.style.display = ''; actionBar.style.display = '';
+            saveGame();
+            await generateBoardNPCReply(newPost);
+            saveGame();
+            if(currentView==='boards' && selectedBoard===board) selectBoard(board);
+            else renderList();
+        } else {
+            const toHandle = composeTo.value;
+            if(!toHandle) {
+                // No recipient selected
+                rightBody.innerHTML = '<span class="error-msg">Select a recipient.</span>';
+                return;
+            }
+            const subject = composeSubject.value.trim();
+            const body = composeBody.value.trim();
+            if(!subject && !body) return;
+            // Incorporate subject into message body
+            const fullBody = subject ? `[${subject}] ${body}` : body;
+            const conv = ensureConversation(toHandle);
+            conv.messages.push({ from: G.player.handle, body: fullBody, timestamp: new Date().toISOString(), read: true });
+            composeArea.style.display='none'; rightBody.style.display = ''; actionBar.style.display = '';
+            saveGame();
+            await generateImmediateReplyInThread(conv);
+            showView('mailbox');
+            selectConversation(toHandle);
+        }
+    }
+
+    function showUserProfile(handle) {
+        const user = G.users.find(u => u.handle===handle);
+        if(!user) { rightBody.innerHTML='<em>User not found.</em>'; return; }
+        ensureUserObject(user);
+        rightHeader.textContent = `Profile: ${escapeHtml(user.handle)}`;
+        rightBody.innerHTML = `<strong>Real Name:</strong> ${escapeHtml(user.profile.realName||'?')}<br>
+            <strong>Age:</strong> ${escapeHtml(String(user.profile.age||'?'))}<br>
+            <strong>Gender:</strong> ${escapeHtml(user.profile.gender||'?')}<br>
+            <strong>Looking for:</strong> ${escapeHtml(user.profile.lookingFor||'?')}<br>
+            <strong>Interests:</strong> ${escapeHtml((user.profile.interests||[]).join(', ')||'None')}<br>
+            <strong>Public Message:</strong> "${escapeHtml(user.profile.publicMessage||'')}"`;
+        actionBar.innerHTML = user.handle===G.player.handle ? '<button class="action-btn" id="editProfileBtn">✏️ Edit Profile</button>' : '<button class="action-btn" id="msgUserBtn">✉ Send Message</button>';
+        if(user.handle===G.player.handle) document.getElementById('editProfileBtn').addEventListener('click', showProfileEditor);
+        else document.getElementById('msgUserBtn').addEventListener('click', () => startNewMessage(user.handle));
+    }
+
+    function showProfileEditor() {
+        const p = G.player.profile;
+        rightBody.innerHTML = `<div style="display:flex; flex-direction:column; gap:8px;">
+            <label>Real Name: <input type="text" id="editRealName" value="${escapeHtml(p.realName||'')}"></label>
+            <label>Age: <input type="number" id="editAge" value="${escapeHtml(String(p.age||0))}"></label>
+            <label>Gender: <input type="text" id="editGender" value="${escapeHtml(p.gender||'')}"></label>
+            <label>Looking For: <input type="text" id="editLookingFor" value="${escapeHtml(p.lookingFor||'')}"></label>
+            <label>Interests: <input type="text" id="editInterests" value="${escapeHtml((p.interests||[]).join(', '))}"></label>
+            <label>Public Message: <input type="text" id="editPublicMessage" value="${escapeHtml(p.publicMessage||'')}"></label>
+            <div><button class="action-btn" id="saveProfileBtn">💾 Save</button> <button class="action-btn" id="cancelEditBtn">❌ Cancel</button></div></div>`;
+        actionBar.innerHTML='';
+        document.getElementById('saveProfileBtn').addEventListener('click', () => {
+            G.player.profile.realName = document.getElementById('editRealName').value;
+            G.player.profile.age = parseInt(document.getElementById('editAge').value)||0;
+            G.player.profile.gender = document.getElementById('editGender').value;
+            G.player.profile.lookingFor = document.getElementById('editLookingFor').value;
+            G.player.profile.interests = document.getElementById('editInterests').value.split(',').map(s=>s.trim()).filter(s=>s);
+            G.player.profile.publicMessage = document.getElementById('editPublicMessage').value;
+            saveGame(); showUserProfile(G.player.handle);
+        });
+        document.getElementById('cancelEditBtn').addEventListener('click', () => showUserProfile(G.player.handle));
+    }
+
+    // ---------- Login ----------
+    async function doLogin() {
+        const handle = loginHandleInput.value.trim(), pass = loginPassInput.value.trim();
+        if(!handle||!pass) { loginError.textContent='Enter handle and password.'; return; }
+        if(!mistralKey) { loginError.textContent='Set Mistral API key first.'; return; }
+        let user = G.users.find(u => u.handle.toLowerCase()===handle.toLowerCase());
+        if(user) {
+            if(user.password !== pass) { loginError.textContent='Invalid password.'; return; }
+        } else {
+            user = { handle, password: pass, profile: { realName:'', age:0, gender:'', lookingFor:'', interests:[], publicMessage:'' }, personality:'new user', traits: [] };
+            G.users.push(ensureUserObject(user));
+        }
+        G.player = user; G.lastLogin = new Date().toISOString(); G.sessions++;
+        playDialUpSound(); // optional modem sound (NEW)
+        loginOverlay.classList.add('hidden'); userStatus.textContent = `Logged in: ${user.handle}`;
+        saveGame();
+        startBackgroundActivity();
+        if(G.users.length===1 && !G.worldGenerated) {
+            const success = await generateInitialWorld();
+            if (success) showView('mailbox');
+        } else {
+            await fetchBatchContent();
+            showView('mailbox');
+        }
+    }
+
+    // ---------- Attach events ----------
+    navBtns.forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
+    loginBtn.addEventListener('click', doLogin);
+    loginPassInput.addEventListener('keypress', e => { if(e.key==='Enter') doLogin(); });
+    sendComposeBtn.addEventListener('click', handleComposeSend);
+    cancelComposeBtn.addEventListener('click', () => { composeArea.style.display='none'; rightBody.style.display = ''; actionBar.style.display = ''; });
+    refreshBtn.addEventListener('click', () => { if(!G.player) return; fetchBatchContent(); });
+    saveKeyBtn.addEventListener('click', () => saveApiKey(apiKeyInput.value));
+    loginSaveKeyBtn.addEventListener('click', () => saveApiKey(loginApiKeyInput.value));
+    updateKeyIndicators();
+
+    // ---------- Init ----------
+    const hasSave = loadGame();
+    if(hasSave && G.player) {
+        loginOverlay.classList.add('hidden'); userStatus.textContent = `Logged in: ${G.player.handle}`;
+        showView('mailbox');
+        fetchBatchContent();
+        startBackgroundActivity();
+    } else {
+        loginOverlay.classList.remove('hidden'); G.player = null; showView('mailbox');
+    }
+
+})();
+</script>
+</body>
+</html>
