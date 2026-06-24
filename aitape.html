@@ -992,10 +992,11 @@ Keep all replies under 200 characters, full of groaning puns. No markdown.`;
   playClick();
   talkedToCryptKeeper = true;
 
-  // --- RIDDLE CHECK ---
+  // --- RIDDLE CHECK (if one is active) ---
   if (cryptKeeperRiddleActive) {
     const answer = msg.trim().toLowerCase();
     if (answer.includes(cryptKeeperRiddleActive.answer.toLowerCase())) {
+      // Correct answer
       const assistantDiv = document.createElement('div');
       assistantDiv.className = 'chat-msg chat-assistant';
       assistantDiv.textContent = '🔪 "Heh heh! Correct!"';
@@ -1037,6 +1038,7 @@ Keep all replies under 200 characters, full of groaning puns. No markdown.`;
         playCash();
       }
 
+      // Unlock casket after 3 solved riddles
       if (cryptKeeperRiddlesSolved >= 3 && !casketUnlocked) {
         casketUnlocked = true;
         localStorage.setItem('vn_casket_unlocked', 'true');
@@ -1049,8 +1051,9 @@ Keep all replies under 200 characters, full of groaning puns. No markdown.`;
       }
       checkMilestones();
       chatArea.scrollTop = chatArea.scrollHeight;
-      return;
+      return; // skip normal reply
     }
+    // Wrong answer – fall through to normal chat
   }
 
   // Build messages for API
@@ -1060,9 +1063,9 @@ Keep all replies under 200 characters, full of groaning puns. No markdown.`;
     { role: 'user', content: msg }
   ];
 
-  // Randomly inject a riddle prompt
-  if (!cryptKeeperRiddleActive && Math.random() < 0.2) {
-    messages.push({ role: 'system', content: 'Now ask the player a riddle. End with "[RIDDLE]" so the system knows it\'s a riddle.' });
+  // Force the AI to ask a riddle (change 0.2 → 1.0 for testing)
+  if (!cryptKeeperRiddleActive && Math.random() < 1.0) {
+    messages.push({ role: 'system', content: 'Now ask the player a riddle. End your entire response with "[RIDDLE]". Do not add any other text after it.' });
   }
 
   try {
@@ -1074,31 +1077,32 @@ Keep all replies under 200 characters, full of groaning puns. No markdown.`;
     const data = await res.json();
     let reply = data.choices?.[0]?.message?.content?.trim() || '...';
 
+    // Display reply
     const assistantDiv = document.createElement('div');
     assistantDiv.className = 'chat-msg chat-assistant';
     assistantDiv.textContent = '🔪 ' + reply;
     chatArea.appendChild(assistantDiv);
 
-    // AUTO-DETECT RIDDLE
-    if (!cryptKeeperRiddleActive && reply.includes('?')) {
-      const checkRes = await fetch(API_URL, {
+    // Detect if the AI ended with [RIDDLE] and extract answer
+    if (reply.includes('[RIDDLE]')) {
+      reply = reply.replace('[RIDDLE]', '').trim();
+      const answerRes = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
         body: JSON.stringify({
           model: MODEL,
           messages: [
-            { role: 'system', content: 'The Crypt Keeper just said: "' + reply + '". Did he ask a riddle? If yes, respond with only the one-word answer, lowercase, no punctuation. If no, respond with exactly "no".' }
+            { role: 'system', content: 'You just asked this riddle: "' + reply + '". Provide ONLY the one-word answer, lowercase, no punctuation.' }
           ],
           temperature: 0
         })
       });
-      if (checkRes.ok) {
-        const checkData = await checkRes.json();
-        const answer = checkData.choices?.[0]?.message?.content?.trim().toLowerCase();
-        if (answer && answer !== 'no') {
-          cryptKeeperRiddleActive = { question: reply, answer: answer };
-        }
+      let answer = '';
+      if (answerRes.ok) {
+        const ansData = await answerRes.json();
+        answer = ansData.choices?.[0]?.message?.content?.trim().toLowerCase() || '';
       }
+      cryptKeeperRiddleActive = { question: reply, answer: answer };
     }
 
     cryptKeeperConversation.push({ role: 'user', content: msg }, { role: 'assistant', content: reply });
