@@ -1057,22 +1057,16 @@ Keep all replies under 200 characters, full of groaning puns. No markdown.`;
     // wrong answer – falls through to normal chat
   }
 
-  // Build messages for API
-    // FORCE A RIDDLE EVERY TIME (for testing)
-  if (!cryptKeeperRiddleActive) {
-    const forcedRiddle = { question: "What has no voice but can still scream?", answer: "tape" };
-    const forcedReply = forcedRiddle.question + " [RIDDLE]";
-    const assistantDiv = document.createElement('div');
-    assistantDiv.className = 'chat-msg chat-assistant';
-    assistantDiv.textContent = '🔪 ' + forcedReply;
-    chatArea.appendChild(assistantDiv);
-    cryptKeeperRiddleActive = forcedRiddle;
-    cryptKeeperConversation.push(
-      { role: 'user', content: msg },
-      { role: 'assistant', content: forcedReply }
-    );
-    chatArea.scrollTop = chatArea.scrollHeight;
-    return; // skip the API call entirely
+   // Build messages for API
+  const messages = [
+    { role: 'system', content: CRYPT_KEEPER_SYS },
+    ...cryptKeeperConversation.slice(-10),
+    { role: 'user', content: msg }
+  ];
+
+  // Randomly inject a riddle prompt (keep this – it encourages riddles)
+  if (!cryptKeeperRiddleActive && Math.random() < 0.2) {
+    messages.push({ role: 'system', content: 'Now ask the player a riddle. End with "[RIDDLE]" so the system knows it\'s a riddle.' });
   }
 
   try {
@@ -1084,28 +1078,44 @@ Keep all replies under 200 characters, full of groaning puns. No markdown.`;
     const data = await res.json();
     let reply = data.choices?.[0]?.message?.content?.trim() || '...';
 
-    // Riddle detection
-    if (reply.includes('[RIDDLE]')) {
-      reply = reply.replace('[RIDDLE]', '').trim();
-      // Get the answer via a second call
-      const answerRes = await fetch(API_URL, {
+    // Display the reply
+    const assistantDiv = document.createElement('div');
+    assistantDiv.className = 'chat-msg chat-assistant';
+    assistantDiv.textContent = '🔪 ' + reply;
+    chatArea.appendChild(assistantDiv);
+
+    // ── AUTO‑DETECT RIDDLE (no [RIDDLE] tag needed) ──────────
+    if (!cryptKeeperRiddleActive && reply.includes('?')) {
+      // Ask the AI if this was a riddle and what the answer is
+      const checkRes = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MISTRAL_KEY}` },
         body: JSON.stringify({
           model: MODEL,
           messages: [
-            { role: 'system', content: 'You just asked this riddle: "' + reply + '". Provide ONLY the one-word answer, lowercase, no punctuation.' }
+            { role: 'system', content: 'The Crypt Keeper just said: "' + reply + '". Did he ask a riddle? If yes, respond with only the one-word answer, lowercase, no punctuation. If no, respond with exactly "no".' }
           ],
           temperature: 0
         })
       });
-      let answer = '';
-      if (answerRes.ok) {
-        const ansData = await answerRes.json();
-        answer = ansData.choices?.[0]?.message?.content?.trim().toLowerCase() || '';
+      if (checkRes.ok) {
+        const checkData = await checkRes.json();
+        const answer = checkData.choices?.[0]?.message?.content?.trim().toLowerCase();
+        if (answer && answer !== 'no') {
+          cryptKeeperRiddleActive = { question: reply, answer: answer };
+        }
       }
-      cryptKeeperRiddleActive = { question: reply, answer: answer };
     }
+
+    cryptKeeperConversation.push({ role: 'user', content: msg }, { role: 'assistant', content: reply });
+
+  } catch (e) {
+    const errDiv = document.createElement('div');
+    errDiv.textContent = '*** Error';
+    chatArea.appendChild(errDiv);
+    playError();
+  }
+  chatArea.scrollTop = chatArea.scrollHeight;
 
     const assistantDiv = document.createElement('div');
     assistantDiv.className = 'chat-msg chat-assistant';
