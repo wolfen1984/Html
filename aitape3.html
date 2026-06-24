@@ -1352,7 +1352,22 @@ It should be twisted, pun‑filled, and creepy. Return JSON with keys: title, ye
             chatInput.focus();
         }
         const CRYPT_KEEPER_SYS =
-            `You are the Crypt Keeper, pun-loving horror host. Talk in groaning puns, occasionally ask a riddle with answer. Keep under 200 chars.`;
+    `You are the Crypt Keeper, pun-loving horror host. Talk in groaning puns.
+Sometimes ask a riddle, but NEVER reveal the answer in the chat.
+Instead, put the answer inside a hidden tag: [ANSWER:the answer]
+Always end a riddle message with that tag. Keep under 200 chars.`;
+
+function extractRiddle(reply) {
+    const match = reply.match(/\[ANSWER:(.+?)\]/i);
+    if (match) {
+        const answer = match[1].trim();
+        // Remove the whole [ANSWER:...] tag from the visible message
+        const display = reply.replace(/\[ANSWER:.+?\]/i, '').trim();
+        return { display, answer };
+    }
+    return { display: reply, answer: null };
+}
+
         async function sendTalkMessage() {
             const msg = chatInput.value.trim();
             if (!msg) return;
@@ -1426,10 +1441,25 @@ return;
                     body: JSON.stringify({ model: MODEL, messages, temperature: 0.95 })
                 });
                 const data = await res.json();
-                let reply = data.choices?.[0]?.message?.content?.trim() || '...';
-                chatArea.innerHTML += `<div class="crypt-keeper-text">🔪 ${reply}</div>`;
-                cryptKeeperConversation.push({ role: 'user', content: msg }, { role: 'assistant',
-                    content: reply });
+let rawReply = data.choices?.[0]?.message?.content?.trim() || '...';
+const { display, answer } = extractRiddle(rawReply);
+
+// Show the clean riddle (without the answer tag)
+chatArea.innerHTML += `<div class="crypt-keeper-text">🔪 ${display}</div>`;
+
+// If a riddle was asked, store the active riddle
+if (answer) {
+    cryptKeeperRiddleActive = { answer };
+    chatArea.innerHTML += `<div style="color:#aa5555;font-size:0.8em;">(Type your guess…)</div>`;
+} else {
+    cryptKeeperRiddleActive = null;
+}
+
+// Store the full raw reply for conversation history (so the AI remembers it)
+cryptKeeperConversation.push(
+    { role: 'user', content: msg },
+    { role: 'assistant', content: rawReply }
+);
             } catch (e) { chatArea.innerHTML += '<div>*** Error</div>';
                 playError(); }
             chatArea.scrollTop = chatArea.scrollHeight;
