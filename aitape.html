@@ -917,16 +917,26 @@
 
 async function generateTapeWithRarity(rarity) {
   const prompt = `Generate a single fictional banned horror VHS tape. It must be of rarity "${rarity.name}".
-Return a JSON object with exactly these keys:
+Return a JSON object with a single key "tape" containing these keys:
 - "title" (string)
 - "year" (number, 1975-1989)
 - "coverDescription" (one lurid sentence)
 - "rarity" (exactly "${rarity.name}")
 - "price" (number between ${rarity.priceMin} and ${rarity.priceMax})
-Output ONLY the JSON object. No markdown.`;
-  return await callMistral(SYSTEM_PROMPT, prompt);
-}
-        // ── Commands ─────────────────────────────────
+Output ONLY that JSON object. Do not wrap it in markdown.`;
+
+  const data = await callMistral(SYSTEM_PROMPT, prompt);
+
+  // Safely extract the tape, no matter how the model nested it
+  if (data && data.tape) {
+    return data.tape;               // prefer the requested wrapper
+  } else if (data && data.title) {
+    return data;                   // flat structure (model didn’t nest)
+  }
+
+  // If the model still gave a completely unexpected shape, return null
+  return null;
+}        // ── Commands ─────────────────────────────────
         async function cmdCrate() { playOpen(); await print('The Archivist opens his footlocker, breath misting in the cold...'); const disc = getDiscount(); let size = 4; if (milestones['tapes_10']) size = 5; if (milestones['value_500']) size = 6; const prompt = `Generate an array of ${size} fictional banned horror VHS tapes that The Archivist has for sale. Each: title, year(1975-1989), coverDescription, rarity(Common,Uncommon,Rare,Ultra Rare,Mythic), price(integer), condition(pristine,worn,mouldy,covered in suspicious stains). Return JSON with key "tapes".`; const data = await callMistral(SYSTEM_PROMPT, prompt); if (!data || !data.tapes) { printInstant('The Archivist grumbles.'); playError(); return; } crateStock = data.tapes.map((t, idx) => ({ ...t, index: idx + 1 })); stockType = 'crate'; await print(`\n📦 THE ARCHIVIST'S CRATE [${size} tapes]:`); crateStock.forEach(t => { printInstant(`  ${t.index}. ${t.title} (${t.year}) - ${colorRarity(t.rarity)} - $${Math.floor(t.price*disc)} [${t.condition}]`); }); printInstant('\nType BUY [number] to purchase.'); }
 
         async function cmdCasket() { if (!casketUnlocked) { printInstant('The Crypt Keeper chuckles. "Not yet, kiddo."'); playError(); return; } if (casketActive) { printInstant('The casket is already open.'); playError(); return; } playCreepy(); await print('The Crypt Keeper heaves open a dusty casket...'); const prompt = `Generate 3 rare+ banned horror VHS tapes from the Crypt Keeper's personal stash. At least one Ultra Rare or Mythic. Each: title, year, coverDescription, rarity(Rare,Ultra Rare,Mythic), price, condition. Return JSON with key "tapes".`; const data = await callMistral(SYSTEM_PROMPT, prompt); if (!data || !data.tapes) { printInstant('The casket slams shut.'); playClose(); return; } casketStock = data.tapes.map((t, idx) => ({ ...t, index: idx + 1, price: Math.floor(t.price * 1.2) })); stockType = 'casket'; casketActive = true; await print(`\n⚰️ CRYPT KEEPER'S CASKET [3 tapes, one purchase only]:`); casketStock.forEach(t => { printInstant(`  ${t.index}. ${t.title} (${t.year}) - ${colorRarity(t.rarity)} - $${t.price} [${t.condition}]`); }); printInstant('\nType BUY [number] to purchase.'); }
