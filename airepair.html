@@ -195,14 +195,6 @@
             background: #553a15;
             border-radius: 3px;
         }
-        .tape-content-text {
-            color: #ffd080 !important;
-            text-shadow: 0 0 6px rgba(240, 200, 100, 0.5) !important;
-            border-left: 2px solid #ffb040;
-            padding-left: 8px;
-            margin: 4px 0;
-            display: block;
-        }
         .input-area {
             display: flex;
             gap: 4px;
@@ -286,8 +278,13 @@
             animation: ledPulse 3s infinite;
         }
         @keyframes ledPulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
+            0%,
+            100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.4;
+            }
         }
         .overlay {
             position: absolute;
@@ -395,8 +392,15 @@
             animation: neonFlicker 4s infinite;
         }
         @keyframes neonFlicker {
-            0%, 95%, 97%, 100% { opacity: 1; }
-            96% { opacity: 0.4; }
+            0%,
+            95%,
+            97%,
+            100% {
+                opacity: 1;
+            }
+            96% {
+                opacity: 0.4;
+            }
         }
         @media (orientation: landscape) {
             .crt-monitor {
@@ -548,6 +552,7 @@
             currentVCR: null,
             shopOpen: true,
             conversationActive: false,
+            conversationContext: null, // 'talk', 'return', 'call'
             activeMovie: null,
         };
 
@@ -596,8 +601,6 @@
             document.getElementById('btnCall').style.display = (loc === 'backroom') ? '' : 'none';
             document.getElementById('btnReflect').style.display = (loc === 'backroom') ? '' : 'none';
             document.getElementById('btnClose').style.display = (loc === 'counter' && gameState.shopOpen && !hasCustomer) ? '' : 'none';
-
-            // Show END TALK button whenever a conversation is active
             btnEndConv.style.display = convActive ? '' : 'none';
         }
 
@@ -633,13 +636,10 @@
             } catch(e) { printInstant('*** NETWORK ERROR'); playError(); return null; }
         }
 
-        const SYSTEM_CUSTOMER_GEN = `You are the narrator of "VCR WATCH – The Repairman's Log", a 1987 psychological simulator. You generate customers for a VCR repair shop. Each customer is a fully realized person from 1987 with a camcorder. Return ONLY valid JSON with these fields: name, appearance, occupation, reason_for_repair, personality, home_situation, secret, trust (30-70), greeting.`;
-
-        const SYSTEM_TAPE_CONTENT = `You are generating the contents of a forgotten VHS tape left inside a VCR brought to a repair shop in 1987. Generate a series of 3-5 short "scenes" in JSON array format. Each scene is a brief, stark, documentary-style description. Return JSON: {"scenes": ["scene1...", ...]}. No supernatural.`;
-
-        const SYSTEM_CONVERSATION = `You are a customer at a VCR repair shop in 1987. Respond in character. Keep responses brief (1-3 sentences). If the repairman hints at knowing your secret, react realistically. Never supernatural.`;
-
-        const SYSTEM_REFLECTION = `You are the inner monologue of a solitary VCR repairman in 1987. You've been watching private home videos. Respond in first-person, brief (2-4 sentences), melancholic and introspective. Never supernatural.`;
+        const SYSTEM_CUSTOMER_GEN = `You are the narrator of "VCR WATCH – The Repairman's Log", a 1987 psychological simulator. You generate customers for a VCR repair shop. Return ONLY valid JSON: name, appearance, occupation, reason_for_repair, personality, home_situation, secret, trust (30-70), greeting.`;
+        const SYSTEM_TAPE_CONTENT = `You are generating the contents of a forgotten VHS tape. Generate 3-5 short scenes in JSON: {"scenes":["scene1...", ...]}. Stark, documentary style. No supernatural.`;
+        const SYSTEM_CONVERSATION = `You are a customer at a VCR repair shop in 1987. Respond in character, brief (1-3 sentences). If the repairman hints at knowing your secret, react realistically. Never supernatural.`;
+        const SYSTEM_REFLECTION = `Inner monologue of a solitary VCR repairman in 1987. First-person, brief, melancholic.`;
 
         // ═══════════════════════════════════════════
         // GAME ACTIONS
@@ -648,7 +648,7 @@
             if (gameState.currentLocation !== 'counter' || gameState.currentCustomer || !gameState.shopOpen) { printInstant('Cannot wait now.'); playError(); return; }
             await print('You wait behind the counter...');
             const existingNames = gameState.customers.map(c=>c.name).join(', ');
-            const prompt = `${existingNames ? 'Existing customers: '+existingNames+'. ' : ''}Generate a ${Math.random()<0.5?'NEW':'RETURNING'} customer. JSON.`;
+            const prompt = `${existingNames ? 'Existing: '+existingNames+'. ' : ''}Generate a ${Math.random()<0.5?'NEW':'RETURNING'} customer. JSON.`;
             const data = await callMistralJSON(SYSTEM_CUSTOMER_GEN, prompt);
             if (!data || !data.name) { await print('Nobody came in.'); return; }
             let customer = gameState.customers.find(c=>c.name.toLowerCase()===data.name.toLowerCase());
@@ -669,15 +669,16 @@
             saveState(); updateStatusBar();
             await print(`\n🔔 ${customer.name} walks in. ${customer.appearance || ''}`);
             await print(`   "${customer.greeting}"`);
-            await print(`   They place a VCR on the counter. "${customer.reason_for_repair}."`);
+            await print(`   VCR issue: "${customer.reason_for_repair}".`);
             playSuccess();
         }
 
         async function actionTalk() {
             if (!gameState.currentCustomer || gameState.conversationActive) { printInstant('Cannot talk.'); playError(); return; }
-            gameState.conversationActive = true; updateActionButtons();
-            const c = gameState.currentCustomer;
-            await print(`\n💬 Talking to ${c.name}... (Type dialogue, /end to finish)`);
+            gameState.conversationActive = true;
+            gameState.conversationContext = 'talk';
+            updateActionButtons();
+            await print(`\n💬 Talking to ${gameState.currentCustomer.name}... (Type dialogue, /end to finish)`);
             playClick();
         }
 
@@ -686,9 +687,9 @@
             const c = gameState.currentCustomer;
             let knowledge = '';
             if (c.tapes_watched && c.tapes_watched.length > 0) {
-                knowledge = `\n[The repairman secretly watched this customer's home videos. He knows: ${c.tapes_watched.join('; ')}. Secret: ${c.secret}.]`;
+                knowledge = `\n[Repairman knows: ${c.tapes_watched.join('; ')}. Secret: ${c.secret}.]`;
             }
-            const prompt = `Customer: ${c.name} (${c.personality}). Secret: ${c.secret}. Trust: ${c.trust}.${knowledge}\nRepairman says: "${playerText}"\nRespond in character.`;
+            const prompt = `Customer: ${c.name} (${c.personality}). Secret: ${c.secret}. Trust: ${c.trust}.${knowledge}\nRepairman says: "${playerText}"\nRespond.`;
             const response = await callMistralText(SYSTEM_CONVERSATION, prompt);
             if (response) await print(`   ${c.name}: "${response.trim()}"`);
             else await print(`   ${c.name} nods.`);
@@ -700,6 +701,17 @@
         function actionEndConversation() {
             if (!gameState.conversationActive) return;
             gameState.conversationActive = false;
+            const context = gameState.conversationContext;
+            gameState.conversationContext = null;
+
+            // Only dismiss the customer if the conversation was from RETURN or CALL.
+            // For TALK, the customer stays (they still have a VCR to drop off).
+            if (context === 'return' || context === 'call') {
+                if (gameState.currentCustomer) {
+                    printInstant(`${gameState.currentCustomer.name} nods and leaves.`);
+                    gameState.currentCustomer = null;
+                }
+            }
             updateActionButtons();
             printInstant('Conversation ended.');
             playClose();
@@ -734,8 +746,7 @@
             const data = await callMistralJSON(SYSTEM_TAPE_CONTENT, `Customer: ${c.name}. Secret: ${c.secret}.`);
             if (data && data.scenes && data.scenes.length > 0) {
                 gameState.activeMovie.scenes = data.scenes;
-                gameState.activeMovie.sceneIndex = 0;
-                movieOutput.innerHTML = `╔══════════════════════╗\n║ TAPE – ${c.name.substring(0,12)} ║\n╚══════════════════════╝\n\n[SCENE 1]\n${data.scenes[0]}\n`;
+                movieOutput.innerHTML = `╔══════════════════╗\n║ TAPE – ${c.name.substring(0,12)} ║\n╚══════════════════╝\n\n[SCENE 1]\n${data.scenes[0]}\n`;
                 gameState.activeMovie.sceneIndex = 1;
                 playCreepy();
             } else {
@@ -747,7 +758,7 @@
         }
 
         async function actionMovieContinue() {
-            if (!gameState.activeMovie || !gameState.activeMovie.scenes.length) return;
+            if (!gameState.activeMovie) return;
             const am = gameState.activeMovie;
             if (am.sceneIndex >= am.scenes.length) {
                 movieOutput.innerHTML += '\n[STATIC]\nThe tape ends.';
@@ -783,7 +794,7 @@
         async function actionIgnore() {
             if (!gameState.currentVCR || !gameState.currentVCR.hasTape || gameState.currentVCR.watched) { printInstant('Nothing to ignore.'); playError(); return; }
             gameState.currentVCR.ignored = true; gameState.currentVCR.watched = true;
-            await print('You rewind the tape without looking. Policy.');
+            await print('You rewind the tape without looking.');
             playClick(); updateStatusBar(); saveState();
         }
 
@@ -801,7 +812,9 @@
             await print(`You bring the repaired VCR to the counter.`);
             if (gameState.currentVCR.watched && !gameState.currentVCR.ignored && gameState.currentVCR.tapeContent) {
                 await print(`You know something about ${c.name}.`);
-                gameState.currentCustomer = c; gameState.conversationActive = true;
+                gameState.currentCustomer = c;
+                gameState.conversationActive = true;
+                gameState.conversationContext = 'return';
                 await print(`(Type what you say, or /end to stay silent.)`);
                 playCreepy();
             } else {
@@ -817,7 +830,7 @@
             await print('You lie on the cot. Neon through blinds.');
             gameState.currentDay++; gameState.shopOpen = true;
             gameState.currentCustomer = null; gameState.currentVCR = null; gameState.currentLocation = 'counter';
-            gameState.conversationActive = false; gameState.activeMovie = null;
+            gameState.conversationActive = false; gameState.conversationContext = null; gameState.activeMovie = null;
             saveState(); updateStatusBar();
             await print(`\n☀️ Day ${gameState.currentDay} begins. Shop open.`);
             playSuccess();
@@ -827,7 +840,10 @@
             if (gameState.currentLocation !== 'backroom' || !gameState.customers.length) { printInstant('No one to call.'); playError(); return; }
             const c = gameState.customers[Math.floor(Math.random()*gameState.customers.length)];
             await print(`Dialing ${c.name}...`);
-            gameState.currentCustomer = c; gameState.conversationActive = true; gameState.currentLocation = 'counter';
+            gameState.currentCustomer = c;
+            gameState.conversationActive = true;
+            gameState.conversationContext = 'call';
+            gameState.currentLocation = 'counter';
             await print(`(Type dialogue, /end to hang up.)`);
             updateStatusBar(); playClick();
         }
@@ -882,7 +898,6 @@
             showOverlay(helpOverlay);
         }
 
-        // ── Main command handler ──
         async function handleCommand(raw) {
             if (!raw) return;
             const upper = raw.toUpperCase().trim();
@@ -932,7 +947,7 @@
             } else { printInstant('Unknown command. Type HELP.'); playError(); }
         }
 
-        // ── Event listeners ──
+        // Event listeners
         cmdInput.addEventListener('keydown', async e => { if (e.key==='Enter') { initAudio(); const raw=cmdInput.value.trim(); cmdInput.value=''; await handleCommand(raw); } });
         btnSend.addEventListener('click', async () => { initAudio(); playClick(); const raw=cmdInput.value.trim(); cmdInput.value=''; await handleCommand(raw); });
         tabCounter.addEventListener('click', ()=> { initAudio(); actionGoTo('counter'); });
@@ -964,7 +979,7 @@
             }
         });
 
-        // API key init
+        // API key
         let savedKey = localStorage.getItem('vcrwatch_api_key');
         if (!savedKey) { keyOverlay.classList.remove('hidden'); keyOverlay.style.display='flex'; } else MISTRAL_KEY = savedKey;
         document.getElementById('save-key-btn').addEventListener('click', ()=> {
