@@ -1218,7 +1218,7 @@ function stopClock() {
 // ── Tape Soundscape ───────────────────────────
 function startTapeAmbience() {
   if (!ensureAudio()) return;
-  stopTapeAmbience(); // clear any previous graph
+  stopTapeAmbience();
 
   // Master gain → analyser → destination
   tapeAmbience = audioCtx.createGain();
@@ -1232,7 +1232,7 @@ function startTapeAmbience() {
   // 1. Motor hum (two oscillators)
   motorOsc = audioCtx.createOscillator();
   motorOsc.type = 'triangle';
-  motorOsc.frequency.value = 45; // deep rumble
+  motorOsc.frequency.value = 45;
   motorGainNode = audioCtx.createGain();
   motorGainNode.gain.value = 0.18;
   motorOsc.connect(motorGainNode).connect(tapeAmbience);
@@ -1246,29 +1246,12 @@ function startTapeAmbience() {
   motorSub.connect(motorSubGain).connect(tapeAmbience);
   motorSub.start();
 
-  // 2. Hiss (high‑pass filtered noise)
-  const bufferSize = 2 * audioCtx.sampleRate;
-  const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-  const data = noiseBuffer.getChannelData(0);
-  for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
-  hissNode = audioCtx.createBufferSource();
-  hissNode.buffer = noiseBuffer;
-  hissNode.loop = true;
-  const hissFilter = audioCtx.createBiquadFilter();
-  hissFilter.type = 'highpass';
-  hissFilter.frequency.value = 2200;
-  hissFilter.Q.value = 1.5;
-  hissGain = audioCtx.createGain();
-  hissGain.gain.value = 0.10;
-  hissNode.connect(hissFilter).connect(hissGain).connect(tapeAmbience);
-  hissNode.start();
-
-  // 3. Uneasy drone (LFO‑modulated sine)
+  // 2. Uneasy drone (LFO‑modulated sine) – kept
   droneOsc = audioCtx.createOscillator();
   droneOsc.type = 'sine';
   droneOsc.frequency.value = 60;
   droneMasterGain = audioCtx.createGain();
-  droneMasterGain.gain.value = 0.0; // fades in with intensity
+  droneMasterGain.gain.value = 0.0;
   const droneLFO = audioCtx.createOscillator();
   droneLFO.frequency.value = 0.12;
   const droneLFOGain = audioCtx.createGain();
@@ -1278,10 +1261,11 @@ function startTapeAmbience() {
   droneOsc.connect(droneMasterGain).connect(tapeAmbience);
   droneOsc.start();
 
-  // 4. Distant voices (random bursts)
+  // 3. Distant voices (random bursts)
   scheduleDistantVoices();
-}
-function scheduleDistantVoices() {
+
+  // Hiss section completely removed
+}function scheduleDistantVoices() {
   if (!tapeAmbience || !ensureAudio()) return;
   const delay = 3000 + Math.random() * 7000;
   distantVoicesTimer = setTimeout(() => {
@@ -1327,14 +1311,17 @@ function stopTapeAmbience() {
 function setTapeIntensity(level) {
   if (!tapeAmbience) return;
   const t = audioCtx.currentTime;
-  // Hiss: 0.12 → 0.28
-  if (hissGain) hissGain.gain.linearRampToValueAtTime(0.12 + level * 0.16, t + 0.5);
-  // Drone: 0 → 0.18
-  if (droneMasterGain) droneMasterGain.gain.linearRampToValueAtTime(level * 0.18, t + 0.8);
-  // Motor gain slightly drops
-  if (motorGainNode) motorGainNode.gain.linearRampToValueAtTime(0.15 - level * 0.05, t + 0.3);
-}
+  // Hiss removed – no gain adjustment for it
 
+  // Drone fades in with intensity
+  if (droneMasterGain) {
+    droneMasterGain.gain.linearRampToValueAtTime(level * 0.18, t + 0.8);
+  }
+  // Motor gain slightly drops when tape degrades
+  if (motorGainNode) {
+    motorGainNode.gain.linearRampToValueAtTime(0.15 - level * 0.05, t + 0.3);
+  }
+}
 // ── Canvas Static & Waveform ─────────────────
 function initCanvasVisuals() {
   const canvas = document.getElementById('tapeCanvas');
@@ -1348,32 +1335,24 @@ function initCanvasVisuals() {
 
 function drawCanvas() {
   if (!tapeAmbience || !canvasCtx) {
-    requestAnimationFrame(drawCanvas); // keep trying
+    requestAnimationFrame(drawCanvas);
     return;
   }
   const canvas = canvasCtx.canvas;
   const w = canvas.width;
   const h = canvas.height;
 
-  // Dense static
-  const imageData = canvasCtx.createImageData(w, h);
-  const data = imageData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    const val = Math.random() * 255;
-    data[i] = val;
-    data[i+1] = val;
-    data[i+2] = val;
-    data[i+3] = 255;
-  }
-  canvasCtx.putImageData(imageData, 0, 0);
+  // Clear to pure black
+  canvasCtx.fillStyle = 'black';
+  canvasCtx.fillRect(0, 0, w, h);
 
-  // Scanlines
+  // Keep scanlines if you want them (optional)
   canvasCtx.fillStyle = 'rgba(0,0,0,0.2)';
   for (let y = 0; y < h; y += 4) {
     canvasCtx.fillRect(0, y, w, 2);
   }
 
-  // Waveform (audio‑reactive)
+  // Waveform (audio‑reactive) – you can keep it or comment out
   if (canvasAnalyser) {
     const bufferLength = canvasAnalyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
@@ -1395,7 +1374,6 @@ function drawCanvas() {
 
   requestAnimationFrame(drawCanvas);
 }
-
 // ── Robotic Speech Synthesis ────────────────
 function speakRobotic(text, duration = 2.0) {
   if (!soundEnabled || !ensureAudio()) return;
