@@ -106,7 +106,7 @@
         }
         
         .header::after {
-            content: 'GUILD EDITION v4.0';
+            content: 'GUILD EDITION v4.5';
             position: absolute;
             top: 2px;
             right: 12px;
@@ -448,7 +448,7 @@
             <div class="screen active" id="title-screen">
                 <div class="title-screen">
                     <div class="logo">QUESTLAND</div>
-                    <div style="font-size:14px; margin-top:-20px; color:#ff8800;">GUILD EDITION • v4.0</div>
+                    <div style="font-size:14px; margin-top:-20px; color:#ff8800;">GUILD EDITION • v4.5</div>
                     <div style="font-size:22px; margin:30px 0; line-height:1.3;">
                         CREATE YOUR HERO<br>
                         UPGRADE YOUR TOWN<br>
@@ -469,7 +469,7 @@
                 </div>
             </div>
             
-            <!-- CHARACTER CREATION SCREEN (unchanged) -->
+            <!-- CHARACTER CREATION SCREEN -->
             <div class="screen" id="creation-screen">
                 <div style="text-align:center; font-size:18px; margin-bottom:12px;">CREATE YOUR HERO</div>
                 <div style="background:#112211; border:3px solid #00ff88; padding:16px; margin-bottom:16px;">
@@ -551,6 +551,8 @@
                             <button onclick="showScreen('rankings-screen')">🏆 RANKINGS</button>
                             <button onclick="showScreen('town-screen')">🏘️ TOWN</button>
                             <button onclick="showScreen('guild-screen')">🏛️ GUILD</button>
+                            <button onclick="claimDailyReward()" id="daily-reward-btn" style="font-size:11px;">🎁 DAILY REWARD</button>
+                            <button onclick="showScreen('weekly-screen')">📋 WEEKLY</button>
                         </div>
                         
                         <button onclick="showScreen('shop-screen')" style="width:100%; background:#112211; border-color:#ffcc00; font-size:15px; padding:18px;">
@@ -685,6 +687,13 @@
                             <button onclick="refreshGuildQuests()" style="margin-top:8px; padding:8px;">Refresh Quests (Free)</button>
                         </div>
                         <div style="margin-bottom:12px;">
+                            <div style="font-size:14px;">GUILD RAID BOSS</div>
+                            <div id="raid-boss-container">
+                                <div id="raid-boss-info">No active raid boss</div>
+                                <button id="raid-attack-btn" onclick="attackRaidBoss()" style="margin-top:8px; display:none;">⚔️ ATTACK (5⚡)</button>
+                            </div>
+                        </div>
+                        <div style="margin-bottom:12px;">
                             <div style="font-size:14px;">GUILD SHOP</div>
                             <div id="guild-shop"></div>
                         </div>
@@ -695,12 +704,23 @@
                             <button onclick="postGuildMessage()" style="margin-top:4px; padding:8px;">POST</button>
                         </div>
                     </div>
+                    
+                    <!-- WEEKLY SCREEN -->
+                    <div id="weekly-screen" style="display:none; flex-direction:column;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                            <div style="font-size:18px;">📋 WEEKLY CHALLENGES</div>
+                            <button onclick="showScreen('hub-default')" style="padding:8px 16px; font-size:12px;">BACK</button>
+                        </div>
+                        <div style="font-size:11px; background:#112211; padding:8px 12px; margin-bottom:12px;">COMPLETE TASKS FOR GUILD POINTS AND RARE ITEMS</div>
+                        <div id="weekly-quests-container"></div>
+                        <button onclick="resetWeeklyQuests()" style="margin-top:8px; background:#330000; border-color:#ff4444;">RESET WEEKLY (Cost 50 GP)</button>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
     
-    <!-- BATTLE MODAL (unchanged) -->
+    <!-- BATTLE MODAL -->
     <div class="modal" id="battle-modal">
         <div class="modal-content">
             <div id="battle-title" style="font-size:18px; margin-bottom:16px;">BATTLE!</div>
@@ -738,6 +758,15 @@
         </div>
     </div>
     
+    <!-- OFFLINE REWARDS MODAL -->
+    <div class="modal" id="offline-modal">
+        <div class="modal-content">
+            <div style="font-size:18px; color:#ffcc00;">WHILE YOU WERE AWAY...</div>
+            <div id="offline-rewards-text" style="margin:20px 0; font-size:14px; line-height:1.6;"></div>
+            <button onclick="collectOfflineRewards()" style="width:100%;">💰 COLLECT REWARDS</button>
+        </div>
+    </div>
+    
     <script>
         // ====================== GAME STATE ======================
         let hero = {
@@ -767,9 +796,14 @@
             tavernLevel: 1,
             xpBoostEndTime: 0,
             guildPoints: 0,
-            guildBonuses: [], // store active bonus objects
-            guildMessages: []
+            guildBonuses: [],
+            guildMessages: [],
+            weeklyQuests: [],
+            weekStart: 0,
+            raidBoss: { name: "ANCIENT DRAGON", emoji: "🐉", hp: 5000, maxHp: 5000, active: false, lastAttackTime: 0 }
         }
+        
+        let pendingOfflineRewards = { gold: 0, xp: 0, energy: 0 };
         
         // ==================== GEAR POOL WITH SETS ====================
         const gearPool = [
@@ -892,11 +926,11 @@
         
         function saveGame() { 
             let saveData = { ...hero, timestamp: Date.now() };
-            localStorage.setItem('questlandSave_v4', JSON.stringify(saveData));
+            localStorage.setItem('questlandSave_v4_5', JSON.stringify(saveData));
         }
         
         function loadGame() {
-            const saved = localStorage.getItem('questlandSave_v4')
+            const saved = localStorage.getItem('questlandSave_v4_5')
             if (saved) {
                 const data = JSON.parse(saved)
                 hero = data
@@ -908,23 +942,105 @@
                 if (!hero.guildPoints) hero.guildPoints = 0
                 if (!hero.guildBonuses) hero.guildBonuses = []
                 if (!hero.guildMessages) hero.guildMessages = []
+                if (!hero.weeklyQuests) hero.weeklyQuests = []
+                if (!hero.weekStart) hero.weekStart = getWeekStart()
+                if (!hero.raidBoss) hero.raidBoss = { name: "ANCIENT DRAGON", emoji: "🐉", hp: 5000, maxHp: 5000, active: false, lastAttackTime: 0 }
                 
                 const now = Date.now()
                 const offlineMs = now - (data.timestamp || now)
                 const offlineMin = Math.floor(offlineMs / 60000)
                 if (offlineMin > 0) {
-                    const offlineGold = Math.min(240, Math.floor(offlineMin * 0.8))
-                    const offlineXP = Math.min(720, Math.floor(offlineMin * 2.5))
-                    hero.gold += offlineGold
-                    hero.xp += offlineXP
+                    pendingOfflineRewards.gold = Math.min(240, Math.floor(offlineMin * 0.8))
+                    pendingOfflineRewards.xp = Math.min(720, Math.floor(offlineMin * 2.5))
                     const energyRefillMs = 90000
                     const offlineEnergy = Math.floor(offlineMs / energyRefillMs)
-                    hero.energy = Math.min(hero.maxEnergy, hero.energy + offlineEnergy)
-                    hero.lastEnergyRefill = now - (offlineMs % energyRefillMs)
+                    pendingOfflineRewards.energy = Math.min(hero.maxEnergy, offlineEnergy)
+                    // We'll show the modal later, but don't add yet
                 }
                 return true
             }
             return false
+        }
+        
+        function getWeekStart() {
+            let d = new Date();
+            d.setHours(0,0,0,0);
+            d.setDate(d.getDate() - d.getDay()); // Sunday
+            return d.getTime();
+        }
+        
+        function initializeWeeklyQuests() {
+            const now = Date.now();
+            if (!hero.weekStart || now - hero.weekStart > 7*24*60*60*1000) {
+                hero.weekStart = getWeekStart();
+                hero.weeklyQuests = [
+                    { name: "Slay 20 enemies", progress: 0, target: 20, rewardGP: 50, rewardItem: "RARE MYSTIC LOOT" },
+                    { name: "Earn 200 gold", progress: 0, target: 200, rewardGP: 30, rewardItem: "EPIC RING" },
+                    { name: "Use skill 10 times", progress: 0, target: 10, rewardGP: 40, rewardItem: "LEGENDARY SCROLL" }
+                ];
+                saveGame();
+            }
+        }
+        
+        function updateWeeklyProgress(type, amount = 1) {
+            if (!hero.weeklyQuests) return;
+            hero.weeklyQuests.forEach(q => {
+                if (type === 'kill' && q.name.includes('Slay')) q.progress = Math.min(q.target, q.progress + amount);
+                if (type === 'gold' && q.name.includes('gold')) q.progress = Math.min(q.target, q.progress + amount);
+                if (type === 'skill' && q.name.includes('skill')) q.progress = Math.min(q.target, q.progress + amount);
+            });
+            saveGame();
+        }
+        
+        function resetWeeklyQuests() {
+            if (hero.guildPoints < 50) { showMessage("Need 50 guild points to reset weekly quests!", "error"); return; }
+            hero.guildPoints -= 50;
+            hero.weekStart = getWeekStart();
+            hero.weeklyQuests = [
+                { name: "Slay 20 enemies", progress: 0, target: 20, rewardGP: 50, rewardItem: "RARE MYSTIC LOOT" },
+                { name: "Earn 200 gold", progress: 0, target: 200, rewardGP: 30, rewardItem: "EPIC RING" },
+                { name: "Use skill 10 times", progress: 0, target: 10, rewardGP: 40, rewardItem: "LEGENDARY SCROLL" }
+            ];
+            saveGame();
+            updateWeeklyUI();
+            showMessage("Weekly quests reset!", "success");
+        }
+        
+        function updateWeeklyUI() {
+            const container = document.getElementById('weekly-quests-container');
+            if (!container) return;
+            let html = '';
+            hero.weeklyQuests.forEach((q, idx) => {
+                html += `<div class="item">
+                    <div style="flex:1;">${q.name}</div>
+                    <div>${q.progress}/${q.target}</div>
+                    <button onclick="claimWeeklyReward(${idx})" style="padding:4px 8px; font-size:10px;">CLAIM</button>
+                </div>`;
+            });
+            container.innerHTML = html;
+        }
+        
+        function claimWeeklyReward(idx) {
+            const q = hero.weeklyQuests[idx];
+            if (q.progress >= q.target) {
+                hero.guildPoints += q.rewardGP;
+                let itemName = q.rewardItem;
+                // Give a corresponding rarity item
+                let rarity = 'rare';
+                if (itemName.includes('EPIC')) rarity = 'epic';
+                if (itemName.includes('LEGENDARY')) rarity = 'legendary';
+                const pool = gearPool.filter(i => i.rarity === rarity);
+                if (pool.length > 0) {
+                    let newItem = {...pool[rand(0, pool.length-1)]};
+                    hero.inventory.push(newItem);
+                }
+                showMessage(`Weekly quest complete! +${q.rewardGP} GP, ${itemName}!`, "success");
+                q.progress = 0; // reset
+                saveGame();
+                updateWeeklyUI();
+            } else {
+                showMessage(`Need ${q.target - q.progress} more progress.`, "warning");
+            }
         }
         
         function updateEnergy() {
@@ -940,24 +1056,17 @@
         // Class passive bonuses
         function getClassBonus() {
             let bonus = { defense: 0, critChance: 0, dodgeChance: 0 };
-            if (hero.classType === 0) { // Warrior: +1 armor per level
-                bonus.defense = hero.level;
-            } else if (hero.classType === 1) { // Mage: +2% crit per level
-                bonus.critChance = hero.level * 2;
-            } else if (hero.classType === 2) { // Rogue: +1% dodge per level
-                bonus.dodgeChance = hero.level;
-            }
+            if (hero.classType === 0) bonus.defense = hero.level;
+            else if (hero.classType === 1) bonus.critChance = hero.level * 2;
+            else if (hero.classType === 2) bonus.dodgeChance = hero.level;
             return bonus;
         }
         
-        // Set bonuses
         function getSetBonuses() {
             let setCounts = {};
             for (let slot in hero.equipped) {
                 let item = hero.equipped[slot];
-                if (item && item.set) {
-                    setCounts[item.set] = (setCounts[item.set] || 0) + 1;
-                }
+                if (item && item.set) setCounts[item.set] = (setCounts[item.set] || 0) + 1;
             }
             let bonuses = { attack: 0, defense: 0, crit: 0, dodge: 0 };
             for (let set in setCounts) {
@@ -972,15 +1081,11 @@
                         default: bonuses.attack += 10; bonuses.defense += 10;
                     }
                 }
-                if (count >= 3) {
-                    bonuses.attack += 15;
-                    bonuses.defense += 15;
-                }
+                if (count >= 3) { bonuses.attack += 15; bonuses.defense += 15; }
             }
             return bonuses;
         }
         
-        // Gear score calculation
         function getGearScore() {
             let score = 0;
             for (let slot in hero.equipped) {
@@ -1038,6 +1143,17 @@
             document.getElementById('header-gold').innerHTML = `💰 ${hero.gold}`
             let cd = currentBattle.skillCooldown;
             document.getElementById('skill-button').innerHTML = getSkillName() + (cd > 0 ? ` (${cd})` : '')
+            // Daily reward button text
+            const dailyBtn = document.getElementById('daily-reward-btn');
+            if (dailyBtn) {
+                let now = Date.now();
+                if (hero.lastDaily && now - hero.lastDaily < 86400000) {
+                    let hoursLeft = Math.ceil((86400000 - (now - hero.lastDaily)) / 3600000);
+                    dailyBtn.innerHTML = `🎁 DAILY (${hoursLeft}h)`;
+                } else {
+                    dailyBtn.innerHTML = `🎁 DAILY REWARD`;
+                }
+            }
         }
         
         function getSkillName() {
@@ -1068,7 +1184,7 @@
         function renderInventory() {
             let html = ''
             hero.inventory.forEach(item => {
-                const sellPrice = Math.floor((15 + ((item.bonusAttack || 0) * 4) + ((item.bonusDefense || 0) * 4) + (item.rarity === 'mythic' ? 200 : item.rarity === 'legendary' ? 120 : item.rarity === 'epic' ? 60 : item.rarity === 'rare' ? 30 : 10)) * (1 + (hero.forgeLevel - 1) * 0.2))
+                const sellPrice = Math.floor((10 + ((item.bonusAttack || 0) * 3) + ((item.bonusDefense || 0) * 3) + (item.rarity === 'mythic' ? 120 : item.rarity === 'legendary' ? 80 : item.rarity === 'epic' ? 40 : item.rarity === 'rare' ? 20 : 8)) * (1 + (hero.forgeLevel - 1) * 0.1))
                 html += `<div class="item" style="padding:8px; display:flex; align-items:center; gap:12px;">
                             <div onclick="equipItemFromInventory(${item.id});" style="flex:1; display:flex; align-items:center; gap:12px; cursor:pointer;">
                                 <div style="font-size:32px">${item.emoji}</div>
@@ -1090,12 +1206,13 @@
             }
             let html = ''
             currentShopItems.forEach(item => {
+                const scaledPrice = Math.floor(item.price * (1 + (hero.level - 1) * 0.05))
                 html += `<div class="shop-item">
                             <div style="font-size:32px">${item.emoji}</div>
                             <div style="flex:1"><div style="font-weight:bold">${item.name}</div><div class="rarity-${item.rarity}" style="font-size:10px;">${item.rarity.toUpperCase()} • ${item.type}</div></div>
                             <div style="text-align:right; line-height:1.3;">
                                 ${item.bonusAttack ? `+${item.bonusAttack}⚔️<br>` : ''}${item.bonusDefense ? `+${item.bonusDefense}🛡️` : ''}
-                                <div style="margin-top:8px; background:#003300; color:#ffcc00; padding:4px 12px; border:2px solid #ffcc00; font-size:13px; display:inline-block;">${item.price} 💰</div>
+                                <div style="margin-top:8px; background:#003300; color:#ffcc00; padding:4px 12px; border:2px solid #ffcc00; font-size:13px; display:inline-block;">${scaledPrice} 💰</div>
                                 <button onclick="buyItem(${item.id}); event.stopImmediatePropagation()" style="margin-top:8px; width:100%; font-size:12px; padding:8px; background:#112211; border:3px solid #ffcc00;">BUY NOW</button>
                             </div>
                           </div>`
@@ -1128,7 +1245,6 @@
             if (hero.gold < 100) { showMessage("Need 100 gold!", "error"); return }
             hero.gold -= 100
             hero.xpBoostEndTime = Date.now() + 30 * 60 * 1000
-            // Also give guild points
             hero.guildPoints = (hero.guildPoints || 0) + 10;
             soundBuy()
             updateHeroBar()
@@ -1165,7 +1281,7 @@
         
         function updateTownUI() {
             document.getElementById('forge-level').innerText = hero.forgeLevel
-            document.getElementById('forge-next').innerText = `+${hero.forgeLevel * 20}%`
+            document.getElementById('forge-next').innerText = `+${hero.forgeLevel * 10}%`
             document.getElementById('forge-cost').innerHTML = `${200 + (hero.forgeLevel - 1) * 100}💰`
             document.getElementById('tavern-level').innerText = hero.tavernLevel
             document.getElementById('tavern-next').innerText = `+${hero.tavernLevel - 1} max energy`
@@ -1213,6 +1329,7 @@
             if (screenId === 'town-screen') updateTownUI()
             if (screenId === 'quest-screen') renderQuestList()
             if (screenId === 'guild-screen') updateGuildUI()
+            if (screenId === 'weekly-screen') updateWeeklyUI()
             if (screenId === 'hub-default') {
                 if (hero.xpBoostEndTime > Date.now()) document.getElementById('xp-buff-status').style.display = 'block'
                 else document.getElementById('xp-buff-status').style.display = 'none'
@@ -1241,10 +1358,10 @@
         
         function getScaledEnemy(quest, heroLevel) {
             let scaling = 1 + Math.min(2.0, (heroLevel - 1) * 0.1);
-            // Apply gear score scaling
             let gearScore = getGearScore();
             let gearBonus = Math.floor(gearScore / 50) * 0.05;
-            scaling += Math.min(1.0, gearBonus);
+            gearBonus = Math.min(0.5, gearBonus); // cap gear influence
+            scaling += gearBonus;
             let scaledHp = Math.floor(quest.hp * scaling);
             let scaledAttack = Math.floor(quest.attack * scaling);
             let scaledXp = Math.floor(quest.xp * scaling);
@@ -1286,7 +1403,7 @@
         
         // ====================== TITLE & CREATION ======================
         function startNewGame() { document.getElementById('title-screen').classList.remove('active'); document.getElementById('creation-screen').classList.add('active'); selectClass(0); selectAvatar(0) }
-        function continueGame() { if (loadGame()) { document.getElementById('title-screen').classList.remove('active'); document.getElementById('hub-screen').classList.add('active'); updateHeroBar(); renderEquipped(); updateTownUI(); renderQuestList(); updateGuildUI(); } }
+        function continueGame() { if (loadGame()) { document.getElementById('title-screen').classList.remove('active'); document.getElementById('hub-screen').classList.add('active'); updateHeroBar(); renderEquipped(); updateTownUI(); renderQuestList(); updateGuildUI(); showOfflineModal(); } }
         function selectClass(i) { selectedClassIndex = i; document.querySelectorAll('#creation-screen button[id^="class-"]').forEach(btn => { btn.style.border = '4px solid #00ff88'; btn.style.background = '#112211' }); document.getElementById(`class-${i}`).style.border = '4px solid #ff8800'; document.getElementById(`class-${i}`).style.background = '#003300' }
         function selectAvatar(i) { selectedAvatarIndex = i; document.querySelectorAll('#creation-screen div[onclick^="selectAvatar"]').forEach(el => el.style.border = '3px solid transparent'); document.getElementById(`avatar-${i}`).style.border = '3px solid #ff8800' }
         function createHero() {
@@ -1313,6 +1430,10 @@
             hero.guildPoints = 0;
             hero.guildBonuses = [];
             hero.guildMessages = [];
+            hero.weeklyQuests = [];
+            hero.weekStart = getWeekStart();
+            hero.raidBoss = { name: "ANCIENT DRAGON", emoji: "🐉", hp: 5000, maxHp: 5000, active: false, lastAttackTime: 0 };
+            initializeWeeklyQuests();
             document.getElementById('creation-screen').classList.remove('active')
             document.getElementById('hub-screen').classList.add('active')
             updateHeroBar()
@@ -1324,6 +1445,25 @@
             showMessage("Hero forged! Adventure awaits!", "success")
         }
         function goBackToTitle() { document.getElementById('creation-screen').classList.remove('active'); document.getElementById('title-screen').classList.add('active') }
+        
+        // ====================== OFFLINE REWARDS ======================
+        function showOfflineModal() {
+            if (pendingOfflineRewards.gold > 0 || pendingOfflineRewards.xp > 0 || pendingOfflineRewards.energy > 0) {
+                let text = `💰 ${pendingOfflineRewards.gold} gold<br>✨ ${pendingOfflineRewards.xp} XP<br>⚡ ${pendingOfflineRewards.energy} energy`;
+                document.getElementById('offline-rewards-text').innerHTML = text;
+                document.getElementById('offline-modal').style.display = 'flex';
+            }
+        }
+        function collectOfflineRewards() {
+            hero.gold += pendingOfflineRewards.gold;
+            hero.xp += pendingOfflineRewards.xp;
+            hero.energy = Math.min(hero.maxEnergy, hero.energy + pendingOfflineRewards.energy);
+            pendingOfflineRewards = { gold: 0, xp: 0, energy: 0 };
+            document.getElementById('offline-modal').style.display = 'none';
+            updateHeroBar();
+            saveGame();
+            showMessage("Offline rewards collected!", "success");
+        }
         
         // ====================== BATTLE ======================
         function startQuest(questIndex) {
@@ -1409,15 +1549,15 @@
             let damage = 0
             let effect = ""
             const stats = getCurrentStats()
-            if (hero.classType === 0) { // Warrior: Shield Bash - reduce enemy damage for 2 turns
+            if (hero.classType === 0) {
                 damage = Math.max(18, Math.floor(stats.attack * 1.6) + rand(-5, 8))
                 let defenseBonus = Math.floor(stats.defense * 0.3);
                 damage += defenseBonus;
                 currentBattle.enemyDebuff = "bash";
-                currentBattle.enemyDebuffDuration = 2; // lasts 2 turns
+                currentBattle.enemyDebuffDuration = 2;
                 effect = `Enemy's attack reduced by 30% for 2 turns! (Defense bonus +${defenseBonus})`
                 logBattle(`SHIELD BASH! ${damage} damage. ${effect}`, "#44aaff")
-            } else if (hero.classType === 1) { // Mage: Fireball
+            } else if (hero.classType === 1) {
                 damage = Math.max(22, Math.floor(stats.attack * 2.0) + rand(-8, 12))
                 if (rand(1,100) <= 40) {
                     currentBattle.burnTurns = 2
@@ -1425,7 +1565,7 @@
                     effect = "Enemy is burning and dazzled (attack reduced)!"
                     logBattle(`FIREBALL! ${damage} damage. ${effect}`, "#ff8844")
                 } else logBattle(`FIREBALL! ${damage} damage.`, "#ff8844")
-            } else { // Rogue: Backstab
+            } else {
                 damage = Math.max(20, Math.floor(stats.attack * 1.8) + rand(-6, 10))
                 currentBattle.playerBuff = "backstab"
                 effect = "Your next attack is empowered!"
@@ -1439,6 +1579,7 @@
             }
             currentBattle.enemyHp -= damage
             currentBattle.skillCooldown = getSkillCooldown();
+            updateWeeklyProgress('skill', 1);
             const enemyAvatar = document.getElementById('enemy-avatar')
             enemyAvatar.classList.add('hit')
             setTimeout(() => enemyAvatar.classList.remove('hit'), 300)
@@ -1449,14 +1590,11 @@
                 setTimeout(enemyTurn, skipAnimations ? 10 : 800);
             } else if (!currentBattle.isPlayerTurn) {
                 setTimeout(enemyTurn, skipAnimations ? 10 : 800);
-            } else {
-                // extra turn, stay
             }
         }
         
         function enemyTurn() {
             if (currentBattle.enemyHp <= 0) return
-            // Apply burn
             if (currentBattle.burnTurns > 0) {
                 let burnDamage = Math.floor(currentBattle.enemyMaxHp * 0.05)
                 currentBattle.enemyHp -= burnDamage
@@ -1465,89 +1603,82 @@
                 updateBattleUI()
                 if (currentBattle.enemyHp <= 0) { setTimeout(victoryBattle, skipAnimations ? 10 : 300); return }
             }
-            // Enemy ability (with cooldown)
             let canUseAbility = (currentBattle.enemyAbilityCooldown <= 0);
             let lowHp = (currentBattle.enemyHp < currentBattle.enemyMaxHp * 0.5);
             if (canUseAbility && (!currentBattle.enemyAbilityUsed || lowHp)) {
                 const type = currentBattle.enemyType;
-                // Use ability if cooldown ready and (first time or low HP)
-                if (true) {
-                    if (type === "goblin") {
-                        let heal = 20
-                        currentBattle.enemyHp = Math.min(currentBattle.enemyMaxHp, currentBattle.enemyHp + heal)
-                        currentBattle.enemyMaxHp += 20
-                        logBattle(`Goblin calls reinforcements! Max HP increased by 20 and heals ${heal}!`, "#ffaa66")
-                    } else if (type === "dragon") {
-                        let damage = Math.max(15, currentBattle.enemyAttack * 1.5 + rand(-5, 10))
-                        currentBattle.playerHp -= damage
-                        currentBattle.playerDebuff = "dragonBreath"
-                        logBattle(`Dragon uses Breath Attack! ${damage} damage. Your attack is reduced!`, "#ff8866")
-                        if (currentBattle.enemyElite && !currentBattle.secondAbilityUsed) {
-                            let stunDamage = Math.max(12, currentBattle.enemyAttack * 1.2 + rand(-4, 6));
-                            currentBattle.playerHp -= stunDamage;
-                            logBattle(`Elite Dragon's Tail Swipe! ${stunDamage} damage and you are stunned!`, "#ffaa66");
-                            currentBattle.isPlayerTurn = false;
-                            currentBattle.secondAbilityUsed = true;
-                        }
-                        const playerAvatar = document.getElementById('player-avatar')
-                        playerAvatar.classList.add('hit')
-                        setTimeout(() => playerAvatar.classList.remove('hit'), 300)
-                    } else if (type === "undead") {
-                        let heal = Math.floor(currentBattle.enemyMaxHp * 0.15)
-                        currentBattle.enemyHp = Math.min(currentBattle.enemyMaxHp, currentBattle.enemyHp + heal)
-                        logBattle(`Undead self-heals for ${heal} HP!`, "#88ff88")
-                    } else if (type === "orc") {
-                        let boost = 5
-                        currentBattle.enemyAttack += boost
-                        logBattle(`Orc Warlord enrages! Attack increased by ${boost}!`, "#ffaa66")
-                    } else if (type === "shadow") {
-                        let damage = Math.max(18, currentBattle.enemyAttack * 1.4 + rand(-4, 8))
-                        currentBattle.playerHp -= damage
-                        logBattle(`Shadow Assassin strikes from darkness! ${damage} damage!`, "#aa88ff")
-                    } else if (type === "ice") {
-                        currentBattle.playerDebuff = "frozen"
-                        logBattle(`Ice Golem freezes you! Your next attack deals less damage.`, "#88aaff")
-                    } else if (type === "fire") {
-                        currentBattle.burnTurns = (currentBattle.burnTurns || 0) + 2
-                        logBattle(`Fire Elemental ignites the ground! Burn applied!`, "#ff8844")
-                    } else if (type === "dark") {
-                        let drain = Math.floor(currentBattle.playerHp * 0.15)
-                        currentBattle.playerHp -= drain
-                        currentBattle.enemyHp = Math.min(currentBattle.enemyMaxHp, currentBattle.enemyHp + drain)
-                        logBattle(`Dark Knight drains ${drain} HP from you!`, "#ff8888")
-                    } else if (type === "lich") {
-                        let heal = Math.floor(currentBattle.enemyMaxHp * 0.12)
-                        currentBattle.enemyHp = Math.min(currentBattle.enemyMaxHp, currentBattle.enemyHp + heal)
-                        logBattle(`Lich casts Deathly Renewal, healing ${heal} HP!`, "#cc88ff")
-                    } else if (type === "titan") {
-                        currentBattle.enemyDebuff = "stomp"
-                        logBattle(`Stone Titan stomps the ground, shaking you! Your defense is lowered.`, "#ccaa88")
-                    } else if (type === "wraith") {
-                        let curse = Math.floor(hero.maxHp * 0.1)
-                        currentBattle.playerHp -= curse
-                        logBattle(`Void Wraith curses you! ${curse} damage!`, "#aa66ff")
-                    } else if (type === "chimera") {
-                        let breath = rand(15, 25)
-                        currentBattle.playerHp -= breath
-                        logBattle(`Chimera unleashes triple breath! ${breath} damage!`, "#ffaa66")
-                    } else if (type === "abyss") {
-                        let voidDamage = Math.floor(currentBattle.playerHp * 0.2)
-                        currentBattle.playerHp -= voidDamage
-                        logBattle(`Abyssal Lord consumes your soul! ${voidDamage} damage!`, "#ff44aa")
+                if (type === "goblin") {
+                    let heal = 20
+                    currentBattle.enemyHp = Math.min(currentBattle.enemyMaxHp, currentBattle.enemyHp + heal)
+                    currentBattle.enemyMaxHp += 20
+                    logBattle(`Goblin calls reinforcements! Max HP increased by 20 and heals ${heal}!`, "#ffaa66")
+                } else if (type === "dragon") {
+                    let damage = Math.max(15, currentBattle.enemyAttack * 1.5 + rand(-5, 10))
+                    currentBattle.playerHp -= damage
+                    currentBattle.playerDebuff = "dragonBreath"
+                    logBattle(`Dragon uses Breath Attack! ${damage} damage. Your attack is reduced!`, "#ff8866")
+                    if (currentBattle.enemyElite && !currentBattle.secondAbilityUsed) {
+                        let stunDamage = Math.max(12, currentBattle.enemyAttack * 1.2 + rand(-4, 6));
+                        currentBattle.playerHp -= stunDamage;
+                        logBattle(`Elite Dragon's Tail Swipe! ${stunDamage} damage and you are stunned!`, "#ffaa66");
+                        currentBattle.isPlayerTurn = false;
+                        currentBattle.secondAbilityUsed = true;
                     }
-                    currentBattle.enemyAbilityUsed = true;
-                    currentBattle.enemyAbilityCooldown = 4;
-                    updateBattleUI()
-                    if (currentBattle.playerHp <= 0) { setTimeout(defeatBattle, skipAnimations ? 10 : 400); return }
+                    const playerAvatar = document.getElementById('player-avatar')
+                    playerAvatar.classList.add('hit')
+                    setTimeout(() => playerAvatar.classList.remove('hit'), 300)
+                } else if (type === "undead") {
+                    let heal = Math.floor(currentBattle.enemyMaxHp * 0.15)
+                    currentBattle.enemyHp = Math.min(currentBattle.enemyMaxHp, currentBattle.enemyHp + heal)
+                    logBattle(`Undead self-heals for ${heal} HP!`, "#88ff88")
+                } else if (type === "orc") {
+                    let boost = 5
+                    currentBattle.enemyAttack += boost
+                    logBattle(`Orc Warlord enrages! Attack increased by ${boost}!`, "#ffaa66")
+                } else if (type === "shadow") {
+                    let damage = Math.max(18, currentBattle.enemyAttack * 1.4 + rand(-4, 8))
+                    currentBattle.playerHp -= damage
+                    logBattle(`Shadow Assassin strikes from darkness! ${damage} damage!`, "#aa88ff")
+                } else if (type === "ice") {
+                    currentBattle.playerDebuff = "frozen"
+                    logBattle(`Ice Golem freezes you! Your next attack deals less damage.`, "#88aaff")
+                } else if (type === "fire") {
+                    currentBattle.burnTurns = (currentBattle.burnTurns || 0) + 2
+                    logBattle(`Fire Elemental ignites the ground! Burn applied!`, "#ff8844")
+                } else if (type === "dark") {
+                    let drain = Math.floor(currentBattle.playerHp * 0.15)
+                    currentBattle.playerHp -= drain
+                    currentBattle.enemyHp = Math.min(currentBattle.enemyMaxHp, currentBattle.enemyHp + drain)
+                    logBattle(`Dark Knight drains ${drain} HP from you!`, "#ff8888")
+                } else if (type === "lich") {
+                    let heal = Math.floor(currentBattle.enemyMaxHp * 0.12)
+                    currentBattle.enemyHp = Math.min(currentBattle.enemyMaxHp, currentBattle.enemyHp + heal)
+                    logBattle(`Lich casts Deathly Renewal, healing ${heal} HP!`, "#cc88ff")
+                } else if (type === "titan") {
+                    currentBattle.enemyDebuff = "stomp"
+                    logBattle(`Stone Titan stomps the ground, shaking you! Your defense is lowered.`, "#ccaa88")
+                } else if (type === "wraith") {
+                    let curse = Math.floor(hero.maxHp * 0.1)
+                    currentBattle.playerHp -= curse
+                    logBattle(`Void Wraith curses you! ${curse} damage!`, "#aa66ff")
+                } else if (type === "chimera") {
+                    let breath = rand(15, 25)
+                    currentBattle.playerHp -= breath
+                    logBattle(`Chimera unleashes triple breath! ${breath} damage!`, "#ffaa66")
+                } else if (type === "abyss") {
+                    let voidDamage = Math.floor(currentBattle.playerHp * 0.2)
+                    currentBattle.playerHp -= voidDamage
+                    logBattle(`Abyssal Lord consumes your soul! ${voidDamage} damage!`, "#ff44aa")
                 }
+                currentBattle.enemyAbilityUsed = true;
+                currentBattle.enemyAbilityCooldown = 4;
+                updateBattleUI()
+                if (currentBattle.playerHp <= 0) { setTimeout(defeatBattle, skipAnimations ? 10 : 400); return }
             } else {
-                // Decrement cooldown
                 if (currentBattle.enemyAbilityCooldown > 0) currentBattle.enemyAbilityCooldown--;
             }
-            // Normal attack
             let stats = getCurrentStats();
             let damage = Math.max(7, currentBattle.enemyAttack + rand(-6, 8) - Math.floor(stats.defense / 3))
-            // Apply dazzled (attack reduced by 30%)
             if (currentBattle.enemyDebuff === "dazzled") {
                 damage = Math.floor(damage * 0.7);
                 currentBattle.enemyDebuff = null;
@@ -1605,10 +1736,21 @@
             hero.xp += xpGain
             hero.gold += currentBattle.rewardGold
             hero.hp = Math.min(hero.maxHp, currentBattle.playerHp + rand(20, 35))
+            updateWeeklyProgress('kill', 1);
+            updateWeeklyProgress('gold', currentBattle.rewardGold);
+            // Progress guild quests based on enemy type
+            guildQuests.forEach(q => {
+                if (q.type === currentBattle.enemyType) q.progress = Math.min(q.target, q.progress + 1);
+            });
             let leveledUp = false;
             while (hero.xp >= hero.xpToNext) {
                 hero.level++
-                hero.xpToNext = Math.floor(hero.xpToNext * 1.5)
+                if (hero.level > 20) {
+                    hero.xpToNext = Math.floor(hero.xpToNext * 1.2 + 200);
+                } else {
+                    hero.xpToNext = Math.floor(hero.xpToNext * 1.5);
+                }
+                hero.xpToNext = Math.min(hero.xpToNext, 10000); // overall cap
                 hero.maxHp += 22
                 hero.hp = hero.maxHp
                 hero.energy = hero.maxEnergy;
@@ -1691,7 +1833,7 @@
             const idx = hero.inventory.findIndex(i => i.id === id)
             if (idx === -1) return
             const item = hero.inventory[idx]
-            let price = Math.floor((15 + ((item.bonusAttack || 0) * 4) + ((item.bonusDefense || 0) * 4) + (item.rarity === 'mythic' ? 200 : item.rarity === 'legendary' ? 120 : item.rarity === 'epic' ? 60 : item.rarity === 'rare' ? 30 : 10)) * (1 + (hero.forgeLevel - 1) * 0.2))
+            let price = Math.floor((10 + ((item.bonusAttack || 0) * 3) + ((item.bonusDefense || 0) * 3) + (item.rarity === 'mythic' ? 120 : item.rarity === 'legendary' ? 80 : item.rarity === 'epic' ? 40 : item.rarity === 'rare' ? 20 : 8)) * (1 + (hero.forgeLevel - 1) * 0.1))
             hero.inventory.splice(idx, 1)
             hero.gold += price
             soundSell()
@@ -1704,8 +1846,9 @@
         function buyItem(shopId) {
             const item = currentShopItems.find(i => i.id === shopId)
             if (!item) return
-            if (hero.gold < item.price) { showMessage("Not enough gold!", "error"); return }
-            hero.gold -= item.price
+            const scaledPrice = Math.floor(item.price * (1 + (hero.level - 1) * 0.05))
+            if (hero.gold < scaledPrice) { showMessage("Not enough gold!", "error"); return }
+            hero.gold -= scaledPrice
             const boughtItem = JSON.parse(JSON.stringify(item))
             boughtItem.id = Date.now() + rand(1000, 9999)
             delete boughtItem.price
@@ -1829,6 +1972,76 @@
                 messagesHtml = "<div>No messages yet.</div>";
             }
             document.getElementById('guild-messages').innerHTML = messagesHtml;
+            // Raid boss
+            updateRaidBossUI();
+        }
+        
+        function updateRaidBossUI() {
+            const info = document.getElementById('raid-boss-info');
+            const btn = document.getElementById('raid-attack-btn');
+            if (!info || !btn) return;
+            if (hero.raidBoss && hero.raidBoss.active && hero.raidBoss.hp > 0) {
+                info.innerHTML = `${hero.raidBoss.emoji} ${hero.raidBoss.name} <br>HP: ${Math.max(0, hero.raidBoss.hp)} / ${hero.raidBoss.maxHp}`;
+                btn.style.display = 'block';
+            } else {
+                info.innerHTML = "No active raid boss. Spawn a new one?";
+                btn.style.display = 'none';
+                // spawn button
+                if (!hero.raidBoss.active || hero.raidBoss.hp <= 0) {
+                    // add a spawn button
+                    if (document.getElementById('spawn-raid-btn')) return;
+                    let spawnBtn = document.createElement('button');
+                    spawnBtn.id = 'spawn-raid-btn';
+                    spawnBtn.innerText = 'SPAWN RAID BOSS (50 GP)';
+                    spawnBtn.style.marginTop = '8px';
+                    spawnBtn.onclick = spawnRaidBoss;
+                    document.getElementById('raid-boss-container').appendChild(spawnBtn);
+                }
+            }
+            // Simulated guild attacks: every 30 seconds reduce boss HP slightly
+            if (hero.raidBoss.active && hero.raidBoss.hp > 0) {
+                let elapsed = Date.now() - (hero.raidBoss.lastSimAttack || Date.now());
+                if (elapsed > 30000) {
+                    let damage = Math.floor(hero.raidBoss.maxHp * 0.001) + rand(5, 15);
+                    hero.raidBoss.hp = Math.max(0, hero.raidBoss.hp - damage);
+                    hero.raidBoss.lastSimAttack = Date.now();
+                    if (!hero.guildMessages) hero.guildMessages = [];
+                    hero.guildMessages.unshift(`Guild members dealt ${damage} damage to raid boss!`);
+                    if (hero.guildMessages.length > 10) hero.guildMessages.pop();
+                    saveGame();
+                }
+            }
+        }
+        
+        function spawnRaidBoss() {
+            if (hero.guildPoints < 50) { showMessage("Need 50 guild points!", "error"); return; }
+            hero.guildPoints -= 50;
+            hero.raidBoss = { name: "ANCIENT DRAGON", emoji: "🐉", hp: 5000, maxHp: 5000, active: true, lastAttackTime: 0, lastSimAttack: Date.now() };
+            saveGame();
+            updateGuildUI();
+            showMessage("Raid boss spawned!", "success");
+        }
+        
+        function attackRaidBoss() {
+            if (!hero.raidBoss.active || hero.raidBoss.hp <= 0) return;
+            if (hero.energy < 5) { showMessage("Need 5 energy!", "error"); return; }
+            hero.energy -= 5;
+            let damage = Math.max(50, getCurrentStats().attack * 2 + rand(10, 40));
+            hero.raidBoss.hp = Math.max(0, hero.raidBoss.hp - damage);
+            hero.guildPoints += 10;
+            if (!hero.guildMessages) hero.guildMessages = [];
+            hero.guildMessages.unshift(`${hero.name} dealt ${damage} damage to raid boss!`);
+            if (hero.guildMessages.length > 10) hero.guildMessages.pop();
+            if (hero.raidBoss.hp <= 0) {
+                hero.guildPoints += 100;
+                hero.gold += 300;
+                showMessage("Raid boss defeated! +100 GP, +300 gold!", "success");
+                hero.raidBoss.active = false;
+            }
+            saveGame();
+            updateGuildUI();
+            updateHeroBar();
+            showMessage(`You dealt ${damage} damage!`, "success");
         }
         
         function completeGuildQuest(idx) {
@@ -1846,7 +2059,6 @@
         }
         
         function refreshGuildQuests() {
-            // Reset progress on all quests
             guildQuests.forEach(q => q.progress = 0);
             updateGuildUI();
             showMessage("Guild quests refreshed!", "success");
@@ -1882,10 +2094,14 @@
         }
         
         function initializeGame() {
-            console.log('%cQUESTLAND v4.0 - GUILD EDITION', 'color:#00ff88')
+            console.log('%cQUESTLAND v4.5 - GUILD EDITION', 'color:#00ff88')
             const hasSave = loadGame()
-            if (hasSave) document.getElementById('continue-btn').style.display = 'block'
-            setInterval(() => { if (document.getElementById('hub-screen').classList.contains('active')) saveGame() }, 30000)
+            if (hasSave) {
+                document.getElementById('continue-btn').style.display = 'block';
+                // Offline modal will be shown after continueGame() is clicked
+            }
+            initializeWeeklyQuests();
+            setInterval(() => { if (document.getElementById('hub-screen').classList.contains('active')) { saveGame(); updateGuildUI(); } }, 30000)
         }
         window.onload = initializeGame
     </script>
