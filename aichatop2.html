@@ -30,7 +30,19 @@
         .incoming { align-self: flex-start; }
         .outgoing { align-self: flex-end; }
         .msg-bubble { padding: 10px 14px; border-radius: 20px; font-size: 14px; line-height: 1.4; word-wrap: break-word; position: relative; }
-        .incoming .msg-bubble { background: #1f2a3a; color: #e5e7eb; border-bottom-left-radius: 4px; }
+.msg-bubble.truncated {
+    max-height: 80px;          /* limits visible height */
+    overflow: hidden;
+}
+.read-more {
+    display: block;
+    margin-top: 4px;
+    color: #6ee7b7;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+}        
+.incoming .msg-bubble { background: #1f2a3a; color: #e5e7eb; border-bottom-left-radius: 4px; }
         .outgoing .msg-bubble { background: #0f3b3b; color: #ffffff; border-bottom-right-radius: 4px; }
         .delete-msg {
             position: absolute;
@@ -321,29 +333,67 @@ async function sendChatMessage(contactId) {
     }
 
     function renderMessages(contactId) {
-        if (!chatMessagesContainer) return;
-        const msgs = conversations[contactId] || [];
-        chatMessagesContainer.innerHTML = '';
-        for (let msg of msgs) {
-            const row = document.createElement('div');
-            row.className = `message-row ${msg.fromMe ? 'outgoing' : 'incoming'}`;
-            const bubble = document.createElement('div');
-            bubble.className = 'msg-bubble';
-            bubble.innerText = msg.text;
-            row.appendChild(bubble);
-            const delBtn = document.createElement('div');
-            delBtn.className = 'delete-msg';
-            delBtn.innerHTML = '✕';
-            delBtn.title = 'Delete message';
-            delBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                deleteMessage(contactId, msg.id);
+    if (!chatMessagesContainer) return;
+    const msgs = conversations[contactId] || [];
+    chatMessagesContainer.innerHTML = '';
+
+    for (let msg of msgs) {
+        const row = document.createElement('div');
+        row.className = `message-row ${msg.fromMe ? 'outgoing' : 'incoming'}`;
+
+        const bubble = document.createElement('div');
+        bubble.className = 'msg-bubble';
+
+        // --- Truncate long incoming (AI) messages ---
+        if (!msg.fromMe && msg.text.length > 150) {
+            bubble.classList.add('truncated');
+            const truncatedText = msg.text.substring(0, 150) + '…';
+            bubble.innerHTML = `
+                <span class="msg-short">${escapeHtml(truncatedText)}</span>
+                <span class="msg-full" style="display:none;">${escapeHtml(msg.text)}</span>
+                <span class="read-more">Read more ▼</span>
+            `;
+
+            // Toggle full / short text
+            bubble.querySelector('.read-more').addEventListener('click', function(e) {
+                const short = bubble.querySelector('.msg-short');
+                const full = bubble.querySelector('.msg-full');
+                const btn = e.target;
+
+                if (short.style.display !== 'none') {
+                    short.style.display = 'none';
+                    full.style.display = 'inline';
+                    btn.textContent = 'Show less ▲';
+                    bubble.classList.remove('truncated');
+                } else {
+                    short.style.display = 'inline';
+                    full.style.display = 'none';
+                    btn.textContent = 'Read more ▼';
+                    bubble.classList.add('truncated');
+                }
             });
-            row.appendChild(delBtn);
-            chatMessagesContainer.appendChild(row);
+        } else {
+            // Outgoing or short message: display normally
+            bubble.innerText = msg.text;
         }
-        chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+
+        row.appendChild(bubble);
+
+        // Delete button (existing logic)
+        const delBtn = document.createElement('div');
+        delBtn.className = 'delete-msg';
+        delBtn.innerHTML = '✕';
+        delBtn.title = 'Delete message';
+        delBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteMessage(contactId, msg.id);
+        });
+        row.appendChild(delBtn);
+        chatMessagesContainer.appendChild(row);
     }
+
+    chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+}
 
     function deleteMessage(contactId, messageId) {
         if (!conversations[contactId]) return;
