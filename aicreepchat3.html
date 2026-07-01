@@ -231,13 +231,16 @@
   const isFriend = id => friends.includes(id);
   const timeAgo = ts => { const d=new Date(ts),n=new Date(),s=(n-d)/1000; return s<60?'Now':s<3600?Math.floor(s/60)+'m':s<86400?Math.floor(s/3600)+'h':d.toLocaleDateString([],{month:'short',day:'numeric'}); };
 
+  // Safe save that never throws
   function save() {
-    localStorage.setItem('creeper_profile', JSON.stringify(userProfile));
-    localStorage.setItem('creeper_convs', JSON.stringify(conversations));
-    localStorage.setItem('creeper_friends', JSON.stringify(friends));
-    localStorage.setItem('creeper_requests', JSON.stringify(requests));
-    localStorage.setItem('creeper_blocked', JSON.stringify(blocked));
-    localStorage.setItem('creeper_npcs', JSON.stringify(npcs));
+    try {
+      localStorage.setItem('creeper_profile', JSON.stringify(userProfile));
+      localStorage.setItem('creeper_convs', JSON.stringify(conversations));
+      localStorage.setItem('creeper_friends', JSON.stringify(friends));
+      localStorage.setItem('creeper_requests', JSON.stringify(requests));
+      localStorage.setItem('creeper_blocked', JSON.stringify(blocked));
+      localStorage.setItem('creeper_npcs', JSON.stringify(npcs));
+    } catch(e) { console.warn('Save failed:', e); }
   }
 
   function load() {
@@ -259,7 +262,6 @@
     window._closeModal = () => { m.style.display = 'none'; if(onclose) onclose(); };
     m.onclick = e => { if(e.target===m) window._closeModal(); };
   }
-
   const alertModal = msg => new Promise(r => { modal(`<h2>⚠️ Notice</h2><p style="margin:16px 0;color:var(--text);">${esc(msg)}</p><button class="modal-btn" id="alertOkBtn">OK</button>`, r); document.getElementById('alertOkBtn').onclick = () => window._closeModal(); });
   const viewImage = url => modal(`<div style="max-width:380px;width:90%;"><img src="${url}" style="max-width:100%;max-height:70vh;border-radius:12px;border:2px solid #1a3a1a;"><button class="modal-btn" style="margin-top:16px;" onclick="window._closeModal()">Close</button></div>`);
 
@@ -306,7 +308,7 @@
   function addMsg(npcId, text, fromMe, extra={}) {
     if (!conversations[npcId]) conversations[npcId] = [];
     conversations[npcId].push({ id:uid(), text, timestamp:Date.now(), fromMe, ...extra });
-    save();
+    save(); // save is now safe
   }
 
   async function sendToNpc(npcId, userMsg) {
@@ -446,7 +448,7 @@
     chatArea = document.getElementById('chatMessagesArea');
     renderChatMessages(npcId);
 
-    // Click on the profile thumbnail to view larger image
+    // Click on profile thumbnail to view larger
     const headerIcon = document.querySelector('.chat-header .member-icon');
     if (headerIcon && npc.portraitUrl) {
       headerIcon.addEventListener('click', () => viewImage(npc.portraitUrl));
@@ -479,7 +481,11 @@
     try {
       await sendToNpc(npcId, text);
       if (ind.parentNode) ind.remove(); renderChatMessages(npcId); renderInbox();
-    } catch(e) { if(ind.parentNode) ind.remove(); addMsg(npcId, '[Transmission failed]', false); renderChatMessages(npcId); }
+    } catch(e) {
+      if (ind.parentNode) ind.remove();
+      addMsg(npcId, '[Transmission failed]', false);
+      renderChatMessages(npcId);
+    }
     input.disabled = false; document.getElementById('chatSendBtn').disabled = false; input.focus();
   }
 
