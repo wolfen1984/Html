@@ -1355,9 +1355,8 @@ It should be twisted, pun‑filled, and creepy. Return JSON with keys: title, ye
             showOverlay(talkOverlay);
             chatInput.focus();
         }
-        const CRYPT_KEEPER_SYS =
-    `You are the Crypt Keeper, pun-loving horror host. Talk in groaning puns.
-Sometimes ask a riddle, but NEVER reveal the answer in the chat.
+        const CRYPT_KEEPER_SYS = `You are the Crypt Keeper, pun-loving horror host. Talk in groaning puns. 
+Sometimes ask a riddle, but NEVER reveal the answer in the chat. 
 Instead, put the answer inside a hidden tag: [ANSWER:the answer]
 Always end a riddle message with that tag. Keep under 200 chars.`;
 
@@ -1372,6 +1371,25 @@ function extractRiddle(reply) {
     return { display: reply, answer: null };
 }
 
+function normaliseText(str) {
+    return str
+        .toLowerCase()
+        .replace(/[^\w\s]|_/g, '')          // remove punctuation
+        .replace(/\s+/g, ' ')               // collapse spaces
+        .replace(/\bim\b/g, 'i am')
+        .replace(/\byoure\b/g, 'you are')
+        .replace(/\btheyre\b/g, 'they are')
+        .replace(/\bdont\b/g, 'do not')
+        .replace(/\bcant\b/g, 'can not')
+        .replace(/\bits\b/g, 'it is')
+        .replace(/\bthats\b/g, 'that is')
+        .replace(/\bwhats\b/g, 'what is')
+        .replace(/\bwhos\b/g, 'who is')
+        .replace(/\bheres\b/g, 'here is')
+        .replace(/\btheres\b/g, 'there is')
+        .trim();
+}
+
         async function sendTalkMessage() {
             const msg = chatInput.value.trim();
             if (!msg) return;
@@ -1380,59 +1398,61 @@ function extractRiddle(reply) {
             playClick();
             talkedToCryptKeeper = true;
             if (cryptKeeperRiddleActive) {
-                if (msg.toLowerCase().includes(cryptKeeperRiddleActive.answer.toLowerCase())) {
-                   chatArea.innerHTML += '<div class="crypt-keeper-text">🔪 "Heh heh! Correct!"</div>';
-cryptKeeperRiddleActive = null;
-cryptKeeperRiddlesSolved++;
-saveRiddlesSolved();
-playSuccess();
+    const userGuess = normaliseText(msg);
+    const correct = normaliseText(cryptKeeperRiddleActive.answer);
+    if (userGuess.includes(correct)) {
+        chatArea.innerHTML += '<div class="crypt-keeper-text">🔪 "Heh heh! Correct!"</div>';
+        cryptKeeperRiddleActive = null;
+        cryptKeeperRiddlesSolved++;
+        saveRiddlesSolved();
+        playSuccess();
 
-// Cash reward (unchanged)
-if (Math.random() < 0.5) {
-    const cash = 10 + Math.floor(Math.random() * 20);
-    wallet += cash;
-    saveWallet();
-    chatArea.innerHTML += `<div>You got $${cash}.</div>`;
-    playCash();
-}
-
-// ─── NEW: Crypt Keeper gives a tape ─────────────────
-try {
-    chatArea.innerHTML += '<div>🔪 "And take this dusty relic…"</div>';
-    const tape = await generateCryptKeeperTape();
-    if (tape) {
-        collection.push({
-            title: tape.title,
-            year: tape.year,
-            coverDescription: tape.coverDescription,
-            rarity: tape.rarity,
-            price: tape.price,
-            condition: tape.condition || 'dusty'
-        });
-        saveCollection();
-        chatArea.innerHTML += `<div style="color:#ccff00;">📼 ${tape.title} (${tape.year}) [${tape.rarity}] added to your collection!</div>`;
-        playSuccess(); // extra happy sound
-    } else {
-        chatArea.innerHTML += '<div>The Crypt Keeper grumbles… "Lost the tape, heh."</div>';
-    }
-} catch (e) {
-    chatArea.innerHTML += '<div>* static *</div>';
-}
-// ────────────────────────────────────────────────────
-
-if (cryptKeeperRiddlesSolved >= 3 && !casketUnlocked) {
-    casketUnlocked = true;
-    localStorage.setItem('vn_casket_unlocked', 'true');
-    updateStatusBar();
-    chatArea.innerHTML += '<div>🪦 "Try CASKET."</div>';
-    playCreepy();
-}
-
-checkMilestones();
-chatArea.scrollTop = chatArea.scrollHeight;
-return;
+        // Original 50/50 reward
+        if (Math.random() < 0.5) {
+            const cash = 10 + Math.floor(Math.random() * 20);
+            wallet += cash;
+            saveWallet();
+            chatArea.innerHTML += `<div>💀 You got $${cash}.</div>`;
+            playCash();
+        } else {
+            chatArea.innerHTML += '<div>🔪 "And take this dusty relic…"</div>';
+            try {
+                const tape = await generateCryptKeeperTape();
+                if (tape) {
+                    collection.push({
+                        title: tape.title,
+                        year: tape.year,
+                        coverDescription: tape.coverDescription,
+                        rarity: tape.rarity,
+                        price: tape.price,
+                        condition: tape.condition || 'dusty'
+                    });
+                    saveCollection();
+                    chatArea.innerHTML += `<div style="color:#ccff00;">📼 ${tape.title} (${tape.year}) [${tape.rarity}] added!</div>`;
+                    playSuccess();
+                } else {
+                    chatArea.innerHTML += '<div>The Crypt Keeper grumbles… "Lost the tape, heh."</div>';
                 }
+            } catch (e) {
+                chatArea.innerHTML += '<div>* static *</div>';
             }
+        }
+
+        // Unlock CASKET after 3 riddles
+        if (cryptKeeperRiddlesSolved >= 3 && !casketUnlocked) {
+            casketUnlocked = true;
+            localStorage.setItem('vn_casket_unlocked', 'true');
+            updateStatusBar();
+            chatArea.innerHTML += '<div>🪦 "Try CASKET."</div>';
+            playCreepy();
+        }
+
+        checkMilestones();
+        chatArea.scrollTop = chatArea.scrollHeight;
+        return;
+    }
+}
+            
             const messages = [
                 { role: 'system', content: CRYPT_KEEPER_SYS },
                 ...cryptKeeperConversation.slice(-10),
