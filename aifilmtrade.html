@@ -75,6 +75,12 @@
         .movie-synopsis { font-size:13px; color:#bbaacc; margin-top:4px; line-height:1.3; }
         .star-rating { color:#ffcc44; letter-spacing:2px; font-size:14px; }
         .event-alert { background:#1a0808; border:2px solid #441111; border-radius:8px; padding:10px 14px; color:#ff8888; animation:alertPulse 1.5s ease-in-out infinite; }
+#trailerSubtitle {
+    background: rgba(0,0,0,0.5);
+    padding: 6px 12px;
+    border-radius: 8px;
+    display: inline-block;
+}
         @keyframes alertPulse { 0%,100%{box-shadow:0 0 8px #ff444422} 50%{box-shadow:0 0 20px #ff444444} }
         .customer-quote { background:#0d0d18; border-left:3px solid #ffcc44; padding:8px 12px; margin:4px 0; border-radius:0 6px 6px 0; font-style:italic; font-size:13px; color:#ddccaa; }
         .customer-quote.negative { border-left-color:#ff4444; color:#ffaaaa; }
@@ -153,6 +159,20 @@
         history: [], lastNightCars:0, lastNightRevenue:0, imageCooldownUntil:0
     };
     let gameState = { ...DEFAULT_STATE };
+
+// Ensure browser voices are ready for the Audio Trailer
+if (speechSynthesis.getVoices().length === 0) {
+    speechSynthesis.onvoiceschanged = () => {
+        // voices now available, but we don't need to do anything here
+    };
+}
+
+// Ensure browser voices are ready for the Audio Trailer
+if (speechSynthesis.getVoices().length === 0) {
+    speechSynthesis.onvoiceschanged = () => {
+        // voices now available, but we don't need to do anything here
+    };
+}
 
     const upgradeDefs = [
         { id:'projector', name:'Projector', levels:['Flickering 16mm','Refurbished 35mm','Crisp Xenon','Laser Vision'], costs:[0,300,800,2000] },
@@ -550,7 +570,7 @@
             const canComm = canCommissionSequel(m);
             const heat = m.isHot?'🔥 HOT ':'';
             const series = m.seriesName ? `Part ${m.seriesOrder}` : '';
-            html += `<div class="movie-card ${selected?'selected':''}"><div class="poster-thumb">${m.posterUrl?`<img src="${m.posterUrl}">`:'🎬'}</div><div class="movie-info"><div class="movie-title">${esc(m.title)} ${selected?'✅':''}</div><div class="movie-meta">${esc(m.genre)} · <span class="star-rating">${'★'.repeat(m.quality)}${'☆'.repeat(5-m.quality)}</span> · ${esc(m.audienceAppeal||'medium')}</div><div class="movie-synopsis">${esc(m.synopsis||m.tagline)}</div><div class="movie-meta">${heat}${series}</div></div><div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;"><button class="btn select-btn" data-id="${m.id}">${selected?'Remove':'Select'}</button><button class="btn trailer-btn" data-id="${m.id}">🎞️ Trailer</button><button class="btn accent commission-btn" data-id="${m.id}" ${!canComm?'disabled':''}>🎞️ Sequel $${commissionCost(m)}</button><button class="btn danger delete-btn" data-id="${m.id}">🗑️ Delete</button></div></div>`;
+            html += `<div class="movie-card ${selected?'selected':''}"><div class="poster-thumb">${m.posterUrl?`<img src="${m.posterUrl}">`:'🎬'}</div><div class="movie-info"><div class="movie-title">${esc(m.title)} ${selected?'✅':''}</div><div class="movie-meta">${esc(m.genre)} · <span class="star-rating">${'★'.repeat(m.quality)}${'☆'.repeat(5-m.quality)}</span> · ${esc(m.audienceAppeal||'medium')}</div><div class="movie-synopsis">${esc(m.synopsis||m.tagline)}</div><div class="movie-meta">${heat}${series}</div></div><div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;"><button class="btn select-btn" data-id="${m.id}">${selected?'Remove':'Select'}</button><button class="btn trailer-btn" data-id="${m.id}">🎞️ Trailer</button><button class="btn audio-trailer-btn" data-id="${m.id}">📻 Audio Trailer</button><button class="btn accent commission-btn" data-id="${m.id}" ${!canComm?'disabled':''}>🎞️ Sequel $${commissionCost(m)}</button><button class="btn danger delete-btn" data-id="${m.id}">🗑️ Delete</button></div></div>`;
         });
         if (!gameState.movieLibrary.length) html += '<p style="color:#664400;">No movies yet.</p>';
         html += '</div>';
@@ -560,6 +580,10 @@
             const m = gameState.movieLibrary.find(m=>m.id===b.dataset.id);
             if(m) showTrailer(m);
         }));
+panel.querySelectorAll('.audio-trailer-btn').forEach(b => b.addEventListener('click', ()=>{
+    const movie = gameState.movieLibrary.find(m => m.id === b.dataset.id);
+    if(movie) playAudioTrailer(movie);
+}));
         panel.querySelectorAll('.delete-btn').forEach(b=>b.addEventListener('click', ()=>removeMovieFromLibrary(b.dataset.id)));
         panel.querySelectorAll('.commission-btn').forEach(b=>b.addEventListener('click', ()=>commissionSequel(b.dataset.id)));
         document.getElementById('genMovieBtn').onclick = async () => {
@@ -581,7 +605,135 @@
         showModal(`<h2>🎞️ TRAILER</h2>${movie.posterUrl?`<img src="${movie.posterUrl}" style="max-width:100%;max-height:40vh;">`:'<div style="font-size:60px;">🎬</div>'}<h3 style="color:#ffbb33;">${esc(movie.title)}</h3><p style="color:#ff8833;">"${esc(movie.tagline||'')}"</p><p style="color:#ddccaa;">${esc(movie.synopsis)}</p><p><span class="star-rating">${'★'.repeat(movie.quality)}${'☆'.repeat(5-movie.quality)}</span> · ${esc(movie.genre)}</p><button class="modal-btn" onclick="closeModal()">Close</button>`);
     }
 
-    function renderFranchises() {
+// =============================================
+// AUDIO TRAILER FEATURE (add after showTrailer)
+// =============================================
+function playAudioTrailer(movie) {
+    speechSynthesis.cancel();
+
+    // Already generated
+    if (movie.trailerScript && movie.trailerImages && movie.trailerImages.length >= movie.trailerScript.length) {
+        startAudioTrailerPlayback(movie);
+        return;
+    }
+
+    // Loading screen
+    const modalContent = document.getElementById('genericModalContent');
+    modalContent.innerHTML = `
+        <div style="text-align:center; padding:30px;">
+            <h2>🎬 Preparing Audio Trailer...</h2>
+            <div class="loading-spinner"></div>
+            <p id="trailerStatusText" style="color:#886622;">Writing the script…</p>
+        </div>`;
+    document.getElementById('genericModal').style.display = 'flex';
+
+    // Recursive image loader – yields to browser
+    function loadImagesRecursive(script, index, collected, callback) {
+        if (index >= script.length) {
+            callback(collected);
+            return;
+        }
+        document.getElementById('trailerStatusText').textContent =
+            `Generating scene ${index + 1} of ${script.length}…`;
+        // Yield to browser with setTimeout, then call generateImage
+        setTimeout(async () => {
+            try {
+                const url = await generateImage(script[index].imagePrompt);
+                collected.push(url || movie.posterUrl || '');
+            } catch (e) {
+                console.warn(`Image ${index + 1} failed`, e);
+                collected.push(movie.posterUrl || '');
+            }
+            loadImagesRecursive(script, index + 1, collected, callback);
+        }, 20); // 20ms yield is enough to satisfy the watchdog
+    }
+
+    // Main async flow
+    (async () => {
+        // 1. Script
+        let script;
+        try {
+            script = await generateTrailerScript(movie);
+            movie.trailerScript = script;
+        } catch (e) {
+            console.warn('Script failed, using fallback:', e);
+            const sentences = movie.synopsis.split(/[.!?]+/).filter(s => s.trim().length > 0);
+            script = [];
+            for (let i = 0; i < 3; i++) {
+                script.push({
+                    narration: sentences[i] ? sentences[i].trim() : "Coming soon to Starlight Cinema...",
+                    imagePrompt: `scene from ${movie.title}, 80s B-movie, VHS style`
+                });
+            }
+            movie.trailerScript = script;
+        }
+
+        // 2. Images – recursive, safe for sandboxes
+        loadImagesRecursive(script, 0, [], (images) => {
+            movie.trailerImages = images;
+            saveState();
+            startAudioTrailerPlayback(movie);
+        });
+    })();
+}
+function startAudioTrailerPlayback(movie) {
+    const scenes = movie.trailerScript;
+    const images = movie.trailerImages;
+    let currentScene = 0;
+
+    const modalContent = document.getElementById('genericModalContent');
+    modalContent.innerHTML = `
+        <div style="text-align:center;">
+            <img id="trailerImg" src="${images[0]}" style="max-width:100%; max-height:55vh; border:2px solid #ffbb33; border-radius:8px;">
+            <p id="trailerSub" style="color:#ffcc44; font-size:17px; min-height:2.5em; margin:12px 0;"></p>
+            <small style="color:#886622;">Scene <span id="trailerNum">1</span>/${scenes.length}</small>
+            <div style="margin-top:8px;"><button class="modal-btn" id="trailerSkip">⏭ Skip</button></div>
+        </div>`;
+    document.getElementById('genericModal').style.display = 'flex';
+
+    function getVoice() {
+        const voices = speechSynthesis.getVoices();
+        return voices.find(v =>
+            v.name.includes('Google UK English Male') ||
+            v.name.includes('Daniel') ||
+            v.lang.startsWith('en')
+        ) || voices[0];
+    }
+
+    function playScene(index) {
+        if (index >= scenes.length) {
+            closeModal();
+            return;
+        }
+        const img = document.getElementById('trailerImg');
+        if (img) img.src = images[index] || '';
+        const sub = document.getElementById('trailerSub');
+        if (sub) sub.textContent = scenes[index].narration;
+        const num = document.getElementById('trailerNum');
+        if (num) num.textContent = index + 1;
+
+        const utterance = new SpeechSynthesisUtterance(scenes[index].narration);
+        utterance.voice = getVoice();
+        utterance.rate = 0.9;
+        utterance.pitch = 1.0;
+        utterance.onend = () => {
+            currentScene++;
+            if (currentScene < scenes.length) {
+                setTimeout(() => playScene(currentScene), 400);
+            } else {
+                closeModal();
+            }
+        };
+        speechSynthesis.speak(utterance);
+    }
+
+    playScene(0);
+
+    document.getElementById('trailerSkip').onclick = () => {
+        speechSynthesis.cancel();
+        closeModal();
+    };
+}    function renderFranchises() {
         const panel = document.getElementById('franchisesPanel');
         const data = getSeriesData();
         const names = Object.keys(data).sort((a,b)=>calcFranchiseValue(data[b])-calcFranchiseValue(data[a]));
