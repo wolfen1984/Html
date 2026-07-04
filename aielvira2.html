@@ -1869,7 +1869,19 @@ function renderChannel10() {
         }
         renderChannel10();
     });
-}
+    // "Donate to the Church" button
+    const donateBtn = document.createElement('button');
+    donateBtn.className = 'btn accent';
+    donateBtn.id = 'ch10DonateBtn';
+    donateBtn.style.marginTop = '12px';
+    donateBtn.style.width = '100%';
+    donateBtn.textContent = '✝️ Donate to the Church';
+    guideList.appendChild(donateBtn);
+
+    document.getElementById('ch10DonateBtn').addEventListener('click', () => {
+        openDonationModal();
+    });
+} // <-- this closes renderChannel10
 
 // ──── Penance system ────
 function setActivePenance(description, modifier = {}, durationMs = 600000) {   // 10 minutes default
@@ -2102,6 +2114,98 @@ async function generateNewConfessionalEpisodes() {
     throw new Error('Invalid confessional schedule');
 }
 
+function openDonationModal() {
+    let html = `
+        <h2>✝️ Support the Midnight Ministry</h2>
+        <p>Father Mire relies on your generosity to keep the confessional on air.</p>
+        <div style="display:flex; gap:8px; margin:12px 0; justify-content:center; align-items:center;">
+            <span style="color:#e8c5b0;">$</span>
+            <input type="number" id="donationAmount" placeholder="Amount" min="1" max="9999" style="background:#16161e; border:2px solid #2a2a35; color:#c8c8c8; font-family:'VT323', monospace; padding:8px; width:120px; font-size:18px;">
+        </div>
+        <button class="modal-btn" id="submitDonation">Donate</button>
+        <button class="modal-btn" onclick="closeModal()">Cancel</button>
+    `;
+    document.getElementById('genericModalContent').innerHTML = html;
+    document.getElementById('genericModal').style.display = 'flex';
+
+    document.getElementById('submitDonation').addEventListener('click', async () => {
+        const amount = parseInt(document.getElementById('donationAmount').value);
+        if (!amount || amount < 1) {
+            alert('Please enter a valid donation amount.');
+            return;
+        }
+        if (amount > gameState.cash) {
+            alert('You do not have that much cash, my child.');
+            return;
+        }
+        closeModal();
+        await processDonation(amount);
+    });
+}
+
+async function processDonation(amount) {
+    // Deduct cash
+    gameState.cash -= amount;
+    saveState();
+    refreshAll();
+
+    // Father Mire thanks you on air
+    const bubble = document.getElementById('ch10SpeechBubble');
+    const dialogue = document.getElementById('ch10Dialogue');
+    if (bubble && dialogue) {
+        dialogue.textContent = 'Counting the offering…';
+        try {
+            const thankPrompt = `You are Father Malcolm Mire. A parishioner just donated $${amount} to your church. Give a brief, cynical but heartfelt thank‑you in 2‑3 sentences. Mention that a special "Christian movie" will be delivered to them.`;
+            const thanks = await mistralChat([{role:'system', content:'You are Father Malcolm Mire.'}, {role:'user', content:thankPrompt}], 200);
+            dialogue.textContent = thanks.trim();
+            speakTextMale(thanks.trim());
+        } catch (e) {
+            dialogue.textContent = `Bless you, my child. Your $${amount} will keep the lights on. A special film is on its way.`;
+        }
+    }
+
+    // Generate a Christian movie and add to collection
+    try {
+        const movie = await generateChristianMovie();
+        addToCollection(movie);
+        requestCover(movie);
+        const movieTitle = movie.title;
+        // Optional: show a quick modal or message in the bubble
+        setTimeout(() => {
+            if (dialogue) dialogue.innerHTML = `<p>"Check your collection. I’ve sent you ‘${esc(movieTitle)}’. Go with God."</p>`;
+        }, 4000);
+    } catch (e) {
+        // even if generation fails, the donation stands
+    }
+}
+
+async function generateChristianMovie() {
+    const prompt = `Generate a wholesome Christian/family‑friendly film concept for the 1980s. No horror, no supernatural evil. Return valid JSON: { title, genre: "Christian", tagline, synopsis, quality (1-5) }. The quality should reflect the film's heartwarming nature (usually 3-5). JSON only.`;
+
+    try {
+        const resp = await mistralChat([{role:'user', content:prompt}], 500);
+        const jsonStr = resp.replace(/```json|```/g, '').trim();
+        const data = JSON.parse(jsonStr);
+
+        return {
+            title: String(data.title ?? 'A Gift of Grace'),
+            genre: String(data.genre ?? 'Christian'),
+            tagline: String(data.tagline ?? ''),
+            synopsis: String(data.synopsis ?? ''),
+            quality: Math.min(5, Math.max(1, Number(data.quality) || 4))
+        };
+    } catch (e) {
+        console.error('Christian movie generation failed:', e);
+        // Return a fallback movie so the player always receives something
+        return {
+            title: 'The Shepherd’s Light',
+            genre: 'Christian',
+            tagline: 'A story of redemption and grace.',
+            synopsis: 'A weary traveller finds hope in a small desert church.',
+            quality: 4
+        };
+    }
+}
 // ──── Helper: speak with a male voice (similar to your Elvira voice code but male) ────
 function speakTextMale(text) {
     const utterance = new SpeechSynthesisUtterance(text);
