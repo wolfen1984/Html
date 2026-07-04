@@ -1520,6 +1520,9 @@ function renderChannel11() {
 
 async function startDoubleFeatureEpisode(episode) {
     speechSynthesis.cancel();
+    // Cancel any previous auto-close timer
+    if (window.dfTimeout) clearTimeout(window.dfTimeout);
+
     const bubble = document.getElementById('ch11SpeechBubble');
     const dialogue = document.getElementById('ch11Dialogue');
     if (!bubble || !dialogue) return;
@@ -1529,27 +1532,47 @@ async function startDoubleFeatureEpisode(episode) {
     bubble.style.borderColor = '#ff2a4a';
     bubble.style.boxShadow = '0 0 20px #c41e3a66';
 
-    try {
-        switch (episode.type) {
-            case 'tease': await playTease(dialogue); break;
-            case 'sceneit': await playSceneIt(dialogue); break;
-            case 'review': await playReview(dialogue); break;
-            case 'trivia': await playTrivia(dialogue); break;
-            case 'director': await playDirector(dialogue); break;
-            case 'signoff': await playDoubleFeatureSignOff(dialogue); break;
-            default: dialogue.textContent = "The film broke! Stand by...";
-        }
-    } catch (e) {
-        dialogue.textContent = "Projector jam. We’ll be right back after these screams.";
-    }
-
-    setTimeout(() => {
+    // Define a function to restore the guide list when an episode ends
+    const restoreGuide = () => {
         if (guideList) guideList.style.display = '';
         bubble.style.borderColor = '#ff2a4a88';
         bubble.style.boxShadow = 'none';
-    }, 3000);
-}
+    };
 
+    try {
+        switch (episode.type) {
+            case 'tease':
+                await playTease(dialogue);
+                // Non‑interactive – auto‑close after 5 seconds
+                window.dfTimeout = setTimeout(restoreGuide, 5000);
+                break;
+            case 'sceneit':
+                await playSceneIt(dialogue);
+                // Interactive – playSceneIt will handle its own closing
+                break;
+            case 'review':
+                await playReview(dialogue);
+                break;
+            case 'trivia':
+                await playTrivia(dialogue);
+                break;
+            case 'director':
+                await playDirector(dialogue);
+                break;
+            case 'signoff':
+                await playDoubleFeatureSignOff(dialogue);
+                // Non‑interactive – auto‑close after 5 seconds
+                window.dfTimeout = setTimeout(restoreGuide, 5000);
+                break;
+            default:
+                dialogue.textContent = "The film broke! Stand by...";
+                window.dfTimeout = setTimeout(restoreGuide, 3000);
+        }
+    } catch (e) {
+        dialogue.textContent = "Projector jam. We’ll be right back after these screams.";
+        window.dfTimeout = setTimeout(restoreGuide, 3000);
+    }
+}
 // ──── Segment Implementations ────
 
 async function playTease(dialogue) {
@@ -1612,6 +1635,7 @@ async function playReview(dialogue) {
         return;
     }
     const film = gameState.currentDoubleFeature.film1;
+
     const monaPrompt = `You are Mona Mayhem, a flirty, sexy, and wildly offensive punk rock horror host. Review the movie "${film.title}" (${film.genre}) in 2‑3 hilarious, provocative sentences. Use innuendo and brutally honest humor. Do NOT mention the skeleton sidekick.`;
     const janePrompt = `You are Jane, a grounded, sarcastic skeleton sidekick. Review the movie "${film.title}" in 2‑3 dry, witty sentences. Be the opposite of Mona – practical and unimpressed.`;
 
@@ -1620,20 +1644,49 @@ async function playReview(dialogue) {
         mistralChat([{role:'system', content:'You are Jane.'}, {role:'user', content:janePrompt}], 250)
     ]);
 
-    let html = `<p><strong>Mona:</strong> “${monaReview.trim()}”</p><p><strong>Jane:</strong> “${janeReview.trim()}”</p><p>Who gave the better review?</p>`;
-    html += `<button class="btn review-vote-btn" data-vote="mona">🎤 Mona</button> <button class="btn review-vote-btn" data-vote="jane">🦴 Jane</button>`;
+    // Display both reviews
+    let html = `
+        <p><strong>Mona:</strong> “${monaReview.trim()}”</p>
+        <p><strong>Jane:</strong> “${janeReview.trim()}”</p>
+        <p>Who gave the better review?</p>
+        <button class="btn review-vote-btn" data-vote="mona">🎤 Mona</button>
+        <button class="btn review-vote-btn" data-vote="jane">🦴 Jane</button>
+    `;
     dialogue.innerHTML = html;
 
+    // Speak Mona’s review first, then after a pause speak Jane’s
+    speechSynthesis.cancel();
+    speakTextFemale(monaReview.trim());
+    // Wait for Mona’s speech to finish, then speak Jane’s (approx duration)
+    const monaDuration = monaReview.trim().split(' ').length * 350; // rough ms
+    setTimeout(() => {
+        speakTextFemale(janeReview.trim());
+    }, monaDuration + 1000);
+
+    // Restore guide function
+    const restoreGuide = () => {
+        const guideList = document.getElementById('ch11GuideList');
+        if (guideList) guideList.style.display = '';
+        const bubble = document.getElementById('ch11SpeechBubble');
+        if (bubble) {
+            bubble.style.borderColor = '#ff2a4a88';
+            bubble.style.boxShadow = 'none';
+        }
+    };
+
+    // Attach vote handlers
     document.querySelectorAll('.review-vote-btn').forEach(btn => {
         btn.addEventListener('click', function() {
+            // Cancel any pending auto‑restore (shouldn't be any, but just in case)
+            if (window.dfTimeout) clearTimeout(window.dfTimeout);
             const winner = this.dataset.vote;
             dialogue.innerHTML = `<p>You voted for ${winner === 'mona' ? 'Mona' : 'Jane'}! They’ll be insufferable about it all week.</p>`;
             speechSynthesis.cancel();
+            // Restore guide after 2 seconds
+            window.dfTimeout = setTimeout(restoreGuide, 2500);
         });
     });
-    speakTextFemale(monaReview.trim()); // just read Mona's for flavor
 }
-
 async function playTrivia(dialogue) {
     const prompt = `Generate a multiple‑choice horror movie trivia question. Return JSON: {question: "...", options: ["A","B","C"], correctIndex: 0}. JSON only.`;
     const resp = await mistralChat([{role:'user', content:prompt}], 250);
