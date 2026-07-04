@@ -301,6 +301,7 @@
         <div class="tabs-row">
     <div class="tab-btn active" data-tab="collection"><span class="tab-emoji">📼</span><span class="tab-label">COLLECTION</span></div>
     <div class="tab-btn" data-tab="collectors"><span class="tab-emoji">📇</span><span class="tab-label">COLLECTORS</span></div>
+<div class="tab-btn" data-tab="channel10"><span class="tab-emoji">🕯️</span><span class="tab-label">CH 10</span></div>
     <div class="tab-btn" data-tab="channel11"><span class="tab-emoji">🎥</span><span class="tab-label">CH 11</span></div>
     <div class="tab-btn" data-tab="channel12"><span class="tab-emoji">📻</span><span class="tab-label">CH 12</span></div>
     <div class="tab-btn" data-tab="channel13"><span class="tab-emoji">📺</span><span class="tab-label">CH 13</span></div>
@@ -310,6 +311,7 @@
         <div class="game-area">
             <div id="collectionPanel" class="panel active"></div>
             <div id="collectorsPanel" class="panel"></div>
+<div id="channel10Panel" class="panel"></div>
 <div id="channel11Panel" class="panel"></div>
             <div id="channel12Panel" class="panel"></div>
             <div id="dubPanel" class="panel"></div>
@@ -340,7 +342,10 @@
     tvGuideEpisodes: [],
     radioStories: [],
     radioLastGeneratedDate: null,
-    ch12Episodes: []   // we'll add this
+    ch12Episodes: [],
+    ch11Episodes: [],
+    ch10Episodes: [],          // ← add this
+    activePenance: null        // ← add this
 };
     let gameState = { ...DEFAULT_STATE };
 
@@ -461,7 +466,8 @@
     }
 
     function sellTape(tape) {
-        const price = tape.quality * 50;
+     applyCashPenanceIfActive(20);   
+const price = tape.quality * 50;
         gameState.cash += price;
         removeFromCollection(tape.id);
         refreshAll();
@@ -1131,6 +1137,8 @@ async function generateSingleRadioStory() {
     }
 
     function refreshAll() {
+clearExpiredPenance();
+    updateFooterPenance(); 
         document.getElementById('statCash').textContent = '$'+gameState.cash;
         document.getElementById('statTapes').textContent = gameState.collection.length;
         const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab || 'collection';
@@ -1147,6 +1155,7 @@ async function generateSingleRadioStory() {
 
     if (tab==='collection') renderCollection();
     else if (tab==='collectors') renderCollectors();
+else if (tab==='channel10') renderChannel10();
 else if (tab==='channel11') renderChannel11();
     else if (tab==='channel12') renderChannel12();   // <-- new
     else if (tab==='dub') renderDub();
@@ -1780,6 +1789,317 @@ function speakTextFemale(text) {
     utterance.rate = 0.95;
     utterance.pitch = 1.2; // slightly higher for playful tone
     speechSynthesis.speak(utterance);
+}
+
+// ──── CHANNEL 10: THE MIDNIGHT CONFESSIONAL with Father Malcolm Mire ────
+function generateConfessionalEpisodes() {
+    return [
+        { id: 'conf_open',     time: '11:00 PM', title: 'Opening Blessing',       desc: 'Father Mire sets the unholy tone for the night.', type: 'opening' },
+        { id: 'conf_first',    time: '11:30 PM', title: 'First Confession',        desc: 'Speak your sins and receive judgment.', type: 'confession' },
+        { id: 'conf_second',   time: '12:00 AM', title: 'Second Confession',       desc: 'Another soul seeks absolution... or damnation.', type: 'confession' },
+        { id: 'conf_community',time: '12:30 AM', title: 'Community Confessions',   desc: 'Mire reads a letter and the congregation votes on penance.', type: 'community' },
+        { id: 'conf_third',    time: '1:00 AM', title: 'Third Confession',         desc: 'One final chance to unburden yourself.', type: 'confession' },
+        { id: 'conf_absolution',time:'1:30 AM', title: 'Absolution & Sign‑Off',    desc: 'Mire grants a final, dubious blessing.', type: 'absolution' }
+    ];
+}
+
+function renderChannel10() {
+    const panel = document.getElementById('channel10Panel');
+    if (!panel) return;
+    if (!gameState.ch10Episodes || !gameState.ch10Episodes.length) {
+        gameState.ch10Episodes = generateConfessionalEpisodes();
+        saveState();
+    }
+
+    const hostPortrait = 'father.jpg';   
+
+    panel.innerHTML = `
+        <div class="tv-stage">
+            <img class="elvira-portrait" src="${hostPortrait}" alt="Father Malcolm Mire" style="object-fit:cover;">
+            <div class="speech-bubble" id="ch10SpeechBubble">
+                <p id="ch10Dialogue">"Welcome, lost lambs. I am Father Malcolm Mire — disgraced, dishevelled, but still listening. Pick up the phone and tell me your sins. I promise nothing but an honest damnation."</p>
+            </div>
+        </div>
+        <div class="tv-guide">
+            <h3>🪪 THE MIDNIGHT CONFESSIONAL · TONIGHT’S PENANCE</h3>
+            <div id="ch10GuideList"></div>
+        </div>
+    `;
+
+    const guideList = document.getElementById('ch10GuideList');
+    gameState.ch10Episodes.forEach(ep => {
+        const entry = document.createElement('div');
+        entry.className = 'guide-entry';
+        entry.innerHTML = `
+            <span class="guide-time">${ep.time}</span>
+            <div class="guide-info">
+                <div class="guide-title">${ep.title}</div>
+                <div class="guide-desc">${ep.desc}</div>
+            </div>
+            <button class="btn guide-btn" data-episode-id="${ep.id}">Confess</button>
+        `;
+        guideList.appendChild(entry);
+    });
+
+    document.querySelectorAll('#ch10GuideList .guide-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const epId = btn.dataset.episodeId;
+            const episode = gameState.ch10Episodes.find(e => e.id === epId);
+            if (episode) await startConfessionalEpisode(episode);
+        });
+    });
+
+    // "New Penance" button
+    const newPenanceBtn = document.createElement('button');
+    newPenanceBtn.className = 'btn accent';
+    newPenanceBtn.id = 'ch10NewPenanceBtn';
+    newPenanceBtn.style.marginTop = '12px';
+    newPenanceBtn.style.width = '100%';
+    newPenanceBtn.textContent = '🪪 New Penance';
+    guideList.appendChild(newPenanceBtn);
+
+    document.getElementById('ch10NewPenanceBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('ch10NewPenanceBtn');
+        btn.disabled = true;
+        btn.textContent = '📿 Summoning sins…';
+        try {
+            await generateNewConfessionalEpisodes();
+        } catch (e) {
+            showModal('<h2>🪪 Confessional Closed</h2><p>The booth is locked. Try again later.</p><button class="modal-btn" onclick="closeModal()">Close</button>');
+        }
+        renderChannel10();
+    });
+}
+
+// ──── Penance system ────
+function setActivePenance(description, modifier = {}, durationMs = 600000) {   // 10 minutes default
+    gameState.activePenance = {
+        description,
+        expiresAt: Date.now() + durationMs,
+        modifier   // e.g., { tradeRejectChance: 0.3, cashPenalty: 0 }
+    };
+    saveState();
+    updateFooterPenance();
+}
+
+function clearExpiredPenance() {
+    // only clear if expired – do NOT call updateFooterPenance here
+    if (gameState.activePenance && Date.now() > gameState.activePenance.expiresAt) {
+        gameState.activePenance = null;
+        saveState();
+    }
+}
+function updateFooterPenance() {
+    // first, clean up any expired penance
+    clearExpiredPenance();
+
+    const footer = document.getElementById('footerMsg');
+    if (!footer) return;
+
+    if (gameState.activePenance) {
+        footer.textContent = `🪪 Penance: ${gameState.activePenance.description}`;
+    } else {
+        footer.textContent = '📼 NIGHTFALLS VHS · COLLECT THE DARKNESS';
+    }
+}
+// Override handleTradeDecision to apply penance risk
+const originalHandleTradeDecision = handleTradeDecision;
+handleTradeDecision = function(npc, npcTape, playerTape, decision) {
+    clearExpiredPenance();
+    if (gameState.activePenance && gameState.activePenance.modifier.tradeRejectChance) {
+        // If the NPC originally accepted, roll an extra chance to reject
+        if (decision.decision === 'accept' && Math.random() < gameState.activePenance.modifier.tradeRejectChance) {
+            decision = {
+                decision: 'reject',
+                message: "Forgive me, but I've got a bad feeling about this. The confessional has cursed this deal."
+            };
+        }
+    }
+    return originalHandleTradeDecision(npc, npcTape, playerTape, decision);
+};
+
+// Apply a cash penalty if one exists (called after transactions)
+function applyCashPenanceIfActive(amount) {
+    clearExpiredPenance();
+    if (gameState.activePenance && gameState.activePenance.modifier.cashPenalty) {
+        gameState.cash = Math.max(0, gameState.cash - amount);
+        saveState();
+        refreshAll();
+    }
+}
+
+// ──── Episode starter ────
+async function startConfessionalEpisode(episode) {
+    speechSynthesis.cancel();
+    if (window.ch10Timeout) clearTimeout(window.ch10Timeout);
+
+    const bubble = document.getElementById('ch10SpeechBubble');
+    const dialogue = document.getElementById('ch10Dialogue');
+    if (!bubble || !dialogue) return;
+
+    const guideList = document.getElementById('ch10GuideList');
+    if (guideList) guideList.style.display = 'none';
+    bubble.style.borderColor = '#ff2a4a';
+    bubble.style.boxShadow = '0 0 20px #c41e3a66';
+
+    const restoreGuide = () => {
+        if (guideList) guideList.style.display = '';
+        bubble.style.borderColor = '#ff2a4a88';
+        bubble.style.boxShadow = 'none';
+    };
+
+    try {
+        switch (episode.type) {
+            case 'opening':
+                await playConfessionalOpening(dialogue);
+                window.ch10Timeout = setTimeout(restoreGuide, 5000);
+                break;
+            case 'confession':
+                await playConfession(dialogue);
+                // playConfession handles its own restore after player submits
+                break;
+            case 'community':
+                await playCommunityConfession(dialogue);
+                break;
+            case 'absolution':
+                await playAbsolution(dialogue);
+                window.ch10Timeout = setTimeout(restoreGuide, 5000);
+                break;
+            default:
+                dialogue.textContent = "The booth is silent.";
+                window.ch10Timeout = setTimeout(restoreGuide, 3000);
+        }
+    } catch (e) {
+        dialogue.textContent = "The line went dead... try again later.";
+        window.ch10Timeout = setTimeout(restoreGuide, 3000);
+    }
+}
+
+// ──── Segment implementations ────
+async function playConfessionalOpening(dialogue) {
+    const prompt = `You are Father Malcolm Mire, a defrocked, whisky‑drinking, chain‑smoking priest hosting a midnight confessional. Deliver a short, dark opening monologue (3‑4 sentences). Invite the audience to confess. Be cynical, weary, but oddly compelling. End with "The booth is open."`;
+    const text = await mistralChat([{role:'system', content:'You are Father Malcolm Mire.'}, {role:'user', content:prompt}], 250);
+    dialogue.textContent = '';
+    typewriterEffect(dialogue, text.trim(), 30);
+    speakTextMale(text.trim());
+}
+
+async function playConfession(dialogue) {
+    // Clear any previous penance? No, they can accumulate.
+    dialogue.innerHTML = `
+        <p>"Speak, my child. What sin weighs on your soul?"</p>
+        <div style="display:flex; gap:6px; margin-top:8px;">
+            <input type="text" id="ch10ConfessionInput" placeholder="I lied about my VHS collection..." style="flex:1; background:#16161e; border:2px solid #2a2a35; color:#c8c8c8; font-family:'VT323', monospace; padding:8px;">
+            <button class="btn" id="ch10ConfessionSubmit">Confess</button>
+        </div>
+        <div id="ch10PenanceText" style="margin-top:8px; color:#e8c5b0;"></div>
+    `;
+
+    const restoreGuide = () => {
+        const guideList = document.getElementById('ch10GuideList');
+        if (guideList) guideList.style.display = '';
+        const bubble = document.getElementById('ch10SpeechBubble');
+        if (bubble) {
+            bubble.style.borderColor = '#ff2a4a88';
+            bubble.style.boxShadow = 'none';
+        }
+    };
+
+    document.getElementById('ch10ConfessionSubmit').addEventListener('click', async () => {
+        const input = document.getElementById('ch10ConfessionInput');
+        const sin = input.value.trim();
+        if (!sin) return;
+        input.disabled = true;
+        document.getElementById('ch10ConfessionSubmit').disabled = true;
+        const respDiv = document.getElementById('ch10PenanceText');
+        respDiv.textContent = 'Father Mire listens…';
+
+        const prompt = `A parishioner confesses: "${sin}". As Father Malcolm Mire, respond with a short, cynical judgment (2 sentences) and then assign a fitting, creative penance that will actually affect the sinner's life for the next 10 minutes (e.g., "all your trades will be cursed with extra rejection", "you will lose $50 every time you sell a tape", "tape quality will randomly drop by 1"). The penance must be a single, clear sentence. Return a JSON object: { "judgment": "...", "penanceDescription": "...", "modifier": { "tradeRejectChance": 0.3, "cashPenalty": 0 } }. Only include modifier properties that actually apply (e.g., tradeRejectChance or cashPenalty). Keep numbers small. JSON only.`;
+        try {
+            const resp = await mistralChat([{role:'system', content:'You are Father Malcolm Mire.'}, {role:'user', content:prompt}], 300);
+            const data = JSON.parse(resp.replace(/```json|```/g, '').trim());
+
+            const judgment = data.judgment || "Go in pieces.";
+            const penanceDesc = data.penanceDescription || "Say three Hail Marys and avoid the video store.";
+
+            respDiv.innerHTML = `<p><em>"${esc(judgment)}"</em></p><p><strong>Penance:</strong> ${esc(penanceDesc)}</p>`;
+            speakTextMale(judgment);
+
+            // Apply the penance
+            setActivePenance(penanceDesc, data.modifier || {});
+
+            if (window.ch10Timeout) clearTimeout(window.ch10Timeout);
+            window.ch10Timeout = setTimeout(restoreGuide, 4000);
+        } catch (e) {
+            respDiv.textContent = 'The confessional line is busy with static. Try again.';
+        }
+    });
+}
+
+async function playCommunityConfession(dialogue) {
+    // Mire reads a fictional confession, then the player votes on the punishment
+    const prompt = `You are Father Malcolm Mire. Read aloud a fictional, darkly humorous confession from a member of the "congregation" (e.g., "I swapped the labels on my neighbour's horror tapes so they watched a rom‑com"). Keep it one sentence. Then present three possible penances (labeled A, B, C) for the congregation to vote on. Return a JSON object: { "confession": "...", "penances": ["A: ...", "B: ...", "C: ..."] }. JSON only.`;
+    const resp = await mistralChat([{role:'system', content:'You are Father Mire.'}, {role:'user', content:prompt}], 300);
+    const data = JSON.parse(resp.replace(/```json|```/g, '').trim());
+
+    let html = `<p>"A letter from a troubled soul: ${esc(data.confession)}"</p><p>What say you, flock?</p>`;
+    data.penances.forEach((p, i) => {
+        html += `<button class="btn community-vote-btn" data-index="${i}">${esc(p)}</button> `;
+    });
+    dialogue.innerHTML = html;
+
+    const restoreGuide = () => {
+        const guideList = document.getElementById('ch10GuideList');
+        if (guideList) guideList.style.display = '';
+        const bubble = document.getElementById('ch10SpeechBubble');
+        if (bubble) {
+            bubble.style.borderColor = '#ff2a4a88';
+            bubble.style.boxShadow = 'none';
+        }
+    };
+
+    document.querySelectorAll('.community-vote-btn').forEach(btn => {
+        btn.addEventListener('click', async function() {
+            const chosenIdx = parseInt(this.dataset.index);
+            const chosenPenance = data.penances[chosenIdx];
+            // Apply a community penance (light, global effect)
+            // For simplicity, we apply a small trade risk or cash penalty based on index
+            const modifier = chosenIdx === 0 ? { tradeRejectChance: 0.15 } :
+                             chosenIdx === 1 ? { cashPenalty: 1 } :   // lose $1 on sells
+                             { tradeRejectChance: 0.1, cashPenalty: 1 };
+            setActivePenance(`Community penance: ${chosenPenance.split(':')[1]?.trim() || chosenPenance}`, modifier, 300000); // 5 min
+
+            dialogue.innerHTML = `<p>The congregation has spoken. The penance is set.</p><p><em>${esc(chosenPenance)}</em></p>`;
+            speechSynthesis.cancel();
+            if (window.ch10Timeout) clearTimeout(window.ch10Timeout);
+            window.ch10Timeout = setTimeout(restoreGuide, 3000);
+        });
+    });
+    speakTextMale(data.confession);
+}
+
+async function playAbsolution(dialogue) {
+    const prompt = `You are Father Malcolm Mire. Give a final, weary but strangely comforting sign‑off. Mention that the booth will return tomorrow, and that absolution is never free. 2‑3 sentences. End with "Go now, and try not to sin too creatively."`;
+    const text = await mistralChat([{role:'system', content:'You are Father Mire.'}, {role:'user', content:prompt}], 200);
+    dialogue.textContent = '';
+    typewriterEffect(dialogue, text.trim(), 30);
+    speakTextMale(text.trim());
+}
+
+// ──── Generate a new schedule ────
+async function generateNewConfessionalEpisodes() {
+    const prompt = `You are the producer of "The Midnight Confessional". Create a new 6‑segment lineup. Return a JSON array of exactly 6 objects with keys: id, time (same slots), title, desc, type (must be exactly one of: opening, confession, confession, community, confession, absolution). Keep the dark, cynical tone. JSON only.`;
+    const resp = await mistralChat([{role:'system', content:'You are a twisted TV producer.'}, {role:'user', content:prompt}], 800);
+    const newEps = JSON.parse(resp.replace(/```json|```/g, '').trim());
+    if (Array.isArray(newEps) && newEps.length === 6) {
+        const types = newEps.map(e => e.type).sort().join(',');
+        if (types === 'absolution,community,confession,confession,confession,opening') {  // three confessions
+            gameState.ch10Episodes = newEps;
+            saveState();
+            return;
+        }
+    }
+    throw new Error('Invalid confessional schedule');
 }
 
 // ──── Helper: speak with a male voice (similar to your Elvira voice code but male) ────
