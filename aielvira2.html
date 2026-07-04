@@ -695,6 +695,37 @@
         saveState();
     }
 
+async function generateSingleRadioStory() {
+    try {
+        const prompt = `You are Digger Graves, host of Nightfall Radio, a late-night horror anthology. Write exactly 1 short horror story (400-600 words) for tonight's broadcast. The story must have a beginning, rising tension, and a chilling twist. Return a JSON object with the fields: "title" (episode title), "author" (fictional writer name), "text" (the full narrated script). Output raw JSON only, no markdown, no extra text.`;
+
+        const resp = await mistralChat([
+            { role: 'system', content: 'You are Digger Graves, the mysterious host of Nightfall Radio.' },
+            { role: 'user', content: prompt }
+        ], 2000); // larger token limit for a full story
+
+        let jsonStr = resp.replace(/```json|```/g, '').replace(/`/g, '').trim();
+        const story = JSON.parse(jsonStr);
+
+        if (story && story.title && story.text) {
+            gameState.radioStories.push({
+                id: 'radio_' + Date.now() + '_' + Math.random().toString(36).slice(2),
+                title: story.title,
+                author: story.author || 'Unknown',
+                text: story.text
+            });
+            saveState();
+        } else {
+            throw new Error('Invalid story structure');
+        }
+    } catch (e) {
+        console.error('Single story generation failed:', e);
+        // Optional: show a quick modal so the user knows something went wrong
+        showModal(`<h2>📻 Signal Lost</h2><p>Couldn't generate a new story. Check console or API key.</p><button class="modal-btn" onclick="closeModal()">Close</button>`);
+    }
+    refreshRadioIfActive();
+}
+
     function speakRadio(text, onEnd) {
         const voices = speechSynthesis.getVoices();
         const voice = voices.find(v => v.name.includes('Google UK English Male') || v.name.includes('Daniel') || v.name.includes('Male')) || voices[0];
@@ -751,43 +782,84 @@
     }
 
     function renderRadio() {
-        const panel = document.getElementById('radioPanel');
-        if (!panel) return;
-        const today = new Date().toDateString();
-        if (gameState.radioLastGeneratedDate !== today || gameState.radioStories.length === 0) {
-            panel.innerHTML = `<div style="text-align:center; padding:20px;"><div class="loading-text">📻 Tuning into the night...</div><p style="color:#7a6a6a;">Generating tonight's stories...</p><div class="blink" style="font-size:30px;">⏳</div></div>`;
-            generateRadioStories().then(() => { if (document.getElementById('radioPanel')?.classList.contains('active')) renderRadio(); });
-            return;
-        }
-        let html = `<div style="text-align:center; padding:0 10px;"><h2 style="font-family:var(--font-display); color:#e8c5b0;">📻 NIGHTFALL RADIO · 1310 AM</h2>
-            <div class="radio-tuner"><div class="radio-dial">📻</div><div class="frequency-display">1310 AM</div><div class="signal-meter">Signal: <span class="signal-strength">████████░░ 78%</span></div></div>`;
-        if (currentRadioStoryId && radioIsPlaying) {
-            const np = gameState.radioStories.find(s => s.id === currentRadioStoryId);
-            if (np) html += `<div class="now-playing-box"><div class="now-playing-title">🔊 Now Playing: ${esc(np.title)}</div><div class="now-playing-author">by ${esc(np.author)}</div><div class="blink" style="color:var(--amber);">● ON AIR</div></div>`;
-        }
-        html += `<div class="radio-controls">
-            <button class="btn" id="radioPlayBtn" ${radioIsPlaying ? 'disabled' : ''}>▶ Play</button>
-            <button class="btn" id="radioStopBtn" ${!radioIsPlaying ? 'disabled' : ''}>■ Stop</button>
-            <button class="btn" id="radioReplayBtn">↻ Replay Last</button>
-        </div><div class="story-archive"><h3 style="font-family:var(--font-display); color:#e8c5b0;">📜 TONIGHT'S BROADCASTS</h3>`;
-        gameState.radioStories.forEach(story => {
-            html += `<div class="archive-item"><div><div class="archive-title">${esc(story.title)}</div><div class="archive-author">by ${esc(story.author)}</div></div><button class="btn archive-play-btn" data-story-id="${story.id}">▶</button></div>`;
+    const panel = document.getElementById('radioPanel');
+    if (!panel) return;
+
+    const today = new Date().toDateString();
+    if (gameState.radioLastGeneratedDate !== today || gameState.radioStories.length === 0) {
+        panel.innerHTML = `<div style="text-align:center; padding:20px;">
+            <div class="loading-text">📻 Tuning into the night...</div>
+            <p style="color:#7a6a6a;">Generating tonight's stories...</p>
+            <div class="blink" style="font-size:30px;">⏳</div>
+        </div>`;
+        generateRadioStories().then(() => {
+            if (document.getElementById('radioPanel')?.classList.contains('active')) renderRadio();
         });
-        html += `</div></div>`;
-        panel.innerHTML = html;
-        document.getElementById('radioPlayBtn')?.addEventListener('click', () => {
-            if (currentRadioStoryId && !radioIsPlaying) playRadioStory(currentRadioStoryId);
-            else if (!currentRadioStoryId && gameState.radioStories.length > 0) playRadioStory(gameState.radioStories[0].id);
-        });
-        document.getElementById('radioStopBtn')?.addEventListener('click', stopRadioPlayback);
-        document.getElementById('radioReplayBtn')?.addEventListener('click', () => {
-            if (currentRadioStoryId) playRadioStory(currentRadioStoryId);
-            else if (gameState.radioStories.length > 0) playRadioStory(gameState.radioStories[0].id);
-        });
-        document.querySelectorAll('.archive-play-btn').forEach(btn => {
-            btn.addEventListener('click', () => playRadioStory(btn.dataset.storyId));
+        return;
+    }
+
+    let html = `<div style="text-align:center; padding:0 10px;">
+        <h2 style="font-family:var(--font-display); color:#e8c5b0;">📻 NIGHTFALL RADIO · 1310 AM</h2>
+        <div class="radio-tuner">
+            <div class="radio-dial">📻</div>
+            <div class="frequency-display">1310 AM</div>
+            <div class="signal-meter">Signal: <span class="signal-strength">████████░░ 78%</span></div>
+        </div>`;
+
+    if (currentRadioStoryId && radioIsPlaying) {
+        const np = gameState.radioStories.find(s => s.id === currentRadioStoryId);
+        if (np) html += `<div class="now-playing-box"><div class="now-playing-title">🔊 Now Playing: ${esc(np.title)}</div><div class="now-playing-author">by ${esc(np.author)}</div><div class="blink" style="color:var(--amber);">● ON AIR</div></div>`;
+    }
+
+    html += `<div class="radio-controls">
+        <button class="btn" id="radioPlayBtn" ${radioIsPlaying ? 'disabled' : ''}>▶ Play</button>
+        <button class="btn" id="radioStopBtn" ${!radioIsPlaying ? 'disabled' : ''}>■ Stop</button>
+        <button class="btn" id="radioReplayBtn">↻ Replay Last</button>
+    </div>
+    <div class="story-archive">
+        <h3 style="font-family:var(--font-display); color:#e8c5b0;">📜 BROADCAST ARCHIVE</h3>`;
+
+    gameState.radioStories.forEach(story => {
+        html += `<div class="archive-item">
+            <div>
+                <div class="archive-title">${esc(story.title)}</div>
+                <div class="archive-author">by ${esc(story.author)}</div>
+            </div>
+            <button class="btn archive-play-btn" data-story-id="${story.id}">▶</button>
+        </div>`;
+    });
+
+    // ── NEW BUTTON ──
+    html += `<button class="btn accent" id="generateStoryBtn" style="width:100%; margin-top:12px;">🔮 Generate New Story</button>`;
+    html += `</div></div>`;
+
+    panel.innerHTML = html;
+
+    // Existing event listeners
+    document.getElementById('radioPlayBtn')?.addEventListener('click', () => {
+        if (currentRadioStoryId && !radioIsPlaying) playRadioStory(currentRadioStoryId);
+        else if (!currentRadioStoryId && gameState.radioStories.length > 0) playRadioStory(gameState.radioStories[0].id);
+    });
+    document.getElementById('radioStopBtn')?.addEventListener('click', stopRadioPlayback);
+    document.getElementById('radioReplayBtn')?.addEventListener('click', () => {
+        if (currentRadioStoryId) playRadioStory(currentRadioStoryId);
+        else if (gameState.radioStories.length > 0) playRadioStory(gameState.radioStories[0].id);
+    });
+    document.querySelectorAll('.archive-play-btn').forEach(btn => {
+        btn.addEventListener('click', () => playRadioStory(btn.dataset.storyId));
+    });
+
+    // ── NEW BUTTON EVENT ──
+    const genBtn = document.getElementById('generateStoryBtn');
+    if (genBtn) {
+        genBtn.addEventListener('click', async () => {
+            genBtn.disabled = true;
+            genBtn.textContent = '📡 Broadcasting...';
+            await generateSingleRadioStory();
+            // Re-render handled inside generateSingleRadioStory via refreshRadioIfActive
         });
     }
+}
 
     // ──── CHANNEL 13 (FULLY RESTORED) ────
     function generateTVGuide() {
