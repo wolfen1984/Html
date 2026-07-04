@@ -308,6 +308,7 @@
 
 <!-- BOTTOM ROW: TV channels -->
 <div class="tabs-row">
+<div class="tab-btn" data-tab="channel7"><span class="tab-emoji">🦕</span><span class="tab-label">CH 7</span></div>
     <div class="tab-btn" data-tab="channel8"><span class="tab-emoji">📖</span><span class="tab-label">CH 8</span></div>
     <div class="tab-btn" data-tab="channel9"><span class="tab-emoji">⚖️</span><span class="tab-label">CH 9</span></div>
     <div class="tab-btn" data-tab="channel10"><span class="tab-emoji">🕯️</span><span class="tab-label">CH 10</span></div>
@@ -318,6 +319,7 @@
         <div class="game-area">
             <div id="collectionPanel" class="panel active"></div>
             <div id="collectorsPanel" class="panel"></div>
+<div id="channel7Panel" class="panel"></div>
 <div id="channel8Panel" class="panel"></div>
 <div id="channel9Panel" class="panel"></div>
 <div id="channel10Panel" class="panel"></div>
@@ -357,7 +359,9 @@
     activePenance: null,
     ch9Episodes: [],
     activeCourtVerdict: null,
-    ch8Episodes: []
+    ch8Episodes: [],
+ch7Episodes: [],
+currentSullyCase: null
 };
     let gameState = { ...DEFAULT_STATE };
 
@@ -1167,6 +1171,7 @@ clearExpiredPenance();
 
     if (tab==='collection') renderCollection();
     else if (tab==='collectors') renderCollectors();
+else if (tab==='channel7') renderChannel7();
 else if (tab==='channel8') renderChannel8();
 else if (tab==='channel9') renderChannel9();
 else if (tab==='channel10') renderChannel10();
@@ -2811,6 +2816,314 @@ async function generateNewBookClubEpisodes() {
         }
     }
     throw new Error('Invalid book club schedule');
+}
+
+// ──── CHANNEL 7: SULLY’S STRANGE CASES with Detective Frank Sullivan ────
+function generateStrangeCasesEpisodes() {
+    return [
+        { id: 'sully_casefile', time: '11:00 PM', title: 'Case File Opened',      desc: 'Sully presents tonight’s cryptid with a grainy photo.', type: 'casefile' },
+        { id: 'sully_witness',  time: '11:30 PM', title: 'Eyewitness Testimony',   desc: 'A witness tells their story; Sully nods slowly.', type: 'witness' },
+        { id: 'sully_expert',   time: '12:00 AM', title: 'Expert Analysis',        desc: 'An expert gives a contradictory opinion.', type: 'expert' },
+        { id: 'sully_forensic', time: '12:30 AM', title: 'Forensic Focus',         desc: 'Sully examines a piece of “evidence”. You choose what.', type: 'forensic' },
+        { id: 'sully_questions',time: '1:00 AM',  title: 'Viewer Questions',       desc: 'You ask the expert anything – the answer will be circular.', type: 'questions' },
+        { id: 'sully_closed',   time: '1:30 AM',  title: 'Case File Closed… For Now', desc: 'Sully summarises the case with a straight face.', type: 'closed' }
+    ];
+}
+
+function renderChannel7() {
+    const panel = document.getElementById('channel7Panel');
+    if (!panel) return;
+    if (!gameState.ch7Episodes || !gameState.ch7Episodes.length) {
+        gameState.ch7Episodes = generateStrangeCasesEpisodes();
+        saveState();
+    }
+
+    const hostPortrait = 'sully.jpg';   // your image filename/URL
+
+    panel.innerHTML = `
+        <div class="tv-stage">
+            <img class="elvira-portrait" src="${hostPortrait}" alt="Detective Sully" style="object-fit:cover;">
+            <div class="speech-bubble" id="ch7SpeechBubble">
+                <p id="ch7Dialogue">"Name’s Sully. Retired from the force, but the strange cases keep comin’. Tonight, we’ve got somethin’ that might just give you the creeps. Let’s open the file."</p>
+            </div>
+        </div>
+        <div class="tv-guide">
+            <h3>🦕 SULLY’S STRANGE CASES · TONIGHT’S INVESTIGATION</h3>
+            <div id="ch7GuideList"></div>
+        </div>
+    `;
+
+    const guideList = document.getElementById('ch7GuideList');
+    gameState.ch7Episodes.forEach(ep => {
+        const entry = document.createElement('div');
+        entry.className = 'guide-entry';
+        entry.innerHTML = `
+            <span class="guide-time">${ep.time}</span>
+            <div class="guide-info">
+                <div class="guide-title">${ep.title}</div>
+                <div class="guide-desc">${ep.desc}</div>
+            </div>
+            <button class="btn guide-btn" data-episode-id="${ep.id}">Investigate</button>
+        `;
+        guideList.appendChild(entry);
+    });
+
+    document.querySelectorAll('#ch7GuideList .guide-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const epId = btn.dataset.episodeId;
+            const episode = gameState.ch7Episodes.find(e => e.id === epId);
+            if (episode) await startStrangeCaseEpisode(episode);
+        });
+    });
+
+    // "New Case" button
+    const newCaseBtn = document.createElement('button');
+    newCaseBtn.className = 'btn accent';
+    newCaseBtn.id = 'ch7NewCaseBtn';
+    newCaseBtn.style.marginTop = '12px';
+    newCaseBtn.style.width = '100%';
+    newCaseBtn.textContent = '🔍 New Case';
+    guideList.appendChild(newCaseBtn);
+
+    document.getElementById('ch7NewCaseBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('ch7NewCaseBtn');
+        btn.disabled = true;
+        btn.textContent = '📂 Opening file…';
+        try {
+            await generateNewStrangeCasesEpisodes();
+        } catch (e) {
+            showModal('<h2>🔍 Case Unsolved</h2><p>Couldn’t open a new file. We’ll keep this one open a little longer.</p><button class="modal-btn" onclick="closeModal()">Close</button>');
+        }
+        renderChannel7();
+    });
+}
+
+// ──── Episode starter ────
+async function startStrangeCaseEpisode(episode) {
+    speechSynthesis.cancel();
+    if (window.ch7Timeout) clearTimeout(window.ch7Timeout);
+
+    const bubble = document.getElementById('ch7SpeechBubble');
+    const dialogue = document.getElementById('ch7Dialogue');
+    if (!bubble || !dialogue) return;
+
+    const guideList = document.getElementById('ch7GuideList');
+    if (guideList) guideList.style.display = 'none';
+    bubble.style.borderColor = '#ff2a4a';
+    bubble.style.boxShadow = '0 0 20px #c41e3a66';
+
+    const restoreGuide = () => {
+        if (guideList) guideList.style.display = '';
+        bubble.style.borderColor = '#ff2a4a88';
+        bubble.style.boxShadow = 'none';
+    };
+
+    try {
+        switch (episode.type) {
+            case 'casefile':
+                await playCaseFileOpening(dialogue);
+                window.ch7Timeout = setTimeout(restoreGuide, 6000);
+                break;
+            case 'witness':
+                await playWitnessTestimony(dialogue);
+                window.ch7Timeout = setTimeout(restoreGuide, 6000);
+                break;
+            case 'expert':
+                await playExpertAnalysis(dialogue);
+                window.ch7Timeout = setTimeout(restoreGuide, 5000);
+                break;
+            case 'forensic':
+                await playForensicFocus(dialogue);
+                // handles its own restore after player choice
+                break;
+            case 'questions':
+                await playViewerQuestions(dialogue);
+                break;
+            case 'closed':
+                await playCaseClosed(dialogue);
+                window.ch7Timeout = setTimeout(restoreGuide, 5000);
+                break;
+            default:
+                dialogue.textContent = "The case file is empty. Somebody’s been messin’ with my desk.";
+                window.ch7Timeout = setTimeout(restoreGuide, 3000);
+        }
+    } catch (e) {
+        dialogue.textContent = "The file’s gone. Must’ve been the mothman.";
+        window.ch7Timeout = setTimeout(restoreGuide, 3000);
+    }
+}
+
+// ──── Segment implementations ────
+
+async function playCaseFileOpening(dialogue) {
+    // Generate a fictional cryptid
+    const prompt = `Create an absurd, obviously fake cryptid for a parody monster investigation show. Return a JSON object with: "creature" (a ridiculous name), "description" (2‑3 sentences of straight‑faced physical description), "sighting" (a silly location). JSON only.`;
+    const resp = await mistralChat([{role:'user', content:prompt}], 300);
+    const cryptid = JSON.parse(resp.replace(/```json|```/g, '').trim());
+    gameState.currentSullyCase = cryptid;
+    saveState();
+
+    const opening = `Tonight we’re lookin’ into the ${cryptid.creature}. Described as ${cryptid.description} Last seen near ${cryptid.sighting}. I’ve got a grainy photo here… (he holds up a blank Polaroid).`;
+    dialogue.textContent = '';
+    typewriterEffect(dialogue, opening, 25);
+    speakTextMale(opening);
+}
+
+async function playWitnessTestimony(dialogue) {
+    if (!gameState.currentSullyCase) {
+        dialogue.textContent = "File’s empty. No witness to call.";
+        return;
+    }
+    const creature = gameState.currentSullyCase.creature;
+    const prompt = `You are a nervous eyewitness. You just saw the cryptid known as "${creature}". Give a short, overly dramatic, and slightly contradictory testimony (2‑3 sentences) about what you saw. Be earnest but clearly unreliable.`;
+    const resp = await mistralChat([{role:'system', content:'You are a shaky eyewitness.'}, {role:'user', content:prompt}], 250);
+    const testimony = resp.trim();
+
+    dialogue.textContent = '';
+    typewriterEffect(dialogue, `Witness: "${testimony}"`, 25);
+    speakTextMale(testimony);
+}
+
+async function playExpertAnalysis(dialogue) {
+    if (!gameState.currentSullyCase) {
+        dialogue.textContent = "No case, no expert. Moving on.";
+        return;
+    }
+    const creature = gameState.currentSullyCase.creature;
+    const prompt = `You are a highly dubious "expert" on cryptids. You are asked about the ${creature}. Give a short, contradictory, and utterly unhelpful expert opinion (2‑3 sentences) filled with jargon that means nothing.`;
+    const resp = await mistralChat([{role:'system', content:'You are a self-proclaimed cryptid expert.'}, {role:'user', content:prompt}], 250);
+    const analysis = resp.trim();
+
+    dialogue.textContent = '';
+    typewriterEffect(dialogue, `Expert: "${analysis}"`, 25);
+    speakTextMale(analysis);
+}
+
+async function playForensicFocus(dialogue) {
+    if (!gameState.currentSullyCase) {
+        dialogue.textContent = "No evidence to examine. The lab must be on a coffee break.";
+        return;
+    }
+    const creature = gameState.currentSullyCase.creature;
+
+    // Generate three silly "pieces of evidence"
+    const prompt = `Generate three absurd pieces of "evidence" supposedly left behind by the cryptid "${creature}". Each should be a single short phrase (e.g., "a half-eaten donut with bite marks too perfect to be human"). Return a JSON array of exactly 3 strings. JSON only.`;
+    const resp = await mistralChat([{role:'user', content:prompt}], 250);
+    const evidenceList = JSON.parse(resp.replace(/```json|```/g, '').trim());
+
+    let html = `<p>Sully leans over the lab table. “We’ve got three pieces of evidence. Which one do you want me to run tests on?”</p>`;
+    evidenceList.forEach((ev, i) => {
+        html += `<button class="btn forensic-evidence-btn" data-index="${i}">🔬 ${esc(ev)}</button> `;
+    });
+    html += `<div id="ch7ForensicResult" style="margin-top:8px; color:#e8c5b0;"></div>`;
+    dialogue.innerHTML = html;
+
+    const restoreGuide = () => {
+        const guideList = document.getElementById('ch7GuideList');
+        if (guideList) guideList.style.display = '';
+        const bubble = document.getElementById('ch7SpeechBubble');
+        if (bubble) {
+            bubble.style.borderColor = '#ff2a4a88';
+            bubble.style.boxShadow = 'none';
+        }
+    };
+
+    document.querySelectorAll('.forensic-evidence-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const idx = parseInt(btn.dataset.index);
+            const chosenEvidence = evidenceList[idx];
+            const resultPrompt = `You are Sully, a deadpan detective. You just "analyzed" the evidence "${chosenEvidence}" in your lab. Give a brief, straight‑faced but absurd conclusion (2‑3 sentences). It should sound scientific but be complete nonsense.`;
+            const resp = await mistralChat([{role:'system', content:'You are Detective Sully.'}, {role:'user', content:resultPrompt}], 250);
+            const resultText = resp.trim();
+
+            const resultDiv = document.getElementById('ch7ForensicResult');
+            resultDiv.innerHTML = `<p><em>“${esc(resultText)}”</em></p>`;
+            speakTextMale(resultText);
+
+            if (window.ch7Timeout) clearTimeout(window.ch7Timeout);
+            window.ch7Timeout = setTimeout(restoreGuide, 4000);
+        });
+    });
+}
+
+async function playViewerQuestions(dialogue) {
+    if (!gameState.currentSullyCase) {
+        dialogue.textContent = "No case to ask about. Call back later.";
+        return;
+    }
+    dialogue.innerHTML = `
+        <p>"You got questions for our expert? Fire away. I can’t promise a straight answer."</p>
+        <div style="display:flex; gap:6px; margin-top:8px;">
+            <input type="text" id="ch7QuestionInput" placeholder="e.g., How does the creature tie its shoes?" style="flex:1; background:#16161e; border:2px solid #2a2a35; color:#c8c8c8; font-family:'VT323', monospace; padding:8px;">
+            <button class="btn" id="ch7QuestionSubmit">Ask</button>
+        </div>
+        <div id="ch7QuestionResponse" style="margin-top:8px; color:#e8c5b0;"></div>
+    `;
+
+    const restoreGuide = () => {
+        const guideList = document.getElementById('ch7GuideList');
+        if (guideList) guideList.style.display = '';
+        const bubble = document.getElementById('ch7SpeechBubble');
+        if (bubble) {
+            bubble.style.borderColor = '#ff2a4a88';
+            bubble.style.boxShadow = 'none';
+        }
+    };
+
+    document.getElementById('ch7QuestionSubmit').addEventListener('click', async () => {
+        const input = document.getElementById('ch7QuestionInput');
+        const question = input.value.trim();
+        if (!question) return;
+        input.disabled = true;
+        document.getElementById('ch7QuestionSubmit').disabled = true;
+        const respDiv = document.getElementById('ch7QuestionResponse');
+        respDiv.textContent = 'Expert is thinking…';
+
+        const prompt = `You are a dubious cryptid expert. A viewer asks: "${question}". Answer with a completely circular, jargon‑filled, and unhelpful response in 2‑3 sentences. Sound academic but say nothing.`;
+        try {
+            const answer = await mistralChat([{role:'system', content:'You are a cryptid expert.'}, {role:'user', content:prompt}], 250);
+            respDiv.innerHTML = `<p><em>"${esc(answer.trim())}"</em></p>`;
+            speakTextMale(answer.trim());
+        } catch (e) {
+            respDiv.textContent = 'Expert hung up. Probably for the best.';
+        }
+
+        if (window.ch7Timeout) clearTimeout(window.ch7Timeout);
+        window.ch7Timeout = setTimeout(restoreGuide, 5000);
+    });
+}
+
+async function playCaseClosed(dialogue) {
+    if (!gameState.currentSullyCase) {
+        dialogue.textContent = "No case to close. I’ll just get more coffee.";
+        return;
+    }
+    const creature = gameState.currentSullyCase.creature;
+    const prompt = `You are Detective Sully. Close the case on the cryptid "${creature}" with a deadpan, inconclusive summary. 2‑3 sentences. End with "Case closed… for now."`;
+    const text = await mistralChat([{role:'system', content:'You are Detective Sully.'}, {role:'user', content:prompt}], 200);
+    dialogue.textContent = '';
+    typewriterEffect(dialogue, text.trim(), 25);
+    speakTextMale(text.trim());
+
+    // Clear the current case
+    gameState.currentSullyCase = null;
+    saveState();
+}
+
+// ──── Generate a fresh lineup ────
+async function generateNewStrangeCasesEpisodes() {
+    const prompt = `You are the producer of "Sully’s Strange Cases". Generate a new 6‑segment investigation lineup. Return a JSON array of exactly 6 objects with keys: id, time (same slots), title, desc, type (must be exactly one of: casefile, witness, expert, forensic, questions, closed). Keep the deadpan, noir‑ish tone. JSON only.`;
+    const resp = await mistralChat([{role:'system', content:'You are a noir TV producer.'}, {role:'user', content:prompt}], 800);
+    const newEps = JSON.parse(resp.replace(/```json|```/g, '').trim());
+    if (Array.isArray(newEps) && newEps.length === 6) {
+        const types = newEps.map(e => e.type).sort().join(',');
+        if (types === 'casefile,closed,expert,forensic,questions,witness') {
+            gameState.ch7Episodes = newEps;
+            saveState();
+            return;
+        }
+    }
+    throw new Error('Invalid case lineup');
 }
 // ──── Helper: speak with a male voice (similar to your Elvira voice code but male) ────
 function speakTextMale(text) {
