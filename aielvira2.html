@@ -301,6 +301,7 @@
         <div class="tabs-row">
     <div class="tab-btn active" data-tab="collection"><span class="tab-emoji">📼</span><span class="tab-label">COLLECTION</span></div>
     <div class="tab-btn" data-tab="collectors"><span class="tab-emoji">📇</span><span class="tab-label">COLLECTORS</span></div>
+<div class="tab-btn" data-tab="channel9"><span class="tab-emoji">⚖️</span><span class="tab-label">CH 9</span></div>
 <div class="tab-btn" data-tab="channel10"><span class="tab-emoji">🕯️</span><span class="tab-label">CH 10</span></div>
     <div class="tab-btn" data-tab="channel11"><span class="tab-emoji">🎥</span><span class="tab-label">CH 11</span></div>
     <div class="tab-btn" data-tab="channel12"><span class="tab-emoji">📻</span><span class="tab-label">CH 12</span></div>
@@ -311,6 +312,7 @@
         <div class="game-area">
             <div id="collectionPanel" class="panel active"></div>
             <div id="collectorsPanel" class="panel"></div>
+<div id="channel9Panel" class="panel"></div>
 <div id="channel10Panel" class="panel"></div>
 <div id="channel11Panel" class="panel"></div>
             <div id="channel12Panel" class="panel"></div>
@@ -344,8 +346,10 @@
     radioLastGeneratedDate: null,
     ch12Episodes: [],
     ch11Episodes: [],
-    ch10Episodes: [],          // ← add this
-    activePenance: null        // ← add this
+    ch10Episodes: [],
+    activePenance: null,
+    ch9Episodes: [],
+    activeCourtVerdict: null
 };
     let gameState = { ...DEFAULT_STATE };
 
@@ -1155,6 +1159,7 @@ clearExpiredPenance();
 
     if (tab==='collection') renderCollection();
     else if (tab==='collectors') renderCollectors();
+else if (tab==='channel9') renderChannel9();
 else if (tab==='channel10') renderChannel10();
 else if (tab==='channel11') renderChannel11();
     else if (tab==='channel12') renderChannel12();   // <-- new
@@ -2206,6 +2211,347 @@ async function generateChristianMovie() {
             quality: 4
         };
     }
+}
+
+// ──── CHANNEL 9: JUDGE DREAD’S NIGHT COURT ────
+function generateCourtEpisodes() {
+    return [
+        { id: 'court_docket',      time: '11:00 PM', title: 'Docket Call',            desc: 'Judge Dread introduces tonight’s case.', type: 'docket' },
+        { id: 'court_plaintiff',   time: '11:30 PM', title: 'Plaintiff’s Testimony',  desc: 'The aggrieved monster tells their side.', type: 'plaintiff' },
+        { id: 'court_defendant',   time: '12:00 AM', title: 'Defendant’s Testimony',  desc: 'The accused rebuts.', type: 'defendant' },
+        { id: 'court_jury',        time: '12:30 AM', title: 'Jury Deliberation',      desc: 'You are the jury. Choose the verdict!', type: 'jury' },
+        { id: 'court_verdict',     time: '1:00 AM',  title: 'The Verdict & Sentence', desc: 'Judge Dread rules; the sentence becomes law.', type: 'verdict' },
+        { id: 'court_benediction', time: '1:30 AM',  title: 'Bailiff’s Benediction',  desc: 'A grim farewell from the bailiff.', type: 'benediction' }
+    ];
+}
+
+function renderChannel9() {
+    const panel = document.getElementById('channel9Panel');
+    if (!panel) return;
+    if (!gameState.ch9Episodes || !gameState.ch9Episodes.length) {
+        gameState.ch9Episodes = generateCourtEpisodes();
+        saveState();
+    }
+
+    const hostPortrait = 'judge.jpg';   // update to your image filename/URL
+
+    panel.innerHTML = `
+        <div class="tv-stage">
+            <img class="elvira-portrait" src="${hostPortrait}" alt="Judge Dread" style="object-fit:cover;">
+            <div class="speech-bubble" id="ch9SpeechBubble">
+                <p id="ch9Dialogue">"Order! Order in the court! I am Judge Dread, and this is my night court. Tonight, we settle the petty grievances of the undead. Silence your phones and prepare for judgment."</p>
+            </div>
+        </div>
+        <div class="tv-guide">
+            <h3>⚖️ JUDGE DREAD’S NIGHT COURT · TONIGHT’S DOCKET</h3>
+            <div id="ch9GuideList"></div>
+        </div>
+    `;
+
+    const guideList = document.getElementById('ch9GuideList');
+    gameState.ch9Episodes.forEach(ep => {
+        const entry = document.createElement('div');
+        entry.className = 'guide-entry';
+        entry.innerHTML = `
+            <span class="guide-time">${ep.time}</span>
+            <div class="guide-info">
+                <div class="guide-title">${ep.title}</div>
+                <div class="guide-desc">${ep.desc}</div>
+            </div>
+            <button class="btn guide-btn" data-episode-id="${ep.id}">Tune In</button>
+        `;
+        guideList.appendChild(entry);
+    });
+
+    document.querySelectorAll('#ch9GuideList .guide-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const epId = btn.dataset.episodeId;
+            const episode = gameState.ch9Episodes.find(e => e.id === epId);
+            if (episode) await startCourtEpisode(episode);
+        });
+    });
+
+    // "New Docket" button
+    const newDocketBtn = document.createElement('button');
+    newDocketBtn.className = 'btn accent';
+    newDocketBtn.id = 'ch9NewDocketBtn';
+    newDocketBtn.style.marginTop = '12px';
+    newDocketBtn.style.width = '100%';
+    newDocketBtn.textContent = '⚖️ New Docket';
+    guideList.appendChild(newDocketBtn);
+
+    document.getElementById('ch9NewDocketBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('ch9NewDocketBtn');
+        btn.disabled = true;
+        btn.textContent = '📜 Summoning case…';
+        try {
+            await generateNewCourtEpisodes();
+        } catch (e) {
+            showModal('<h2>⚖️ Case Dismissed</h2><p>No new case available. The court is in recess.</p><button class="modal-btn" onclick="closeModal()">Close</button>');
+        }
+        renderChannel9();
+    });
+}
+
+// ──── Court episode starter ────
+async function startCourtEpisode(episode) {
+    speechSynthesis.cancel();
+    if (window.ch9Timeout) clearTimeout(window.ch9Timeout);
+
+    const bubble = document.getElementById('ch9SpeechBubble');
+    const dialogue = document.getElementById('ch9Dialogue');
+    if (!bubble || !dialogue) return;
+
+    const guideList = document.getElementById('ch9GuideList');
+    if (guideList) guideList.style.display = 'none';
+    bubble.style.borderColor = '#ff2a4a';
+    bubble.style.boxShadow = '0 0 20px #c41e3a66';
+
+    const restoreGuide = () => {
+        if (guideList) guideList.style.display = '';
+        bubble.style.borderColor = '#ff2a4a88';
+        bubble.style.boxShadow = 'none';
+    };
+
+    try {
+        switch (episode.type) {
+            case 'docket':
+                await playDocket(dialogue);
+                window.ch9Timeout = setTimeout(restoreGuide, 5000);
+                break;
+            case 'plaintiff':
+                await playTestimony(dialogue, 'plaintiff');
+                window.ch9Timeout = setTimeout(restoreGuide, 5000);
+                break;
+            case 'defendant':
+                await playTestimony(dialogue, 'defendant');
+                window.ch9Timeout = setTimeout(restoreGuide, 5000);
+                break;
+            case 'jury':
+                await playJuryDeliberation(dialogue);
+                // playJuryDeliberation handles its own restore after vote
+                break;
+            case 'verdict':
+                await playVerdict(dialogue);
+                window.ch9Timeout = setTimeout(restoreGuide, 5000);
+                break;
+            case 'benediction':
+                await playBenediction(dialogue);
+                window.ch9Timeout = setTimeout(restoreGuide, 5000);
+                break;
+            default:
+                dialogue.textContent = "The court is in recess. Please stand by.";
+                window.ch9Timeout = setTimeout(restoreGuide, 3000);
+        }
+    } catch (e) {
+        dialogue.textContent = "Objection! Technical difficulties.";
+        window.ch9Timeout = setTimeout(restoreGuide, 3000);
+    }
+}
+
+// ──── Segment implementations ────
+
+async function playDocket(dialogue) {
+    // Generate a random case for the night and store it
+    const prompt = `Create an absurd, humorous lawsuit between two supernatural or undead beings. Return a JSON object with: "caseTitle", "plaintiff" (name of the one suing), "defendant" (name of the one being sued), "complaint" (a one‑sentence summary of the grievance). Keep it darkly funny. JSON only.`;
+    const resp = await mistralChat([{role:'user', content:prompt}], 300);
+    const caseData = JSON.parse(resp.replace(/```json|```/g, '').trim());
+    gameState.currentCase = caseData;
+    saveState();
+
+    const docketText = `Tonight's case: ${caseData.caseTitle}. ${caseData.plaintiff} is suing ${caseData.defendant} for ${caseData.complaint}. All rise for the honorable Judge Dread.`;
+    dialogue.textContent = '';
+    typewriterEffect(dialogue, docketText, 30);
+    speakTextMale(docketText);
+}
+
+async function playTestimony(dialogue, role) {
+    if (!gameState.currentCase) {
+        dialogue.textContent = "The case file has been misplaced. Recess!";
+        return;
+    }
+    const caseData = gameState.currentCase;
+    const speaker = role === 'plaintiff' ? caseData.plaintiff : caseData.defendant;
+    const prompt = `You are ${speaker}, a supernatural being in night court. You are ${role === 'plaintiff' ? 'the plaintiff' : 'the defendant'} in the case "${caseData.caseTitle}". The complaint is: ${caseData.complaint}. Give a short, over‑the‑top, hilarious testimony (2‑3 sentences) explaining your side. Use dramatic, courtroom‑drama language.`;
+    const resp = await mistralChat([{role:'system', content:`You are ${speaker}.`}, {role:'user', content:prompt}], 250);
+    const testimony = resp.trim();
+
+    // Store testimony for later use in verdict (optional)
+    if (role === 'plaintiff') gameState.currentCase.plaintiffTestimony = testimony;
+    else gameState.currentCase.defendantTestimony = testimony;
+    saveState();
+
+    dialogue.textContent = '';
+    typewriterEffect(dialogue, `${speaker}: "${testimony}"`, 30);
+    speakTextMale(testimony);
+}
+
+async function playJuryDeliberation(dialogue) {
+    if (!gameState.currentCase) {
+        dialogue.textContent = "No case to deliberate. Recess!";
+        return;
+    }
+    const caseData = gameState.currentCase;
+    // Generate two possible verdicts with sentences
+    const prompt = `You are Judge Dread. Based on the case "${caseData.caseTitle}" where ${caseData.plaintiff} sues ${caseData.defendant} over "${caseData.complaint}", produce two possible verdicts:
+- Verdict A: in favor of the plaintiff
+- Verdict B: in favor of the defendant
+For each verdict, include a brief sentence (e.g., "The defendant must pay 200 souls" or "The case is dismissed with prejudice") and a **court‑wide effect** that will apply to all viewers for 10 minutes (e.g., "all trades have a 20% chance of rejection", "tape quality drops by 1 for new tapes", "cash rewards from selling are halved"). Return a JSON object: { "verdictA": { "description": "...", "modifier": { "tradeRejectChance": 0.2 } }, "verdictB": { "description": "...", "modifier": { "cashPenalty": 5 } } }. JSON only.`;
+    const resp = await mistralChat([{role:'system', content:'You are Judge Dread.'}, {role:'user', content:prompt}], 400);
+    const verdictData = JSON.parse(resp.replace(/```json|```/g, '').trim());
+    gameState.currentVerdictOptions = verdictData;
+    saveState();
+
+    let html = `<p>The jury must now decide: who is guilty?</p>`;
+    html += `<p><strong>Verdict A:</strong> ${verdictData.verdictA.description}</p>`;
+    html += `<p><strong>Verdict B:</strong> ${verdictData.verdictB.description}</p>`;
+    html += `<button class="btn jury-vote-btn" data-verdict="A">Vote A</button>`;
+    html += `<button class="btn jury-vote-btn" data-verdict="B">Vote B</button>`;
+    dialogue.innerHTML = html;
+
+    const restoreGuide = () => {
+        const guideList = document.getElementById('ch9GuideList');
+        if (guideList) guideList.style.display = '';
+        const bubble = document.getElementById('ch9SpeechBubble');
+        if (bubble) {
+            bubble.style.borderColor = '#ff2a4a88';
+            bubble.style.boxShadow = 'none';
+        }
+    };
+
+    document.querySelectorAll('.jury-vote-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const chosenVerdict = this.dataset.verdict;
+            // Store the chosen verdict for the verdict segment
+            gameState.currentVerdictChosen = chosenVerdict;
+            saveState();
+            dialogue.innerHTML = `<p>The jury has spoken. The bailiff will now read the verdict.</p>`;
+            speechSynthesis.cancel();
+            if (window.ch9Timeout) clearTimeout(window.ch9Timeout);
+            window.ch9Timeout = setTimeout(restoreGuide, 2500);
+        });
+    });
+}
+
+async function playVerdict(dialogue) {
+    if (!gameState.currentVerdictChosen || !gameState.currentVerdictOptions) {
+        dialogue.textContent = "The jury failed to reach a verdict. Mistrial declared.";
+        return;
+    }
+    const verdictKey = gameState.currentVerdictChosen === 'A' ? 'verdictA' : 'verdictB';
+    const verdict = gameState.currentVerdictOptions[verdictKey];
+    const description = verdict.description;
+    const modifier = verdict.modifier || {};
+
+    // Apply the court verdict as a temporary modifier
+    setActiveCourtVerdict(description, modifier, 600000); // 10 minutes
+
+    dialogue.textContent = '';
+    typewriterEffect(dialogue, `Judge Dread: "I hereby rule... ${description} So it is ordered."`, 30);
+    speakTextMale(`I hereby rule... ${description} So it is ordered.`);
+
+    // Clean up case data
+    gameState.currentCase = null;
+    gameState.currentVerdictOptions = null;
+    gameState.currentVerdictChosen = null;
+    saveState();
+}
+
+async function playBenediction(dialogue) {
+    const prompt = `You are the zombie bailiff in Judge Dread's Night Court. Give a short, grim, deadpan farewell. 2 sentences. End with "Court is adjourned... forever."`;
+    const text = await mistralChat([{role:'system', content:'You are a zombie bailiff.'}, {role:'user', content:prompt}], 150);
+    dialogue.textContent = '';
+    typewriterEffect(dialogue, text.trim(), 30);
+    speakTextMale(text.trim());
+}
+
+// ──── Court verdict system (separate from penance, but similar) ────
+function setActiveCourtVerdict(description, modifier = {}, durationMs = 600000) {
+    gameState.activeCourtVerdict = {
+        description,
+        expiresAt: Date.now() + durationMs,
+        modifier
+    };
+    saveState();
+    updateFooterCourtVerdict();
+}
+
+function clearExpiredCourtVerdict() {
+    if (gameState.activeCourtVerdict && Date.now() > gameState.activeCourtVerdict.expiresAt) {
+        gameState.activeCourtVerdict = null;
+        saveState();
+    }
+}
+
+function updateFooterCourtVerdict() {
+    // Combine with penance display if both active; this example simply appends
+    const footer = document.getElementById('footerMsg');
+    if (!footer) return;
+
+    clearExpiredCourtVerdict();
+    clearExpiredPenance();
+
+    let parts = [];
+    if (gameState.activePenance) parts.push(`🪪 Penance: ${gameState.activePenance.description}`);
+    if (gameState.activeCourtVerdict) parts.push(`⚖️ Verdict: ${gameState.activeCourtVerdict.description}`);
+
+    if (parts.length > 0) {
+        footer.textContent = parts.join('  |  ');
+    } else {
+        footer.textContent = '📼 NIGHTFALLS VHS · COLLECT THE DARKNESS';
+    }
+}
+
+// Patch handleTradeDecision to also apply court verdict trade rejection
+const originalCourtHandleTradeDecision = handleTradeDecision;
+handleTradeDecision = function(npc, npcTape, playerTape, decision) {
+    clearExpiredCourtVerdict();
+    if (gameState.activeCourtVerdict && gameState.activeCourtVerdict.modifier.tradeRejectChance) {
+        if (decision.decision === 'accept' && Math.random() < gameState.activeCourtVerdict.modifier.tradeRejectChance) {
+            decision = {
+                decision: 'reject',
+                message: "The court's verdict looms over this deal. It cannot proceed."
+            };
+        }
+    }
+    return originalCourtHandleTradeDecision(npc, npcTape, playerTape, decision);
+};
+
+// Apply cash penalty from court verdict during sales
+const originalSellTape = sellTape;
+sellTape = function(tape) {
+    clearExpiredCourtVerdict();
+    if (gameState.activeCourtVerdict && gameState.activeCourtVerdict.modifier.cashPenalty) {
+        const penalty = gameState.activeCourtVerdict.modifier.cashPenalty;
+        gameState.cash = Math.max(0, gameState.cash - penalty);
+        saveState();
+        showModal(`<h2>⚖️ Court Penalty</h2><p>The verdict costs you $${penalty} on this sale.</p><button class="modal-btn" onclick="closeModal()">OK</button>`);
+    }
+    return originalSellTape(tape);
+};
+
+// Update refreshAll to include court verdict footer update
+const originalRefreshAll = refreshAll;
+refreshAll = function() {
+    clearExpiredCourtVerdict();
+    updateFooterCourtVerdict();
+    originalRefreshAll();
+};
+
+// ──── Generate a new docket ────
+async function generateNewCourtEpisodes() {
+    const prompt = `You are the producer of "Judge Dread's Night Court". Generate a new 6‑segment docket. Return a JSON array of exactly 6 objects with keys: id, time (same slots), title, desc, type (must be exactly one of: docket, plaintiff, defendant, jury, verdict, benediction). Keep the dark, absurd tone. JSON only.`;
+    const resp = await mistralChat([{role:'system', content:'You are a deranged TV producer.'}, {role:'user', content:prompt}], 800);
+    const newEps = JSON.parse(resp.replace(/```json|```/g, '').trim());
+    if (Array.isArray(newEps) && newEps.length === 6) {
+        const types = newEps.map(e => e.type).sort().join(',');
+        if (types === 'benediction,defendant,docket,jury,plaintiff,verdict') {
+            gameState.ch9Episodes = newEps;
+            saveState();
+            return;
+        }
+    }
+    throw new Error('Invalid docket structure');
 }
 // ──── Helper: speak with a male voice (similar to your Elvira voice code but male) ────
 function speakTextMale(text) {
