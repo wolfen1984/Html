@@ -1653,7 +1653,7 @@ const loreTexts = [
                 else if (rarityRoll > 0.35) rarity = 'cult-classic';
                 const passiveAbility = generatePassiveAbility();
                 const cleanTitle = title.replace(/[^a-zA-Z0-9 ]/g, '').substring(0, 50);
-                const imgPrompt = `hammer horror film poster, ${cleanTitle}, vivid technicolor, gothic, dramatic lighting, deep reds, 1950s horror style, saturated colors`;
+                const imgPrompt = `hammer horror film poster of ${cleanTitle} the ${cardType}, vivid technicolor, gothic, dramatic lighting, deep reds, 1950s horror style, saturated colors`;
                 const randomSeed = Math.floor(Math.random() * 1000000);
                 const imageUrl =
                     `https://image.pollinations.ai/prompt/${encodeURIComponent(imgPrompt)}?width=480&height=300&nologo=true&seed=${randomSeed}`;
@@ -1681,47 +1681,74 @@ const loreTexts = [
                 return card;
             }
 
-            async function mistralRequest(messages, maxTokens = 400, temp = 0.9) {
-                if (!apiKey) throw new Error('No API key');
-                const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                    body: JSON.stringify({ model: 'mistral-small-latest', messages, temperature: temp,
-                        max_tokens: maxTokens })
-                });
-                if (!response.ok) throw new Error(`API error ${response.status}`);
-                const data = await response.json();
-                return data.choices[0].message.content.trim();
-            }
+            async function mistralRequest(messages, maxTokens = 400, temp = 0.9, jsonMode = false) {
+    if (!apiKey) throw new Error('No API key');
+    const body = {
+        model: 'mistral-small-latest',
+        messages,
+        temperature: temp,
+        max_tokens: maxTokens,
+    };
+    if (jsonMode) body.response_format = { type: "json_object" };
+    const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify(body)
+    });
+    if (!response.ok) throw new Error(`API error ${response.status}`);
+    const data = await response.json();
+    return data.choices[0].message.content.trim();
+}
 
             async function generateCardFromAPI() {
-                const templates = [
-    `hammer horror movie poster, {title}, vivid technicolor, gothic, dramatic lighting, saturated reds, 1950s horror`,
-    `hammer film style art, {title}, {cardType}, deep crimson shadows, theatrical, blood red, vintage color`,
-    `classic hammer horror illustration, {title}, {cardType}, gothic castle, candlelight, rich colors, retro poster`
-];
-                const prompt = `Generate a Hammer Horror film card as JSON with keys: title (ALL CAPS, must be a Hammer Horror character or film title), era (one of 'Hammer House 1958','Bray Studios','Carnival of Souls','Karnstein Castle','Transylvania 1897','Victorian London','Black Park Forest','Oakley Court','Elstree Studios'), cardType (one of Vampire,Construct,Mummy,Witch,Zombie,Lycanthrope,Mad Scientist,Demon,Phantom), champion, artifact, renown (1-50), realm, flavorText, specialAbility, lore, power (1-100), mystique (1-100), dread (1-100), rarity (silver-screen/cult-classic/midnight-feature/lost-reel/original-negative), abilityType (one of regeneration,hypnotic_gaze,wolf_rage,undying,mummys_curse,double_feature,amphibious,silver_scream), abilityValue (integer). Only JSON.`;
-                const required = ['title', 'era', 'cardType', 'champion', 'artifact', 'renown', 'realm', 'flavorText',
-                    'specialAbility', 'lore', 'power', 'mystique', 'dread', 'rarity', 'abilityType',
-                'abilityValue'];
-                for (const k of required) if (!(k in cardData)) throw new Error(`Missing: ${k}`);
-                const template = templates[Math.floor(Math.random() * templates.length)];
-                let rawPrompt = template.replace('{title}', cardData.title).replace('{cardType}', cardData
-                .cardType);
-                const extras = ['gothic', 'vintage', 'horror', 'macabre', 'classic monster', 'old film'];
-                rawPrompt += `, ${extras[Math.floor(Math.random() * extras.length)]}`;
-                const safeImg = rawPrompt.replace(/[^a-zA-Z0-9 .,'"\-]/g, '').substring(0, 220);
-                const randomSeed = Math.floor(Math.random() * 1000000);
-                const imageUrl =
-                    `https://image.pollinations.ai/prompt/${encodeURIComponent(safeImg)}?width=480&height=300&nologo=true&seed=${randomSeed}`;
-                const abilityType = cardData.abilityType;
-                const poolEntry = PASSIVE_ABILITY_POOL.find(a => a.type === abilityType) || PASSIVE_ABILITY_POOL[
-                0];
-                const passiveAbility = { type: abilityType, name: poolEntry.name, value: cardData.abilityValue,
-                    desc: poolEntry.desc(cardData.abilityValue) };
-                return { ...cardData, imageUrl, passiveAbility, id: Date.now() + '-' + Math.random().toString(36)
-                        .substr(2, 8), evolutionStage: 1, wins: 0 };
-            }
+    const templates = [
+        `hammer horror movie poster, {title}, vivid technicolor, gothic, dramatic lighting, saturated reds, 1950s horror`,
+        `hammer film style art, {title}, {cardType}, deep crimson shadows, theatrical, blood red, vintage color`,
+        `classic hammer horror illustration, {title}, {cardType}, gothic castle, candlelight, rich colors, retro poster`
+    ];
+    const prompt = `Generate a Hammer Horror film card as JSON. Only return the JSON object, no other text. The JSON must contain these keys: title (string, ALL CAPS), era, cardType, champion, artifact, renown (integer 1-50), realm, flavorText, specialAbility, lore, power (integer 1-100), mystique (integer 1-100), dread (integer 1-100), rarity (one of silver-screen,cult-classic,midnight-feature,lost-reel,original-negative), abilityType (one of regeneration,hypnotic_gaze,wolf_rage,undying,mummys_curse,double_feature,amphibious,silver_scream), abilityValue (integer).`;
+
+    try {
+        const text = await mistralRequest(
+            [{ role: 'system', content: 'You are a Hammer Horror film archivist. Return only valid JSON.' },
+             { role: 'user', content: prompt }],
+            500, 0.9, true
+        );
+        let cardData = JSON.parse(text);
+        // Validate required keys
+        const required = ['title','era','cardType','champion','artifact','renown','realm','flavorText','specialAbility','lore','power','mystique','dread','rarity','abilityType','abilityValue'];
+        for (const k of required) if (!(k in cardData)) throw new Error(`Missing field: ${k}`);
+
+        const template = templates[Math.floor(Math.random() * templates.length)];
+        let rawPrompt = template.replace('{title}', cardData.title).replace('{cardType}', cardData.cardType);
+        const extras = ['gothic', 'vintage', 'horror', 'macabre', 'classic monster', 'old film'];
+        rawPrompt += `, ${extras[Math.floor(Math.random() * extras.length)]}`;
+        const safeImg = rawPrompt.replace(/[^a-zA-Z0-9 .,'"\-]/g, '').substring(0, 220);
+        const randomSeed = Math.floor(Math.random() * 1000000);
+        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(safeImg)}?width=480&height=300&nologo=true&seed=${randomSeed}`;
+
+        const abilityType = cardData.abilityType;
+        const poolEntry = PASSIVE_ABILITY_POOL.find(a => a.type === abilityType) || PASSIVE_ABILITY_POOL[0];
+        const passiveAbility = {
+            type: abilityType,
+            name: poolEntry.name,
+            value: cardData.abilityValue,
+            desc: poolEntry.desc(cardData.abilityValue)
+        };
+
+        return {
+            ...cardData,
+            imageUrl,
+            passiveAbility,
+            id: Date.now() + '-' + Math.random().toString(36).substr(2, 8),
+            evolutionStage: 1,
+            wins: 0
+        };
+    } catch (e) {
+        console.error('API card generation failed:', e);
+        throw e;
+    }
+}
 
             async function generateCard() {
                 if (apiKey) { try { return await generateCardFromAPI(); } catch (e) { console.log(
@@ -2406,12 +2433,16 @@ const loreTexts = [
                 if (t.id === 'darkInfusionBtn') { if (souls < 3) { showNotification('Need 3 tickets'); return; }
                     showCardSelector('✨ PICK MONSTER FOR DOUBLE FEATURE', card => { if (!card) return;
                         souls -= 3;
-                        const copy = { ...card, id: Date.now() + '-' + Math.random().toString(36).substr(2,
-                                8), title: card.title + ' [TECHNICOLOR]', power: (card.power || 50) + 2,
-                            mystique: (card.mystique || 50) + 2, dread: (card.dread || 50) + 2,
-                            flavorText: '"Now in glorious color!"', specialAbility: card.specialAbility +
-                            ' (enhanced)', passiveAbility: card.passiveAbility ? { ...card.passiveAbility } :
-                            undefined };
+                       const copy = Object.assign({}, card, {
+    id: Date.now() + '-' + Math.random().toString(36).substr(2, 8),
+    title: card.title + ' [TECHNICOLOR]',
+    power: (card.power || 50) + 2,
+    mystique: (card.mystique || 50) + 2,
+    dread: (card.dread || 50) + 2,
+    flavorText: '"Now in glorious color!"',
+    specialAbility: card.specialAbility + ' (enhanced)',
+    passiveAbility: card.passiveAbility ? Object.assign({}, card.passiveAbility) : undefined
+});
                         collection.push(copy);
                         saveAll();
                         updateAllUI();
@@ -2444,20 +2475,18 @@ const loreTexts = [
                 if (!fusionSlot1 || !fusionSlot2 || fusionSlot1.rarity !== fusionSlot2.rarity || souls < 3)
                     return;
                 souls -= 3;
-                const hybrid = {
-                    ...fusionSlot1,
-                    id: Date.now() + '-' + Math.random().toString(36).substr(2, 8),
-                    title: fusionSlot1.title.split(' ')[0] + '-' + fusionSlot2.title.split(' ')[0] +
-                        ' Hybrid',
-                    power: Math.floor((fusionSlot1.power + fusionSlot2.power) / 2) + 3,
-                    mystique: Math.floor((fusionSlot1.mystique + fusionSlot2.mystique) / 2) + 3,
-                    dread: Math.floor((fusionSlot1.dread + fusionSlot2.dread) / 2) + 2,
-                    passiveAbility: generatePassiveAbility(),
-                    specialAbility: generatePassiveAbility().desc,
-                    flavorText: '"A monstrous fusion of cinema!"',
-                    evolutionStage: 1,
-                    wins: 0
-                };
+                const hybrid = Object.assign({}, fusionSlot1, {
+    id: Date.now() + '-' + Math.random().toString(36).substr(2, 8),
+    title: fusionSlot1.title.split(' ')[0] + '-' + fusionSlot2.title.split(' ')[0] + ' Hybrid',
+    power: Math.floor((fusionSlot1.power + fusionSlot2.power) / 2) + 3,
+    mystique: Math.floor((fusionSlot1.mystique + fusionSlot2.mystique) / 2) + 3,
+    dread: Math.floor((fusionSlot1.dread + fusionSlot2.dread) / 2) + 2,
+    passiveAbility: generatePassiveAbility(),
+    specialAbility: generatePassiveAbility().desc,
+    flavorText: '"A monstrous fusion of cinema!"',
+    evolutionStage: 1,
+    wins: 0
+});
                 collection = collection.filter(c => c.id !== fusionSlot1.id && c.id !== fusionSlot2.id);
                 collection.push(hybrid);
                 fusionSlot1 = fusionSlot2 = null;
