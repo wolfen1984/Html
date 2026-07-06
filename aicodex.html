@@ -1757,28 +1757,34 @@ const prompt = `Generate a unique Hammer Horror film card as JSON. Each request 
                 return generateFallbackCard();
             }
 
-            function showCardSelector(title, callback) {
-                if (collection.length === 0) { showNotification('⚠️ No monsters in Film Reels!');
-                    callback(null); return; }
-                selectionCallback = callback;
-                document.getElementById('selectionTitle').textContent = title;
-                const listEl = document.getElementById('selectionList');
-                listEl.innerHTML = '';
-                collection.forEach(card => {
-                    const row = document.createElement('div');
-                    row.className = 'selection-card-row';
-                    row.innerHTML =
-                        `<img src="${card.imageUrl}" onerror="this.style.display='none'" alt=""><div class="sel-info"><div class="sel-title">${escapeHtml(card.title)}</div><div class="sel-meta">💪 ${escapeHtml(card.champion||'Unknown')} · ${card.era||'?'} · <span style="color:#8b0000;">${card.rarity.toUpperCase()}</span></div></div>`;
-                    row.addEventListener('click', () => { document.getElementById('cardSelectionModal').style
-                            .display = 'none';
-                        soundEngine.playClick();
-                        selectionCallback(card);
-                        selectionCallback = null; });
-                    listEl.appendChild(row);
-                });
-                document.getElementById('cardSelectionModal').style.display = 'flex';
-                soundEngine.playCardFlip();
-            }
+            function showCardSelector(title, callback, excludeCard = null) {
+    const filteredCollection = excludeCard
+        ? collection.filter(card => card.id !== excludeCard.id)
+        : collection;
+    if (filteredCollection.length === 0) {
+        showNotification('⚠️ No other monsters available!');
+        callback(null);
+        return;
+    }
+    selectionCallback = callback;
+    document.getElementById('selectionTitle').textContent = title;
+    const listEl = document.getElementById('selectionList');
+    listEl.innerHTML = '';
+    filteredCollection.forEach(card => {
+        const row = document.createElement('div');
+        row.className = 'selection-card-row';
+        row.innerHTML = `<img src="${card.imageUrl}" onerror="this.style.display='none'" alt=""><div class="sel-info"><div class="sel-title">${escapeHtml(card.title)}</div><div class="sel-meta">💪 ${escapeHtml(card.champion||'Unknown')} · ${card.era||'?'} · <span style="color:#8b0000;">${card.rarity.toUpperCase()}</span></div></div>`;
+        row.addEventListener('click', () => {
+            document.getElementById('cardSelectionModal').style.display = 'none';
+            soundEngine.playClick();
+            selectionCallback(card);
+            selectionCallback = null;
+        });
+        listEl.appendChild(row);
+    });
+    document.getElementById('cardSelectionModal').style.display = 'flex';
+    soundEngine.playCardFlip();
+}
 
             function renderCard(card, showAddButton = false, showDeleteButton = false, sacrificeMode = false) {
                 const container = document.createElement('div');
@@ -2460,18 +2466,28 @@ const prompt = `Generate a unique Hammer Horror film card as JSON. Each request 
             });
 
             // Lab events
-            document.getElementById('fusionSlot1').addEventListener('click', () => {
-                showCardSelector('SELECT FIRST MONSTER', card => { if (!card) return;
-                    fusionSlot1 = card;
-                    soundEngine.playClick();
-                    updateLabUI(); });
-            });
-            document.getElementById('fusionSlot2').addEventListener('click', () => {
-                showCardSelector('SELECT SECOND MONSTER', card => { if (!card) return;
-                    fusionSlot2 = card;
-                    soundEngine.playClick();
-                    updateLabUI(); });
-            });
+           // Slot 1
+document.getElementById('fusionSlot1').addEventListener('click', () => {
+    showCardSelector('SELECT FIRST MONSTER', card => {
+        if (!card) return;
+        fusionSlot1 = card;
+        // If the second slot contains the same card, clear it
+        if (fusionSlot2 && fusionSlot2.id === card.id) fusionSlot2 = null;
+        soundEngine.playClick();
+        updateLabUI();
+    }, fusionSlot2);  // exclude what's in slot 2
+});
+
+// Slot 2
+document.getElementById('fusionSlot2').addEventListener('click', () => {
+    showCardSelector('SELECT SECOND MONSTER', card => {
+        if (!card) return;
+        fusionSlot2 = card;
+        if (fusionSlot1 && fusionSlot1.id === card.id) fusionSlot1 = null;
+        soundEngine.playClick();
+        updateLabUI();
+    }, fusionSlot1);  // exclude what's in slot 1
+});
             document.getElementById('fuseBtn').addEventListener('click', () => {
                 if (!fusionSlot1 || !fusionSlot2 || fusionSlot1.rarity !== fusionSlot2.rarity || souls < 3)
                     return;
