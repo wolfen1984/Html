@@ -1599,10 +1599,24 @@
                 <p style="color:#d4c5a9;font-size:var(--font-sm);font-family:'Press Start 2P';text-align:center;margin-bottom:16px;">FUSION CHAMBER</p>
                 <div class="lab-slot" id="fusionSlot1">SELECT MONSTER 1</div>
                 <div class="lab-slot" id="fusionSlot2">SELECT MONSTER 2</div>
+<!-- inside #labPanel .lab-area, after fusionSlot2 and before fuseBtn -->
+<div id="inheritanceChoice" style="display:none; margin: 10px 0; text-align:center;">
+    <p style="color:#d4c5a9; font-size:var(--font-xs);">Choose passive to inherit (costs +1 🎟️):</p>
+    <button class="btn btn-small" id="inheritParent1Btn" style="margin:2px;">⬅️ Parent 1</button>
+    <button class="btn btn-small" id="inheritParent2Btn" style="margin:2px;">➡️ Parent 2</button>
+    <button class="btn btn-small" id="inheritRandomBtn" style="margin:2px;">🎲 Random (free)</button>
+    <span id="inheritanceCostDisplay" style="color:#f97316;font-size:var(--font-xs);margin-left:6px;">+0 🎟️</span>
+</div>
                 <button class="btn" id="fuseBtn" disabled>⚡ FUSE (3🎟️)</button>
                 <hr style="border-color:#2a1525;margin:20px 0;">
                 <p style="color:#d4c5a9;font-size:var(--font-sm);font-family:'Press Start 2P';text-align:center;margin-bottom:16px;">EVOLUTION CHAMBER</p>
                 <div id="evolutionList"></div>
+<hr style="border-color:#2a1525;margin:20px 0;">
+<div id="recipeBookSection">
+    <p style="color:#d4c5a9;font-size:var(--font-sm);font-family:'Press Start 2P';text-align:center;margin-bottom:12px;">📖 RECIPE BOOK</p>
+    <div id="recipeList" style="display:flex;flex-direction:column;gap:6px;"></div>
+    <p id="recipeEmpty" style="color:#6a4a55;font-size:var(--font-xs);text-align:center;">No recipes discovered yet. Experiment with fusions!</p>
+</div>
             </div>
         </div>
 
@@ -1870,7 +1884,9 @@
             let souls = parseInt(localStorage.getItem('universal_souls') || '0');
             let battleStreak = parseInt(localStorage.getItem('universal_battle_streak') || '0');
             let achievements = JSON.parse(localStorage.getItem('universal_achievements') || '[]');
-            let galleryMode = false;
+let discoveredRecipes = JSON.parse(localStorage.getItem('universal_discovered_recipes') || '[]');
+let inheritanceChoice = 'random'; // 'parent1', 'parent2', 'random'            
+let galleryMode = false;
             let sacrificeModeActive = false;
             let grainActive = localStorage.getItem('universal_grain') === 'true';
             const DISCOVER_COOLDOWN = 30000;
@@ -1914,6 +1930,50 @@
                 { type: 'frost_touch', name: 'Frost Touch', desc: (v) => `Freeze chance ${v}%`, valueRange: [8,
                 20] }
             ];
+
+// ── RECIPE BOOK ────────────────────────────────
+const RECIPES = {
+    'Vampire|Lycanthrope': {
+        title: 'The Nosferatu Wolf',
+        passive: { type: 'blood_moon', name: 'Blood Moon', desc: 'Lifesteal +5 per strike', value: 5 },
+        flavorText: '"A creature of both blood and beast – the night fears him."',
+        specialAbility: 'Blood Moon: Heal 5 HP on each attack.',
+        statsBonus: { power: 7, mystique: 5, dread: 8 },
+        rarity: 'lost-reel',          // optional, defaults to higher parent rarity
+    },
+    'Mad Scientist|Construct': {
+        title: 'The Automaton Genius',
+        passive: { type: 'overclock', name: 'Overclock', desc: 'Power +10 when HP below 50%', value: 10 },
+        flavorText: '"It thinks. It creates. It destroys."',
+        specialAbility: 'Overclock: Gain +10 Power when under 50% HP.',
+        statsBonus: { power: 10, mystique: 2, dread: 4 },
+        rarity: 'cult-classic',
+    },
+    'Ghost|Phantom': {
+        title: 'The Eternal Spectre',
+        passive: { type: 'ethereal', name: 'Ethereal', desc: 'Dodge +20%', value: 20 },
+        flavorText: '"Flesh is a prison. I am freedom."',
+        specialAbility: 'Ethereal: +20% dodge chance.',
+        statsBonus: { power: 3, mystique: 10, dread: 5 },
+        rarity: 'midnight-feature',
+    },
+    'Mummy|Witch': {
+        title: 'The Cursed Pharaoh',
+        passive: { type: 'curse_aura', name: 'Curse Aura', desc: 'Opponent -3 Power per turn', value: 3 },
+        flavorText: '"The sands remember my wrath."',
+        specialAbility: 'Curse Aura: Reduce foe power by 3 each turn.',
+        statsBonus: { power: 2, mystique: 6, dread: 10 },
+        rarity: 'lost-reel',
+    },
+    'Zombie|Demon': {
+        title: 'The Plague Lord',
+        passive: { type: 'plague_bearer', name: 'Plague Bearer', desc: 'Burn foe for 3 each turn', value: 3 },
+        flavorText: '"The dead rise to feast on the living."',
+        specialAbility: 'Plague Bearer: Inflict 3 burn damage per turn.',
+        statsBonus: { power: 6, mystique: 4, dread: 8 },
+        rarity: 'cult-classic',
+    },
+};
 
             const STATUS_EFFECTS = {
                 burn: { icon: '🔥', name: 'Burning', desc: (v) => `Takes ${v} dmg/turn`, duration: 3 },
@@ -1968,14 +2028,59 @@
                         return claims >= 3;
                     } },
             ];
+function getRecipe(card1, card2) {
+    const types = [card1.cardType, card2.cardType].sort();
+    const key = types.join('|');
+    return RECIPES[key] || null;
+}
+
+function applyRecipe(recipe, parent1, parent2) {
+    // Build a hybrid card from the recipe
+    const hybrid = {
+        id: Date.now() + '-' + Math.random().toString(36).substring(2, 8),
+        title: recipe.title,
+        era: `${parent1.era} × ${parent2.era}`,
+        cardType: 'Hybrid',
+        champion: recipe.title,
+        artifact: 'Secret Recipe',
+        renown: Math.floor((parent1.renown + parent2.renown) / 2) + 5,
+        realm: 'The Laboratory',
+        flavorText: recipe.flavorText,
+        specialAbility: recipe.specialAbility,
+        lore: `Fused from ${parent1.title} and ${parent2.title}.`,
+        power: Math.min(100, Math.floor((parent1.power + parent2.power) / 2) + (recipe.statsBonus.power || 0)),
+        mystique: Math.min(100, Math.floor((parent1.mystique + parent2.mystique) / 2) + (recipe.statsBonus.mystique || 0)),
+        dread: Math.min(100, Math.floor((parent1.dread + parent2.dread) / 2) + (recipe.statsBonus.dread || 0)),
+        rarity: recipe.rarity || parent1.rarity, // fallback to higher parent rarity later
+        imageUrl: parent1.imageUrl, // or generate a new one, but we reuse one parent's poster
+        passiveAbility: recipe.passive,
+        evolutionStage: 1,
+        wins: 0,
+        palette: undefined,
+    };
+
+    // Ensure rarity is at least as high as the higher parent
+    const rarityOrder = ['silver-screen','cult-classic','midnight-feature','lost-reel','original-negative'];
+    const parentRarityIndex = Math.max(rarityOrder.indexOf(parent1.rarity), rarityOrder.indexOf(parent2.rarity));
+    const recipeIndex = rarityOrder.indexOf(hybrid.rarity);
+    if (recipeIndex < parentRarityIndex) {
+        hybrid.rarity = rarityOrder[parentRarityIndex];
+    }
+
+    return hybrid;
+}
 
             function saveAll() {
                 localStorage.setItem('universal_codex_collection', JSON.stringify(collection));
                 localStorage.setItem('universal_souls', souls);
                 localStorage.setItem('universal_battle_streak', battleStreak);
                 localStorage.setItem('universal_achievements', JSON.stringify(achievements));
+saveRecipes();
             }
 
+function saveRecipes() {
+    localStorage.setItem('universal_discovered_recipes', JSON.stringify(discoveredRecipes));
+}
             function showNotification(text, duration = 3500) {
                 const bar = document.getElementById('notificationBar');
                 bar.textContent = text;
@@ -2393,60 +2498,99 @@ posterEl.innerHTML = `<img src="${card.imageUrl}" loading="lazy" style="${palett
             }
 
             function updateLabUI() {
-                const fusion1 = document.getElementById('fusionSlot1');
-                const fusion2 = document.getElementById('fusionSlot2');
-                fusion1.innerHTML = fusionSlot1 ? `🔬 ${escapeHtml(fusionSlot1.title)} (${fusionSlot1.rarity})` :
-                    'SELECT MONSTER 1';
-                fusion2.innerHTML = fusionSlot2 ? `🔬 ${escapeHtml(fusionSlot2.title)} (${fusionSlot2.rarity})` :
-                    'SELECT MONSTER 2';
-                fusion1.className = 'lab-slot' + (fusionSlot1 ? ' filled' : '');
-                fusion2.className = 'lab-slot' + (fusionSlot2 ? ' filled' : '');
-                document.getElementById('fuseBtn').disabled = !(fusionSlot1 && fusionSlot2 && fusionSlot1.rarity ===
-                    fusionSlot2.rarity && souls >= 3);
-                const evoList = document.getElementById('evolutionList');
-                evoList.innerHTML = '';
-                const evolvable = collection.filter(c => {
-                    const tree = EVOLUTION_TREES[c.cardType];
-                    if (!tree || c.evolutionStage >= tree.length) return false;
-                    return c.wins >= c.evolutionStage * 3;
-                });
-                if (evolvable.length === 0) {
-                    evoList.innerHTML =
-                        '<p style="color:#6a4a55;font-size:var(--font-xs);text-align:center;">No monsters ready for evolution. (Requires wins)</p>';
-                } else {
-                    evolvable.forEach(card => {
-                        const tree = EVOLUTION_TREES[card.cardType];
-                        const nextStage = tree[card.evolutionStage];
-                        const cost = card.evolutionStage * 2;
-                        const row = document.createElement('div');
-                        row.className = 'evolve-card';
-                        row.innerHTML =
-                            `<span>${escapeHtml(card.title)} → ${nextStage} (🎟️${cost})</span>`;
-                        const btn = document.createElement('button');
-                        btn.className = 'btn btn-small';
-                        btn.textContent = 'EVOLVE';
-                        btn.onclick = () => {
-                            if (souls < cost) { showNotification(`Need ${cost} tickets`); return; }
-                            souls -= cost;
-                            card.title = nextStage;
-                            card.evolutionStage++;
-                            card.power = Math.min(100, card.power + 5);
-                            card.mystique = Math.min(100, card.mystique + 5);
-                            card.dread = Math.min(100, card.dread + 3);
-                            card.passiveAbility = generatePassiveAbility();
-                            card.specialAbility = card.passiveAbility.desc;
-                            card.flavorText = '"Evolved into a greater horror!"';
-                            saveAll();
-                            updateAllUI();
-                            soundEngine.playUpgrade();
-                            showNotification(`${card.title} evolved!`);
-                            checkAchievements();
-                        };
-                        row.appendChild(btn);
-                        evoList.appendChild(row);
-                    });
-                }
-            }
+    // ── Fusion Slots ──────────────────────────────
+    const fusion1 = document.getElementById('fusionSlot1');
+    const fusion2 = document.getElementById('fusionSlot2');
+    fusion1.innerHTML = fusionSlot1 ? `🔬 ${escapeHtml(fusionSlot1.title)} (${fusionSlot1.rarity})` : 'SELECT MONSTER 1';
+    fusion2.innerHTML = fusionSlot2 ? `🔬 ${escapeHtml(fusionSlot2.title)} (${fusionSlot2.rarity})` : 'SELECT MONSTER 2';
+    fusion1.className = 'lab-slot' + (fusionSlot1 ? ' filled' : '');
+    fusion2.className = 'lab-slot' + (fusionSlot2 ? ' filled' : '');
+    document.getElementById('fuseBtn').disabled = !(fusionSlot1 && fusionSlot2 && fusionSlot1.rarity === fusionSlot2.rarity && souls >= 3);
+
+    // ── Show/Hide Inheritance Choice ──────────────
+    const showInherit = fusionSlot1 && fusionSlot2;
+    const inheritDiv = document.getElementById('inheritanceChoice');
+    if (showInherit) {
+        inheritDiv.style.display = 'block';
+        // Reset to random when slots change
+        inheritanceChoice = 'random';
+        document.querySelectorAll('#inheritanceChoice .btn').forEach(b => b.style.borderColor = '#2a1525');
+        document.getElementById('inheritRandomBtn').style.borderColor = '#f59e0b';
+        document.getElementById('inheritanceCostDisplay').textContent = '+0 🎟️';
+    } else {
+        inheritDiv.style.display = 'none';
+    }
+
+    // ── Evolution List ─────────────────────────────
+    const evoList = document.getElementById('evolutionList');
+    evoList.innerHTML = '';
+    const evolvable = collection.filter(c => {
+        const tree = EVOLUTION_TREES[c.cardType];
+        if (!tree || c.evolutionStage >= tree.length) return false;
+        return c.wins >= c.evolutionStage * 3;
+    });
+    if (evolvable.length === 0) {
+        evoList.innerHTML = '<p style="color:#6a4a55;font-size:var(--font-xs);text-align:center;">No monsters ready for evolution. (Requires wins)</p>';
+    } else {
+        evolvable.forEach(card => {
+            const tree = EVOLUTION_TREES[card.cardType];
+            const nextStage = tree[card.evolutionStage];
+            const cost = card.evolutionStage * 2;
+            const row = document.createElement('div');
+            row.className = 'evolve-card';
+            row.innerHTML = `<span>${escapeHtml(card.title)} → ${nextStage} (🎟️${cost})</span>`;
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-small';
+            btn.textContent = 'EVOLVE';
+            btn.onclick = () => {
+                if (souls < cost) { showNotification(`Need ${cost} tickets`); return; }
+                souls -= cost;
+                card.title = nextStage;
+                card.evolutionStage++;
+                card.power = Math.min(100, card.power + 5);
+                card.mystique = Math.min(100, card.mystique + 5);
+                card.dread = Math.min(100, card.dread + 3);
+                card.passiveAbility = generatePassiveAbility();
+                card.specialAbility = card.passiveAbility.desc;
+                card.flavorText = '"Evolved into a greater horror!"';
+                saveAll();
+                updateAllUI();
+                soundEngine.playUpgrade();
+                showNotification(`${card.title} evolved!`);
+                checkAchievements();
+            };
+            row.appendChild(btn);
+            evoList.appendChild(row);
+        });
+    }
+
+    // ── Recipe Book ────────────────────────────────
+    renderRecipeBook();
+}
+function renderRecipeBook() {
+    const listEl = document.getElementById('recipeList');
+    const emptyEl = document.getElementById('recipeEmpty');
+    // Check if the elements exist (if you haven't added the recipe book HTML yet)
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    if (!discoveredRecipes || discoveredRecipes.length === 0) {
+        if (emptyEl) emptyEl.style.display = 'block';
+        return;
+    }
+    if (emptyEl) emptyEl.style.display = 'none';
+    discoveredRecipes.forEach(key => {
+        const recipe = RECIPES[key];
+        if (!recipe) return;
+        const row = document.createElement('div');
+        row.className = 'evolve-card';
+        row.innerHTML = `
+            <span style="font-weight:bold;color:#f59e0b;">${escapeHtml(recipe.title)}</span>
+            <span style="color:#d4c5a9;font-size:var(--font-xs);">${escapeHtml(recipe.passive.name)}</span>
+            <span style="color:#6a4a55;font-size:var(--font-xs);">${escapeHtml(key.replace('|',' + '))}</span>
+        `;
+        listEl.appendChild(row);
+    });
+}
 
             function updateAllUI() {
                 document.getElementById('collectionCount').textContent = `${collection.length} REELS`;
@@ -3191,30 +3335,131 @@ document.getElementById('resetPaletteBtn').addEventListener('click', () => {
                     soundEngine.playClick();
                     updateLabUI(); }, fusionSlot1); });
             document.getElementById('fuseBtn').addEventListener('click', () => {
-                if (!fusionSlot1 || !fusionSlot2 || fusionSlot1.rarity !== fusionSlot2.rarity || souls < 3) return;
-                souls -= 3;
-                const hybrid = Object.assign({}, fusionSlot1, {
-                    id: Date.now() + '-' + Math.random().toString(36).substring(2, 8),
-                    title: fusionSlot1.title.split(' ')[0] + '-' + fusionSlot2.title.split(' ')[0] + ' Hybrid',
-                    power: Math.floor((fusionSlot1.power + fusionSlot2.power) / 2) + 3,
-                    mystique: Math.floor((fusionSlot1.mystique + fusionSlot2.mystique) / 2) + 3,
-                    dread: Math.floor((fusionSlot1.dread + fusionSlot2.dread) / 2) + 2,
-                    passiveAbility: generatePassiveAbility(),
-                    specialAbility: generatePassiveAbility().desc,
-                    flavorText: '"A monstrous fusion of cinema!"',
-                    evolutionStage: 1,
-                    wins: 0
-                });
-                collection = collection.filter(c => c.id !== fusionSlot1.id && c.id !== fusionSlot2.id);
-                collection.push(hybrid);
-                fusionSlot1 = fusionSlot2 = null;
-                saveAll();
-                updateAllUI();
-                soundEngine.playUpgrade();
-                showNotification('Hybrid monster created!');
-                checkAchievements();
-            });
+    // Safety check: ensure both slots are filled
+    if (!fusionSlot1 || !fusionSlot2) {
+        showNotification('Please select two monsters.');
+        return;
+    }
+    if (souls < 3) {
+        showNotification('Need 3 tickets');
+        return;
+    }
 
+    const recipe = getRecipe(fusionSlot1, fusionSlot2);
+    let hybrid;
+    let extraCost = 0;
+    let chosenPassive = null;
+
+    // Determine inheritance choice
+    if (inheritanceChoice === 'parent1' && fusionSlot1.passiveAbility) {
+        chosenPassive = fusionSlot1.passiveAbility;
+        extraCost = 1;
+    } else if (inheritanceChoice === 'parent2' && fusionSlot2.passiveAbility) {
+        chosenPassive = fusionSlot2.passiveAbility;
+        extraCost = 1;
+    }
+
+    // Check total cost
+    const totalCost = 3 + extraCost;
+    if (souls < totalCost) {
+        showNotification(`Need ${totalCost} tickets (${extraCost} for inheritance)`);
+        return;
+    }
+    souls -= totalCost;
+
+    if (recipe) {
+        // --- Recipe discovered ---
+        const types = [fusionSlot1.cardType, fusionSlot2.cardType].sort();
+        const key = types.join('|');
+        if (!discoveredRecipes.includes(key)) {
+            discoveredRecipes.push(key);
+            saveRecipes();
+            showNotification(`📖 Recipe discovered: ${recipe.title}!`);
+            soundEngine.playAchievement();
+        }
+        hybrid = applyRecipe(recipe, fusionSlot1, fusionSlot2);
+        if (chosenPassive) {
+            hybrid.passiveAbility = chosenPassive;
+            hybrid.specialAbility = chosenPassive.desc;
+        }
+    } else {
+        // --- Normal hybrid fusion ---
+        const parent1 = fusionSlot1;
+        const parent2 = fusionSlot2;
+        const rarityOrder = ['silver-screen', 'cult-classic', 'midnight-feature', 'lost-reel', 'original-negative'];
+        const higherRarityIndex = Math.max(rarityOrder.indexOf(parent1.rarity), rarityOrder.indexOf(parent2.rarity));
+        const higherRarity = rarityOrder[higherRarityIndex];
+
+        hybrid = {
+            id: Date.now() + '-' + Math.random().toString(36).substring(2, 8),
+            title: parent1.title.split(' ')[0] + '-' + parent2.title.split(' ')[0] + ' Hybrid',
+            era: parent1.era + ' × ' + parent2.era,
+            cardType: 'Hybrid',
+            champion: 'Hybrid',
+            artifact: 'Fusion',
+            renown: Math.floor((parent1.renown + parent2.renown) / 2) + 2,
+            realm: 'The Laboratory',
+            flavorText: '"A monstrous fusion of cinema!"',
+            specialAbility: '',
+            lore: `Fused from ${parent1.title} and ${parent2.title}.`,
+            power: Math.min(100, Math.floor((parent1.power + parent2.power) / 2) + 3),
+            mystique: Math.min(100, Math.floor((parent1.mystique + parent2.mystique) / 2) + 3),
+            dread: Math.min(100, Math.floor((parent1.dread + parent2.dread) / 2) + 2),
+            rarity: higherRarity,
+            imageUrl: parent1.imageUrl,
+            passiveAbility: chosenPassive || generatePassiveAbility(),
+            evolutionStage: 1,
+            wins: 0,
+            palette: undefined,
+        };
+        hybrid.specialAbility = hybrid.passiveAbility.desc || '';
+        hybrid.champion = hybrid.title;
+    }
+
+    // Remove parents and add hybrid
+    collection = collection.filter(c => c.id !== fusionSlot1.id && c.id !== fusionSlot2.id);
+    collection.push(hybrid);
+
+    // Reset fusion state
+    fusionSlot1 = null;
+    fusionSlot2 = null;
+    inheritanceChoice = 'random';
+    document.getElementById('inheritanceChoice').style.display = 'none';
+
+    saveAll();
+    updateAllUI();
+    soundEngine.playUpgrade();
+    showNotification(recipe ? `🍽️ Recipe hybrid created: ${hybrid.title}!` : 'Hybrid created!');
+    checkAchievements();
+});
+                
+
+// Inheritance UI listeners
+document.getElementById('inheritParent1Btn').addEventListener('click', () => {
+    if (!fusionSlot1 || !fusionSlot2) return;
+    if (!fusionSlot1.passiveAbility) { showNotification('Parent 1 has no passive.'); return; }
+    inheritanceChoice = 'parent1';
+    document.querySelectorAll('#inheritanceChoice .btn').forEach(b => b.style.borderColor = '#2a1525');
+    document.getElementById('inheritParent1Btn').style.borderColor = '#f97316';
+    document.getElementById('inheritanceCostDisplay').textContent = '+1 🎟️';
+    soundEngine.playClick();
+});
+document.getElementById('inheritParent2Btn').addEventListener('click', () => {
+    if (!fusionSlot1 || !fusionSlot2) return;
+    if (!fusionSlot2.passiveAbility) { showNotification('Parent 2 has no passive.'); return; }
+    inheritanceChoice = 'parent2';
+    document.querySelectorAll('#inheritanceChoice .btn').forEach(b => b.style.borderColor = '#2a1525');
+    document.getElementById('inheritParent2Btn').style.borderColor = '#f97316';
+    document.getElementById('inheritanceCostDisplay').textContent = '+1 🎟️';
+    soundEngine.playClick();
+});
+document.getElementById('inheritRandomBtn').addEventListener('click', () => {
+    inheritanceChoice = 'random';
+    document.querySelectorAll('#inheritanceChoice .btn').forEach(b => b.style.borderColor = '#2a1525');
+    document.getElementById('inheritRandomBtn').style.borderColor = '#f59e0b';
+    document.getElementById('inheritanceCostDisplay').textContent = '+0 🎟️';
+    soundEngine.playClick();
+});
             document.querySelectorAll('.tab').forEach(tab => {
                 tab.addEventListener('click', () => {
                     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
