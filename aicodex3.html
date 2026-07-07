@@ -2102,8 +2102,7 @@
 
             const PASSIVE_ABILITY_POOL = [
                 { type: 'regeneration', name: 'Regeneration', desc: (v) => `Heal ${v}/turn`, valueRange: [1, 2] },
-                { type: 'hypnotic_gaze', name: 'Hypnotic Gaze', desc: (v) => `Opponent -${v} Power`,
-                    valueRange: [5, 15] },
+                { type: 'hypnotic_gaze', name: 'Hypnotic Gaze', desc: (v) => `Opponent Cursed (-${v} Power)`, valueRange: [5, 15] },
                 { type: 'wolf_rage', name: 'Wolf Rage', desc: (v) => `+${v} Power/turn`, valueRange: [2, 5] },
                 { type: 'undying', name: 'Undying', desc: (v) => `Reflect ${v}%`, valueRange: [15, 30] },
                 { type: 'mummys_curse', name: "Mummy's Curse", desc: (v) => `Crit heals ${v}`, valueRange: [2,
@@ -2792,14 +2791,17 @@
             }
 
             function getEffectivePower(card, defender) {
-                let base = card.power || 50;
-                if (defender && defender.passiveAbility && defender.passiveAbility.type === 'hypnotic_gaze')
-                    base = Math.max(1, base - defender.passiveAbility.value);
-                let boost = (card === playerCard) ? playerPowerBoost : opponentPowerBoost;
-                if ((card === playerCard && playerStatusEffect?.name === 'Cursed') || (card === opponentCard && opponentStatusEffect?.name === 'Cursed'))
-                    base = Math.max(1, base - 5);
-                return base + boost;
-            }
+    let base = card.power || 50;
+    let boost = (card === playerCard) ? playerPowerBoost : opponentPowerBoost;
+    // Apply Curse effect if present
+    if (card === playerCard && playerStatusEffect?.name === 'Cursed') {
+        base = Math.max(1, base - (playerStatusEffect.value || 5));
+    }
+    if (card === opponentCard && opponentStatusEffect?.name === 'Cursed') {
+        base = Math.max(1, base - (opponentStatusEffect.value || 5));
+    }
+    return base + boost;
+}
 
             function damageCalc(attacker, defender, ability = false) {
                 const pwr = getEffectivePower(attacker, defender);
@@ -2843,14 +2845,24 @@
             }
 
             function applyStatusEffect(target, effect) {
-                if (target === 'player') {
-                    if (playerStatusEffect) return;
-                    playerStatusEffect = effect;
-                } else {
-                    if (opponentStatusEffect) return;
-                    opponentStatusEffect = effect;
-                }
-            }
+    // Allow passing a custom value (e.g., for curse)
+    const newEffect = { ...effect };
+    if (effect.value !== undefined) {
+        newEffect.value = effect.value;
+    } else {
+        // default values for existing effects
+        if (effect.name === 'Burning') newEffect.value = 2;
+        else if (effect.name === 'Shielded') newEffect.value = 30;
+        else if (effect.name === 'Frozen') newEffect.value = 0;
+    }
+    if (target === 'player') {
+        if (playerStatusEffect) return;
+        playerStatusEffect = newEffect;
+    } else {
+        if (opponentStatusEffect) return;
+        opponentStatusEffect = newEffect;
+    }
+}
 
             function processStatusEffects() {
                 const logParts = [];
@@ -2891,170 +2903,226 @@
             }
 
             window.playerBattleAction = function(action) {
-                if (!battleActive || turnLock) return;
-                if (playerStatusEffect?.name === 'Frozen') {
-                    showNotification('❄️ You are frozen! Turn skipped.');
-                    playerStatusEffect = null;
-                    turnLock = true;
-                    setTimeout(() => { turnLock = false;
-                        updateBattleUI(); }, 600);
-                    return;
-                }
-                turnLock = true;
-                let startLog = [];
-                if (playerCard?.passiveAbility?.type === 'regeneration') { playerHP += playerCard.passiveAbility.value;
-                    startLog.push(`<span class="passive-log">⚡ Regen +${playerCard.passiveAbility.value}</span>`); }
-                if (opponentCard?.passiveAbility?.type === 'regeneration') { opponentHP += opponentCard.passiveAbility
-                        .value;
-                    startLog.push(
-                        `<span class="passive-log">🎞️ Regen +${opponentCard.passiveAbility.value}</span>`); }
-                if (playerCard?.passiveAbility?.type === 'wolf_rage') { playerPowerBoost += playerCard.passiveAbility
-                        .value;
-                    startLog.push(`<span class="passive-log">⚡ Wolf Rage +${playerCard.passiveAbility.value}</span>`); }
-                if (opponentCard?.passiveAbility?.type === 'wolf_rage') { opponentPowerBoost += opponentCard.passiveAbility
-                        .value;
-                    startLog.push(
-                        `<span class="passive-log">🎞️ Wolf Rage +${opponentCard.passiveAbility.value}</span>`); }
-                const statusLogs = processStatusEffects();
-                startLog.push(...statusLogs);
+    if (!battleActive || turnLock) return;
+    if (playerStatusEffect?.name === 'Frozen') {
+        const logEl = document.getElementById('battleLog');
+        logEl.innerHTML += `<p><span class="status-log">❄️ You are frozen! Turn skipped.</span></p>`;
+        showNotification('❄️ You are frozen! Turn skipped.');
+        playerStatusEffect = null;
+        turnLock = true;
+        setTimeout(() => { turnLock = false; updateBattleUI(); }, 600);
+        return;
+    }
 
-                let playerDmg = 0,
-                    playerDefend = false,
-                    playerAbilityUsed = false,
-                    playerCrit = false;
-                if (action === 'strike') {
-                    playerDmg = damageCalc(playerCard, opponentCard);
-                    if (Math.random() * 100 < critChance(playerCard)) { playerDmg = Math.floor(playerDmg * 1.6);
-                        playerCrit = true; }
-                    if (playerCrit && playerCard?.passiveAbility?.type === 'burning_gaze') {
-                        applyStatusEffect('opponent', { ...STATUS_EFFECTS.burn, _duration: 3 });
-                        startLog.push(`<span class="status-log">🔥 Burning Gaze ignites foe!</span>`);
-                    }
-                    if (playerCrit && playerCard?.passiveAbility?.type === 'frost_touch' && Math.random() * 100 <
-                        playerCard.passiveAbility.value) {
-                        applyStatusEffect('opponent', { ...STATUS_EFFECTS.freeze, _duration: 1 });
-                        startLog.push(`<span class="status-log">❄️ Frost Touch freezes foe!</span>`);
-                    }
-                    soundEngine.playStrike();
-                } else if (action === 'defend') { playerDefend = true;
-                    const m = playerCard.mystique || 50;
-                    playerHP += Math.floor(m / 20);
-                    applyStatusEffect('player', { ...STATUS_EFFECTS.shield, _duration: 2 });
-                    soundEngine.playDefend(); } else if (action === 'ability') {
-                    if (playerAbilityReady && playerAbilityCooldown === 0) { playerAbilityUsed = true;
-                        playerDmg = damageCalc(playerCard, opponentCard, true); if (Math.random() * 100 < critChance(
-                            playerCard)) { playerDmg = Math.floor(playerDmg * 1.4);
-                            playerCrit = true; }
-                        playerAbilityReady = false;
-                        playerAbilityCooldown = 3;
-                        soundEngine.playAbility(); } else { showNotification('⚡ Feature power on cooldown!');
-                        turnLock = false; return; }
-                }
-                if (playerCard?.passiveAbility?.type === 'silver_scream') { playerDmg += playerCard.passiveAbility.value;
-                    startLog.push(
-                        `<span class="passive-log">⚡ Silver Scream +${playerCard.passiveAbility.value}</span>`); }
-                if (playerCard?.passiveAbility?.type === 'double_feature') { playerDmg *= 2;
-                    startLog.push(`<span class="passive-log">⚡ Double Feature</span>`); }
+    turnLock = true;
+    let startLog = [];
 
-                let opponentDmg = 0,
-                    opponentDefend = false,
-                    opponentAbilityUsed = false,
-                    opponentCrit = false;
-                const aiAct = aiDecision();
-                if (aiAct === 'strike') {
-                    opponentDmg = damageCalc(opponentCard, playerCard);
-                    if (Math.random() * 100 < critChance(opponentCard)) { opponentDmg = Math.floor(opponentDmg * 1.6);
-                        opponentCrit = true; }
-                    if (opponentCrit && opponentCard?.passiveAbility?.type === 'burning_gaze') {
-                        applyStatusEffect('player', { ...STATUS_EFFECTS.burn, _duration: 3 });
-                        startLog.push(`<span class="status-log">🔥 Foe's Burning Gaze!</span>`);
-                    }
-                } else if (aiAct === 'defend') { opponentDefend = true;
-                    const oM = opponentCard.mystique || 50;
-                    opponentHP += Math.floor(oM / 20);
-                    applyStatusEffect('opponent', { ...STATUS_EFFECTS.shield, _duration: 2 }); } else if (aiAct ===
-                    'ability' && opponentAbilityReady && opponentAbilityCooldown === 0) { opponentAbilityUsed = true;
-                    opponentDmg = damageCalc(opponentCard, playerCard, true); if (Math.random() * 100 < critChance(
-                        opponentCard)) { opponentDmg = Math.floor(opponentDmg * 1.4);
-                        opponentCrit = true; }
-                    opponentAbilityReady = false;
-                    opponentAbilityCooldown = 3; } else if (aiAct === 'skip') {
-                    startLog.push(`<span class="status-log">❄️ Foe is frozen! Skip turn.</span>`);
-                }
-                if (opponentCard?.passiveAbility?.type === 'silver_scream') { opponentDmg += opponentCard.passiveAbility
-                        .value;
-                    startLog.push(
-                        `<span class="passive-log">🎞️ Silver Scream +${opponentCard.passiveAbility.value}</span>`); }
-                if (opponentCard?.passiveAbility?.type === 'double_feature') { opponentDmg *= 2;
-                    startLog.push(`<span class="passive-log">🎞️ Double Feature</span>`); }
+    // ---- Apply Hypnotic Gaze as a Curse status (instead of direct power reduction) ----
+    if (playerCard?.passiveAbility?.type === 'hypnotic_gaze' && !opponentStatusEffect) {
+        const curseVal = playerCard.passiveAbility.value || 5;
+        applyStatusEffect('opponent', { ...STATUS_EFFECTS.curse, _duration: 3, value: curseVal });
+        startLog.push(`<span class="status-log">👁️ Hypnotic Gaze curses the foe! (-${curseVal} Power)</span>`);
+    }
+    if (opponentCard?.passiveAbility?.type === 'hypnotic_gaze' && !playerStatusEffect) {
+        const curseVal = opponentCard.passiveAbility.value || 5;
+        applyStatusEffect('player', { ...STATUS_EFFECTS.curse, _duration: 3, value: curseVal });
+        startLog.push(`<span class="status-log">👁️ Foe's Hypnotic Gaze curses you! (-${curseVal} Power)</span>`);
+    }
 
-                const playerDodged = !playerDefend && Math.random() * 100 < dodgeChance(playerCard);
-                const opponentDodged = !opponentDefend && Math.random() * 100 < dodgeChance(opponentCard);
-                if (playerDefend) opponentDmg = Math.floor(opponentDmg / 2);
-                if (opponentDefend) playerDmg = Math.floor(playerDmg / 2);
-                if (playerDodged) { opponentDmg = 0;
-                    soundEngine.playDodge(); }
-                if (opponentDodged) { playerDmg = 0;
-                    soundEngine.playDodge(); }
+    // ---- Passive abilities that happen every turn (Regeneration, Wolf Rage) ----
+    if (playerCard?.passiveAbility?.type === 'regeneration') {
+        playerHP += playerCard.passiveAbility.value;
+        startLog.push(`<span class="passive-log">⚡ Regen +${playerCard.passiveAbility.value}</span>`);
+    }
+    if (opponentCard?.passiveAbility?.type === 'regeneration') {
+        opponentHP += opponentCard.passiveAbility.value;
+        startLog.push(`<span class="passive-log">🎞️ Regen +${opponentCard.passiveAbility.value}</span>`);
+    }
+    if (playerCard?.passiveAbility?.type === 'wolf_rage') {
+        playerPowerBoost += playerCard.passiveAbility.value;
+        startLog.push(`<span class="passive-log">⚡ Wolf Rage +${playerCard.passiveAbility.value}</span>`);
+    }
+    if (opponentCard?.passiveAbility?.type === 'wolf_rage') {
+        opponentPowerBoost += opponentCard.passiveAbility.value;
+        startLog.push(`<span class="passive-log">🎞️ Wolf Rage +${opponentCard.passiveAbility.value}</span>`);
+    }
 
-                if (playerStatusEffect?.name === 'Shielded') { opponentDmg = Math.floor(opponentDmg * 0.7); }
-                if (opponentStatusEffect?.name === 'Shielded') { playerDmg = Math.floor(playerDmg * 0.7); }
+    // ---- Process existing status effects (Burn, Shield, Curse) ----
+    const statusLogs = processStatusEffects();
+    startLog.push(...statusLogs);
 
-                if (opponentCard?.passiveAbility?.type === 'undying' && playerDmg > 0) { const ref = Math.floor(playerDmg *
-                        opponentCard.passiveAbility.value / 100);
-                    opponentHP -= playerDmg;
-                    playerHP -= ref;
-                    startLog.push(`<span class="passive-log">🎞️ Undying reflect ${ref}</span>`); } else { opponentHP -=
-                        playerDmg; }
-                if (playerCard?.passiveAbility?.type === 'undying' && opponentDmg > 0) { const ref = Math.floor(opponentDmg *
-                        playerCard.passiveAbility.value / 100);
-                    playerHP -= opponentDmg;
-                    opponentHP -= ref;
-                    startLog.push(`<span class="passive-log">⚡ Undying reflect ${ref}</span>`); } else { playerHP -=
-                        opponentDmg; }
+    // ---- Player action ----
+    let playerDmg = 0,
+        playerDefend = false,
+        playerAbilityUsed = false,
+        playerCrit = false;
 
-                if (playerDmg > 0 && playerCard?.passiveAbility?.type === 'mummys_curse' && playerCrit) { playerHP +=
-                        playerCard.passiveAbility.value;
-                    startLog.push(
-                        `<span class="passive-log">⚡ Mummy's Curse heal ${playerCard.passiveAbility.value}</span>`); }
-                if (opponentDmg > 0 && opponentCard?.passiveAbility?.type === 'mummys_curse' && opponentCrit) { opponentHP +=
-                        opponentCard.passiveAbility.value;
-                    startLog.push(
-                        `<span class="passive-log">🎞️ Mummy's Curse heal ${opponentCard.passiveAbility.value}</span>`); }
+    if (action === 'strike') {
+        playerDmg = damageCalc(playerCard, opponentCard);
+        if (Math.random() * 100 < critChance(playerCard)) {
+            playerDmg = Math.floor(playerDmg * 1.6);
+            playerCrit = true;
+        }
+        if (playerCrit && playerCard?.passiveAbility?.type === 'burning_gaze') {
+            applyStatusEffect('opponent', { ...STATUS_EFFECTS.burn, _duration: 3 });
+            startLog.push(`<span class="status-log">🔥 Burning Gaze ignites foe!</span>`);  // <-- IMMEDIATE LOG
+        }
+        if (playerCrit && playerCard?.passiveAbility?.type === 'frost_touch' && Math.random() * 100 < playerCard.passiveAbility.value) {
+            applyStatusEffect('opponent', { ...STATUS_EFFECTS.freeze, _duration: 1 });
+            startLog.push(`<span class="status-log">❄️ Frost Touch freezes foe!</span>`);
+        }
+        soundEngine.playStrike();
+    } else if (action === 'defend') {
+        playerDefend = true;
+        const m = playerCard.mystique || 50;
+        playerHP += Math.floor(m / 20);
+        applyStatusEffect('player', { ...STATUS_EFFECTS.shield, _duration: 2 });
+        soundEngine.playDefend();
+    } else if (action === 'ability') {
+        if (playerAbilityReady && playerAbilityCooldown === 0) {
+            playerAbilityUsed = true;
+            playerDmg = damageCalc(playerCard, opponentCard, true);
+            if (Math.random() * 100 < critChance(playerCard)) {
+                playerDmg = Math.floor(playerDmg * 1.4);
+                playerCrit = true;
+            }
+            playerAbilityReady = false;
+            playerAbilityCooldown = 3;
+            soundEngine.playAbility();
+        } else {
+            showNotification('⚡ Feature power on cooldown!');
+            turnLock = false;
+            return;
+        }
+    }
 
-                if (playerAbilityCooldown > 0) { playerAbilityCooldown--; if (playerAbilityCooldown === 0)
-                        playerAbilityReady = true; }
-                if (opponentAbilityCooldown > 0) { opponentAbilityCooldown--; if (opponentAbilityCooldown === 0)
-                        opponentAbilityReady = true; }
-                decrementStatusDurations();
+    // ---- Player passive damage modifiers ----
+    if (playerCard?.passiveAbility?.type === 'silver_scream') {
+        playerDmg += playerCard.passiveAbility.value;
+        startLog.push(`<span class="passive-log">⚡ Silver Scream +${playerCard.passiveAbility.value}</span>`);
+    }
+    if (playerCard?.passiveAbility?.type === 'double_feature') {
+        playerDmg *= 2;
+        startLog.push(`<span class="passive-log">⚡ Double Feature</span>`);
+    }
 
-                let logParts = [];
-                logParts.push(`<span style="color:#d4c5a9;">You: ${action}</span>`,
-                    `<span style="color:#f472b6;">Foe: ${aiAct}</span>`);
-                if (playerAbilityUsed) logParts.push('<span class="ability-log">⚡FEATURE POWER!</span>');
-                if (playerCrit) { logParts.push('<span class="crit-log">💥CRITICAL!</span>');
-                    soundEngine.playCritical();
-                    triggerScreenShake(); }
-                if (playerDodged) logParts.push('<span class="dodge-log">🌀MISSED!</span>');
-                if (opponentCrit) { logParts.push('<span class="crit-log">💥FOE CRIT!</span>');
-                    soundEngine.playCritical();
-                    triggerScreenShake(); }
-                if (opponentDodged) logParts.push('<span class="dodge-log">🌀FOE MISSED!</span>');
-                logParts.push(`Dealt <b>${playerDmg}</b>, took <b>${opponentDmg}</b>`);
-                if (playerStatusEffect) logParts.push(
-                    `<span class="status-log">${STATUS_EFFECTS[playerStatusEffect]?.icon||''} Player: ${playerStatusEffect}</span>`);
-                if (opponentStatusEffect) logParts.push(
-                    `<span class="status-log">${STATUS_EFFECTS[opponentStatusEffect]?.icon||''} Foe: ${opponentStatusEffect}</span>`);
+    // ---- Enemy AI decision ----
+    let opponentDmg = 0,
+        opponentDefend = false,
+        opponentAbilityUsed = false,
+        opponentCrit = false;
+    const aiAct = aiDecision();
 
-                const logEl = document.getElementById('battleLog');
-                if (startLog.length) logEl.innerHTML += `<p>${startLog.join(' · ')}</p>`;
-                logEl.innerHTML += `<p>${logParts.join(' · ')}</p>`;
-                updateBattleUI();
-                logEl.scrollTop = logEl.scrollHeight;
+    if (aiAct === 'strike') {
+        opponentDmg = damageCalc(opponentCard, playerCard);
+        if (Math.random() * 100 < critChance(opponentCard)) {
+            opponentDmg = Math.floor(opponentDmg * 1.6);
+            opponentCrit = true;
+        }
+        if (opponentCrit && opponentCard?.passiveAbility?.type === 'burning_gaze') {
+            applyStatusEffect('player', { ...STATUS_EFFECTS.burn, _duration: 3 });
+            startLog.push(`<span class="status-log">🔥 Foe's Burning Gaze ignites you!</span>`);
+        }
+    } else if (aiAct === 'defend') {
+        opponentDefend = true;
+        const oM = opponentCard.mystique || 50;
+        opponentHP += Math.floor(oM / 20);
+        applyStatusEffect('opponent', { ...STATUS_EFFECTS.shield, _duration: 2 });
+    } else if (aiAct === 'ability' && opponentAbilityReady && opponentAbilityCooldown === 0) {
+        opponentAbilityUsed = true;
+        opponentDmg = damageCalc(opponentCard, playerCard, true);
+        if (Math.random() * 100 < critChance(opponentCard)) {
+            opponentDmg = Math.floor(opponentDmg * 1.4);
+            opponentCrit = true;
+        }
+        opponentAbilityReady = false;
+        opponentAbilityCooldown = 3;
+    } else if (aiAct === 'skip') {
+        startLog.push(`<span class="status-log">❄️ Foe is frozen! Skip turn.</span>`);
+    }
 
-                if (opponentHP <= 0 || playerHP <= 0) endBattle();
-                else turnLock = false;
-            };
+    // ---- Enemy passive damage modifiers ----
+    if (opponentCard?.passiveAbility?.type === 'silver_scream') {
+        opponentDmg += opponentCard.passiveAbility.value;
+        startLog.push(`<span class="passive-log">🎞️ Silver Scream +${opponentCard.passiveAbility.value}</span>`);
+    }
+    if (opponentCard?.passiveAbility?.type === 'double_feature') {
+        opponentDmg *= 2;
+        startLog.push(`<span class="passive-log">🎞️ Double Feature</span>`);
+    }
+
+    // ---- Dodge and shield reductions ----
+    const playerDodged = !playerDefend && Math.random() * 100 < dodgeChance(playerCard);
+    const opponentDodged = !opponentDefend && Math.random() * 100 < dodgeChance(opponentCard);
+    if (playerDefend) opponentDmg = Math.floor(opponentDmg / 2);
+    if (opponentDefend) playerDmg = Math.floor(playerDmg / 2);
+    if (playerDodged) { opponentDmg = 0; soundEngine.playDodge(); }
+    if (opponentDodged) { playerDmg = 0; soundEngine.playDodge(); }
+
+    // Shield status effect (30% reduction)
+    if (playerStatusEffect?.name === 'Shielded') { opponentDmg = Math.floor(opponentDmg * 0.7); }
+    if (opponentStatusEffect?.name === 'Shielded') { playerDmg = Math.floor(playerDmg * 0.7); }
+
+    // ---- Undying reflection ----
+    if (opponentCard?.passiveAbility?.type === 'undying' && playerDmg > 0) {
+        const ref = Math.floor(playerDmg * opponentCard.passiveAbility.value / 100);
+        opponentHP -= playerDmg;
+        playerHP -= ref;
+        startLog.push(`<span class="passive-log">🎞️ Undying reflect ${ref}</span>`);
+    } else {
+        opponentHP -= playerDmg;
+    }
+    if (playerCard?.passiveAbility?.type === 'undying' && opponentDmg > 0) {
+        const ref = Math.floor(opponentDmg * playerCard.passiveAbility.value / 100);
+        playerHP -= opponentDmg;
+        opponentHP -= ref;
+        startLog.push(`<span class="passive-log">⚡ Undying reflect ${ref}</span>`);
+    } else {
+        playerHP -= opponentDmg;
+    }
+
+    // ---- Mummy's Curse heal on crit ----
+    if (playerDmg > 0 && playerCard?.passiveAbility?.type === 'mummys_curse' && playerCrit) {
+        playerHP += playerCard.passiveAbility.value;
+        startLog.push(`<span class="passive-log">⚡ Mummy's Curse heal ${playerCard.passiveAbility.value}</span>`);
+    }
+    if (opponentDmg > 0 && opponentCard?.passiveAbility?.type === 'mummys_curse' && opponentCrit) {
+        opponentHP += opponentCard.passiveAbility.value;
+        startLog.push(`<span class="passive-log">🎞️ Mummy's Curse heal ${opponentCard.passiveAbility.value}</span>`);
+    }
+
+    // ---- Cooldown management ----
+    if (playerAbilityCooldown > 0) { playerAbilityCooldown--; if (playerAbilityCooldown === 0) playerAbilityReady = true; }
+    if (opponentAbilityCooldown > 0) { opponentAbilityCooldown--; if (opponentAbilityCooldown === 0) opponentAbilityReady = true; }
+    decrementStatusDurations();
+
+    // ---- Build log entries ----
+    let logParts = [];
+    logParts.push(`<span style="color:#d4c5a9;">You: ${action}</span>`,
+                  `<span style="color:#f472b6;">Foe: ${aiAct}</span>`);
+    if (playerAbilityUsed) logParts.push('<span class="ability-log">⚡FEATURE POWER!</span>');
+    if (playerCrit) { logParts.push('<span class="crit-log">💥CRITICAL!</span>'); soundEngine.playCritical(); triggerScreenShake(); }
+    if (playerDodged) logParts.push('<span class="dodge-log">🌀MISSED!</span>');
+    if (opponentCrit) { logParts.push('<span class="crit-log">💥FOE CRIT!</span>'); soundEngine.playCritical(); triggerScreenShake(); }
+    if (opponentDodged) logParts.push('<span class="dodge-log">🌀FOE MISSED!</span>');
+    logParts.push(`Dealt <b>${playerDmg}</b>, took <b>${opponentDmg}</b>`);
+    if (playerStatusEffect) logParts.push(`<span class="status-log">${STATUS_EFFECTS[playerStatusEffect]?.icon||''} Player: ${playerStatusEffect}</span>`);
+    if (opponentStatusEffect) logParts.push(`<span class="status-log">${STATUS_EFFECTS[opponentStatusEffect]?.icon||''} Foe: ${opponentStatusEffect}</span>`);
+
+    // ---- Write to battle log ----
+    const logEl = document.getElementById('battleLog');
+    if (startLog.length) logEl.innerHTML += `<p>${startLog.join(' · ')}</p>`;
+    logEl.innerHTML += `<p>${logParts.join(' · ')}</p>`;
+    updateBattleUI();
+    logEl.scrollTop = logEl.scrollHeight;
+
+    // ---- Check victory / defeat ----
+    if (opponentHP <= 0 || playerHP <= 0) {
+        endBattle();
+    } else {
+        turnLock = false;
+    }
+};
 
             function updateBattleUI() {
                 const pMax = (hellforgedMode ? 8 : 10) + Math.floor((playerCard.mystique || 50) / 5) + Math.floor((
