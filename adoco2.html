@@ -221,6 +221,16 @@
         .btn.accent { background: #180a10; border-color: #5c1525; border-top-color: #7a2035; border-left-color: #6a1a2a; border-right-color: #3a0f18; border-bottom-color: #200810; color: #e8a090; box-shadow: 0 2px 0 #00000044, 0 0 8px #c41e3a22; }
         .btn.accent:active { border-top-color: #3a0f18; border-left-color: #3a0f18; border-bottom-color: #7a2035; border-right-color: #6a1a2a; box-shadow: 0 0px 0 #00000044, 0 0 14px #c41e3a44; }
         .btn:disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
+/* Nocturne Theater specific */
+.theater-mask {
+    position: relative;
+    background: #0c0c14;
+    border: 2px solid #c41e3a66;
+    box-shadow: inset 0 0 30px rgba(0,0,0,0.8);
+}
+.curtain-left, .curtain-right {
+    display: none; /* purely textual for now, but you could add curtain images later */
+}
 
         .tv-stage {
             display: flex;
@@ -504,10 +514,12 @@
         <div class="tabs-row">
             <div class="tab-btn active" data-tab="channel1"><span class="tab-emoji">🛸</span><span class="tab-label">CH 1</span></div>
             <div class="tab-btn" data-tab="channel2"><span class="tab-emoji">📡</span><span class="tab-label">CH 2</span></div>
+<div class="tab-btn" data-tab="channel3"><span class="tab-emoji">🎭</span><span class="tab-label">CH 3</span></div>
         </div>
         <div class="game-area">
             <div id="channel1Panel" class="panel active"></div>
             <div id="channel2Panel" class="panel"></div>
+<div id="channel3Panel" class="panel"></div>
         </div>
         <div class="footer-strip">
             <span id="footerMsg">📡 NIGHTFALLS AM · TUNE IN TO CHANNEL 1 OR 2</span>
@@ -528,6 +540,7 @@
         geheimeWaffenTopic: null,
         imageCooldownUntil: 0,
         ch12Episodes: [],
+nocturneStory: null,   // { title, story, closing_remark }
     };
     let gameState = { ...DEFAULT_STATE };
 
@@ -1263,6 +1276,206 @@
         saveState();
     }
 
+// ═══════════════════════════════════════════
+// CHANNEL 3: THE NOCTURNE THEATER
+// ═══════════════════════════════════════════
+
+function renderChannel3() {
+    const panel = document.getElementById('channel3Panel');
+    if (!panel) return;
+    if (!gameState.nocturneStory) {
+        gameState.nocturneStory = null; // will be generated on demand
+        saveState();
+    }
+
+    const hostPortrait = ''; // Placeholder – use a Vincent Price-style image
+
+    panel.innerHTML = `
+        <div class="tv-stage theater-mask">
+            <div class="tv-stage-row">
+                <img class="host-portrait" src="${hostPortrait}" alt="Vincent Crowe" style="object-fit:cover;">
+                <div class="speech-bubble" id="ch3SpeechBubble">
+                    <div class="segment-text" id="ch3Dialogue">
+                        "Good evening, creatures of the night. I am Vincent Crowe, your master of ceremonies. The stage is set, the curtains yearn to part. Shall we begin tonight's tale of terror?"
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="tv-guide">
+            <h3>🎭 THE NOCTURNE THEATER · TONIGHT'S PERFORMANCE</h3>
+            <div id="ch3GuideList"></div>
+        </div>
+    `;
+
+    const guideList = document.getElementById('ch3GuideList');
+    const ep = gameState.nocturneStory; // could be null
+
+    // If we already have a story generated, show it as a single entry
+    if (ep && ep.title) {
+        const entry = document.createElement('div');
+        entry.className = 'guide-entry';
+        entry.innerHTML = `
+            <span class="guide-time">MIDNIGHT</span>
+            <div class="guide-info">
+                <div class="guide-title">"${esc(ep.title)}"</div>
+                <div class="guide-desc">A tale of suspense, ready to unfold.</div>
+            </div>
+            <button class="btn guide-btn" id="ch3PerformBtn">🎬 Perform</button>
+        `;
+        guideList.appendChild(entry);
+
+        document.getElementById('ch3PerformBtn').addEventListener('click', async () => {
+            await startNocturnePerformance();
+        });
+    } else {
+        // No story yet
+        const entry = document.createElement('div');
+        entry.className = 'guide-entry';
+        entry.innerHTML = `
+            <span class="guide-time">MIDNIGHT</span>
+            <div class="guide-info">
+                <div class="guide-title">No Performance Scheduled</div>
+                <div class="guide-desc">The stage is dark. Commission a new tale.</div>
+            </div>
+            <button class="btn guide-btn" id="ch3PerformBtn">🎬 Curtain Up</button>
+        `;
+        guideList.appendChild(entry);
+        document.getElementById('ch3PerformBtn').addEventListener('click', async () => {
+            await generateNewNocturneStory();
+            renderChannel3(); // re-render to show title
+        });
+    }
+
+    // "New Performance" button always available to generate fresh story
+    const newPerformanceBtn = document.createElement('button');
+    newPerformanceBtn.className = 'btn accent';
+    newPerformanceBtn.id = 'ch3NewPerformanceBtn';
+    newPerformanceBtn.style.marginTop = '12px';
+    newPerformanceBtn.style.width = '100%';
+    newPerformanceBtn.textContent = '🎭 New Performance';
+    guideList.appendChild(newPerformanceBtn);
+
+    document.getElementById('ch3NewPerformanceBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('ch3NewPerformanceBtn');
+        btn.disabled = true;
+        btn.textContent = '🕯️ Commissioning Tale…';
+        try {
+            await generateNewNocturneStory();
+        } catch (e) {
+            showModal(`<h2>🎭 Curtain Stuck</h2><p>${esc(e.message)}</p><button class="modal-btn" onclick="closeModal()">Close</button>`);
+        }
+        renderChannel3();
+    });
+}
+
+async function generateNewNocturneStory() {
+    const system = `You are Vincent Crowe, the flamboyant and sinister host of "The Nocturne Theater", a late-night horror anthology radio show broadcast from a decaying 19th-century playhouse. You write and perform short horror stories in the style of Alfred Hitchcock, classic suspense, morality tales, ghost stories, and dark twist endings.`;
+
+    const prompt = `Write exactly 1 short horror story (400-700 words) for tonight's performance. The story must have a clear beginning, rising tension, and a chilling twist. Return ONLY a valid JSON object with the following fields: "title" (string), "story" (the full narration as a single string, use \\n for line breaks if needed), "closing_remark" (a short chilling phrase Vincent says after the story). Output raw JSON only, no markdown, no extra text.`;
+
+    const resp = await mistralChat([
+        { role: 'system', content: system },
+        { role: 'user', content: prompt }
+    ], 2000);  // generous token limit, just like your radio function
+
+    // Minimal cleaning – exactly like you did in generateSingleRadioStory
+    let jsonStr = resp.replace(/```json|```/g, '').replace(/`/g, '').trim();
+    const story = JSON.parse(jsonStr);
+
+    if (!story.title || !story.story || !story.closing_remark) {
+        throw new Error('Invalid story structure – missing title, story, or closing_remark');
+    }
+
+    gameState.nocturneStory = {
+        title: story.title,
+        story: story.story,
+        closing_remark: story.closing_remark
+    };
+    saveState();
+}
+async function startNocturnePerformance() {
+    speechSynthesis.cancel();
+    if (window.ch3Timeout) clearTimeout(window.ch3Timeout);
+
+    const storyData = gameState.nocturneStory;
+    if (!storyData || !storyData.story) {
+        // Fallback if missing
+        await generateNewNocturneStory();
+        renderChannel3();
+        // Recursively call itself? Just start again
+        return startNocturnePerformance();
+    }
+
+    const bubble = document.getElementById('ch3SpeechBubble');
+    const dialogue = document.getElementById('ch3Dialogue');
+    if (!bubble || !dialogue) return;
+
+    const guideList = document.getElementById('ch3GuideList');
+    if (guideList) guideList.style.display = 'none';
+    bubble.style.borderColor = '#c41e3a';
+    bubble.style.boxShadow = '0 0 30px #c41e3a88';
+
+    dialogue.innerHTML = '';
+    const oldBack = document.getElementById('ch3BackBtn');
+    if (oldBack) oldBack.remove();
+
+    // 1. Vincent's intro
+    const intro = `"Good evening… I am Vincent Crowe. Tonight, I invite you to draw closer to the footlights. Let the velvet shadows embrace you. I present to you… '${storyData.title}'."`;
+    dialogue.textContent = '';
+    speakTextMale(intro);
+    await typewriterEffect(dialogue, intro, 35);
+    await new Promise(r => setTimeout(r, 1500));
+
+    // 2. The story itself
+    dialogue.textContent = '';
+    speakTextMale(storyData.story); // TTS will read the whole story
+    await typewriterEffect(dialogue, storyData.story, 22); // slower typing for dramatic effect
+
+    // 3. Closing remark
+    await new Promise(r => setTimeout(r, 1200));
+    const closing = `"${storyData.closing_remark}"`;
+    const closingLine = document.createElement('p');
+    closingLine.style.marginTop = '16px';
+    closingLine.style.fontStyle = 'italic';
+    closingLine.style.color = '#e8c5b0';
+    dialogue.appendChild(closingLine);
+    speakTextMale(closing);
+    await typewriterEffect(closingLine, closing, 30);
+
+    // 4. Final curtain
+    await new Promise(r => setTimeout(r, 1000));
+    const curtainText = document.createElement('p');
+    curtainText.textContent = '— Curtain falls —';
+    curtainText.style.color = '#7a6a6a';
+    curtainText.style.fontSize = '14px';
+    dialogue.appendChild(curtainText);
+
+    // Add back button
+    const backBtn = document.createElement('button');
+    backBtn.id = 'ch3BackBtn';
+    backBtn.className = 'btn back-btn';
+    backBtn.textContent = '← Leave the Theater';
+    backBtn.style.marginTop = '12px';
+    backBtn.addEventListener('click', () => restoreCh3Guide());
+    dialogue.appendChild(backBtn);
+}
+
+function restoreCh3Guide() {
+    const guideList = document.getElementById('ch3GuideList');
+    if (guideList) guideList.style.display = '';
+    const bubble = document.getElementById('ch3SpeechBubble');
+    if (bubble) {
+        bubble.style.borderColor = '#ff2a4a88';
+        bubble.style.boxShadow = 'none';
+    }
+    const backBtn = document.getElementById('ch3BackBtn');
+    if (backBtn) backBtn.remove();
+    const dialogue = document.getElementById('ch3Dialogue');
+    if (dialogue) {
+        dialogue.innerHTML = '"Good evening, creatures of the night. I am Vincent Crowe… Shall we begin tonight\'s tale of terror?"';
+    }
+}
+
     // ═══════════════════════════════════════════
     // TAB SWITCHING & INIT
     // ═══════════════════════════════════════════
@@ -1273,19 +1486,24 @@
     }
 
     function switchTab(tab) {
-        document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-        const tabBtn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
-        if (tabBtn) tabBtn.classList.add('active');
-        const panel = document.getElementById(tab + 'Panel');
-        if (panel) panel.classList.add('active');
-        if (tab === 'channel1') renderChannel1();
-        if (tab === 'channel2') renderChannel2();
-        const footerMsg = document.getElementById('footerMsg');
-        if (footerMsg) {
-            footerMsg.textContent = tab === 'channel1' ? '📡 NIGHTFALLS AM · TUNE IN TO CHANNEL 1 — THE HIDDEN REICH' : '📡 NIGHTFALLS AM · TUNE IN TO CHANNEL 2 — SIGNAL 12 NEWS';
-        }
+    document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    const tabBtn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
+    if (tabBtn) tabBtn.classList.add('active');
+    const panel = document.getElementById(tab + 'Panel');
+    if (panel) panel.classList.add('active');
+    if (tab === 'channel1') renderChannel1();
+    if (tab === 'channel2') renderChannel2();
+    if (tab === 'channel3') renderChannel3();   // <-- add this line too (if not already there)
+
+    // ── Footer update ──
+    const footerMsg = document.getElementById('footerMsg');
+    if (footerMsg) {
+        if (tab === 'channel1') footerMsg.textContent = '📡 NIGHTFALLS AM · CHANNEL 1 — THE HIDDEN REICH';
+        else if (tab === 'channel2') footerMsg.textContent = '📡 NIGHTFALLS AM · CHANNEL 2 — SIGNAL 12 NEWS';
+        else if (tab === 'channel3') footerMsg.textContent = '📡 NIGHTFALLS AM · CHANNEL 3 — THE NOCTURNE THEATER';
     }
+}
 
     // ──── API Key handling ────
     document.getElementById('resetApiBtn').addEventListener('click', () => {
