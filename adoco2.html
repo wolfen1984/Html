@@ -1323,13 +1323,14 @@ function renderChannel3() {
     const panel = document.getElementById('channel3Panel');
     if (!panel) return;
 
-    const hostPortrait = ''; // Placeholder – use a Vincent Price-style image
+    const hostPortrait = ''; // Placeholder
 
     panel.innerHTML = `
         <div class="tv-stage theater-mask">
             <div class="tv-stage-row">
                 <img class="host-portrait" src="${hostPortrait}" alt="Vincent Crowe" style="object-fit:cover;">
                 <div class="speech-bubble" id="ch3SpeechBubble">
+                    <img id="ch3SegmentImage" class="segment-image" alt="Story Poster">
                     <div class="segment-text" id="ch3Dialogue">
                         "Good evening, creatures of the night. I am Vincent Crowe, your master of ceremonies. The stage is set, the curtains yearn to part. Shall we begin tonight's tale of terror?"
                     </div>
@@ -1345,12 +1346,13 @@ function renderChannel3() {
     const guideList = document.getElementById('ch3GuideList');
     const episodes = gameState.ch3Episodes || [];
 
-    // Show all saved episodes
+    // Show all saved episodes with a thumbnail
     episodes.forEach((ep, index) => {
         const entry = document.createElement('div');
         entry.className = 'guide-entry';
         entry.innerHTML = `
             <span class="guide-time">SAVED</span>
+            ${ep.imageUrl ? `<img src="${esc(ep.imageUrl)}" style="width:50px; height:50px; object-fit:cover; border-radius:3px; margin-right:8px; flex-shrink:0;" alt="Poster">` : ''}
             <div class="guide-info">
                 <div class="guide-title">"${esc(ep.title)}"</div>
                 <div class="guide-desc">A tale of suspense, ready to unfold.</div>
@@ -1385,14 +1387,12 @@ function renderChannel3() {
             const index = parseInt(btn.dataset.index);
             const ep = gameState.ch3Episodes[index];
             if (!ep) return;
-            // Set as current performance
             gameState.nocturnePerformance = { ...ep };
             saveState();
             await startNocturnePerformance();
         });
     });
 }
-
 async function generateNewNocturneStory() {
     const system = `You are Vincent Crowe, the sardonic, cynical host of The Nocturne Theater. You narrate grim, literary horror stories to your listeners, unflinching, visceral, and grounded in human depravity.`;
 
@@ -1410,14 +1410,23 @@ async function generateNewNocturneStory() {
         throw new Error('Invalid story structure – missing title, story, or closing_remark');
     }
 
+    // ---- NEW: generate a poster image for the story ----
+    let imageUrl = null;
+    try {
+        const imagePrompt = `Horror movie poster for a story titled "${story.title}", 1980s VHS style, dark and moody, cinematic, grainy`;
+        imageUrl = await generateImageWithRetry(imagePrompt, 2);
+    } catch (e) {
+        console.warn('Could not generate story poster:', e);
+    }
+
     gameState.nocturnePerformance = {
         title: story.title,
         story: story.story,
-        closing_remark: story.closing_remark
+        closing_remark: story.closing_remark,
+        imageUrl: imageUrl || ''   // store the URL (empty string if failed)
     };
     saveState();
 }
-
 async function generateAndPerform() {
     await generateNewNocturneStory(); // sets gameState.nocturnePerformance
     if (!gameState.nocturnePerformance) throw new Error('Failed to generate story');
@@ -1430,13 +1439,13 @@ async function startNocturnePerformance() {
 
     const storyData = gameState.nocturnePerformance;
     if (!storyData || !storyData.story) {
-        // fallback: generate a fresh one
         await generateNewNocturneStory();
         return startNocturnePerformance();
     }
 
     const bubble = document.getElementById('ch3SpeechBubble');
     const dialogue = document.getElementById('ch3Dialogue');
+    const imageEl = document.getElementById('ch3SegmentImage');
     if (!bubble || !dialogue) return;
 
     const guideList = document.getElementById('ch3GuideList');
@@ -1449,6 +1458,15 @@ async function startNocturnePerformance() {
     if (oldBack) oldBack.remove();
     const oldAdd = document.getElementById('ch3AddEpisodeBtn');
     if (oldAdd) oldAdd.remove();
+
+    // Show the poster image if available
+    if (imageEl && storyData.imageUrl) {
+        imageEl.src = storyData.imageUrl;
+        imageEl.classList.add('visible');
+        imageEl.style.display = 'block';
+    } else if (imageEl) {
+        imageEl.style.display = 'none';
+    }
 
     // 1. Vincent's intro
     const intro = `"Good evening… I am Vincent Crowe. Tonight, I invite you to draw closer to the footlights. Let the velvet shadows embrace you. I present to you… '${storyData.title}'."`;
@@ -1509,7 +1527,6 @@ async function startNocturnePerformance() {
 
     dialogue.appendChild(btnRow);
 }
-
 function addCurrentEpisode() {
     const perf = gameState.nocturnePerformance;
     if (!perf) return;
