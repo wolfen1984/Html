@@ -669,6 +669,20 @@
             let keepAliveNode = null;
 let reverbNode = null;
 let masterGain = null;
+let dryGain = null;
+let wetGain = null;
+let sectionAmbientActive = null;   // { sources: [], gainNode, stop: fn }
+let crossfadeTimeout = null;
+
+// Theme → pad parameters (we'll use frequencies, filter, LFO)
+const SECTION_THEMES = {
+    intro:     { root: 55, fifth: 82.5, filterStart: 300, filterEnd: 250, lfoFreq: 0.1, intensity: 0.3 },
+    setup:     { root: 55, fifth: 82.5, filterStart: 400, filterEnd: 200, lfoFreq: 0.15, intensity: 0.35 },
+    scheme:    { root: 55, fifth: 83.4 /* slight detune */, filterStart: 500, filterEnd: 180, lfoFreq: 0.2, intensity: 0.4 },
+    execution: { root: 55, fifth: 84,    filterStart: 600, filterEnd: 150, lfoFreq: 0.25, intensity: 0.5 },
+    twist:     { root: 55, fifth: 88,    filterStart: 800, filterEnd: 120, lfoFreq: 0.3, intensity: 0.6 },
+    closing:   { root: 55, fifth: 82.5, filterStart: 250, filterEnd: 200, lfoFreq: 0.1, intensity: 0.25 }
+};
 
             function createKeepAlive(ctx) {
     if (keepAliveNode) return;
@@ -696,7 +710,22 @@ let masterGain = null;
         masterGain.gain.value = 0.3;   // adjust this to taste – lower = quieter soundtrack
         reverbNode.connect(masterGain);
         masterGain.connect(audioCtx.destination);
-    }
+const compressor = audioCtx.createDynamicsCompressor();
+compressor.threshold.value = -24;
+compressor.knee.value = 30;
+compressor.ratio.value = 12;
+compressor.attack.value = 0.003;
+compressor.release.value = 0.25;
+masterGain.connect(compressor);
+compressor.connect(audioCtx.destination);
+// ── Dry/wet mix for all sounds ──
+dryGain = audioCtx.createGain();    // no const – now it sets the global variable
+dryGain.gain.value = 1.0;
+wetGain = audioCtx.createGain();    // no const
+wetGain.gain.value = 0.3;
+dryGain.connect(masterGain);
+wetGain.connect(reverbNode);
+reverbNode.connect(masterGain);    }
     if (audioCtx.state === 'suspended') {
         await audioCtx.resume();
     }
@@ -774,6 +803,7 @@ function createSynthPad(ctx, frequency, duration, intensity = 0.6) {
     osc3.stop(now + duration + 0.5);
     lfo.stop(now + duration + 0.5);
 }
+
 
 function createSting(ctx, intensity = 0.5) {
     const now = ctx.currentTime;
@@ -1052,6 +1082,7 @@ case 'climax':
                 }
             }
 
+
             function createCueChecker(cues, storyLength) {
                 const sorted = [...cues].sort((a, b) => a.position - b.position);
                 let cueIndex = 0;
@@ -1190,6 +1221,52 @@ case 'climax':
                 speechSynthesis.speak(utterance);
             }
 
+function speakAndTypeSynced(element, text, voiceConfig, cueChecker = null) {
+    return new Promise((resolve) => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        // Apply male voice settings (same logic as speakTextMale)
+        const voices = speechSynthesis.getVoices();
+        const maleNames = ['Google UK English Male', 'Google US English Male', 'Daniel', 'Microsoft David',
+            'Fred', 'Alex', 'Thomas', 'James'];
+        let voice = null;
+        for (const name of maleNames) {
+            voice = voices.find(v => v.name.includes(name));
+            if (voice) break;
+        }
+        if (!voice) voice = voices.find(v => v.name.toLowerCase().includes('male')) || voices[0];
+        if (voice) utterance.voice = voice;
+        utterance.rate = voiceConfig.rate || 0.88;
+        utterance.pitch = voiceConfig.pitch || 0.92;
+
+        let currentChar = 0;
+        element.textContent = '';
+
+        utterance.onboundary = (event) => {
+            // event.charIndex is the character position after the word
+            const nextChar = event.charIndex + event.charLength;
+            if (nextChar > currentChar) {
+                currentChar = nextChar;
+                element.textContent = text.substring(0, currentChar);
+                if (cueChecker) cueChecker(currentChar);
+            }
+        };
+
+        utterance.onend = () => {
+            // Finish any remaining text
+            element.textContent = text;
+            if (cueChecker) cueChecker(text.length);
+            resolve();
+        };
+
+        utterance.onerror = (e) => {
+            console.warn('TTS error:', e);
+            element.textContent = text; // show full text on error
+            resolve();
+        };
+
+        speechSynthesis.speak(utterance);
+    });
+}
             function showModal(html) {
                 document.getElementById('genericModalContent').innerHTML = html;
                 document.getElementById('genericModal').style.display = 'flex';
@@ -1226,7 +1303,11 @@ case 'climax':
                 episodes.forEach((ep, index) => {
                     const entry = document.createElement('div');
                     entry.className = 'guide-entry';
-                    const hasCues = ep.soundCues && ep.soundCues.length > 0;
+                    const hasCues = ep.soundCues && (
+    Array.isArray(ep.soundCues)
+        ? ep.soundCues.length > 0
+        : (ep.soundCues.cues && ep.soundCues.cues.length > 0)
+);
                     entry.innerHTML = `
                 <span class="guide-time">SAVED</span>
                 ${ep.imageUrl ? `<img src="${esc(ep.imageUrl)}" style="width:50px; height:50px; object-fit:cover; border-radius:2px; margin-right:8px; flex-shrink:0;" alt="Poster">` : ''}
@@ -1312,7 +1393,7 @@ case 'climax':
                         if (!ep) return;
                         gameState.nocturnePerformance = {
                             ...ep,
-                            soundCues: ep.soundCues ? [...ep.soundCues] : null,
+                            soundCues: ep.soundCues || null,
                             rawStoryText: ep.rawStoryText || ep.story
                         };
                         saveState();
@@ -1327,11 +1408,11 @@ case 'climax':
                         btn.disabled = true;
                         btn.textContent = '🎚️...';
                         try {
-                            const cues = await generateSoundCueSheet(ep.rawStoryText);
-                            ep.soundCues = cues;
-                            saveState();
-                            renderChannel3();
-                        } catch (err) {
+    const soundtrack = await generateSoundCueSheet(ep.rawStoryText);
+    ep.soundCues = soundtrack;      // now an object { sections, cues }
+    saveState();
+    renderChannel3();
+} catch (err) {
                             showModal(
                                 `<h2>Soundtrack Failed</h2><p>${esc(err.message)}</p><button class="modal-btn" onclick="closeModal()">Close</button>`
                                 );
@@ -1352,10 +1433,12 @@ case 'climax':
                     { role: 'user', content: prompt }
                 ], 2000, 45000);
                 let jsonStr = resp.replace(/```json|```/g, '').replace(/`/g, '').trim();
-                const story = JSON.parse(jsonStr);
-                if (!story.title || !story.story || !story.closing_remark) {
-                    throw new Error('Invalid story structure – missing title, story, or closing_remark');
-                }
+const story = JSON.parse(jsonStr);
+story.story = story.story.replace(/\\n/g, '\n');   // unescape newlines
+
+if (!story.title || !story.story || !story.closing_remark) {
+    throw new Error('Invalid story structure …');
+}
                 let imageUrl = null;
                 try {
                     const imagePrompt =
@@ -1378,45 +1461,113 @@ case 'climax':
             async function generateSoundCueSheet(storyText) {
     const length = storyText.length;
 
-  const system = `You are a sound designer for a horror radio drama. 
-Given a short story, return a JSON array of exactly 50 sound events.
-Use only these types: "pad", "sting", "heartbeat", "thunder", "bell", "climax".
-- "pad" = long ambient drone (duration 20‑30s), place every 500‑800 characters.
-- "sting" = short musical hit (duration ~1s), place at moments of tension.
-- "heartbeat" = low thump, use sparingly.
-- "thunder" = low rumble, use for dramatic moments.
-- "bell" = ominous low bell, use for foreboding.
-- "climax" = a swelling, powerful musical moment (duration 8‑14s). Place this **only near the end of the story** (last 20% of characters) to build the finale.
-Return ONLY a raw JSON array. No markdown.`;
+    const system = `You are a sound designer for a horror radio drama.
+Given a short story, return a JSON object with THREE keys:
+- "sections": an array of 5‑6 sections that divide the story into emotional acts.
+  Each section must have: "theme" (one of: intro, setup, scheme, execution, twist, closing), "start_char" (inclusive) and "end_char" (exclusive). The sections must cover the entire story from 0 to ${length}.
+- "cues": an array of sound events using only these types: "sting", "heartbeat", "thunder", "bell", "climax".
+  No "pad" type – the ambient drone will be handled separately.
+  Each cue must have "position" (character index), "type", optional "intensity" (0‑1).
+  Include at least 40 cues, spread evenly.
+- "score": an object with keys matching the same theme names used in "sections".
+  Each key must contain:
+    "bpm" (integer between 60‑120),
+    "bass" (array of 8 semitone intervals from a root of 0, e.g. [0,7,5,3,0,7,5,3]),
+    "arp" (array of 8 semitone intervals for an arpeggio, usually higher pitch, e.g. [12,19,15,19,12,19,15,19]),
+    "kick" (array of 8 numbers, 1 = hit, 0 = rest),
+    "snare" (same as kick).
+  Make the music tense and fitting for each theme. intro should be sparse and slow, execution fast and driving, twist dissonant.
 
-    const userPrompt = `Story text (${length} characters):\n${storyText}\n\nGenerate exactly 100 cues.`;
+Return ONLY raw JSON.`;
 
-    // Use a high token limit (4000) so the AI can fit all 100 cues.
+    const userPrompt = `Story text (${length} characters):\n${storyText}\n\nGenerate sections, cues, and score patterns.`;
+
     const resp = await mistralChat([
         { role: 'system', content: system },
         { role: 'user', content: userPrompt }
-    ], 4000, 30000);
+    ], 4000, 35000);  // increased tokens for extra data
 
-    // Remove any accidental markdown fences
     const cleaned = resp.replace(/```json|```/g, '').trim();
-    const aiCues = JSON.parse(cleaned);
-
-    // Use ALL cues from the AI. If the AI returns fewer than 100, that's what you get.
-    const cues = aiCues.map((cue, idx) => ({
-        type: cue.type,
-        position: Math.floor(length * (idx / Math.max(aiCues.length - 1, 1))),
-        duration: cue.duration || (['ambient_drone', 'wind_howl', 'static_burst'].includes(cue.type) ? 10 : 0),
-        intensity: cue.intensity || 0.7
-    }));
-
-    return cues;
+    let data;
+try {
+    // attempt direct parse
+    data = JSON.parse(cleaned);
+} catch (parseErr) {
+    console.warn('AI JSON was malformed, trying to repair…', parseErr);
+    // Extract the first valid JSON object/array
+    const match = cleaned.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    if (match) {
+        const candidate = match[0].replace(/,\s*([}\]])/g, '$1'); // remove trailing commas
+        try {
+            data = JSON.parse(candidate);
+        } catch (e2) {
+            throw new Error('Failed to parse AI soundtrack JSON even after repair.');
+        }
+    } else {
+        throw new Error('No JSON found in AI response.');
+    }
 }
 
-            async function generateAndPerform() {
-                await generateNewNocturneStory();
-                if (!gameState.nocturnePerformance) throw new Error('Failed to generate story');
-                await startNocturnePerformance();
-            }
+    // Validate mandatory keys
+    if (!Array.isArray(data.sections) || !Array.isArray(data.cues) || typeof data.score !== 'object') {
+        throw new Error('Missing sections, cues, or score in AI response');
+    }
+
+    // Ensure sections cover the whole story
+    const sortedSections = data.sections.sort((a,b) => a.start_char - b.start_char);
+    if (sortedSections[0].start_char !== 0 ||
+        sortedSections[sortedSections.length-1].end_char < length) {
+        console.warn('Sections may not fully cover the story – adjusting');
+        sortedSections[0].start_char = 0;
+        sortedSections[sortedSections.length-1].end_char = length;
+    }
+
+    // Process cues
+    const cues = data.cues.map(c => ({
+        type: c.type,
+        position: Math.min(c.position, length-1),
+        intensity: c.intensity || 0.7
+    }));
+
+    // Validate score patterns (ensure all needed themes exist, or fallback)
+    const requiredThemes = ['intro','setup','scheme','execution','twist','closing'];
+    const score = {};
+    for (const theme of requiredThemes) {
+        if (data.score[theme]) {
+            score[theme] = {
+                bpm: data.score[theme].bpm || 85,
+                bass: data.score[theme].bass || [0,0,7,7,0,0,7,7],
+                arp: data.score[theme].arp || [12,15,12,19,12,15,12,19],
+                kick: data.score[theme].kick || [1,0,1,0,1,0,1,0],
+                snare: data.score[theme].snare || [0,0,0,1,0,0,0,1]
+            };
+        } else {
+            // fallback to hardcoded default (you can also copy from your old SCORE_PATTERNS)
+            score[theme] = {
+                bpm: 85,
+                bass: [0,0,7,7,0,0,7,7],
+                arp: [12,15,12,19,12,15,12,19],
+                kick: [1,0,1,0,1,0,1,0],
+                snare: [0,0,0,1,0,0,0,1]
+            };
+        }
+    }
+
+    return { sections: sortedSections, cues, score };
+}
+
+           async function generateAndPerform() {
+    await generateNewNocturneStory();
+    if (!gameState.nocturnePerformance) throw new Error('Failed to generate story');
+
+    // 🔽 Generate the soundtrack NOW, before the performance
+   const soundtrack = await generateSoundCueSheet(gameState.nocturnePerformance.rawStoryText);
+gameState.nocturnePerformance.soundCues = soundtrack;   // { sections, cues }
+saveState();
+
+    // ✅ Now start the performance – it will use the freshly generated soundtrack
+    await startNocturnePerformance();
+}
 
             function createCueChecker(cues, storyLength) {
                 const sorted = [...cues].sort((a, b) => a.position - b.position);
@@ -1447,100 +1598,471 @@ Return ONLY a raw JSON array. No markdown.`;
                     }
                 };
             }
+// ── SCORE ENGINE (John Carpenter style) ──
+function createNote(ctx, frequency, startTime, duration, gainValue, type = 'sawtooth') {
+    const now = startTime;
 
-            async function startNocturnePerformance() {
-                speechSynthesis.cancel();
-                if (window.ch3Timeout) clearTimeout(window.ch3Timeout);
-                const storyData = gameState.nocturnePerformance;
-                if (!storyData || !storyData.story) {
-                    await generateNewNocturneStory();
-                    return startNocturnePerformance();
-                }
-                if (storyData.soundCues) {
-                    console.log('🎵 Sound cues loaded:', storyData.soundCues.length);
-                    storyData.soundCues = storyData.soundCues.filter(cue =>
-                        cue.type && cue.position !== undefined && cue.position >= 0
-                    );
-                    if (storyData.soundCues.length === 0) {
-                        console.warn('⚠️ No valid sound cues after filtering');
-                    }
-                }
-                const bubble = document.getElementById('ch3SpeechBubble');
-                const dialogue = document.getElementById('ch3Dialogue');
-                const imageEl = document.getElementById('ch3SegmentImage');
-                if (!bubble || !dialogue) return;
-                const guideList = document.getElementById('ch3GuideList');
-                if (guideList) guideList.style.display = 'none';
-                bubble.style.borderColor = '#8b1a2b';
-                bubble.style.boxShadow = '0 0 30px #7b1a2b88';
-                dialogue.innerHTML = '';
-                const oldBack = document.getElementById('ch3BackBtn');
-                if (oldBack) oldBack.remove();
-                const oldAdd = document.getElementById('ch3AddEpisodeBtn');
-                if (oldAdd) oldAdd.remove();
-                if (imageEl && storyData.imageUrl) {
-                    imageEl.src = storyData.imageUrl;
-                    imageEl.classList.add('visible');
-                    imageEl.style.display = 'block';
-                } else if (imageEl) {
-                    imageEl.style.display = 'none';
-                }
-                const intro =
-                    `"Good evening… I am Vincent Crowe. Tonight, I invite you to draw closer to the footlights. Let the dark shadows embrace you. I present to you… '${storyData.title}'."`;
-                dialogue.textContent = '';
-                speakTextMale(intro);
-                await typewriterEffect(dialogue, intro, 35);
-                await new Promise(r => setTimeout(r, 1500));
-                const storyText = storyData.rawStoryText || storyData.story;
-                let cueChecker = null;
-                if (storyData.soundCues && storyData.soundCues.length > 0) {
-                    cueChecker = createCueChecker(storyData.soundCues, storyText.length);
-                }
-                dialogue.textContent = '';
-                speakTextMale(storyText);
-                if (cueChecker) {
-                    await typewriterEffect(dialogue, storyText, 80, (idx) => cueChecker(idx));
-                } else {
-                    await typewriterEffect(dialogue, storyText, 22);
-                }
-                await new Promise(r => setTimeout(r, 1200));
-                const closing = `"${storyData.closing_remark}"`;
-                const closingLine = document.createElement('p');
-                closingLine.style.marginTop = '16px';
-                closingLine.style.fontStyle = 'italic';
-                closingLine.style.color = '#d4bfa8';
-                dialogue.appendChild(closingLine);
-                speakTextMale(closing);
-                await typewriterEffect(closingLine, closing, 30);
-                await new Promise(r => setTimeout(r, 1000));
-                const curtainText = document.createElement('p');
-                curtainText.textContent = '— Curtain falls —';
-                curtainText.style.color = '#6e5a58';
-                curtainText.style.fontSize = '14px';
-                dialogue.appendChild(curtainText);
-                stopAmbient();
-                const btnRow = document.createElement('div');
-                btnRow.style.marginTop = '12px';
-                btnRow.style.display = 'flex';
-                btnRow.style.gap = '8px';
-                btnRow.style.justifyContent = 'flex-end';
-                const leaveBtn = document.createElement('button');
-                leaveBtn.className = 'btn back-btn';
-                leaveBtn.textContent = '← Leave the Theater';
-                leaveBtn.addEventListener('click', () => { leaveTheater(); });
-                btnRow.appendChild(leaveBtn);
-                const addBtn = document.createElement('button');
-                addBtn.className = 'btn accent';
-                addBtn.id = 'ch3AddEpisodeBtn';
-                addBtn.textContent = '➕ Add Episode';
-                addBtn.addEventListener('click', () => {
-                    addCurrentEpisode();
-                    addBtn.disabled = true;
-                    addBtn.textContent = '✓ Added';
-                });
-                btnRow.appendChild(addBtn);
-                dialogue.appendChild(btnRow);
+    // Main oscillator pair – slightly detuned for thickness
+    const osc1 = ctx.createOscillator();
+    osc1.type = 'sawtooth';
+    osc1.frequency.value = frequency;
+    const osc2 = ctx.createOscillator();
+    osc2.type = 'sawtooth';
+    osc2.frequency.value = frequency * 1.007;  // 7 cents sharp
+
+    // Sub oscillator – one octave down, triangle wave
+    const sub = ctx.createOscillator();
+    sub.type = 'triangle';
+    sub.frequency.value = frequency / 2;
+
+    // Filter (lowpass) with a quick envelope sweep for punch
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 400;               // starting frequency
+    filter.Q.value = 1.5;
+
+    // Envelope modulator for the filter
+    const filterEnv = ctx.createGain();
+    filterEnv.gain.setValueAtTime(800, now);    // open filter instantly
+    filterEnv.gain.exponentialRampToValueAtTime(200, now + 0.1); // close slightly
+    filterEnv.gain.exponentialRampToValueAtTime(50, now + duration * 0.8);
+    filterEnv.connect(filter.frequency);
+
+    // Main volume envelope
+    const mainGain = ctx.createGain();
+    mainGain.gain.setValueAtTime(0, now);
+    mainGain.gain.linearRampToValueAtTime(gainValue * 0.3, now + 0.02); // attack
+    mainGain.gain.setValueAtTime(gainValue * 0.3, now + duration * 0.6); // sustain
+    mainGain.gain.exponentialRampToValueAtTime(0.001, now + duration + 0.1); // release
+
+    // Connect the oscillators → filter → mainGain
+    osc1.connect(filter);
+    osc2.connect(filter);
+    sub.connect(filter);
+    filter.connect(mainGain);
+
+    // Split the output: dry (direct) and wet (reverb)
+    const drySend = ctx.createGain();
+    drySend.gain.value = 0.8;          // dry level
+    const wetSend = ctx.createGain();
+    wetSend.gain.value = 0.4;          // reverb send level
+
+    mainGain.connect(drySend);
+    mainGain.connect(wetSend);
+
+    // Connect to the global mix buses (must be accessible – we'll store them globally)
+    drySend.connect(dryGain);
+    wetSend.connect(wetGain);
+
+    // Start/stop all oscillators
+    osc1.start(now);
+    osc2.start(now);
+    sub.start(now);
+    osc1.stop(now + duration + 0.2);
+    osc2.stop(now + duration + 0.2);
+    sub.stop(now + duration + 0.2);
+}
+
+function createKick(ctx, time) {
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(150, time);
+    osc.frequency.exponentialRampToValueAtTime(30, time + 0.08);
+
+    // Click layer – very short noise burst
+    const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.02, ctx.sampleRate);
+    const noiseData = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noiseData.length; i++) {
+        noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.003));
+    }
+    const click = ctx.createBufferSource();
+    click.buffer = noiseBuffer;
+    const clickFilter = ctx.createBiquadFilter();
+    clickFilter.type = 'highpass';
+    clickFilter.frequency.value = 2000;
+    click.connect(clickFilter);
+
+    const gainClick = ctx.createGain();
+    gainClick.gain.setValueAtTime(0.5, time);
+    gainClick.gain.exponentialRampToValueAtTime(0.001, time + 0.02);
+    clickFilter.connect(gainClick);
+
+    const gainBody = ctx.createGain();
+    gainBody.gain.setValueAtTime(0.7, time);
+    gainBody.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
+
+    osc.connect(gainBody);
+
+    // Dry send only (or a tiny bit of wet for air)
+    gainBody.connect(dryGain);
+    gainClick.connect(dryGain);
+    // Very slight reverb for kick can be nice – uncomment if you want
+    // let wetKick = ctx.createGain(); wetKick.gain.value = 0.1; gainBody.connect(wetKick); wetKick.connect(wetGain);
+
+    osc.start(time);
+    click.start(time);
+    osc.stop(time + 0.2);
+    click.stop(time + 0.02);
+}
+
+function createSnare(ctx, time) {
+    // Tonal body (low sine sweep)
+    const body = ctx.createOscillator();
+    body.type = 'triangle';
+    body.frequency.setValueAtTime(200, time);
+    body.frequency.exponentialRampToValueAtTime(80, time + 0.08);
+    const bodyGain = ctx.createGain();
+    bodyGain.gain.setValueAtTime(0.6, time);
+    bodyGain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+    body.connect(bodyGain);
+
+    // Noise for rattle
+    const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.15, ctx.sampleRate);
+    const noiseData = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noiseData.length; i++) {
+        noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.03));
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+    const noiseFilter = ctx.createBiquadFilter();
+    noiseFilter.type = 'highpass';
+    noiseFilter.frequency.value = 1200;
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.7, time);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+
+    // Dry output
+    bodyGain.connect(dryGain);
+    noiseGain.connect(dryGain);
+    // optional tiny reverb
+    // let wetSnare = ctx.createGain(); wetSnare.gain.value = 0.05; bodyGain.connect(wetSnare); wetSnare.connect(wetGain);
+
+    body.start(time);
+    noise.start(time);
+    body.stop(time + 0.1);
+    noise.stop(time + 0.15);
+}
+// Patterns for each section theme
+const SCORE_PATTERNS = {
+    // [ bpm, bassSemitones, arpSemitones, kickPattern, snarePattern ]
+    // Patterns are arrays of relative semitones from the root (55 Hz = A1)
+    intro: {
+        bpm: 80,
+        bass: [0, 0, 7, 7, 0, 0, 7, 7],
+        arp: [12, 15, 12, 19, 12, 15, 12, 19],
+        kick: [1, 0, 1, 0, 1, 0, 1, 0],
+        snare: [0, 0, 0, 1, 0, 0, 0, 1]
+    },
+    setup: {
+        bpm: 85,
+        bass: [0, 7, 5, 3, 0, 7, 5, 3],
+        arp: [12, 15, 19, 15, 12, 15, 19, 15],
+        kick: [1, 0, 1, 0, 1, 0, 1, 0],
+        snare: [0, 0, 0, 1, 0, 0, 0, 1]
+    },
+    scheme: {
+        bpm: 90,
+        bass: [0, 3, 5, 7, 8, 7, 5, 3],
+        arp: [12, 15, 19, 22, 24, 22, 19, 15],
+        kick: [1, 0, 1, 1, 1, 0, 1, 0],
+        snare: [0, 0, 1, 0, 0, 0, 1, 0]
+    },
+    execution: {
+        bpm: 100,
+        bass: [0, 7, 0, 7, 3, 7, 3, 7],
+        arp: [12, 19, 15, 19, 12, 19, 15, 19],
+        kick: [1, 1, 1, 1, 1, 1, 1, 1],
+        snare: [0, 1, 0, 1, 0, 1, 0, 1]
+    },
+    twist: {
+        bpm: 110,
+        bass: [0, 3, 6, 8, 0, 3, 6, 8],
+        arp: [12, 16, 20, 24, 12, 16, 20, 24],
+        kick: [1, 0, 1, 0, 1, 0, 1, 0],
+        snare: [1, 1, 1, 1, 1, 1, 1, 1]
+    },
+    closing: {
+        bpm: 75,
+        bass: [0, 7, 5, 0, 7, 5, 0, 7],
+        arp: [12, 15, 12, 19, 12, 15, 12, 19],
+        kick: [1, 0, 0, 0, 1, 0, 0, 0],
+        snare: [0, 0, 0, 1, 0, 0, 0, 1]
+    }
+};
+
+function startSectionScore(themeName) {
+    if (!audioCtx) return;
+    console.log(`🎵 Starting score: ${themeName}`);
+    stopSectionAmbient();
+
+    // Attempt to get AI‑generated score patterns from the current performance
+    let customScore = null;
+    const perf = gameState.nocturnePerformance;
+    if (perf && perf.soundCues && perf.soundCues.score) {
+        customScore = perf.soundCues.score;
+    }
+
+    // Fallback to hardcoded SCORE_PATTERNS if no custom patterns available
+    const fallbackTheme = SCORE_PATTERNS[themeName] || SCORE_PATTERNS.intro;
+    const theme = (customScore && customScore[themeName]) ? customScore[themeName] : fallbackTheme;
+
+    const rootFreq = 55; // A1 – you could also randomize this
+    const beatDuration = 60 / theme.bpm;
+    const patternLength = theme.bass.length;
+
+    const ctx = audioCtx;
+    let step = 0;
+    let nextStepTime = ctx.currentTime;
+
+   // Persistent pad (drone) – rich and slow
+const padGain = ctx.createGain();
+padGain.gain.value = 0.1;   // keep it subtle
+const padOsc1 = ctx.createOscillator();
+padOsc1.type = 'sawtooth';
+padOsc1.frequency.value = rootFreq;
+const padOsc2 = ctx.createOscillator();
+padOsc2.type = 'sawtooth';
+padOsc2.frequency.value = rootFreq * 1.502; // slightly sharp fifth
+const padOsc3 = ctx.createOscillator();
+padOsc3.type = 'triangle';
+padOsc3.frequency.value = rootFreq / 2;     // sub
+
+const padFilter = ctx.createBiquadFilter();
+padFilter.type = 'lowpass';
+padFilter.frequency.value = 300;
+padFilter.Q.value = 1;
+
+padOsc1.connect(padFilter);
+padOsc2.connect(padFilter);
+padOsc3.connect(padFilter);
+padFilter.connect(padGain);
+
+// Route to dry/wet
+const padDry = ctx.createGain(); padDry.gain.value = 0.6;
+const padWet = ctx.createGain(); padWet.gain.value = 0.3;
+padGain.connect(padDry);
+padGain.connect(padWet);
+padDry.connect(dryGain);
+padWet.connect(wetGain);
+
+padOsc1.start(); padOsc2.start(); padOsc3.start();
+const stopSources = [padOsc1, padOsc2, padOsc3];
+
+   
+    function scheduleStep() {
+        if (!sectionAmbientActive) return; // stopped
+        const now = nextStepTime;
+
+        // Bass
+        const bassSemitone = theme.bass[step % patternLength];
+        const bassFreq = rootFreq * Math.pow(2, bassSemitone / 12);
+        createNote(ctx, bassFreq, now, beatDuration * 0.9, 0.8, 'sawtooth');
+
+        // Arpeggio
+        const arpSemitone = theme.arp[step % patternLength];
+        const arpFreq = rootFreq * Math.pow(2, arpSemitone / 12);
+        createNote(ctx, arpFreq, now, beatDuration * 0.5, 0.6, 'square');
+
+        // Drums
+        if (theme.kick[step % patternLength]) createKick(ctx, now);
+        if (theme.snare[step % patternLength]) createSnare(ctx, now);
+
+        step++;
+        nextStepTime += beatDuration;
+        timeoutId = setTimeout(scheduleStep, (nextStepTime - ctx.currentTime) * 1000);
+    }
+
+    // Start a few milliseconds ahead to allow scheduling
+    nextStepTime = ctx.currentTime + 0.05;
+    timeoutId = setTimeout(scheduleStep, 50);
+
+    sectionAmbientActive = {
+        stop: () => {
+            clearTimeout(timeoutId);
+            padGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.2);
+            stopSources.forEach(s => {
+                try { s.stop(ctx.currentTime + 0.3); } catch(e) {}
+            });
+            sectionAmbientActive = null;
+        }
+    };
+}
+
+// Keep this alias for backward compatibility
+const transitionSectionTheme = startSectionScore;
+
+function stopSectionAmbient() {
+    if (sectionAmbientActive) {
+        sectionAmbientActive.stop();
+        sectionAmbientActive = null;
+    }
+    clearTimeout(crossfadeTimeout);
+}
+async function startNocturnePerformance() {
+    speechSynthesis.cancel();
+    if (window.ch3Timeout) clearTimeout(window.ch3Timeout);
+    const storyData = gameState.nocturnePerformance;
+    if (!storyData || !storyData.story) {
+        await generateNewNocturneStory();
+        return startNocturnePerformance();
+    }
+
+    // Extract sections and cues
+    let sectionList = null;
+    let cueList = null;
+
+    if (storyData.soundCues) {
+        if (Array.isArray(storyData.soundCues)) {
+            cueList = storyData.soundCues.filter(c => c.type && c.position !== undefined);
+        } else if (storyData.soundCues.sections && storyData.soundCues.cues) {
+            sectionList = storyData.soundCues.sections;
+            cueList = storyData.soundCues.cues.filter(c => c.type && c.position !== undefined);
+            console.log('🎼 Sections loaded:', sectionList.length, 'themes');
+        }
+    }
+
+    if (cueList && cueList.length === 0) {
+        console.warn('⚠️ No valid cues after filtering');
+    }
+
+    const bubble = document.getElementById('ch3SpeechBubble');
+    const dialogue = document.getElementById('ch3Dialogue');
+    const imageEl = document.getElementById('ch3SegmentImage');
+    if (!bubble || !dialogue) return;
+
+    const guideList = document.getElementById('ch3GuideList');
+    if (guideList) guideList.style.display = 'none';
+
+    bubble.style.borderColor = '#8b1a2b';
+    bubble.style.boxShadow = '0 0 30px #7b1a2b88';
+    dialogue.innerHTML = '';
+
+    const oldBack = document.getElementById('ch3BackBtn');
+    if (oldBack) oldBack.remove();
+    const oldAdd = document.getElementById('ch3AddEpisodeBtn');
+    if (oldAdd) oldAdd.remove();
+
+    if (imageEl && storyData.imageUrl) {
+        imageEl.src = storyData.imageUrl;
+        imageEl.classList.add('visible');
+        imageEl.style.display = 'block';
+    } else if (imageEl) {
+        imageEl.style.display = 'none';
+    }
+
+    // Intro
+    const intro = `"Good evening… I am Vincent Crowe. Tonight, I invite you to draw closer to the footlights. Let the dark shadows embrace you. I present to you… '${storyData.title}'."`;
+    dialogue.textContent = '';
+    speakTextMale(intro);
+    await typewriterEffect(dialogue, intro, 35);
+    await new Promise(r => setTimeout(r, 1500));
+
+    // Start the first section's ambient drone
+    if (sectionList && sectionList.length > 0) {
+        transitionSectionTheme(sectionList[0].theme);
+    }
+
+    const storyText = storyData.rawStoryText || storyData.story;
+
+    // Combined cue checker with section transitions
+    let cueChecker = null;
+    if (cueList && cueList.length > 0) {
+        const sortedCues = [...cueList].sort((a, b) => a.position - b.position);
+        let cueIdx = 0;
+        const triggered = new Set();
+        let lastLog = 0;
+
+        const sortedSections = sectionList ? [...sectionList].sort((a, b) => a.start_char - b.start_char) : [];
+        let sectionIdx = 0;
+        let currentTheme = sortedSections.length > 0 ? sortedSections[0].theme : null;
+
+        cueChecker = function check(idx) {
+            if (idx - lastLog > 500) {
+                console.log(`⏳ at index ${idx} (${Math.round(idx / storyText.length * 100)}%)`);
+                lastLog = idx;
             }
+
+            // Section transitions
+            while (sectionIdx < sortedSections.length && sortedSections[sectionIdx].start_char <= idx) {
+                const sec = sortedSections[sectionIdx];
+                if (sec.theme !== currentTheme) {
+                    currentTheme = sec.theme;
+                    transitionSectionTheme(currentTheme);
+                }
+                sectionIdx++;
+            }
+
+            // Sound cues
+            while (cueIdx < sortedCues.length && sortedCues[cueIdx].position <= idx) {
+                const cue = sortedCues[cueIdx];
+                if (!triggered.has(cueIdx)) {
+                    triggered.add(cueIdx);
+                    console.log(`🔊 FIRING ${cue.type} at ${cue.position}`);
+                    playSound(cue.type, cue.intensity);
+                }
+                cueIdx++;
+            }
+        };
+    }
+
+    // Speak and type synced
+    dialogue.textContent = '';
+    if (cueChecker) {
+        await speakAndTypeSynced(dialogue, storyText, { rate: 0.88, pitch: 0.92 }, (idx) => cueChecker(idx));
+    } else {
+        await speakAndTypeSynced(dialogue, storyText, { rate: 0.88, pitch: 0.92 });
+    }
+
+    await new Promise(r => setTimeout(r, 1200));
+
+    // Closing remark
+    const closing = `"${storyData.closing_remark}"`;
+    const closingLine = document.createElement('p');
+    closingLine.style.marginTop = '16px';
+    closingLine.style.fontStyle = 'italic';
+    closingLine.style.color = '#d4bfa8';
+    dialogue.appendChild(closingLine);
+    speakTextMale(closing);
+    await typewriterEffect(closingLine, closing, 30);
+
+    await new Promise(r => setTimeout(r, 1000));
+
+    const curtainText = document.createElement('p');
+    curtainText.textContent = '— Curtain falls —';
+    stopSectionAmbient();
+    curtainText.style.color = '#6e5a58';
+    curtainText.style.fontSize = '14px';
+    dialogue.appendChild(curtainText);
+    stopAmbient();
+
+    // Buttons
+    const btnRow = document.createElement('div');
+    btnRow.style.marginTop = '12px';
+    btnRow.style.display = 'flex';
+    btnRow.style.gap = '8px';
+    btnRow.style.justifyContent = 'flex-end';
+
+    const leaveBtn = document.createElement('button');
+    leaveBtn.className = 'btn back-btn';
+    leaveBtn.textContent = '← Leave the Theater';
+    leaveBtn.addEventListener('click', () => { leaveTheater(); });
+    btnRow.appendChild(leaveBtn);
+
+    const addBtn = document.createElement('button');
+    addBtn.className = 'btn accent';
+    addBtn.id = 'ch3AddEpisodeBtn';
+    addBtn.textContent = '➕ Add Episode';
+    addBtn.addEventListener('click', () => {
+        addCurrentEpisode();
+        addBtn.disabled = true;
+        addBtn.textContent = '✓ Added';
+    });
+    btnRow.appendChild(addBtn);
+
+    dialogue.appendChild(btnRow);
+}
 
             function addCurrentEpisode() {
                 const perf = gameState.nocturnePerformance;
@@ -1556,6 +2078,7 @@ Return ONLY a raw JSON array. No markdown.`;
 
             function leaveTheater() {
                 stopAmbient();
+stopSectionAmbient();
                 renderChannel3();
             }
 
