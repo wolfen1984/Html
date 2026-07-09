@@ -667,1301 +667,354 @@
             let ambientGain = null;
             let ambientTimeout = null;
             let keepAliveNode = null;
+let reverbNode = null;
 
             function createKeepAlive(ctx) {
-                if (keepAliveNode) return;
-                const bufferSize = ctx.sampleRate * 1;
+    if (keepAliveNode) return;
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 30;          // sub‑audible
+    const gain = ctx.createGain();
+    gain.gain.value = 0.001;           // barely audible
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(0);
+    keepAliveNode = { source: osc, gain };
+    console.log('🔇 Keep‑alive tone started (very low volume).');
+}
+
+            async function getAudioContext() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        console.log(`🎛️ AudioContext created, initial state: ${audioCtx.state}`);
+        createKeepAlive(audioCtx);
+        initReverb(audioCtx);   // <-- add this line
+    }
+    if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+    }
+    return audioCtx;
+}
+
+function initReverb(ctx) {
+    if (!reverbNode) {
+        const sampleRate = ctx.sampleRate;
+        const length = sampleRate * 2; // 2 seconds
+        const impulse = ctx.createBuffer(2, length, sampleRate);
+        const left = impulse.getChannelData(0);
+        const right = impulse.getChannelData(1);
+        for (let i = 0; i < length; i++) {
+            const decay = Math.exp(-i / (sampleRate * 0.4));
+            left[i] = (Math.random() * 2 - 1) * decay;
+            right[i] = (Math.random() * 2 - 1) * decay;
+        }
+        reverbNode = ctx.createConvolver();
+        reverbNode.buffer = impulse;
+        reverbNode.normalize = true;
+        reverbNode.connect(ctx.destination);
+    }
+    return reverbNode;
+}
+function createSynthPad(ctx, frequency, duration, intensity = 0.6) {
+    const now = ctx.currentTime;
+    const gainNode = ctx.createGain();
+    gainNode.gain.setValueAtTime(0, now);
+    gainNode.gain.linearRampToValueAtTime(intensity * 0.18, now + 0.5);
+    gainNode.gain.setValueAtTime(intensity * 0.18, now + duration - 1);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration + 0.2);
+
+    // 3 detuned sawtooth oscillators
+    const osc1 = ctx.createOscillator();
+    osc1.type = 'sawtooth';
+    osc1.frequency.value = frequency;
+
+    const osc2 = ctx.createOscillator();
+    osc2.type = 'sawtooth';
+    osc2.frequency.value = frequency * 1.003;
+
+    const osc3 = ctx.createOscillator();
+    osc3.type = 'sawtooth';
+    osc3.frequency.value = frequency * 0.997;
+
+    // Low‑pass filter with LFO for movement
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 800;
+    filter.Q.value = 2;
+
+    const lfo = ctx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.2 + Math.random() * 0.2;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 200 + Math.random() * 200;
+    lfo.connect(lfoGain);
+    lfoGain.connect(filter.frequency);
+
+    // Connect everything
+    osc1.connect(filter);
+    osc2.connect(filter);
+    osc3.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(reverbNode || ctx.destination);
+
+    // Start
+    osc1.start(now);
+    osc2.start(now);
+    osc3.start(now);
+    lfo.start(now);
+    osc1.stop(now + duration + 0.5);
+    osc2.stop(now + duration + 0.5);
+    osc3.stop(now + duration + 0.5);
+    lfo.stop(now + duration + 0.5);
+}
+
+function createSting(ctx, intensity = 0.5) {
+    const now = ctx.currentTime;
+    const gainNode = ctx.createGain();
+    gainNode.gain.setValueAtTime(0, now);
+    gainNode.gain.linearRampToValueAtTime(intensity * 0.2, now + 0.03);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(150, now);
+    osc.frequency.exponentialRampToValueAtTime(500, now + 0.2);
+    osc.frequency.exponentialRampToValueAtTime(100, now + 1.2);
+
+    const osc2 = ctx.createOscillator();
+    osc2.type = 'sawtooth';
+    osc2.frequency.setValueAtTime(300, now);
+    osc2.frequency.exponentialRampToValueAtTime(1000, now + 0.2);
+    osc2.frequency.exponentialRampToValueAtTime(200, now + 1.2);
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 800;
+    filter.Q.value = 1;
+
+    osc.connect(filter);
+    osc2.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(reverbNode || ctx.destination);
+
+    osc.start(now);
+    osc2.start(now);
+    osc.stop(now + 1.5);
+    osc2.stop(now + 1.5);
+}
+
+function createClimax(ctx, intensity = 0.8) {
+    const now = ctx.currentTime;
+    const duration = 8 + Math.random() * 6; // 8‑14 seconds
+
+    // Main pad – low, growing
+    const gainNode = ctx.createGain();
+    gainNode.gain.setValueAtTime(0, now);
+    gainNode.gain.linearRampToValueAtTime(intensity * 0.5, now + 2);
+    gainNode.gain.setValueAtTime(intensity * 0.6, now + duration - 1);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+    // Two oscillators: one low, one high for the "strings"
+    const osc1 = ctx.createOscillator();
+    osc1.type = 'sawtooth';
+    osc1.frequency.setValueAtTime(110, now);
+    osc1.frequency.exponentialRampToValueAtTime(220, now + duration * 0.6);
+
+    const osc2 = ctx.createOscillator();
+    osc2.type = 'sawtooth';
+    osc2.frequency.setValueAtTime(220, now);
+    osc2.frequency.exponentialRampToValueAtTime(440, now + duration * 0.6);
+
+    // Add a third oscillator with a different waveform for brass/choir
+    const osc3 = ctx.createOscillator();
+    osc3.type = 'square'; // gives a richer, brass-like tone
+    osc3.frequency.setValueAtTime(110, now);
+    osc3.frequency.exponentialRampToValueAtTime(330, now + duration * 0.8);
+
+    // Low‑pass filter with LFO that opens up over time
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(300, now);
+    filter.frequency.exponentialRampToValueAtTime(1200, now + duration);
+    filter.Q.value = 2;
+
+    const lfo = ctx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.15;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 200;
+    lfo.connect(lfoGain);
+    lfoGain.connect(filter.frequency);
+
+    // Connect everything
+    osc1.connect(filter);
+    osc2.connect(filter);
+    osc3.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(reverbNode || ctx.destination);
+
+    // Start
+    osc1.start(now);
+    osc2.start(now);
+    osc3.start(now);
+    lfo.start(now);
+    osc1.stop(now + duration + 0.5);
+    osc2.stop(now + duration + 0.5);
+    osc3.stop(now + duration + 0.5);
+    lfo.stop(now + duration + 0.5);
+}
+            async function playSound(type, intensity = 0.7) {
+    try {
+        const ctx = await getAudioContext();
+        const now = ctx.currentTime;
+        const gainValue = Math.min(1, intensity);
+
+        switch (type) {
+            case 'pad':
+                // Deep drone – you can vary the frequency for different moods
+                const freq = 110 + Math.random() * 40; // between 110–150 Hz
+                createSynthPad(ctx, freq, 20 + Math.random() * 20, gainValue);
+                break;
+
+            case 'sting':
+                createSting(ctx, gainValue);
+                break;
+
+            case 'heartbeat':
+                playThump(ctx, now, 0.8 * gainValue);
+                // second thump for "lub‑dub"
+                setTimeout(() => playThump(ctx, now + 0.15, 0.8 * gainValue), 150);
+                break;
+
+            case 'thunder': {
+                // keep your existing thunder – it's good
+                const bufferSize = ctx.sampleRate * 0.5;
                 const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
                 const data = buffer.getChannelData(0);
-                data.fill(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.3));
+                }
                 const source = ctx.createBufferSource();
                 source.buffer = buffer;
-                source.loop = true;
                 const gain = ctx.createGain();
-                gain.gain.value = 0;
-                source.connect(gain);
+                gain.gain.setValueAtTime(gainValue * 0.6, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+                const filter = ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.value = 150;
+                filter.Q.value = 0.5;
+                source.connect(filter);
+                filter.connect(gain);
                 gain.connect(ctx.destination);
-                source.start(0);
-                keepAliveNode = { source, gain };
-                console.log('🔇 Keep‑alive node started (silent).');
+                source.start(now);
+                source.stop(now + 0.8);
+                break;
             }
 
-            function getAudioContext() {
-                if (!audioCtx) {
-                    audioCtx = new(window.AudioContext || window.webkitAudioContext)();
-                    console.log(`🎛️ AudioContext created, initial state: ${audioCtx.state}`);
-                    createKeepAlive(audioCtx);
-                }
-                if (audioCtx.state === 'suspended') {
-                    audioCtx.resume().catch(e => console.warn('Resume failed', e));
-                }
-                console.log(`🎛️ AudioContext state: ${audioCtx.state}`);
-                return audioCtx;
-            }
-
-            function playSound(type, intensity = 0.7) {
-                try {
-                    const ctx = getAudioContext();
-                    const now = ctx.currentTime;
-                    const gainValue = Math.min(1, intensity);
-
-                    switch (type) {
-                        // ── original sounds ──
-                        case 'heartbeat':
-                            playThump(ctx, now, 0.8 * gainValue);
-                            playThump(ctx, now + 0.15, 0.8 * gainValue);
-                            break;
-                        case 'thunder': {
-                            const bufferSize = ctx.sampleRate * 0.5;
-                            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                            const data = buffer.getChannelData(0);
-                            for (let i = 0; i < bufferSize; i++) {
-                                data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.3));
-                            }
-                            const source = ctx.createBufferSource();
-                            source.buffer = buffer;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.6, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'lowpass';
-                            filter.frequency.value = 150;
-                            filter.Q.value = 0.5;
-                            source.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            source.start(now);
-                            source.stop(now + 0.8);
-                            break;
-                        }
-                        case 'door_creak': {
-                            const osc = ctx.createOscillator();
-                            osc.type = 'sawtooth';
-                            osc.frequency.setValueAtTime(200, now);
-                            osc.frequency.exponentialRampToValueAtTime(800, now + 0.6);
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.4, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
-                            osc.connect(gain);
-                            gain.connect(ctx.destination);
-                            osc.start(now);
-                            osc.stop(now + 0.6);
-                            break;
-                        }
-                        case 'scream': {
-                            const bufferSize = ctx.sampleRate * 0.4;
-                            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                            const data = buffer.getChannelData(0);
-                            for (let i = 0; i < bufferSize; i++) {
-                                data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
-                            }
-                            const source = ctx.createBufferSource();
-                            source.buffer = buffer;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.5, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'bandpass';
-                            filter.frequency.value = 2000;
-                            filter.Q.value = 0.6;
-                            source.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            source.start(now);
-                            source.stop(now + 0.4);
-                            break;
-                        }
-                        case 'sting_violin': {
-                            const osc = ctx.createOscillator();
-                            osc.type = 'sawtooth';
-                            osc.frequency.setValueAtTime(300, now);
-                            osc.frequency.exponentialRampToValueAtTime(1200, now + 0.15);
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.6, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-                            osc.connect(gain);
-                            gain.connect(ctx.destination);
-                            osc.start(now);
-                            osc.stop(now + 0.3);
-                            break;
-                        }
-                        case 'church_bell': {
-                            const osc = ctx.createOscillator();
-                            osc.type = 'sine';
-                            osc.frequency.setValueAtTime(200, now);
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.5, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'lowpass';
-                            filter.frequency.value = 800;
-                            osc.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            osc.start(now);
-                            osc.stop(now + 1.5);
-                            const osc2 = ctx.createOscillator();
-                            osc2.type = 'sine';
-                            osc2.frequency.setValueAtTime(400, now);
-                            const gain2 = ctx.createGain();
-                            gain2.gain.setValueAtTime(gainValue * 0.25, now);
-                            gain2.gain.exponentialRampToValueAtTime(0.001, now + 2);
-                            osc2.connect(gain2);
-                            gain2.connect(ctx.destination);
-                            osc2.start(now);
-                            osc2.stop(now + 2);
-                            break;
-                        }
-                        case 'static': {
-                            const bufferSize = ctx.sampleRate * 0.2;
-                            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                            const data = buffer.getChannelData(0);
-                            for (let i = 0; i < bufferSize; i++) {
-                                data[i] = (Math.random() * 2 - 1) * 0.8;
-                            }
-                            const source = ctx.createBufferSource();
-                            source.buffer = buffer;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.5, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-                            source.connect(gain);
-                            gain.connect(ctx.destination);
-                            source.start(now);
-                            source.stop(now + 0.2);
-                            break;
-                        }
-                        case 'clock_tick': {
-                            const freq = 800;
-                            const tick = (t) => {
-                                const osc = ctx.createOscillator();
-                                osc.type = 'sine';
-                                osc.frequency.value = freq;
-                                const g = ctx.createGain();
-                                g.gain.setValueAtTime(gainValue * 0.4, t);
-                                g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
-                                osc.connect(g);
-                                g.connect(ctx.destination);
-                                osc.start(t);
-                                osc.stop(t + 0.08);
-                            };
-                            tick(now);
-                            tick(now + 0.35);
-                            break;
-                        }
-                        case 'chains_rattle': {
-                            const bufferSize = ctx.sampleRate * 0.4;
-                            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                            const data = buffer.getChannelData(0);
-                            for (let i = 0; i < bufferSize; i++) {
-                                data[i] = (Math.random() * 2 - 1) * Math.sin(i * 0.02);
-                            }
-                            const source = ctx.createBufferSource();
-                            source.buffer = buffer;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.35, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'bandpass';
-                            filter.frequency.value = 1500;
-                            filter.Q.value = 1.2;
-                            source.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            source.start(now);
-                            source.stop(now + 0.4);
-                            break;
-                        }
-                        case 'whisper': {
-                            const bufferSize = ctx.sampleRate * 0.6;
-                            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                            const data = buffer.getChannelData(0);
-                            for (let i = 0; i < bufferSize; i++) {
-                                data[i] = (Math.random() * 2 - 1);
-                            }
-                            const source = ctx.createBufferSource();
-                            source.buffer = buffer;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.25, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'bandpass';
-                            filter.frequency.value = 1200;
-                            filter.Q.value = 0.5;
-                            const lfo = ctx.createOscillator();
-                            lfo.frequency.value = 5;
-                            const lfoGain = ctx.createGain();
-                            lfoGain.gain.value = 400;
-                            lfo.connect(lfoGain);
-                            lfoGain.connect(filter.frequency);
-                            lfo.start(now);
-                            lfo.stop(now + 0.6);
-                            source.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            source.start(now);
-                            source.stop(now + 0.6);
-                            break;
-                        }
-                        case 'footsteps': {
-                            const thud = (t, vol) => {
-                                const osc = ctx.createOscillator();
-                                osc.type = 'sine';
-                                osc.frequency.setValueAtTime(45, t);
-                                osc.frequency.exponentialRampToValueAtTime(20, t + 0.12);
-                                const g = ctx.createGain();
-                                g.gain.setValueAtTime(vol * gainValue * 0.5, t);
-                                g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
-                                osc.connect(g);
-                                g.connect(ctx.destination);
-                                osc.start(t);
-                                osc.stop(t + 0.15);
-                            };
-                            thud(now, 0.8);
-                            thud(now + 0.3, 0.6);
-                            break;
-                        }
-                        case 'music_box': {
-                            const notes = [329.63, 392.00];
-                            notes.forEach((freq) => {
-                                const osc = ctx.createOscillator();
-                                osc.type = 'triangle';
-                                osc.frequency.value = freq;
-                                const g = ctx.createGain();
-                                g.gain.setValueAtTime(0, now);
-                                g.gain.linearRampToValueAtTime(gainValue * 0.3, now + 0.08);
-                                g.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
-                                osc.connect(g);
-                                g.connect(ctx.destination);
-                                osc.start(now);
-                                osc.stop(now + 1.2);
-                            });
-                            break;
-                        }
-                        case 'low_growl': {
-                            const osc = ctx.createOscillator();
-                            osc.type = 'sawtooth';
-                            osc.frequency.value = 55;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.4, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'lowpass';
-                            filter.frequency.value = 120;
-                            filter.Q.value = 8;
-                            const lfo = ctx.createOscillator();
-                            lfo.frequency.value = 12;
-                            const lfoGain = ctx.createGain();
-                            lfoGain.gain.value = 0.4;
-                            lfo.connect(lfoGain);
-                            lfoGain.connect(gain.gain);
-                            lfo.start(now);
-                            lfo.stop(now + 0.7);
-                            osc.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            osc.start(now);
-                            osc.stop(now + 0.7);
-                            break;
-                        }
-                        case 'glass_break': {
-                            const bufferSize = ctx.sampleRate * 0.25;
-                            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                            const data = buffer.getChannelData(0);
-                            for (let i = 0; i < bufferSize; i++) {
-                                data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.05));
-                            }
-                            const source = ctx.createBufferSource();
-                            source.buffer = buffer;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.7, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'highpass';
-                            filter.frequency.value = 4000;
-                            source.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            source.start(now);
-                            source.stop(now + 0.25);
-                            break;
-                        }
-                        case 'phone_ring': {
-                            const freqs = [440, 580];
-                            const ring = (t) => {
-                                freqs.forEach(f => {
-                                    const osc = ctx.createOscillator();
-                                    osc.type = 'sine';
-                                    osc.frequency.value = f;
-                                    const g = ctx.createGain();
-                                    g.gain.setValueAtTime(gainValue * 0.4, t);
-                                    g.gain.setValueAtTime(0, t + 0.15);
-                                    g.gain.setValueAtTime(gainValue * 0.4, t + 0.15);
-                                    g.gain.setValueAtTime(0, t + 0.3);
-                                    osc.connect(g);
-                                    g.connect(ctx.destination);
-                                    osc.start(t);
-                                    osc.stop(t + 0.3);
-                                });
-                            };
-                            ring(now);
-                            ring(now + 0.6);
-                            break;
-                        }
-                        case 'static_burst': {
-                            const bufferSize = ctx.sampleRate * 0.4;
-                            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                            const data = buffer.getChannelData(0);
-                            for (let i = 0; i < bufferSize; i++) {
-                                data[i] = (Math.random() * 2 - 1);
-                            }
-                            const source = ctx.createBufferSource();
-                            source.buffer = buffer;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.45, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
-                            source.connect(gain);
-                            gain.connect(ctx.destination);
-                            source.start(now);
-                            source.stop(now + 0.4);
-                            break;
-                        }
-                        case 'water_drip': {
-                            const drip = (t) => {
-                                const osc = ctx.createOscillator();
-                                osc.type = 'sine';
-                                osc.frequency.setValueAtTime(1200, t);
-                                osc.frequency.exponentialRampToValueAtTime(400, t + 0.15);
-                                const g = ctx.createGain();
-                                g.gain.setValueAtTime(gainValue * 0.5, t);
-                                g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
-                                osc.connect(g);
-                                g.connect(ctx.destination);
-                                osc.start(t);
-                                osc.stop(t + 0.2);
-                            };
-                            drip(now);
-                            drip(now + 0.25);
-                            break;
-                        }
-                        case 'children_laugh': {
-                            const burst = (t) => {
-                                const bufferSize = ctx.sampleRate * 0.15;
-                                const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                                const data = buffer.getChannelData(0);
-                                for (let i = 0; i < bufferSize; i++) {
-                                    data[i] = (Math.random() * 2 - 1);
-                                }
-                                const source = ctx.createBufferSource();
-                                source.buffer = buffer;
-                                const gain = ctx.createGain();
-                                gain.gain.setValueAtTime(gainValue * 0.3, t);
-                                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
-                                const carrier = ctx.createOscillator();
-                                carrier.type = 'sine';
-                                carrier.frequency.value = 1600;
-                                const ringMod = ctx.createGain();
-                                ringMod.gain.value = 1;
-                                carrier.connect(ringMod);
-                                source.connect(ringMod);
-                                const filter = ctx.createBiquadFilter();
-                                filter.type = 'bandpass';
-                                filter.frequency.value = 1400;
-                                filter.Q.value = 0.6;
-                                ringMod.connect(filter);
-                                filter.connect(gain);
-                                gain.connect(ctx.destination);
-                                carrier.start(t);
-                                carrier.stop(t + 0.15);
-                                source.start(t);
-                                source.stop(t + 0.15);
-                            };
-                            burst(now);
-                            burst(now + 0.2);
-                            burst(now + 0.4);
-                            break;
-                        }
-
-                        // ── NEW SCREAMS ──
-                        case 'woman_scream': {
-                            const bufferSize = ctx.sampleRate * 0.5;
-                            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                            const data = buffer.getChannelData(0);
-                            for (let i = 0; i < bufferSize; i++) {
-                                const t = i / ctx.sampleRate;
-                                const env = Math.exp(-t * 6) * (1 + 0.5 * Math.sin(t * 40));
-                                data[i] = (Math.random() * 2 - 1) * env;
-                            }
-                            const source = ctx.createBufferSource();
-                            source.buffer = buffer;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.6, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'bandpass';
-                            filter.frequency.value = 2800;
-                            filter.Q.value = 0.5;
-                            source.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            source.start(now);
-                            source.stop(now + 0.5);
-                            break;
-                        }
-                        case 'man_scream': {
-                            const bufferSize = ctx.sampleRate * 0.45;
-                            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                            const data = buffer.getChannelData(0);
-                            for (let i = 0; i < bufferSize; i++) {
-                                const t = i / ctx.sampleRate;
-                                const env = Math.exp(-t * 5) * (1 + 0.4 * Math.sin(t * 30));
-                                data[i] = (Math.random() * 2 - 1) * env;
-                            }
-                            const source = ctx.createBufferSource();
-                            source.buffer = buffer;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.55, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'bandpass';
-                            filter.frequency.value = 1500;
-                            filter.Q.value = 0.55;
-                            source.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            source.start(now);
-                            source.stop(now + 0.45);
-                            break;
-                        }
-                        case 'muffled_scream': {
-                            const bufferSize = ctx.sampleRate * 0.5;
-                            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                            const data = buffer.getChannelData(0);
-                            for (let i = 0; i < bufferSize; i++) {
-                                const t = i / ctx.sampleRate;
-                                const env = Math.exp(-t * 4) * (1 + 0.3 * Math.sin(t * 35));
-                                data[i] = (Math.random() * 2 - 1) * env;
-                            }
-                            const source = ctx.createBufferSource();
-                            source.buffer = buffer;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.4, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'lowpass';
-                            filter.frequency.value = 800;
-                            filter.Q.value = 0.3;
-                            source.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            source.start(now);
-                            source.stop(now + 0.5);
-                            break;
-                        }
-                        case 'guttural_scream': {
-                            const osc = ctx.createOscillator();
-                            osc.type = 'sawtooth';
-                            osc.frequency.setValueAtTime(180, now);
-                            osc.frequency.exponentialRampToValueAtTime(600, now + 0.25);
-                            osc.frequency.exponentialRampToValueAtTime(90, now + 0.6);
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.5, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'lowpass';
-                            filter.frequency.value = 600;
-                            filter.Q.value = 2;
-                            const lfo = ctx.createOscillator();
-                            lfo.frequency.value = 8;
-                            const lfoGain = ctx.createGain();
-                            lfoGain.gain.value = 200;
-                            lfo.connect(lfoGain);
-                            lfoGain.connect(filter.frequency);
-                            lfo.start(now);
-                            lfo.stop(now + 0.6);
-                            osc.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            osc.start(now);
-                            osc.stop(now + 0.6);
-                            break;
-                        }
-
-                        // ── NEW STRUGGLE / VIOLENCE ──
-                        case 'knife_slash': {
-                            const bufferSize = ctx.sampleRate * 0.2;
-                            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                            const data = buffer.getChannelData(0);
-                            for (let i = 0; i < bufferSize; i++) {
-                                const t = i / ctx.sampleRate;
-                                data[i] = (Math.random() * 2 - 1) * Math.exp(-t * 25);
-                            }
-                            const source = ctx.createBufferSource();
-                            source.buffer = buffer;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.5, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'highpass';
-                            filter.frequency.value = 5000;
-                            source.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            source.start(now);
-                            source.stop(now + 0.18);
-                            // metallic ring
-                            const osc = ctx.createOscillator();
-                            osc.type = 'sine';
-                            osc.frequency.setValueAtTime(3000, now);
-                            osc.frequency.exponentialRampToValueAtTime(400, now + 0.1);
-                            const g2 = ctx.createGain();
-                            g2.gain.setValueAtTime(gainValue * 0.25, now);
-                            g2.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-                            osc.connect(g2);
-                            g2.connect(ctx.destination);
-                            osc.start(now);
-                            osc.stop(now + 0.12);
-                            break;
-                        }
-                        case 'bone_crack': {
-                            const bufferSize = ctx.sampleRate * 0.15;
-                            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                            const data = buffer.getChannelData(0);
-                            for (let i = 0; i < bufferSize; i++) {
-                                const t = i / ctx.sampleRate;
-                                data[i] = (Math.random() * 2 - 1) * Math.exp(-t * 40) * (1 + 2 * Math.sin(t * 300));
-                            }
-                            const source = ctx.createBufferSource();
-                            source.buffer = buffer;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.7, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'bandpass';
-                            filter.frequency.value = 2500;
-                            filter.Q.value = 0.8;
-                            source.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            source.start(now);
-                            source.stop(now + 0.14);
-                            break;
-                        }
-                        case 'punch_impact': {
-                            const osc = ctx.createOscillator();
-                            osc.type = 'sine';
-                            osc.frequency.setValueAtTime(80, now);
-                            osc.frequency.exponentialRampToValueAtTime(25, now + 0.08);
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.6, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'lowpass';
-                            filter.frequency.value = 200;
-                            osc.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            osc.start(now);
-                            osc.stop(now + 0.1);
-                            // noise burst for impact texture
-                            const bufSize2 = ctx.sampleRate * 0.06;
-                            const buf2 = ctx.createBuffer(1, bufSize2, ctx.sampleRate);
-                            const d2 = buf2.getChannelData(0);
-                            for (let i = 0; i < bufSize2; i++) d2[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx
-                                .sampleRate * 0.015));
-                            const src2 = ctx.createBufferSource();
-                            src2.buffer = buf2;
-                            const g2 = ctx.createGain();
-                            g2.gain.setValueAtTime(gainValue * 0.3, now);
-                            g2.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
-                            src2.connect(g2);
-                            g2.connect(ctx.destination);
-                            src2.start(now);
-                            src2.stop(now + 0.06);
-                            break;
-                        }
-                        case 'body_fall': {
-                            const osc = ctx.createOscillator();
-                            osc.type = 'sine';
-                            osc.frequency.setValueAtTime(50, now);
-                            osc.frequency.exponentialRampToValueAtTime(15, now + 0.35);
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.7, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'lowpass';
-                            filter.frequency.value = 120;
-                            osc.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            osc.start(now);
-                            osc.stop(now + 0.4);
-                            // secondary thud
-                            const osc2 = ctx.createOscillator();
-                            osc2.type = 'triangle';
-                            osc2.frequency.setValueAtTime(35, now + 0.08);
-                            osc2.frequency.exponentialRampToValueAtTime(10, now + 0.3);
-                            const g2 = ctx.createGain();
-                            g2.gain.setValueAtTime(gainValue * 0.4, now + 0.08);
-                            g2.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-                            osc2.connect(g2);
-                            g2.connect(ctx.destination);
-                            osc2.start(now + 0.08);
-                            osc2.stop(now + 0.3);
-                            break;
-                        }
-                        case 'struggle_scuffle': {
-                            // rapid series of thuds and fabric sounds
-                            for (let i = 0; i < 6; i++) {
-                                const t = now + i * 0.12;
-                                const osc = ctx.createOscillator();
-                                osc.type = 'sine';
-                                osc.frequency.setValueAtTime(40 + Math.random() * 30, t);
-                                osc.frequency.exponentialRampToValueAtTime(15, t + 0.07);
-                                const g = ctx.createGain();
-                                g.gain.setValueAtTime(gainValue * 0.35, t);
-                                g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
-                                const f = ctx.createBiquadFilter();
-                                f.type = 'lowpass';
-                                f.frequency.value = 180;
-                                osc.connect(f);
-                                f.connect(g);
-                                g.connect(ctx.destination);
-                                osc.start(t);
-                                osc.stop(t + 0.09);
-                            }
-                            // fabric rustle noise
-                            const bufSize = ctx.sampleRate * 0.7;
-                            const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
-                            const d = buf.getChannelData(0);
-                            for (let i = 0; i < bufSize; i++) {
-                                d[i] = (Math.random() * 2 - 1) * Math.sin(i * 0.01) * 0.5;
-                            }
-                            const src = ctx.createBufferSource();
-                            src.buffer = buf;
-                            const gNoise = ctx.createGain();
-                            gNoise.gain.setValueAtTime(gainValue * 0.2, now);
-                            gNoise.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
-                            const fNoise = ctx.createBiquadFilter();
-                            fNoise.type = 'bandpass';
-                            fNoise.frequency.value = 800;
-                            fNoise.Q.value = 0.4;
-                            src.connect(fNoise);
-                            fNoise.connect(gNoise);
-                            gNoise.connect(ctx.destination);
-                            src.start(now);
-                            src.stop(now + 0.7);
-                            break;
-                        }
-                        case 'body_drag': {
-                            const bufSize = ctx.sampleRate * 0.8;
-                            const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
-                            const d = buf.getChannelData(0);
-                            for (let i = 0; i < bufSize; i++) {
-                                const t = i / ctx.sampleRate;
-                                d[i] = (Math.random() * 2 - 1) * Math.sin(t * 3) * Math.exp(-t * 1.5);
-                            }
-                            const src = ctx.createBufferSource();
-                            src.buffer = buf;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.3, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'lowpass';
-                            filter.frequency.value = 300;
-                            filter.Q.value = 0.5;
-                            src.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            src.start(now);
-                            src.stop(now + 0.8);
-                            break;
-                        }
-                        case 'hammer_strike': {
-                            const osc = ctx.createOscillator();
-                            osc.type = 'square';
-                            osc.frequency.setValueAtTime(200, now);
-                            osc.frequency.exponentialRampToValueAtTime(20, now + 0.2);
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.65, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'lowpass';
-                            filter.frequency.value = 600;
-                            osc.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            osc.start(now);
-                            osc.stop(now + 0.25);
-                            // metallic ring
-                            const osc2 = ctx.createOscillator();
-                            osc2.type = 'sine';
-                            osc2.frequency.setValueAtTime(1800, now);
-                            osc2.frequency.exponentialRampToValueAtTime(300, now + 0.3);
-                            const g2 = ctx.createGain();
-                            g2.gain.setValueAtTime(gainValue * 0.3, now);
-                            g2.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-                            osc2.connect(g2);
-                            g2.connect(ctx.destination);
-                            osc2.start(now);
-                            osc2.stop(now + 0.3);
-                            break;
-                        }
-                        case 'furniture_break': {
-                            const bufSize = ctx.sampleRate * 0.35;
-                            const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
-                            const d = buf.getChannelData(0);
-                            for (let i = 0; i < bufSize; i++) {
-                                const t = i / ctx.sampleRate;
-                                d[i] = (Math.random() * 2 - 1) * Math.exp(-t * 12) * (1 + Math.sin(t * 200));
-                            }
-                            const src = ctx.createBufferSource();
-                            src.buffer = buf;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.55, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'bandpass';
-                            filter.frequency.value = 1800;
-                            filter.Q.value = 0.7;
-                            src.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            src.start(now);
-                            src.stop(now + 0.32);
-                            break;
-                        }
-                        case 'heavy_door_slam': {
-                            const osc = ctx.createOscillator();
-                            osc.type = 'sine';
-                            osc.frequency.setValueAtTime(60, now);
-                            osc.frequency.exponentialRampToValueAtTime(18, now + 0.5);
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.75, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'lowpass';
-                            filter.frequency.value = 100;
-                            osc.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            osc.start(now);
-                            osc.stop(now + 0.55);
-                            // reverb-like noise tail
-                            const bufSize = ctx.sampleRate * 0.5;
-                            const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
-                            const d = buf.getChannelData(0);
-                            for (let i = 0; i < bufSize; i++) {
-                                d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.3));
-                            }
-                            const src = ctx.createBufferSource();
-                            src.buffer = buf;
-                            const g2 = ctx.createGain();
-                            g2.gain.setValueAtTime(gainValue * 0.25, now);
-                            g2.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-                            src.connect(g2);
-                            g2.connect(ctx.destination);
-                            src.start(now);
-                            src.stop(now + 0.5);
-                            break;
-                        }
-
-                        // ── NEW PAIN / GORE ──
-                        case 'gasp_choke': {
-                            const bufSize = ctx.sampleRate * 0.6;
-                            const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
-                            const d = buf.getChannelData(0);
-                            for (let i = 0; i < bufSize; i++) {
-                                const t = i / ctx.sampleRate;
-                                const env = Math.exp(-t * 3) * (1 + 0.6 * Math.sin(t * 10));
-                                d[i] = (Math.random() * 2 - 1) * env * 0.8;
-                            }
-                            const src = ctx.createBufferSource();
-                            src.buffer = buf;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.4, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'bandpass';
-                            filter.frequency.value = 900;
-                            filter.Q.value = 0.35;
-                            src.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            src.start(now);
-                            src.stop(now + 0.6);
-                            break;
-                        }
-                        case 'throat_gurgle': {
-                            const osc = ctx.createOscillator();
-                            osc.type = 'sawtooth';
-                            osc.frequency.setValueAtTime(120, now);
-                            osc.frequency.exponentialRampToValueAtTime(60, now + 0.7);
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.35, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'lowpass';
-                            filter.frequency.value = 250;
-                            filter.Q.value = 3;
-                            const lfo = ctx.createOscillator();
-                            lfo.frequency.value = 15;
-                            const lfoGain = ctx.createGain();
-                            lfoGain.gain.value = 100;
-                            lfo.connect(lfoGain);
-                            lfoGain.connect(filter.frequency);
-                            lfo.start(now);
-                            lfo.stop(now + 0.7);
-                            // wet bubbling noise
-                            const bufSize = ctx.sampleRate * 0.7;
-                            const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
-                            const d = buf.getChannelData(0);
-                            for (let i = 0; i < bufSize; i++) {
-                                d[i] = (Math.random() * 2 - 1) * Math.sin(i * 0.03) * 0.6;
-                            }
-                            const src = ctx.createBufferSource();
-                            src.buffer = buf;
-                            const g2 = ctx.createGain();
-                            g2.gain.setValueAtTime(gainValue * 0.2, now);
-                            g2.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
-                            src.connect(g2);
-                            g2.connect(ctx.destination);
-                            src.start(now);
-                            src.stop(now + 0.7);
-                            osc.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            osc.start(now);
-                            osc.stop(now + 0.7);
-                            break;
-                        }
-                        case 'wet_squelch': {
-                            const bufSize = ctx.sampleRate * 0.4;
-                            const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
-                            const d = buf.getChannelData(0);
-                            for (let i = 0; i < bufSize; i++) {
-                                const t = i / ctx.sampleRate;
-                                d[i] = (Math.random() * 2 - 1) * Math.sin(t * 20) * Math.exp(-t * 8) * 1.5;
-                            }
-                            const src = ctx.createBufferSource();
-                            src.buffer = buf;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.45, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'lowpass';
-                            filter.frequency.value = 400;
-                            filter.Q.value = 0.6;
-                            src.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            src.start(now);
-                            src.stop(now + 0.38);
-                            break;
-                        }
-                        case 'blood_drip': {
-                            const drip = (t, freq) => {
-                                const osc = ctx.createOscillator();
-                                osc.type = 'sine';
-                                osc.frequency.setValueAtTime(freq, t);
-                                osc.frequency.exponentialRampToValueAtTime(freq * 0.3, t + 0.2);
-                                const g = ctx.createGain();
-                                g.gain.setValueAtTime(gainValue * 0.45, t);
-                                g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
-                                osc.connect(g);
-                                g.connect(ctx.destination);
-                                osc.start(t);
-                                osc.stop(t + 0.22);
-                            };
-                            drip(now, 600);
-                            drip(now + 0.35, 520);
-                            drip(now + 0.7, 450);
-                            break;
-                        }
-                        case 'stab_wound': {
-                            // wet impact + sharp transient
-                            const osc = ctx.createOscillator();
-                            osc.type = 'sine';
-                            osc.frequency.setValueAtTime(300, now);
-                            osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.5, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-                            osc.connect(gain);
-                            gain.connect(ctx.destination);
-                            osc.start(now);
-                            osc.stop(now + 0.12);
-                            // wet squelch layer
-                            const bufSize = ctx.sampleRate * 0.2;
-                            const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
-                            const d = buf.getChannelData(0);
-                            for (let i = 0; i < bufSize; i++) {
-                                d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.06));
-                            }
-                            const src = ctx.createBufferSource();
-                            src.buffer = buf;
-                            const g2 = ctx.createGain();
-                            g2.gain.setValueAtTime(gainValue * 0.35, now);
-                            g2.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-                            const f2 = ctx.createBiquadFilter();
-                            f2.type = 'lowpass';
-                            f2.frequency.value = 500;
-                            src.connect(f2);
-                            f2.connect(g2);
-                            g2.connect(ctx.destination);
-                            src.start(now);
-                            src.stop(now + 0.18);
-                            break;
-                        }
-
-                        // ── NEW PANIC / BREATHING ──
-                        case 'panic_breathing': {
-                            for (let i = 0; i < 8; i++) {
-                                const t = now + i * 0.22;
-                                const bufSize = ctx.sampleRate * 0.15;
-                                const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
-                                const d = buf.getChannelData(0);
-                                for (let j = 0; j < bufSize; j++) {
-                                    d[j] = (Math.random() * 2 - 1) * Math.exp(-j / (ctx.sampleRate * 0.04));
-                                }
-                                const src = ctx.createBufferSource();
-                                src.buffer = buf;
-                                const g = ctx.createGain();
-                                g.gain.setValueAtTime(gainValue * 0.3, t);
-                                g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
-                                const f = ctx.createBiquadFilter();
-                                f.type = 'bandpass';
-                                f.frequency.value = 600;
-                                f.Q.value = 0.3;
-                                src.connect(f);
-                                f.connect(g);
-                                g.connect(ctx.destination);
-                                src.start(t);
-                                src.stop(t + 0.15);
-                            }
-                            break;
-                        }
-                        case 'crying_sob': {
-                            const osc = ctx.createOscillator();
-                            osc.type = 'sine';
-                            osc.frequency.setValueAtTime(350, now);
-                            osc.frequency.exponentialRampToValueAtTime(280, now + 1.0);
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(0, now);
-                            gain.gain.linearRampToValueAtTime(gainValue * 0.35, now + 0.1);
-                            gain.gain.setValueAtTime(gainValue * 0.35, now + 0.25);
-                            gain.gain.linearRampToValueAtTime(0.05, now + 0.4);
-                            gain.gain.linearRampToValueAtTime(gainValue * 0.3, now + 0.55);
-                            gain.gain.linearRampToValueAtTime(0.03, now + 0.7);
-                            gain.gain.linearRampToValueAtTime(gainValue * 0.25, now + 0.85);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 1.0);
-                            // vibrato
-                            const lfo = ctx.createOscillator();
-                            lfo.frequency.value = 6;
-                            const lfoGain = ctx.createGain();
-                            lfoGain.gain.value = 25;
-                            lfo.connect(lfoGain);
-                            lfoGain.connect(osc.frequency);
-                            lfo.start(now);
-                            lfo.stop(now + 1.0);
-                            osc.connect(gain);
-                            gain.connect(ctx.destination);
-                            osc.start(now);
-                            osc.stop(now + 1.0);
-                            break;
-                        }
-                        case 'desperate_cry': {
-                            const osc = ctx.createOscillator();
-                            osc.type = 'sawtooth';
-                            osc.frequency.setValueAtTime(400, now);
-                            osc.frequency.exponentialRampToValueAtTime(800, now + 0.2);
-                            osc.frequency.exponentialRampToValueAtTime(250, now + 0.7);
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.45, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'bandpass';
-                            filter.frequency.value = 1200;
-                            filter.Q.value = 0.5;
-                            osc.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            osc.start(now);
-                            osc.stop(now + 0.7);
-                            break;
-                        }
-
-                        // ── NEW AMBIENT / CREEPY ──
-                        case 'running_footsteps': {
-                            for (let i = 0; i < 10; i++) {
-                                const t = now + i * 0.1;
-                                const osc = ctx.createOscillator();
-                                osc.type = 'sine';
-                                osc.frequency.setValueAtTime(50 + Math.random() * 15, t);
-                                osc.frequency.exponentialRampToValueAtTime(20, t + 0.06);
-                                const g = ctx.createGain();
-                                g.gain.setValueAtTime(gainValue * 0.3, t);
-                                g.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
-                                osc.connect(g);
-                                g.connect(ctx.destination);
-                                osc.start(t);
-                                osc.stop(t + 0.08);
-                            }
-                            break;
-                        }
-                        case 'rope_strain': {
-                            const osc = ctx.createOscillator();
-                            osc.type = 'sawtooth';
-                            osc.frequency.setValueAtTime(80, now);
-                            osc.frequency.exponentialRampToValueAtTime(180, now + 0.8);
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.3, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'bandpass';
-                            filter.frequency.value = 400;
-                            filter.Q.value = 0.4;
-                            const lfo = ctx.createOscillator();
-                            lfo.frequency.value = 3;
-                            const lfoGain = ctx.createGain();
-                            lfoGain.gain.value = 50;
-                            lfo.connect(lfoGain);
-                            lfoGain.connect(filter.frequency);
-                            lfo.start(now);
-                            lfo.stop(now + 0.8);
-                            osc.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            osc.start(now);
-                            osc.stop(now + 0.8);
-                            break;
-                        }
-                        case 'shovel_dig': {
-                            for (let i = 0; i < 4; i++) {
-                                const t = now + i * 0.5;
-                                const bufSize = ctx.sampleRate * 0.25;
-                                const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
-                                const d = buf.getChannelData(0);
-                                for (let j = 0; j < bufSize; j++) {
-                                    d[j] = (Math.random() * 2 - 1) * Math.exp(-j / (ctx.sampleRate * 0.08)) * (1 + Math.sin(
-                                        j * 0.02));
-                                }
-                                const src = ctx.createBufferSource();
-                                src.buffer = buf;
-                                const g = ctx.createGain();
-                                g.gain.setValueAtTime(gainValue * 0.4, t);
-                                g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
-                                const f = ctx.createBiquadFilter();
-                                f.type = 'lowpass';
-                                f.frequency.value = 350;
-                                src.connect(f);
-                                f.connect(g);
-                                g.connect(ctx.destination);
-                                src.start(t);
-                                src.stop(t + 0.24);
-                            }
-                            break;
-                        }
-                        case 'electrical_zap': {
-                            const bufSize = ctx.sampleRate * 0.3;
-                            const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
-                            const d = buf.getChannelData(0);
-                            for (let i = 0; i < bufSize; i++) {
-                                d[i] = (Math.random() * 2 - 1) * Math.sin(i * 0.2) * 2;
-                            }
-                            const src = ctx.createBufferSource();
-                            src.buffer = buf;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.55, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'highpass';
-                            filter.frequency.value = 3000;
-                            src.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            src.start(now);
-                            src.stop(now + 0.3);
-                            // 60Hz hum burst
-                            const osc = ctx.createOscillator();
-                            osc.type = 'sine';
-                            osc.frequency.value = 60;
-                            const g2 = ctx.createGain();
-                            g2.gain.setValueAtTime(gainValue * 0.35, now);
-                            g2.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-                            osc.connect(g2);
-                            g2.connect(ctx.destination);
-                            osc.start(now);
-                            osc.stop(now + 0.3);
-                            break;
-                        }
-                        case 'lighter_flame': {
-                            const bufSize = ctx.sampleRate * 0.3;
-                            const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
-                            const d = buf.getChannelData(0);
-                            for (let i = 0; i < bufSize; i++) {
-                                d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.06));
-                            }
-                            const src = ctx.createBufferSource();
-                            src.buffer = buf;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.25, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'highpass';
-                            filter.frequency.value = 5000;
-                            src.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            src.start(now);
-                            src.stop(now + 0.28);
-                            break;
-                        }
-                        case 'metal_clang': {
-                            const osc = ctx.createOscillator();
-                            osc.type = 'square';
-                            osc.frequency.setValueAtTime(1200, now);
-                            osc.frequency.exponentialRampToValueAtTime(200, now + 0.5);
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.5, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'bandpass';
-                            filter.frequency.value = 1500;
-                            filter.Q.value = 1.5;
-                            osc.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            osc.start(now);
-                            osc.stop(now + 0.5);
-                            break;
-                        }
-                        case 'scraping_metal': {
-                            const bufSize = ctx.sampleRate * 0.6;
-                            const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
-                            const d = buf.getChannelData(0);
-                            for (let i = 0; i < bufSize; i++) {
-                                d[i] = (Math.random() * 2 - 1) * Math.sin(i * 0.05) * 0.7;
-                            }
-                            const src = ctx.createBufferSource();
-                            src.buffer = buf;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.35, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'bandpass';
-                            filter.frequency.value = 3000;
-                            filter.Q.value = 0.9;
-                            src.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            src.start(now);
-                            src.stop(now + 0.6);
-                            break;
-                        }
-                        case 'gagged_moaning': {
-                            const bufSize = ctx.sampleRate * 0.7;
-                            const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
-                            const d = buf.getChannelData(0);
-                            for (let i = 0; i < bufSize; i++) {
-                                const t = i / ctx.sampleRate;
-                                const env = Math.sin(t * 4) * Math.exp(-t * 2);
-                                d[i] = (Math.random() * 2 - 1) * env * 0.6;
-                            }
-                            const src = ctx.createBufferSource();
-                            src.buffer = buf;
-                            const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.3, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
-                            const filter = ctx.createBiquadFilter();
-                            filter.type = 'lowpass';
-                            filter.frequency.value = 500;
-                            filter.Q.value = 0.25;
-                            src.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(ctx.destination);
-                            src.start(now);
-                            src.stop(now + 0.7);
-                            break;
-                        }
-
-                        default:
-                            console.warn(`Unknown sound type: ${type}`);
-                    }
-                } catch (err) {
-                    console.error(`❌ Error in playSound("${type}"):`, err);
-                }
-            }
-
-            function playThump(ctx, time, intensity) {
+            case 'bell': {
                 const osc = ctx.createOscillator();
                 osc.type = 'sine';
-                osc.frequency.setValueAtTime(60, time);
-                osc.frequency.exponentialRampToValueAtTime(30, time + 0.1);
+                osc.frequency.value = 80 + Math.random() * 30; // low, dark
                 const gain = ctx.createGain();
-                gain.gain.setValueAtTime(intensity * 0.8, time);
-                gain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
-                osc.connect(gain);
+                gain.gain.setValueAtTime(0, now);
+                gain.gain.linearRampToValueAtTime(gainValue * 0.4, now + 0.1);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 3);
+                const filter = ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.value = 500;
+                osc.connect(filter);
+                filter.connect(gain);
                 gain.connect(ctx.destination);
-                osc.start(time);
-                osc.stop(time + 0.1);
+                osc.start(now);
+                osc.stop(now + 3);
+                break;
             }
+case 'climax':
+    createClimax(ctx, gainValue);
+    break;
+            default:
+                console.warn(`Unknown sound type: ${type}`);
+        }
+    } catch (err) {
+        console.error(`❌ Error in playSound("${type}"):`, err);
+    }
+}
 
-            function playAmbient(type, durationSeconds, intensity = 0.5) {
-                try {
-                    stopAmbient();
-                    const ctx = getAudioContext();
-                    const now = ctx.currentTime;
-                    const gainValue = Math.min(1, intensity);
-                    console.log(`🌫️ Starting ambient: ${type} for ${durationSeconds}s (ctx state: ${ctx.state})`);
-                    const gainNode = ctx.createGain();
-                    gainNode.gain.setValueAtTime(gainValue * 0.3, now);
-                    gainNode.connect(ctx.destination);
-                    ambientGain = gainNode;
-                    let source = null;
-                    if (type === 'ambient_drone' || type === 'wind_howl') {
-                        const bufferSize = ctx.sampleRate * 1;
-                        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                        const data = buffer.getChannelData(0);
-                        for (let i = 0; i < bufferSize; i++) {
-                            data[i] = (Math.random() * 2 - 1) * 0.5;
-                        }
-                        const noise = ctx.createBufferSource();
-                        noise.buffer = buffer;
-                        noise.loop = true;
-                        const filter = ctx.createBiquadFilter();
-                        filter.type = 'lowpass';
-                        filter.frequency.value = type === 'ambient_drone' ? 200 : 600;
-                        filter.Q.value = 0.5;
-                        const osc = ctx.createOscillator();
-                        osc.type = 'sawtooth';
-                        osc.frequency.value = type === 'ambient_drone' ? 80 : 120;
-                        const gainOsc = ctx.createGain();
-                        gainOsc.gain.value = 0.2 * gainValue;
-                        osc.connect(gainOsc);
-                        gainOsc.connect(filter);
-                        noise.connect(filter);
-                        filter.connect(gainNode);
-                        osc.start(now);
-                        noise.start(now);
-                        source = { osc, noise };
-                        ambientSource = source;
-                    } else {
-                        const osc = ctx.createOscillator();
-                        osc.type = 'sine';
-                        osc.frequency.value = 100;
-                        osc.connect(gainNode);
-                        osc.start(now);
-                        source = { osc };
-                        ambientSource = source;
-                    }
-                    if (ambientTimeout) clearTimeout(ambientTimeout);
-                    ambientTimeout = setTimeout(() => {
-                        stopAmbient();
-                    }, durationSeconds * 1000);
-                } catch (err) {
-                    console.error(`❌ Error in playAmbient("${type}"):`, err);
-                }
+
+           function playThump(ctx, time, intensity) {
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(60, time);
+    osc.frequency.exponentialRampToValueAtTime(30, time + 0.1);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(intensity * 0.8, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(time);
+    osc.stop(time + 0.1);
+}
+
+            async function playAmbient(type, durationSeconds, intensity = 0.5) {
+    try {
+        stopAmbient();
+        const ctx = await getAudioContext();
+        const now = ctx.currentTime;
+        const gainValue = Math.min(1, intensity);
+        console.log(`🌫️ Starting ambient: ${type} for ${durationSeconds}s (ctx state: ${ctx.state})`);
+
+        const gainNode = ctx.createGain();
+        gainNode.gain.setValueAtTime(gainValue * 0.3, now);
+        gainNode.connect(ctx.destination);
+        ambientGain = gainNode;
+
+        let source = null;
+        if (type === 'ambient_drone' || type === 'wind_howl') {
+            const bufferSize = ctx.sampleRate * 1;
+            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = (Math.random() * 2 - 1) * 0.5;
             }
+            const noise = ctx.createBufferSource();
+            noise.buffer = buffer;
+            noise.loop = true;
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = type === 'ambient_drone' ? 200 : 600;
+            filter.Q.value = 0.5;
+            const osc = ctx.createOscillator();
+            osc.type = 'sawtooth';
+            osc.frequency.value = type === 'ambient_drone' ? 80 : 120;
+            const gainOsc = ctx.createGain();
+            gainOsc.gain.value = 0.2 * gainValue;
+            osc.connect(gainOsc);
+            gainOsc.connect(filter);
+            noise.connect(filter);
+            filter.connect(gainNode);
+            osc.start(now);
+            noise.start(now);
+            source = { osc, noise };
+            ambientSource = source;
+        } else {
+            // fallback or static burst handled here? Actually static is handled in playSound, but we keep for completeness
+            const osc = ctx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.value = 100;
+            osc.connect(gainNode);
+            osc.start(now);
+            source = { osc };
+            ambientSource = source;
+        }
+
+        if (ambientTimeout) clearTimeout(ambientTimeout);
+        ambientTimeout = setTimeout(() => {
+            stopAmbient();
+        }, durationSeconds * 1000);
+    } catch (err) {
+        console.error(`❌ Error in playAmbient("${type}"):`, err);
+    }
+}
 
             function stopAmbient() {
                 if (ambientGain) {
@@ -2286,7 +1339,7 @@
                 const system =
                     `You are Vincent Crowe, the sardonic, cynical host of The Nocturne Theater. You narrate grim, literary horror stories to your listeners, unflinching, visceral, and grounded in human depravity.`;
                 const prompt =
-                    `Write a 500 to 750 word short horror story set in the 1980s in a rural town for tonight's performance. Use tight third-person prose. No sound cues, no radio script, just pure narrative. Strict rules: no supernatural elements like ghosts, curses, magic, or dreams. The horror must be purely human, focusing on sadism, graphic violence, and psychosexual obsession. Pick one sin: Greed, Pride, Vanity, or Envy. Follow this exact structure: a mundane setup, then a grounded non-magical scheme, then a brutal unflinching execution, and finally an ironic visceral twist where the protagonist's victory becomes a physical or psychological prison such as rot, mutilation, or paranoid collapse. The twist must be realistic and earned. No dream cop-outs or easy escapes. Frame the story with Vincent's sardonic intro addressing the chosen sin, and close with his cold cynical punchline. Make it sick, twisted, and unflinching. X-rated themes are allowed. Return ONLY a valid JSON object with these fields: title (string), story (full narration string, use backslash n for line breaks), closing_remark (the chilling sign-off phrase). Output raw JSON only, no markdown.`;
+                    `Write a 500 to 750 word short horror story set in the 1980s in a rural town for tonight's performance. Use tight third-person prose. No sound cues, no radio script, just pure narrative. Strict rules: no supernatural elements like ghosts, curses, magic, or dreams. The horror must be purely human, focusing on mundane evil, graphic violence, and psychosexual obsession. Pick one sin: Greed, Pride, Vanity, or Envy. Follow this exact structure: a mundane setup, then a grounded non-magical scheme, then a brutal unflinching execution, and finally an ironic visceral twist where the protagonist's victory becomes a physical or psychological prison such as rot, mutilation, or paranoid collapse. The twist must be realistic and earned. No dream cop-outs or easy escapes. Frame the story with Vincent's sardonic intro addressing the chosen sin, and close with his cold cynical punchline. Make it sick, twisted, and unflinching. X-rated themes are allowed. Return ONLY a valid JSON object with these fields: title (string), story (full narration string, use backslash n for line breaks), closing_remark (the chilling sign-off phrase). Output raw JSON only, no markdown.`;
                 const resp = await mistralChat([
                     { role: 'system', content: system },
                     { role: 'user', content: prompt }
@@ -2318,24 +1371,16 @@
             async function generateSoundCueSheet(storyText) {
     const length = storyText.length;
 
-    const system = `You are a sound designer for a horror radio drama. 
-Given a short story, return a JSON array of exactly 100 sound events.
-Each event must have a "type" (string), an optional "intensity" (0‑1), and an optional "duration" (seconds) for ambient sounds.
-
-Use only these types:
-ambient_drone, wind_howl, static_burst, low_growl,
-heartbeat, thunder, door_creak, sting_violin, scream, church_bell,
-chains_rattle, music_box, footsteps, whisper, glass_break, phone_ring,
-water_drip, children_laugh, clock_tick, static,
-woman_scream, man_scream, muffled_scream, guttural_scream,
-knife_slash, bone_crack, punch_impact, body_fall, struggle_scuffle,
-body_drag, hammer_strike, furniture_break, heavy_door_slam,
-gasp_choke, throat_gurgle, wet_squelch, blood_drip, stab_wound,
-panic_breathing, crying_sob, desperate_cry,
-running_footsteps, rope_strain, shovel_dig, electrical_zap,
-lighter_flame, metal_clang, scraping_metal, gagged_moaning.
-
-Return ONLY a raw JSON array. No markdown, no explanation.`;
+  const system = `You are a sound designer for a horror radio drama. 
+Given a short story, return a JSON array of exactly 50 sound events.
+Use only these types: "pad", "sting", "heartbeat", "thunder", "bell", "climax".
+- "pad" = long ambient drone (duration 20‑30s), place every 500‑800 characters.
+- "sting" = short musical hit (duration ~1s), place at moments of tension.
+- "heartbeat" = low thump, use sparingly.
+- "thunder" = low rumble, use for dramatic moments.
+- "bell" = ominous low bell, use for foreboding.
+- "climax" = a swelling, powerful musical moment (duration 8‑14s). Place this **only near the end of the story** (last 20% of characters) to build the finale.
+Return ONLY a raw JSON array. No markdown.`;
 
     const userPrompt = `Story text (${length} characters):\n${storyText}\n\nGenerate exactly 100 cues.`;
 
@@ -2447,7 +1492,7 @@ Return ONLY a raw JSON array. No markdown, no explanation.`;
                 dialogue.textContent = '';
                 speakTextMale(storyText);
                 if (cueChecker) {
-                    await typewriterEffect(dialogue, storyText, 22, (idx) => cueChecker(idx));
+                    await typewriterEffect(dialogue, storyText, 80, (idx) => cueChecker(idx));
                 } else {
                     await typewriterEffect(dialogue, storyText, 22);
                 }
