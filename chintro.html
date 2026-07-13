@@ -1260,6 +1260,21 @@
                 currentVisibleLine = -1;
             }
 
+            // ── VOICE SELECTION HELPER ──
+function getVoiceByGender(gender = 'female') {
+    const voices = speechSynthesis.getVoices();
+    const maleNames = ['Google UK English Male', 'Google US English Male', 'Daniel', 'Microsoft David', 'Fred', 'Alex', 'Tom'];
+    const femaleNames = ['Google UK English Female', 'Google US English Female', 'Samantha', 'Microsoft Zira', 'Fiona', 'Karen', 'Moira', 'Veena', 'Susan', 'Catherine'];
+    const nameList = gender === 'male' ? maleNames : femaleNames;
+    let voice = null;
+    for (const name of nameList) {
+        voice = voices.find(v => v.name.includes(name));
+        if (voice) break;
+    }
+    if (!voice) voice = voices.find(v => v.name.toLowerCase().includes(gender)) || voices[0];
+    return voice;
+}
+
             function speakLine(text, rate = 0.55, pitch = 1.05, gender = 'female') {
     if (!text || !window.speechSynthesis) return;
     speechSynthesis.cancel();
@@ -1287,43 +1302,48 @@
 }
 
             function runTextSequence(startOffset = 0) {
-                clearTextSequence();
-                hideAllLines();
+    clearTextSequence();
+    hideAllLines();
 
-                const baseTime = Date.now() + startOffset;
+    const baseTime = Date.now() + startOffset;
 
-                LINE_TIMINGS.forEach(timing => {
-                    const showId = setTimeout(() => {
-                        showLine(timing.index);
-                        speakLine(timing.speakText);
-                    }, timing.showAt);
-                    textSequenceTimeoutIds.push(showId);
-                    const hideId = setTimeout(() => {
-                        // next line will replace it
-                    }, timing.hideAt);
-                    textSequenceTimeoutIds.push(hideId);
-                });
+    // Regular lines with alternating male/female voices
+    LINE_TIMINGS.forEach((timing, idx) => {
+        // Even indices (0,2,4) → male, odd (1,3,5) → female
+        const gender = (idx % 2 === 0) ? 'male' : 'female';
 
-                // Final title
-                const finalShowId = setTimeout(() => {
-                    showLine(FINAL_TITLE_TIMING.index);
-                    speakLine(FINAL_TITLE_TIMING.speakText, 0.5, 1.0);
-                    triggerImageShake();
-                    // Reveal ON AIR sign
-                    revealOnAirSign();
-                    if (audioCtx) {
-                        createStinger(audioCtx, audioCtx.currentTime, 0.8);
-                        setTimeout(() => createThunderHit(audioCtx, audioCtx.currentTime, 0.7), 300);
-                    }
-                }, FINAL_TITLE_TIMING.showAt);
-                textSequenceTimeoutIds.push(finalShowId);
+        const showId = setTimeout(() => {
+            showLine(timing.index);
+            speakLine(timing.speakText, 0.55, 1.05, gender);
+        }, timing.showAt);
+        textSequenceTimeoutIds.push(showId);
 
-                // Reveal enter button
-                const revealId = setTimeout(() => {
-                    revealEnterButton();
-                }, 46000);
-                textSequenceTimeoutIds.push(revealId);
-            }
+        const hideId = setTimeout(() => {
+            // next line will replace it
+        }, timing.hideAt);
+        textSequenceTimeoutIds.push(hideId);
+    });
+
+    // Final title – spoken by male voice only (via 'both')
+    const finalShowId = setTimeout(() => {
+        showLine(FINAL_TITLE_TIMING.index);
+        speakLine(FINAL_TITLE_TIMING.speakText, 0.5, 1.0, 'both');
+
+        triggerImageShake();
+        revealOnAirSign();
+        if (audioCtx) {
+            createStinger(audioCtx, audioCtx.currentTime, 0.8);
+            setTimeout(() => createThunderHit(audioCtx, audioCtx.currentTime, 0.7), 300);
+        }
+    }, FINAL_TITLE_TIMING.showAt);
+    textSequenceTimeoutIds.push(finalShowId);
+
+    // Reveal the ENTER button
+    const revealId = setTimeout(() => {
+        revealEnterButton();
+    }, 46000);
+    textSequenceTimeoutIds.push(revealId);
+}
 
             function triggerImageShake() {
                 introImage.classList.add('shake-trigger');
