@@ -766,7 +766,8 @@
     `;
 
             // ═══════════════════════════════════════
-            // 🎻 ENHANCED LYNCH SOUND ENGINE v2.0
+            // 🎻 ENHANCED LYNCH SOUND ENGINE v3.0
+            //    with BASS + DRUMS
             // ═══════════════════════════════════════
             let audioCtx = null;
             let ambientSource = null;
@@ -782,6 +783,12 @@
             let crossfadeTimeout = null;
             let tapeWarbleNode = null;
             let masterCompressor = null;
+
+            // ── BASS + DRUM PATTERN PLAYER STATE ──
+            let patternPlayerActive = null;
+            let patternPlayerTimeout = null;
+            let patternStep = 0;
+            let patternBPM = 50;
 
             function createKeepAlive(ctx) {
                 if (keepAliveNode) return;
@@ -803,7 +810,7 @@
                     initReverb(audioCtx);
                     initTapeWarble(audioCtx);
                     masterGain = audioCtx.createGain();
-                    masterGain.gain.value = 0.2;
+                    masterGain.gain.value = 0.22;
                     masterCompressor = audioCtx.createDynamicsCompressor();
                     masterCompressor.threshold.value = -26;
                     masterCompressor.knee.value = 28;
@@ -1123,7 +1130,7 @@
                     o.stop(now + duration + 1.5); });
             }
 
-            // ── CORE SYNTH PADS (ENHANCED) ──
+            // ── CORE SYNTH PADS ──
             function createLynchPad(ctx, frequency, duration, intensity = 0.5, detuneSpread = 8) {
                 const now = ctx.currentTime;
                 const gainNode = ctx.createGain();
@@ -1279,6 +1286,209 @@
                 lfo.stop(now + duration + 1);
             }
 
+            // ── 🎸 BASS SYNTH ──
+            function createBassNote(ctx, semitone, intensity = 0.5, duration = 2.0, rootFreq = 40) {
+                const now = ctx.currentTime;
+                const freq = rootFreq * Math.pow(2, semitone / 12);
+                const gainNode = ctx.createGain();
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(intensity * 0.22, now + 0.08);
+                gainNode.gain.setValueAtTime(intensity * 0.22, now + duration - 0.5);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration + 0.4);
+
+                const osc = ctx.createOscillator();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(freq * 0.98, now);
+                osc.frequency.exponentialRampToValueAtTime(freq, now + 0.15);
+
+                const osc2 = ctx.createOscillator();
+                osc2.type = 'square';
+                osc2.frequency.value = freq * 2;
+                const osc2Gain = ctx.createGain();
+                osc2Gain.gain.value = 0.08 * intensity;
+
+                const filter = ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(120 + semitone * 4, now);
+                filter.frequency.exponentialRampToValueAtTime(80 + semitone * 2, now + duration);
+                filter.Q.value = 2.5;
+
+                osc.connect(filter);
+                osc2.connect(osc2Gain);
+                osc2Gain.connect(filter);
+                filter.connect(gainNode);
+
+                const wetSend = ctx.createGain();
+                wetSend.gain.value = 0.45;
+                gainNode.connect(wetSend);
+                wetSend.connect(wetGain);
+                gainNode.connect(dryGain);
+
+                osc.start(now);
+                osc2.start(now);
+                osc.stop(now + duration + 0.5);
+                osc2.stop(now + duration + 0.5);
+            }
+
+            // ── 🥁 DRUM SYNTHS ──
+            function createKick(ctx, intensity = 0.5) {
+                const now = ctx.currentTime;
+                const gainNode = ctx.createGain();
+                gainNode.gain.setValueAtTime(intensity * 0.9, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+
+                const osc = ctx.createOscillator();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(120, now);
+                osc.frequency.exponentialRampToValueAtTime(35, now + 0.15);
+
+                const filter = ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.value = 180;
+                filter.Q.value = 1.2;
+
+                osc.connect(filter);
+                filter.connect(gainNode);
+                gainNode.connect(ctx.destination);
+
+                osc.start(now);
+                osc.stop(now + 0.3);
+            }
+
+            function createSnare(ctx, intensity = 0.5) {
+                const now = ctx.currentTime;
+                const gainNode = ctx.createGain();
+                gainNode.gain.setValueAtTime(intensity * 0.6, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+
+                const bufferSize = ctx.sampleRate * 0.08;
+                const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    const env = Math.exp(-i / (ctx.sampleRate * 0.025));
+                    data[i] = (Math.random() * 2 - 1) * env * 0.6;
+                }
+                const noise = ctx.createBufferSource();
+                noise.buffer = buffer;
+
+                const osc = ctx.createOscillator();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(220, now);
+                osc.frequency.exponentialRampToValueAtTime(80, now + 0.08);
+                const oscGain = ctx.createGain();
+                oscGain.gain.value = 0.2 * intensity;
+
+                const filter = ctx.createBiquadFilter();
+                filter.type = 'bandpass';
+                filter.frequency.value = 300;
+                filter.Q.value = 0.8;
+
+                noise.connect(filter);
+                osc.connect(oscGain);
+                oscGain.connect(filter);
+                filter.connect(gainNode);
+                gainNode.connect(ctx.destination);
+
+                noise.start(now);
+                osc.start(now);
+                noise.stop(now + 0.12);
+                osc.stop(now + 0.12);
+            }
+
+            // ── 🥁 HI-HAT ──
+            function createHat(ctx, intensity = 0.3) {
+                const now = ctx.currentTime;
+                const gainNode = ctx.createGain();
+                gainNode.gain.setValueAtTime(intensity * 0.5, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+
+                const bufferSize = ctx.sampleRate * 0.025;
+                const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    const env = Math.exp(-i / (ctx.sampleRate * 0.01));
+                    data[i] = (Math.random() * 2 - 1) * env * 0.4;
+                }
+                const noise = ctx.createBufferSource();
+                noise.buffer = buffer;
+
+                const filter = ctx.createBiquadFilter();
+                filter.type = 'highpass';
+                filter.frequency.value = 5000;
+                filter.Q.value = 0.5;
+
+                noise.connect(filter);
+                filter.connect(gainNode);
+                gainNode.connect(ctx.destination);
+                noise.start(now);
+                noise.stop(now + 0.08);
+            }
+
+            // ── PATTERN PLAYER ──
+            function startPatternPlayer(themeName, scoreData, rootFreq = 40) {
+                stopPatternPlayer();
+                if (!scoreData || !scoreData[themeName]) return;
+                const theme = scoreData[themeName];
+                const bpm = theme.bpm || 50;
+                const bassPattern = theme.bass || [0, 0, 7, 7, 0, 0, 7, 7];
+                const kickPattern = theme.kick || [0, 0, 0, 0, 0, 0, 0, 0];
+                const snarePattern = theme.snare || [0, 0, 0, 0, 0, 0, 0, 0];
+                // optional hi-hat pattern derived from kick+snare
+                const hatPattern = kickPattern.map((v, i) => (v || snarePattern[i]) ? 0 : (i % 2 === 0 ? 1 : 0));
+
+                patternBPM = bpm;
+                patternStep = 0;
+                const stepDuration = 60 / bpm / 2;
+
+                let active = true;
+                patternPlayerActive = { active: true, theme: themeName };
+
+                function playStep() {
+                    if (!patternPlayerActive || !patternPlayerActive.active) return;
+                    const step = patternStep % 8;
+
+                    // Bass
+                    const bassSemitone = bassPattern[step] || 0;
+                    if (bassSemitone !== 0) {
+                        createBassNote(audioCtx, bassSemitone, 0.5 + (bassSemitone / 24), stepDuration * 1.8, rootFreq);
+                    }
+
+                    // Kick
+                    if (kickPattern[step] === 1) {
+                        createKick(audioCtx, 0.6);
+                    }
+
+                    // Snare
+                    if (snarePattern[step] === 1) {
+                        createSnare(audioCtx, 0.5);
+                    }
+
+                    // Hat (sparse)
+                    if (hatPattern[step] === 1 && Math.random() < 0.4) {
+                        createHat(audioCtx, 0.2);
+                    }
+
+                    patternStep++;
+                    const nextTime = stepDuration * 1000;
+                    patternPlayerTimeout = setTimeout(playStep, nextTime);
+                }
+
+                // Start with a slight delay to sync
+                patternPlayerTimeout = setTimeout(playStep, 50);
+            }
+
+            function stopPatternPlayer() {
+                if (patternPlayerTimeout) {
+                    clearTimeout(patternPlayerTimeout);
+                    patternPlayerTimeout = null;
+                }
+                if (patternPlayerActive) {
+                    patternPlayerActive.active = false;
+                    patternPlayerActive = null;
+                }
+                patternStep = 0;
+            }
+
             // ── MASTER PLAY SOUND (EXPANDED) ──
             async function playSound(type, intensity = 0.7) {
                 try {
@@ -1292,8 +1502,8 @@
                             createLynchSting(ctx, intensity);
                             break;
                         case 'heartbeat':
-                            playThump(ctx, now, 0.7 * intensity);
-                            setTimeout(() => playThump(ctx, now + 0.2, 0.7 * intensity), 200);
+                            createKick(ctx, 0.7 * intensity);
+                            setTimeout(() => createKick(ctx, 0.7 * intensity), 200);
                             break;
                         case 'thunder': {
                             const bufferSize = ctx.sampleRate * 0.8;
@@ -1342,7 +1552,7 @@
                         case 'industrial_hum':
                             createIndustrialTexture(ctx, 12 + Math.random() * 10, intensity);
                             break;
-                        // ── NEW STRING TYPES ──
+                            // ── STRING TYPES ──
                         case 'string_pad':
                             createStringPad(ctx, 55 + Math.random() * 30, 14 + Math.random() * 16, intensity);
                             break;
@@ -1369,26 +1579,78 @@
                             createStringCluster(ctx, clusterFreqs, 8 + Math.random() * 10, intensity);
                             break;
                         }
+                            // ── BASS + DRUM TYPES ──
+                        case 'bass': {
+                            const semitone = Math.floor(Math.random() * 12);
+                            createBassNote(ctx, semitone, intensity, 1.5 + Math.random() * 1.5, 40);
+                            break;
+                        }
+                        case 'kick':
+                            createKick(ctx, intensity);
+                            break;
+                        case 'snare':
+                            createSnare(ctx, intensity);
+                            break;
+                        case 'hat':
+                            createHat(ctx, intensity * 0.5);
+                            break;
+                        case 'bass_pattern':
+                            // Start a pattern with the current theme's score if available
+                            if (gameState.nocturnePerformance && gameState.nocturnePerformance.soundCues &&
+                                gameState.nocturnePerformance.soundCues.score) {
+                                const score = gameState.nocturnePerformance.soundCues.score;
+                                const themes = ['intro', 'setup', 'scheme', 'execution', 'twist', 'closing'];
+                                for (const t of themes) {
+                                    if (score[t]) {
+                                        startPatternPlayer(t, score, 40);
+                                        break;
+                                    }
+                                }
+                            } else {
+                                // Fallback: play a simple bass pattern
+                                const fallbackScore = {
+                                    intro: { bpm: 50, bass: [0, 0, 7, 7, 0, 0, 7, 7], kick: [1, 0, 0, 0, 0, 0, 0, 0],
+                                        snare: [0, 0, 0, 0, 1, 0, 0, 0] }
+                                };
+                                startPatternPlayer('intro', fallbackScore, 40);
+                            }
+                            break;
+                        case 'drum_pattern':
+                            // Similar but just drums
+                            if (gameState.nocturnePerformance && gameState.nocturnePerformance.soundCues &&
+                                gameState.nocturnePerformance.soundCues.score) {
+                                const score = gameState.nocturnePerformance.soundCues.score;
+                                const themes = ['intro', 'setup', 'scheme', 'execution', 'twist', 'closing'];
+                                for (const t of themes) {
+                                    if (score[t]) {
+                                        // Force kick/snare to be more active
+                                        const modScore = { ...score };
+                                        for (const key of themes) {
+                                            if (modScore[key]) {
+                                                modScore[key].kick = modScore[key].kick.map((v, i) => (i % 2 ===
+                                                    0) ? 1 : 0);
+                                                modScore[key].snare = modScore[key].snare.map((v, i) => (i ===
+                                                    3 || i === 7) ? 1 : 0);
+                                            }
+                                        }
+                                        startPatternPlayer(t, modScore, 40);
+                                        break;
+                                    }
+                                }
+                            } else {
+                                const fallbackScore = {
+                                    intro: { bpm: 55, bass: [0, 0, 7, 0, 0, 0, 7, 0], kick: [1, 0, 0, 0, 1, 0, 0,
+                                            0], snare: [0, 0, 0, 0, 0, 0, 0, 1] }
+                                };
+                                startPatternPlayer('intro', fallbackScore, 40);
+                            }
+                            break;
                         default:
                             console.warn(`Unknown sound type: ${type}`);
                     }
                 } catch (err) {
                     console.error(`❌ Error in playSound("${type}"):`, err);
                 }
-            }
-
-            function playThump(ctx, time, intensity) {
-                const osc = ctx.createOscillator();
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(45, time);
-                osc.frequency.exponentialRampToValueAtTime(22, time + 0.12);
-                const gain = ctx.createGain();
-                gain.gain.setValueAtTime(intensity * 0.7, time);
-                gain.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                osc.start(time);
-                osc.stop(time + 0.12);
             }
 
             // ── AMBIENT FUNCTIONS ──
@@ -1471,7 +1733,7 @@
                     ambientTimeout = null; }
             }
 
-            // ── LYNCH AMBIENT THEMES (ENHANCED WITH STRINGS) ──
+            // ── LYNCH AMBIENT THEMES ──
             const LYNCH_AMBIENT = {
                 intro: { rootFreq: 45, detuneSpread: 12, filterBase: 120, lfoRate: 0.05, noiseMix: 0.15,
                     intensity: 0.25, stringLayer: 'soft_pad', stringFreq: 55, stringIntensity: 0.18 },
@@ -1486,6 +1748,8 @@
                 closing: { rootFreq: 44, detuneSpread: 8, filterBase: 140, lfoRate: 0.04, noiseMix: 0.1, intensity: 0.2,
                     stringLayer: 'soft_pad', stringFreq: 48, stringIntensity: 0.14 },
             };
+
+            let sectionThemeScore = null;
 
             function startStringLayer(theme) {
                 if (!audioCtx) return;
@@ -1672,14 +1936,40 @@
                     }
                 };
                 startStringLayer(theme);
+
+                // Start bass + drum pattern for this section
+                if (sectionThemeScore && sectionThemeScore[themeName]) {
+                    startPatternPlayer(themeName, sectionThemeScore, 40);
+                } else {
+                    // Fallback pattern
+                    const fallback = {
+                        intro: { bpm: 50, bass: [0, 0, 7, 7, 0, 0, 7, 7], kick: [1, 0, 0, 0, 0, 0, 0, 0],
+                            snare: [0, 0, 0, 0, 1, 0, 0, 0] },
+                        setup: { bpm: 52, bass: [0, 5, 7, 0, 0, 5, 7, 0], kick: [1, 0, 0, 0, 0, 0, 0, 0],
+                            snare: [0, 0, 0, 0, 0, 0, 0, 0] },
+                        scheme: { bpm: 55, bass: [0, 0, 7, 0, 0, 0, 7, 0], kick: [1, 0, 0, 0, 1, 0, 0, 0],
+                            snare: [0, 0, 0, 0, 0, 0, 0, 1] },
+                        execution: { bpm: 58, bass: [0, 7, 0, 7, 0, 7, 0, 7], kick: [1, 0, 1, 0, 1, 0, 1, 0],
+                            snare: [0, 0, 0, 0, 1, 0, 0, 0] },
+                        twist: { bpm: 60, bass: [0, 0, 12, 0, 0, 0, 12, 0], kick: [1, 0, 0, 0, 1, 0, 0, 0],
+                            snare: [0, 0, 0, 0, 0, 0, 0, 1] },
+                        closing: { bpm: 45, bass: [0, 0, 7, 0, 0, 0, 7, 0], kick: [1, 0, 0, 0, 0, 0, 0, 0],
+                            snare: [0, 0, 0, 0, 0, 0, 0, 0] }
+                    };
+                    startPatternPlayer(themeName, fallback, 40);
+                }
             }
 
-            const transitionSectionTheme = startLynchAmbient;
+            const transitionSectionTheme = function(themeName, scoreData) {
+                if (scoreData) sectionThemeScore = scoreData;
+                startLynchAmbient(themeName);
+            };
 
             function stopSectionAmbient() {
                 if (sectionAmbientActive) { sectionAmbientActive.stop();
                     sectionAmbientActive = null; }
                 stopStringAmbient();
+                stopPatternPlayer();
                 clearTimeout(crossfadeTimeout);
             }
 
@@ -1903,6 +2193,23 @@
                     setTimeout(() => playSound('sting', 0.5), 7000);
                 });
                 guideList.appendChild(testBtn);
+                const testBassBtn = document.createElement('button');
+                testBassBtn.className = 'btn';
+                testBassBtn.textContent = '🎸 Test Bass + Drums Pattern';
+                testBassBtn.style.marginTop = '4px';
+                testBassBtn.style.width = '100%';
+                testBassBtn.addEventListener('click', () => {
+                    const score = {
+                        test: { bpm: 60, bass: [0, 7, 0, 7, 0, 7, 0, 7], kick: [1, 0, 1, 0, 1, 0, 1, 0],
+                            snare: [0, 0, 0, 0, 1, 0, 0, 0] }
+                    };
+                    sectionThemeScore = score;
+                    startPatternPlayer('test', score, 40);
+                    // Also play some strings
+                    playSound('string_pad', 0.3);
+                    setTimeout(() => playSound('cello_drone', 0.3), 2000);
+                });
+                guideList.appendChild(testBassBtn);
                 const testStringsBtn = document.createElement('button');
                 testStringsBtn.className = 'btn';
                 testStringsBtn.textContent = '🎻 Test String Cluster';
@@ -2008,11 +2315,11 @@
                 const system = `You are a sound designer for a David Lynch-style horror drama with a full orchestra.
         Given a short story, return a JSON object with THREE keys:
         - "sections": an array of 5-6 sections dividing the story into emotional acts. Each section: "theme" (one of: intro, setup, scheme, execution, twist, closing), "start_char" (inclusive), "end_char" (exclusive). Cover the entire story from 0 to ${length}.
-        - "cues": an array of sound events using ONLY these types: "sting", "heartbeat", "thunder", "bell", "climax", "industrial_hum", "pad", "string_pad", "cello_drone", "string_swell", "violin_texture", "pizzicato", "string_cluster". Include at least 40 cues spread evenly across the story. Use string instruments generously – cello_drone for tension, string_swell for dramatic reveals, violin_texture for eerie moments, pizzicato for unsettling details, string_cluster for horror peaks, string_pad for emotional undercurrent. Each cue: "position" (char index), "type", optional "intensity" (0-1).
+        - "cues": an array of sound events using ONLY these types: "sting", "heartbeat", "thunder", "bell", "climax", "industrial_hum", "pad", "string_pad", "cello_drone", "string_swell", "violin_texture", "pizzicato", "string_cluster", "bass", "kick", "snare". Include at least 40 cues spread evenly across the story. Use string instruments generously – cello_drone for tension, string_swell for dramatic reveals, violin_texture for eerie moments, pizzicato for unsettling details, string_cluster for horror peaks, string_pad for emotional undercurrent. Use bass for low-end weight, kick and snare sparingly for punctuation. Each cue: "position" (char index), "type", optional "intensity" (0-1).
         - "score": an object with keys matching the theme names. Each key: "bpm" (40-70, slow), "bass" (array of 8 semitone intervals from root 0), "arp" (array of 8 semitone intervals), "kick" (array of 8, mostly 0s), "snare" (array of 8, mostly 0s). Keep drums very sparse – Lynch style is ambient, not rhythmic.
         Return ONLY raw JSON.`;
                 const userPrompt =
-                    `Story text (${length} characters):\n${storyText}\n\nGenerate sections, cues (use plenty of string instruments: string_pad, cello_drone, string_swell, violin_texture, pizzicato, string_cluster), and score patterns.`;
+                    `Story text (${length} characters):\n${storyText}\n\nGenerate sections, cues (use plenty of string instruments: string_pad, cello_drone, string_swell, violin_texture, pizzicato, string_cluster, plus bass, kick, snare sparingly), and score patterns.`;
                 const resp = await mistralChat([{ role: 'system', content: system }, { role: 'user',
                     content: userPrompt }], 4000, 35000);
                 const cleaned = resp.replace(/```json|```/g, '').trim();
@@ -2063,11 +2370,13 @@
                 if (!storyData || !storyData.story) { await generateNewNocturneStory(); return startNocturnePerformance(); }
                 let sectionList = null;
                 let cueList = null;
+                let scoreData = null;
                 if (storyData.soundCues) {
                     if (Array.isArray(storyData.soundCues)) { cueList = storyData.soundCues.filter(c => c.type && c
                             .position !== undefined); } else if (storyData.soundCues.sections && storyData.soundCues
                         .cues) { sectionList = storyData.soundCues.sections;
-                        cueList = storyData.soundCues.cues.filter(c => c.type && c.position !== undefined); }
+                        cueList = storyData.soundCues.cues.filter(c => c.type && c.position !== undefined);
+                        scoreData = storyData.soundCues.score; }
                 }
                 const bubble = document.getElementById('ch3SpeechBubble');
                 const dialogue = document.getElementById('ch3Dialogue');
@@ -2098,7 +2407,12 @@
                 speakTextMale(intro);
                 await typewriterEffect(dialogue, intro, 45);
                 await new Promise(r => setTimeout(r, 1500));
-                if (sectionList && sectionList.length > 0) { transitionSectionTheme(sectionList[0].theme); }
+                if (sectionList && sectionList.length > 0) {
+                    transitionSectionTheme(sectionList[0].theme, scoreData);
+                } else if (scoreData) {
+                    // Start with intro theme
+                    transitionSectionTheme('intro', scoreData);
+                }
                 const storyText = storyData.rawStoryText || storyData.story;
                 let cueChecker = null;
                 if (cueList && cueList.length > 0) {
@@ -2117,7 +2431,7 @@
                         while (sectionIdx < sortedSections.length && sortedSections[sectionIdx].start_char <=
                             idx) { const sec = sortedSections[sectionIdx]; if (sec.theme !== currentTheme) {
                                 currentTheme = sec.theme;
-                                transitionSectionTheme(currentTheme); }
+                                transitionSectionTheme(currentTheme, scoreData); }
                             sectionIdx++; }
                         while (cueIdx < sortedCues.length && sortedCues[cueIdx].position <= idx) { const cue =
                                 sortedCues[cueIdx]; if (!triggered.has(cueIdx)) { triggered.add(cueIdx);
@@ -2143,6 +2457,7 @@
                 const curtainText = document.createElement('p');
                 curtainText.textContent = '— The road out of Backwoods remains empty —';
                 stopSectionAmbient();
+                stopPatternPlayer();
                 curtainText.style.color = '#777777';
                 curtainText.style.fontSize = '14px';
                 dialogue.appendChild(curtainText);
@@ -2179,6 +2494,7 @@
             function leaveTheater() {
                 stopAmbient();
                 stopSectionAmbient();
+                stopPatternPlayer();
                 renderChannel3();
             }
 
