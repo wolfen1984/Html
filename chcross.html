@@ -1442,18 +1442,22 @@
         }
 
         function speakTextMale(text) {
-            if (!text) return;
-            const utterance = new SpeechSynthesisUtterance(text);
-            const voices = speechSynthesis.getVoices();
-            const maleNames = ['Google UK English Male','Google US English Male','Daniel','Microsoft David','Fred','Alex','Thomas','James'];
-            let voice = null;
-            for (const name of maleNames) { voice = voices.find(v => v.name.includes(name)); if (voice) break; }
-            if (!voice) voice = voices.find(v => v.name.toLowerCase().includes('male')) || voices[0];
-            if (voice) utterance.voice = voice;
-            utterance.rate = 0.62;
-            utterance.pitch = 0.9;
-            speechSynthesis.speak(utterance);
-        }
+    return new Promise((resolve, reject) => {
+        if (!text) { resolve(); return; }
+        const utterance = new SpeechSynthesisUtterance(text);
+        const voices = speechSynthesis.getVoices();
+        const maleNames = ['Google UK English Male', 'Google US English Male', 'Daniel', 'Microsoft David', 'Fred', 'Alex', 'Thomas', 'James'];
+        let voice = null;
+        for (const name of maleNames) { voice = voices.find(v => v.name.includes(name)); if (voice) break; }
+        if (!voice) voice = voices.find(v => v.name.toLowerCase().includes('male')) || voices[0];
+        if (voice) utterance.voice = voice;
+        utterance.rate = 0.62;
+        utterance.pitch = 0.9;
+        utterance.onend = () => resolve();
+        utterance.onerror = (e) => { console.warn('TTS error:', e); resolve(); }; // resolve anyway to avoid hanging
+        speechSynthesis.speak(utterance);
+    });
+}
 
         function showModal(html) {
             document.getElementById('genericModalContent').innerHTML = html;
@@ -1713,127 +1717,172 @@ Return ONLY raw JSON.`;
             await startCrossroadsPerformance();
         }
 
-        // ─── Performance ──────────────────────────────────────────────
-        async function startCrossroadsPerformance() {
-            speechSynthesis.cancel();
-            if (window.crTimeout) clearTimeout(window.crTimeout);
-            const storyData = gameState.currentPerformance;
-            if (!storyData || !storyData.story) { await generateNewCrossroadsStory(); return startCrossroadsPerformance(); }
+       async function startCrossroadsPerformance() {
+    speechSynthesis.cancel();
+    if (window.crTimeout) clearTimeout(window.crTimeout);
+    const storyData = gameState.currentPerformance;
+    if (!storyData || !storyData.story) { await generateNewCrossroadsStory(); return startCrossroadsPerformance(); }
 
-            await getAudioContext();
+    await getAudioContext();
 
-            let sectionList = null, cueList = null, scoreData = null;
-            if (storyData.soundCues) {
-                if (Array.isArray(storyData.soundCues)) {
-                    cueList = storyData.soundCues.filter(c => c.type && c.position !== undefined);
-                } else if (storyData.soundCues.sections && storyData.soundCues.cues) {
-                    sectionList = storyData.soundCues.sections;
-                    cueList = storyData.soundCues.cues.filter(c => c.type && c.position !== undefined);
-                    scoreData = storyData.soundCues.score;
-                }
-            }
-            const bubble = document.getElementById('crSpeechBubble');
-            const dialogue = document.getElementById('crDialogue');
-            const imageEl = document.getElementById('crSegmentImage');
-            if (!bubble || !dialogue) return;
-            const guideList = document.getElementById('crGuideList');
-            if (guideList) guideList.style.display = 'none';
-            bubble.style.borderColor = '#00ccf044';
-            bubble.style.boxShadow = '0 0 30px #00ccf030, 0 0 50px #ff338815';
-            dialogue.innerHTML = '';
-            const oldBack = document.getElementById('crBackBtn');
-            if (oldBack) oldBack.remove();
-            const oldAdd = document.getElementById('crAddEpisodeBtn');
-            if (oldAdd) oldAdd.remove();
-            const posterContainer = document.getElementById('crPosterContainer');
-            const posterTitle = document.getElementById('crPosterTitle');
-            if (posterContainer && imageEl && storyData.imageUrl) {
-                imageEl.src = storyData.imageUrl;
-                imageEl.classList.add('visible');
-                imageEl.style.display = 'block';
-                posterContainer.classList.remove('no-image', 'loading');
-                posterContainer.classList.add('visible');
-                if (posterTitle) posterTitle.textContent = storyData.title || '';
-            } else if (posterContainer) posterContainer.classList.add('no-image');
-
-            const intro = `"Every road leads somewhere. Some lead to someone. I'm Marlon Cross. Tonight's story: '${storyData.title}'. Two strangers. One meeting. And everything that follows."`;
-            dialogue.textContent = '';
-            speakTextMale(intro);
-            await typewriterEffect(dialogue, intro, 48);
-            await new Promise(r => setTimeout(r, 1500));
-
-            let indicatorInterval = setInterval(() => {
-                if (patternPlayerActive) {
-                    const theme = patternPlayerActive.theme || 'intro';
-                    const varIdx = currentVariationIdx;
-                    const varName = currentSectionPatterns[varIdx] ? currentSectionPatterns[varIdx].name : 'A';
-                    const bar = barsInVariation + 1;
-                    updateScoreIndicator(theme, varName, bar);
-                } else {
-                    updateScoreIndicator('...', '—', 0);
-                }
-            }, 1000);
-
-            if (sectionList && sectionList.length > 0) {
-                transitionSectionTheme(sectionList[0].theme, scoreData);
-            } else if (scoreData) {
-                transitionSectionTheme('intro', scoreData);
-            } else {
-                // no score – pattern player will warn and exit
-            }
-
-            const storyText = storyData.rawStoryText || storyData.story;
-            if (!storyText) {
-                console.warn('No story text to speak/type');
-                await showClosingAndFinish(storyData, dialogue, indicatorInterval);
-                return;
-            }
-
-            // ----- TTS + typing decoupled -----
-            speakTextMale(storyText);
-
-            let cueChecker = null;
-            if (cueList && cueList.length > 0) {
-                const sortedCues = [...cueList].sort((a,b) => a.position - b.position);
-                let cueIdx = 0;
-                const triggered = new Set();
-                let lastLog = 0;
-                const sortedSections = sectionList ? [...sectionList].sort((a,b) => a.start_char - b.start_char) : [];
-                let sectionIdx = 0;
-                let currentTheme = sortedSections.length > 0 ? sortedSections[0].theme : null;
-                cueChecker = function check(idx) {
-                    if (idx - lastLog > 500) { lastLog = idx; }
-                    while (sectionIdx < sortedSections.length && sortedSections[sectionIdx].start_char <= idx) {
-                        const sec = sortedSections[sectionIdx];
-                        if (sec.theme !== currentTheme) {
-                            currentTheme = sec.theme;
-                            transitionSectionTheme(currentTheme, scoreData);
-                        }
-                        sectionIdx++;
-                    }
-                    while (cueIdx < sortedCues.length && sortedCues[cueIdx].position <= idx) {
-                        const cue = sortedCues[cueIdx];
-                        if (!triggered.has(cueIdx)) {
-                            triggered.add(cueIdx);
-                            playSound(cue.type, cue.intensity);
-                        }
-                        cueIdx++;
-                    }
-                };
-            }
-
-            dialogue.textContent = '';
-            if (cueChecker) {
-                await typewriterEffect(dialogue, storyText, 30, (idx) => cueChecker(idx));
-            } else {
-                await typewriterEffect(dialogue, storyText, 30);
-            }
-
-            // Wait for TTS to finish roughly
-            await new Promise(r => setTimeout(r, Math.max(2000, storyText.length * 18)));
-
-            await showClosingAndFinish(storyData, dialogue, indicatorInterval);
+    let sectionList = null, cueList = null, scoreData = null;
+    if (storyData.soundCues) {
+        if (Array.isArray(storyData.soundCues)) {
+            cueList = storyData.soundCues.filter(c => c.type && c.position !== undefined);
+        } else if (storyData.soundCues.sections && storyData.soundCues.cues) {
+            sectionList = storyData.soundCues.sections;
+            cueList = storyData.soundCues.cues.filter(c => c.type && c.position !== undefined);
+            scoreData = storyData.soundCues.score;
         }
+    }
+    const bubble = document.getElementById('crSpeechBubble');
+    const dialogue = document.getElementById('crDialogue');
+    const imageEl = document.getElementById('crSegmentImage');
+    if (!bubble || !dialogue) return;
+    const guideList = document.getElementById('crGuideList');
+    if (guideList) guideList.style.display = 'none';
+    bubble.style.borderColor = '#00ccf044';
+    bubble.style.boxShadow = '0 0 30px #00ccf030, 0 0 50px #ff338815';
+    dialogue.innerHTML = '';
+    const oldBack = document.getElementById('crBackBtn');
+    if (oldBack) oldBack.remove();
+    const oldAdd = document.getElementById('crAddEpisodeBtn');
+    if (oldAdd) oldAdd.remove();
+    const posterContainer = document.getElementById('crPosterContainer');
+    const posterTitle = document.getElementById('crPosterTitle');
+    if (posterContainer && imageEl && storyData.imageUrl) {
+        imageEl.src = storyData.imageUrl;
+        imageEl.classList.add('visible');
+        imageEl.style.display = 'block';
+        posterContainer.classList.remove('no-image', 'loading');
+        posterContainer.classList.add('visible');
+        if (posterTitle) posterTitle.textContent = storyData.title || '';
+    } else if (posterContainer) posterContainer.classList.add('no-image');
+
+    // Intro
+    const intro = `"Every road leads somewhere. Some lead to someone. I'm Marlon Cross. Tonight's story: '${storyData.title}'. Two strangers. One meeting. And everything that follows."`;
+    dialogue.textContent = '';
+    // We don't need to wait for intro TTS, but we do wait for typing
+    speakTextMale(intro);  // fire and forget – intro is short
+    await typewriterEffect(dialogue, intro, 48);
+    await new Promise(r => setTimeout(r, 1500));
+
+    // Score indicator update loop
+    let indicatorInterval = setInterval(() => {
+        if (patternPlayerActive) {
+            const theme = patternPlayerActive.theme || 'intro';
+            const varIdx = currentVariationIdx;
+            const varName = currentSectionPatterns[varIdx] ? currentSectionPatterns[varIdx].name : 'A';
+            const bar = barsInVariation + 1;
+            updateScoreIndicator(theme, varName, bar);
+        } else {
+            updateScoreIndicator('...', '—', 0);
+        }
+    }, 1000);
+
+    // Start section music / pattern player
+    if (sectionList && sectionList.length > 0) {
+        transitionSectionTheme(sectionList[0].theme, scoreData);
+    } else if (scoreData) {
+        transitionSectionTheme('intro', scoreData);
+    } // else – no score – pattern player will warn and exit
+
+    const storyText = storyData.rawStoryText || storyData.story;
+    if (!storyText) {
+        console.warn('No story text to speak/type');
+        await showClosingAndFinish(storyData, dialogue, indicatorInterval);
+        return;
+    }
+
+    // ─── BUILD CUE CHECKER ───
+    let cueChecker = null;
+    if (cueList && cueList.length > 0) {
+        const sortedCues = [...cueList].sort((a,b) => a.position - b.position);
+        let cueIdx = 0;
+        const triggered = new Set();
+        let lastLog = 0;
+        const sortedSections = sectionList ? [...sectionList].sort((a,b) => a.start_char - b.start_char) : [];
+        let sectionIdx = 0;
+        let currentTheme = sortedSections.length > 0 ? sortedSections[0].theme : null;
+        cueChecker = function check(idx) {
+            if (idx - lastLog > 500) { lastLog = idx; }
+            while (sectionIdx < sortedSections.length && sortedSections[sectionIdx].start_char <= idx) {
+                const sec = sortedSections[sectionIdx];
+                if (sec.theme !== currentTheme) {
+                    currentTheme = sec.theme;
+                    transitionSectionTheme(currentTheme, scoreData);
+                }
+                sectionIdx++;
+            }
+            while (cueIdx < sortedCues.length && sortedCues[cueIdx].position <= idx) {
+                const cue = sortedCues[cueIdx];
+                if (!triggered.has(cueIdx)) {
+                    triggered.add(cueIdx);
+                    playSound(cue.type, cue.intensity);
+                }
+                cueIdx++;
+            }
+        };
+    }
+
+    // ─── START TYPING AND TTS IN PARALLEL ───
+    dialogue.textContent = '';
+    const typingPromise = typewriterEffect(dialogue, storyText, 30, cueChecker);
+    const speechPromise = speakTextMale(storyText);
+
+    // Wait for BOTH to finish
+    await speechPromise;
+    await typingPromise;
+
+    // ─── FINISH ───
+    await showClosingAndFinish(storyData, dialogue, indicatorInterval);
+}
+
+async function showClosingAndFinish(storyData, dialogue, indicatorInterval) {
+    const closing = `"${storyData.closing_remark}"`;
+    const closingLine = document.createElement('p');
+    closingLine.style.marginTop = '16px';
+    closingLine.style.fontStyle = 'italic';
+    closingLine.style.color = '#c8d8e8';
+    dialogue.appendChild(closingLine);
+
+    // Wait for closing TTS AND typing to finish
+    const closingSpeech = speakTextMale(closing);
+    const closingTyping = typewriterEffect(closingLine, closing, 42);
+    await Promise.all([closingSpeech, closingTyping]);
+
+    await new Promise(r => setTimeout(r, 1000));
+
+    const curtainText = document.createElement('p');
+    curtainText.textContent = '— End of the road —';
+    stopSectionAmbient();
+    stopPatternPlayer();
+    clearInterval(indicatorInterval);
+    const indicator = document.getElementById('scoreIndicator');
+    if (indicator) indicator.style.display = 'none';
+    curtainText.style.color = '#6a6a80';
+    curtainText.style.fontSize = '14px';
+    dialogue.appendChild(curtainText);
+    stopAmbient();
+
+    const btnRow = document.createElement('div');
+    btnRow.style.marginTop = '12px';
+    btnRow.style.display = 'flex';
+    btnRow.style.gap = '8px';
+    btnRow.style.justifyContent = 'flex-end';
+    const leaveBtn = document.createElement('button');
+    leaveBtn.className = 'btn back-btn';
+    leaveBtn.textContent = '← Back to Crossroads';
+    leaveBtn.addEventListener('click', () => { leaveCrossroads(); });
+    btnRow.appendChild(leaveBtn);
+    const addBtn = document.createElement('button');
+    addBtn.className = 'btn accent';
+    addBtn.id = 'crAddEpisodeBtn';
+    addBtn.textContent = '➕ Save Episode';
+    addBtn.addEventListener('click', () => { addCurrentEpisode(); addBtn.disabled = true; addBtn.textContent = '✓ Saved'; });
+    btnRow.appendChild(addBtn);
+    dialogue.appendChild(btnRow);
+}
 
         async function showClosingAndFinish(storyData, dialogue, indicatorInterval) {
             const closing = `"${storyData.closing_remark}"`;
