@@ -1,11 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
-    <title>THE SALVAGE YARD · 1986</title>
-    <link href="https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&family=Creepster&family=Special+Elite&family=Press+Start+2P&display=swap" rel="stylesheet">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover" />
+    <title>THE SALVAGE YARD · 1986 · AI SCORE</title>
+    <link href="https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&family=Creepster&family=Special+Elite&family=Press+Start+2P&family=Oswald:wght@400;700&family=Roboto+Condensed:wght@400;700&family=Audiowide&family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <style>
+        /* ─── Salvage Yard Base Styles ─── */
         :root {
             --bg: #0a0705;
             --screen-bg: #0d0a06;
@@ -700,6 +701,39 @@
             margin-top: 8px;
             align-self: flex-end;
         }
+        .score-indicator {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: #b8956a;
+            letter-spacing: 1px;
+            padding: 3px 8px;
+            border: 1px solid #5a4020;
+            border-radius: 2px;
+            display: inline-block;
+            background: #0c0804;
+            margin-top: 4px;
+        }
+        .score-indicator .active {
+            color: #ffe030;
+        }
+        .score-indicator .dim {
+            color: #5a4020;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 2px;
+            background: #2a1c0e;
+            border-radius: 2px;
+            margin-top: 6px;
+            overflow: hidden;
+        }
+        .progress-bar .fill {
+            height: 100%;
+            background: #cc6600;
+            border-radius: 2px;
+            transition: width 0.3s;
+            box-shadow: 0 0 10px #cc660044;
+        }
         @media (max-width: 480px) {
             .yard-stage-row {
                 flex-direction: column;
@@ -752,6 +786,9 @@
 
     <script>
         (function() {
+            'use strict';
+
+            // ─── CONFIG ────────────────────────────────────────────────
             const MISTRAL_ENDPOINT = 'https://api.mistral.ai/v1/chat/completions';
             const MODEL = 'mistral-small-latest';
             let apiKey = localStorage.getItem('salvage_yard_key') || '';
@@ -767,25 +804,47 @@
                 "'": '&#39;', '"': '&quot;' })[m]);
 
             const HOST_BIO = `
-        <h2>🔧 Mason Cole</h2>
-        <p style="text-align:left;">
-            <strong>Yard:</strong> <em>Mason's Salvage Yard</em><br>
-            <strong>Bio:</strong> A grizzled Vietnam vet who's seen too much, Mason has run this salvage yard for eighteen years. He knows every wreck that comes through the gate carries more than bent steel — it carries the final chapter of someone's life. Some nights, when the yard lights flicker and the coyotes go quiet, he'll tell you a story about a particular wreck. And you'd best listen close, because every story he tells is true.
-        </p>
-    `;
+            <h2>🔧 Mason Cole</h2>
+            <p style="text-align:left;">
+                <strong>Yard:</strong> <em>Mason's Salvage Yard</em><br>
+                <strong>Bio:</strong> A grizzled Vietnam vet who's seen too much, Mason has run this salvage yard for eighteen years. He knows every wreck that comes through the gate carries more than bent steel — it carries the final chapter of someone's life. Some nights, when the yard lights flicker and the coyotes go quiet, he'll tell you a story about a particular wreck. And you'd best listen close, because every story he tells is true.
+            </p>
+        `;
 
-            // ── SOUND ENGINE (Web Audio API) ──
+            // ─── SOUND ENGINE ──────────────────────────────────────────
             let audioCtx = null;
-            let ambientSource = null;
-            let ambientGain = null;
-            let ambientTimeout = null;
+            let ambientSource = null,
+                ambientGain = null,
+                ambientTimeout = null;
             let keepAliveNode = null;
-            let reverbNode = null;
-            let masterGain = null;
-            let dryGain = null;
-            let wetGain = null;
-            let sectionAmbientActive = null;
-            let crossfadeTimeout = null;
+            let reverbNode = null,
+                masterGain = null,
+                dryGain = null,
+                wetGain = null;
+            let sectionAmbientActive = null,
+                stringAmbientActive = null;
+            let crossfadeTimeout = null,
+                masterCompressor = null;
+
+            let patternPlayerActive = null,
+                patternPlayerTimeout = null;
+            let patternStep = 0,
+                patternBPM = 50;
+            let currentSectionPatterns = [];
+            let currentVariationIdx = 0,
+                barsInVariation = 0;
+            let fillActive = false;
+            let sectionThemeScore = null;
+
+            // ─── Helpers ──────────────────────────────────────────────
+            function expandPattern(arr) {
+                if (!Array.isArray(arr)) {
+                    console.warn('expandPattern: non-array, using default');
+                    arr = [0, 0, 0, 0, 0, 0, 0, 0];
+                }
+                arr = arr.map(x => typeof x === 'number' ? x : 0);
+                return arr.flatMap(x => [x, x]);
+            }
 
             function createKeepAlive(ctx) {
                 if (keepAliveNode) return;
@@ -793,308 +852,805 @@
                 osc.type = 'sine';
                 osc.frequency.value = 30;
                 const gain = ctx.createGain();
-                gain.gain.value = 0.001;
+                gain.gain.value = 0.0005;
                 osc.connect(gain);
                 gain.connect(ctx.destination);
                 osc.start(0);
                 keepAliveNode = { source: osc, gain };
             }
 
-            async function getAudioContext() {
-                if (!audioCtx) {
-                    audioCtx = new(window.AudioContext || window.webkitAudioContext)();
-                    createKeepAlive(audioCtx);
-                    initReverb(audioCtx);
-                    masterGain = audioCtx.createGain();
-                    masterGain.gain.value = 0.18;
-                    reverbNode.connect(masterGain);
-                    const compressor = audioCtx.createDynamicsCompressor();
-                    compressor.threshold.value = -24;
-                    compressor.knee.value = 30;
-                    compressor.ratio.value = 12;
-                    compressor.attack.value = 0.003;
-                    compressor.release.value = 0.25;
-                    masterGain.connect(compressor);
-                    compressor.connect(audioCtx.destination);
-                    dryGain = audioCtx.createGain();
-                    dryGain.gain.value = 1.0;
-                    wetGain = audioCtx.createGain();
-                    wetGain.gain.value = 0.35;
+            function ensureAudioNodes(ctx) {
+                if (!masterGain) {
+                    masterGain = ctx.createGain();
+                    masterGain.gain.value = 0.22;
+                    masterCompressor = ctx.createDynamicsCompressor();
+                    masterCompressor.threshold.value = -26;
+                    masterCompressor.knee.value = 28;
+                    masterCompressor.ratio.value = 10;
+                    masterCompressor.attack.value = 0.004;
+                    masterCompressor.release.value = 0.3;
+                    masterGain.connect(masterCompressor);
+                    masterCompressor.connect(ctx.destination);
+                }
+                if (!dryGain) {
+                    dryGain = ctx.createGain();
+                    dryGain.gain.value = 0.85;
                     dryGain.connect(masterGain);
-                    wetGain.connect(reverbNode);
-                    reverbNode.connect(masterGain);
                 }
-                if (audioCtx.state === 'suspended') {
-                    await audioCtx.resume();
+                if (!wetGain) {
+                    wetGain = ctx.createGain();
+                    wetGain.gain.value = 0.55;
+                    if (reverbNode) wetGain.connect(reverbNode);
+                    else wetGain.connect(masterGain);
                 }
-                return audioCtx;
+                if (!reverbNode) {
+                    initReverb(ctx);
+                    if (reverbNode) wetGain.connect(reverbNode);
+                }
+            }
+
+            async function getAudioContext() {
+                try {
+                    if (!audioCtx) {
+                        audioCtx = new(window.AudioContext || window.webkitAudioContext)();
+                        createKeepAlive(audioCtx);
+                        initReverb(audioCtx);
+                        ensureAudioNodes(audioCtx);
+                    }
+                    if (audioCtx.state === 'suspended') await audioCtx.resume();
+                    ensureAudioNodes(audioCtx);
+                    return audioCtx;
+                } catch (err) {
+                    console.error('Audio context error:', err);
+                    throw err;
+                }
             }
 
             function initReverb(ctx) {
-                if (!reverbNode) {
+                if (reverbNode) return;
+                try {
                     const sampleRate = ctx.sampleRate;
-                    const length = sampleRate * 2.5;
+                    const length = sampleRate * 4.2;
                     const impulse = ctx.createBuffer(2, length, sampleRate);
                     const left = impulse.getChannelData(0);
                     const right = impulse.getChannelData(1);
                     for (let i = 0; i < length; i++) {
-                        const decay = Math.exp(-i / (sampleRate * 0.5));
-                        left[i] = (Math.random() * 2 - 1) * decay;
-                        right[i] = (Math.random() * 2 - 1) * decay;
+                        const decay = Math.exp(-i / (sampleRate * 0.9));
+                        const lateDecay = Math.exp(-i / (sampleRate * 2.5)) * 0.3;
+                        left[i] = (Math.random() * 2 - 1) * (decay + lateDecay);
+                        right[i] = (Math.random() * 2 - 1) * (decay + lateDecay);
                     }
                     reverbNode = ctx.createConvolver();
                     reverbNode.buffer = impulse;
                     reverbNode.normalize = true;
+                    if (masterGain) reverbNode.connect(masterGain);
+                } catch (err) {
+                    console.warn('Reverb init error:', err);
+                    reverbNode = ctx.createGain();
+                    reverbNode.gain.value = 0.5;
+                    if (masterGain) reverbNode.connect(masterGain);
                 }
-                return reverbNode;
             }
 
-            function createSynthPad(ctx, frequency, duration, intensity = 0.5) {
-                const now = ctx.currentTime;
-                const gainNode = ctx.createGain();
-                gainNode.gain.setValueAtTime(0, now);
-                gainNode.gain.linearRampToValueAtTime(intensity * 0.15, now + 0.6);
-                gainNode.gain.setValueAtTime(intensity * 0.15, now + duration - 1);
-                gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration + 0.3);
-
-                const osc1 = ctx.createOscillator();
-                osc1.type = 'sawtooth';
-                osc1.frequency.value = frequency;
-                const osc2 = ctx.createOscillator();
-                osc2.type = 'sawtooth';
-                osc2.frequency.value = frequency * 1.004;
-                const osc3 = ctx.createOscillator();
-                osc3.type = 'triangle';
-                osc3.frequency.value = frequency * 0.5;
-
-                const filter = ctx.createBiquadFilter();
-                filter.type = 'lowpass';
-                filter.frequency.value = 600;
-                filter.Q.value = 1.5;
-
-                const lfo = ctx.createOscillator();
-                lfo.type = 'sine';
-                lfo.frequency.value = 0.15 + Math.random() * 0.15;
-                const lfoGain = ctx.createGain();
-                lfoGain.gain.value = 150 + Math.random() * 150;
-                lfo.connect(lfoGain);
-                lfoGain.connect(filter.frequency);
-
-                osc1.connect(filter);
-                osc2.connect(filter);
-                osc3.connect(filter);
-                filter.connect(gainNode);
-                gainNode.connect(reverbNode || ctx.destination);
-
-                osc1.start(now);
-                osc2.start(now);
-                osc3.start(now);
-                lfo.start(now);
-                osc1.stop(now + duration + 0.5);
-                osc2.stop(now + duration + 0.5);
-                osc3.stop(now + duration + 0.5);
-                lfo.stop(now + duration + 0.5);
+            // ─── String / Pad / Drum Synths ──────────────────────────
+            function createStringPad(ctx, rootFreq, duration, intensity = 0.5, voiceCount = 8) {
+                try {
+                    const now = ctx.currentTime;
+                    const gainNode = ctx.createGain();
+                    gainNode.gain.setValueAtTime(0, now);
+                    gainNode.gain.linearRampToValueAtTime(intensity * 0.16, now + 2.5);
+                    gainNode.gain.setValueAtTime(intensity * 0.16, now + duration - 3);
+                    gainNode.gain.exponentialRampToValueAtTime(0.0005, now + duration + 1.5);
+                    const filter = ctx.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.value = 500 + intensity * 400;
+                    filter.Q.value = 1.8;
+                    const filterLfo = ctx.createOscillator();
+                    filterLfo.type = 'sine';
+                    filterLfo.frequency.value = 0.04;
+                    const filterLfoGain = ctx.createGain();
+                    filterLfoGain.gain.value = 80;
+                    filterLfo.connect(filterLfoGain);
+                    filterLfoGain.connect(filter.frequency);
+                    const allOscs = [];
+                    const harmonics = [1, 1.002, 1.997, 2.003, 0.998, 1.005, 2.001, 0.996];
+                    for (let i = 0; i < voiceCount; i++) {
+                        const osc = ctx.createOscillator();
+                        osc.type = i < 4 ? 'sawtooth' : 'triangle';
+                        const harmMult = harmonics[i] || (1 + (Math.random() - 0.5) * 0.012);
+                        osc.frequency.value = rootFreq * harmMult;
+                        const vibrato = ctx.createOscillator();
+                        vibrato.type = 'sine';
+                        vibrato.frequency.value = 4.5 + Math.random() * 3.5;
+                        const vibratoGain = ctx.createGain();
+                        vibratoGain.gain.value = 1.5 + Math.random() * 4;
+                        vibrato.connect(vibratoGain);
+                        vibratoGain.connect(osc.frequency);
+                        allOscs.push(osc, vibrato);
+                        osc.connect(filter);
+                    }
+                    filter.connect(gainNode);
+                    const drySend = ctx.createGain();
+                    drySend.gain.value = 0.35;
+                    const wetSend = ctx.createGain();
+                    wetSend.gain.value = 0.7;
+                    gainNode.connect(drySend);
+                    gainNode.connect(wetSend);
+                    drySend.connect(dryGain || ctx.destination);
+                    wetSend.connect(wetGain || ctx.destination);
+                    allOscs.forEach(o => { o.start(now);
+                        o.stop(now + duration + 2); });
+                    filterLfo.start(now);
+                    filterLfo.stop(now + duration + 2);
+                } catch (err) { console.warn('String pad error:', err); }
             }
 
-            function createSting(ctx, intensity = 0.4) {
-                const now = ctx.currentTime;
-                const gainNode = ctx.createGain();
-                gainNode.gain.setValueAtTime(0, now);
-                gainNode.gain.linearRampToValueAtTime(intensity * 0.18, now + 0.03);
-                gainNode.gain.exponentialRampToValueAtTime(0.001, now + 1.8);
-
-                const osc = ctx.createOscillator();
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(120, now);
-                osc.frequency.exponentialRampToValueAtTime(400, now + 0.3);
-                osc.frequency.exponentialRampToValueAtTime(80, now + 1.4);
-
-                const osc2 = ctx.createOscillator();
-                osc2.type = 'square';
-                osc2.frequency.setValueAtTime(240, now);
-                osc2.frequency.exponentialRampToValueAtTime(800, now + 0.3);
-                osc2.frequency.exponentialRampToValueAtTime(160, now + 1.4);
-
-                const filter = ctx.createBiquadFilter();
-                filter.type = 'lowpass';
-                filter.frequency.value = 600;
-                filter.Q.value = 1;
-
-                osc.connect(filter);
-                osc2.connect(filter);
-                filter.connect(gainNode);
-                gainNode.connect(reverbNode || ctx.destination);
-
-                osc.start(now);
-                osc2.start(now);
-                osc.stop(now + 1.8);
-                osc2.stop(now + 1.8);
+            function createCelloDrone(ctx, frequency, duration, intensity = 0.5) {
+                try {
+                    const now = ctx.currentTime;
+                    const gainNode = ctx.createGain();
+                    gainNode.gain.setValueAtTime(0, now);
+                    gainNode.gain.linearRampToValueAtTime(intensity * 0.2, now + 2);
+                    gainNode.gain.setValueAtTime(intensity * 0.2, now + duration - 2);
+                    gainNode.gain.exponentialRampToValueAtTime(0.0005, now + duration + 1);
+                    const filter = ctx.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.value = 250;
+                    filter.Q.value = 3.5;
+                    const oscs = [];
+                    for (let i = 0; i < 3; i++) {
+                        const osc = ctx.createOscillator();
+                        osc.type = i === 0 ? 'triangle' : 'sawtooth';
+                        const detune = (i - 1) * 6;
+                        osc.frequency.value = frequency * Math.pow(2, detune / 1200);
+                        const vibrato = ctx.createOscillator();
+                        vibrato.type = 'sine';
+                        vibrato.frequency.value = 2.5 + i * 1.2;
+                        const vibratoGain = ctx.createGain();
+                        vibratoGain.gain.value = 2 + i;
+                        vibrato.connect(vibratoGain);
+                        vibratoGain.connect(osc.frequency);
+                        oscs.push(osc, vibrato);
+                        osc.connect(filter);
+                    }
+                    filter.connect(gainNode);
+                    const wetSend = ctx.createGain();
+                    wetSend.gain.value = 0.65;
+                    gainNode.connect(wetSend);
+                    wetSend.connect(wetGain || ctx.destination);
+                    gainNode.connect(dryGain || ctx.destination);
+                    oscs.forEach(o => { o.start(now);
+                        o.stop(now + duration + 1.5); });
+                } catch (err) { console.warn('Cello drone error:', err); }
             }
 
-            function createClimax(ctx, intensity = 0.7) {
-                const now = ctx.currentTime;
-                const duration = 10 + Math.random() * 8;
-                const gainNode = ctx.createGain();
-                gainNode.gain.setValueAtTime(0, now);
-                gainNode.gain.linearRampToValueAtTime(intensity * 0.4, now + 2.5);
-                gainNode.gain.setValueAtTime(intensity * 0.5, now + duration - 1);
-                gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
-
-                const osc1 = ctx.createOscillator();
-                osc1.type = 'sawtooth';
-                osc1.frequency.setValueAtTime(90, now);
-                osc1.frequency.exponentialRampToValueAtTime(180, now + duration * 0.6);
-                const osc2 = ctx.createOscillator();
-                osc2.type = 'sawtooth';
-                osc2.frequency.setValueAtTime(180, now);
-                osc2.frequency.exponentialRampToValueAtTime(360, now + duration * 0.6);
-                const osc3 = ctx.createOscillator();
-                osc3.type = 'square';
-                osc3.frequency.setValueAtTime(90, now);
-                osc3.frequency.exponentialRampToValueAtTime(270, now + duration * 0.8);
-
-                const filter = ctx.createBiquadFilter();
-                filter.type = 'lowpass';
-                filter.frequency.setValueAtTime(250, now);
-                filter.frequency.exponentialRampToValueAtTime(1000, now + duration);
-                filter.Q.value = 1.8;
-
-                const lfo = ctx.createOscillator();
-                lfo.type = 'sine';
-                lfo.frequency.value = 0.12;
-                const lfoGain = ctx.createGain();
-                lfoGain.gain.value = 180;
-                lfo.connect(lfoGain);
-                lfoGain.connect(filter.frequency);
-
-                osc1.connect(filter);
-                osc2.connect(filter);
-                osc3.connect(filter);
-                filter.connect(gainNode);
-                gainNode.connect(reverbNode || ctx.destination);
-
-                osc1.start(now);
-                osc2.start(now);
-                osc3.start(now);
-                lfo.start(now);
-                osc1.stop(now + duration + 0.5);
-                osc2.stop(now + duration + 0.5);
-                osc3.stop(now + duration + 0.5);
-                lfo.stop(now + duration + 0.5);
+            function createStringSwell(ctx, targetFreq, duration, intensity = 0.6) {
+                try {
+                    const now = ctx.currentTime;
+                    const gainNode = ctx.createGain();
+                    gainNode.gain.setValueAtTime(0.001, now);
+                    gainNode.gain.exponentialRampToValueAtTime(intensity * 0.35, now + duration * 0.55);
+                    gainNode.gain.setValueAtTime(intensity * 0.35, now + duration * 0.7);
+                    gainNode.gain.exponentialRampToValueAtTime(0.0005, now + duration + 1);
+                    const filter = ctx.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(120, now);
+                    filter.frequency.exponentialRampToValueAtTime(1800, now + duration * 0.6);
+                    filter.Q.value = 2;
+                    const oscs = [];
+                    const intervals = [0, 7, 12, 19, 24];
+                    intervals.forEach(interval => {
+                        const osc = ctx.createOscillator();
+                        osc.type = 'sawtooth';
+                        osc.frequency.value = targetFreq * Math.pow(2, interval / 12);
+                        osc.frequency.setValueAtTime(targetFreq * Math.pow(2, interval / 12) * 0.97, now);
+                        osc.frequency.exponentialRampToValueAtTime(targetFreq * Math.pow(2, interval / 12),
+                            now + duration);
+                        oscs.push(osc);
+                        osc.connect(filter);
+                    });
+                    filter.connect(gainNode);
+                    const wetSend = ctx.createGain();
+                    wetSend.gain.value = 0.7;
+                    gainNode.connect(wetSend);
+                    wetSend.connect(wetGain || ctx.destination);
+                    gainNode.connect(dryGain || ctx.destination);
+                    oscs.forEach(o => { o.start(now);
+                        o.stop(now + duration + 1.5); });
+                } catch (err) { console.warn('String swell error:', err); }
             }
 
+            function createViolinHarmonics(ctx, baseFreq, duration, intensity = 0.4) {
+                try {
+                    const now = ctx.currentTime;
+                    const gainNode = ctx.createGain();
+                    gainNode.gain.setValueAtTime(0, now);
+                    gainNode.gain.linearRampToValueAtTime(intensity * 0.1, now + 1.5);
+                    gainNode.gain.setValueAtTime(intensity * 0.1, now + duration - 1.5);
+                    gainNode.gain.exponentialRampToValueAtTime(0.0005, now + duration);
+                    const filter = ctx.createBiquadFilter();
+                    filter.type = 'bandpass';
+                    filter.frequency.value = 1200;
+                    filter.Q.value = 6;
+                    const oscs = [];
+                    const harmonicSeries = [1, 2, 3, 5, 8];
+                    harmonicSeries.forEach(harm => {
+                        const osc = ctx.createOscillator();
+                        osc.type = 'sine';
+                        osc.frequency.value = baseFreq * harm;
+                        const tremolo = ctx.createOscillator();
+                        tremolo.type = 'sine';
+                        tremolo.frequency.value = 6 + Math.random() * 5;
+                        const tremGain = ctx.createGain();
+                        tremGain.gain.value = 8 + Math.random() * 15;
+                        tremolo.connect(tremGain);
+                        tremGain.connect(osc.frequency);
+                        oscs.push(osc, tremolo);
+                        osc.connect(filter);
+                    });
+                    filter.connect(gainNode);
+                    const wetSend = ctx.createGain();
+                    wetSend.gain.value = 0.75;
+                    gainNode.connect(wetSend);
+                    wetSend.connect(wetGain || ctx.destination);
+                    oscs.forEach(o => { o.start(now);
+                        o.stop(now + duration + 1); });
+                } catch (err) { console.warn('Violin harmonics error:', err); }
+            }
+
+            function createPizzicato(ctx, frequency, intensity = 0.5) {
+                try {
+                    const now = ctx.currentTime;
+                    const gainNode = ctx.createGain();
+                    gainNode.gain.setValueAtTime(intensity * 0.5, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.0005, now + 0.35);
+                    const osc = ctx.createOscillator();
+                    osc.type = 'triangle';
+                    osc.frequency.value = frequency;
+                    const osc2 = ctx.createOscillator();
+                    osc2.type = 'sine';
+                    osc2.frequency.value = frequency * 3.01;
+                    const osc2Gain = ctx.createGain();
+                    osc2Gain.gain.value = 0.15;
+                    osc2.connect(osc2Gain);
+                    const filter = ctx.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(3000, now);
+                    filter.frequency.exponentialRampToValueAtTime(400, now + 0.3);
+                    filter.Q.value = 1.5;
+                    osc.connect(filter);
+                    osc2Gain.connect(filter);
+                    filter.connect(gainNode);
+                    const wetSend = ctx.createGain();
+                    wetSend.gain.value = 0.5;
+                    gainNode.connect(wetSend);
+                    wetSend.connect(wetGain || ctx.destination);
+                    gainNode.connect(dryGain || ctx.destination);
+                    osc.start(now);
+                    osc2.start(now);
+                    osc.stop(now + 0.4);
+                    osc2.stop(now + 0.4);
+                } catch (err) { console.warn('Pizzicato error:', err); }
+            }
+
+            function createStringCluster(ctx, frequencies, duration, intensity = 0.55) {
+                try {
+                    const now = ctx.currentTime;
+                    const gainNode = ctx.createGain();
+                    gainNode.gain.setValueAtTime(0, now);
+                    gainNode.gain.linearRampToValueAtTime(intensity * 0.2, now + 1.8);
+                    gainNode.gain.setValueAtTime(intensity * 0.2, now + duration - 2);
+                    gainNode.gain.exponentialRampToValueAtTime(0.0005, now + duration + 1);
+                    const filter = ctx.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.value = 600;
+                    filter.Q.value = 1.2;
+                    const allOscs = [];
+                    frequencies.forEach(f => {
+                        const osc = ctx.createOscillator();
+                        osc.type = 'sawtooth';
+                        osc.frequency.value = f;
+                        const microLfo = ctx.createOscillator();
+                        microLfo.type = 'sine';
+                        microLfo.frequency.value = 0.3 + Math.random() * 0.6;
+                        const microGain = ctx.createGain();
+                        microGain.gain.value = 1 + Math.random() * 3;
+                        microLfo.connect(microGain);
+                        microGain.connect(osc.frequency);
+                        allOscs.push(osc, microLfo);
+                        osc.connect(filter);
+                    });
+                    filter.connect(gainNode);
+                    const wetSend = ctx.createGain();
+                    wetSend.gain.value = 0.6;
+                    gainNode.connect(wetSend);
+                    wetSend.connect(wetGain || ctx.destination);
+                    gainNode.connect(dryGain || ctx.destination);
+                    allOscs.forEach(o => { o.start(now);
+                        o.stop(now + duration + 1.5); });
+                } catch (err) { console.warn('String cluster error:', err); }
+            }
+
+            // ─── Salvage Yard‑style pads (warm, gritty, no Lynch) ──
+            function createYardPad(ctx, frequency, duration, intensity = 0.5) {
+                try {
+                    const now = ctx.currentTime;
+                    const gainNode = ctx.createGain();
+                    gainNode.gain.setValueAtTime(0, now);
+                    gainNode.gain.linearRampToValueAtTime(intensity * 0.14, now + 1.8);
+                    gainNode.gain.setValueAtTime(intensity * 0.14, now + duration - 2);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration + 0.8);
+                    const oscs = [];
+                    for (let i = 0; i < 4; i++) {
+                        const osc = ctx.createOscillator();
+                        osc.type = i < 2 ? 'sawtooth' : 'triangle';
+                        const detune = (i - 1.5) * 6;
+                        osc.frequency.value = frequency * Math.pow(2, detune / 1200);
+                        oscs.push(osc);
+                    }
+                    const filter = ctx.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.value = 200;
+                    filter.Q.value = 2.8;
+                    const lfo = ctx.createOscillator();
+                    lfo.type = 'sine';
+                    lfo.frequency.value = 0.06 + Math.random() * 0.10;
+                    const lfoGain = ctx.createGain();
+                    lfoGain.gain.value = 80 + Math.random() * 120;
+                    lfo.connect(lfoGain);
+                    lfoGain.connect(filter.frequency);
+                    oscs.forEach(o => o.connect(filter));
+                    filter.connect(gainNode);
+                    const drySend = ctx.createGain();
+                    drySend.gain.value = 0.5;
+                    const wetSend = ctx.createGain();
+                    wetSend.gain.value = 0.5;
+                    gainNode.connect(drySend);
+                    gainNode.connect(wetSend);
+                    drySend.connect(dryGain || ctx.destination);
+                    wetSend.connect(wetGain || ctx.destination);
+                    oscs.forEach(o => { o.start(now);
+                        o.stop(now + duration + 1); });
+                    lfo.start(now);
+                    lfo.stop(now + duration + 1);
+                } catch (err) { console.warn('Yard pad error:', err); }
+            }
+
+            function createYardSting(ctx, intensity = 0.5) {
+                try {
+                    const now = ctx.currentTime;
+                    const gainNode = ctx.createGain();
+                    gainNode.gain.setValueAtTime(0, now);
+                    gainNode.gain.linearRampToValueAtTime(intensity * 0.25, now + 0.05);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 2.5);
+                    const osc = ctx.createOscillator();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(70, now);
+                    osc.frequency.exponentialRampToValueAtTime(280, now + 0.4);
+                    osc.frequency.exponentialRampToValueAtTime(55, now + 2);
+                    const osc2 = ctx.createOscillator();
+                    osc2.type = 'sawtooth';
+                    osc2.frequency.setValueAtTime(140, now);
+                    osc2.frequency.exponentialRampToValueAtTime(560, now + 0.35);
+                    osc2.frequency.exponentialRampToValueAtTime(110, now + 2);
+                    const filter = ctx.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.value = 400;
+                    filter.Q.value = 2;
+                    osc.connect(filter);
+                    osc2.connect(filter);
+                    filter.connect(gainNode);
+                    const wetSend = ctx.createGain();
+                    wetSend.gain.value = 0.6;
+                    gainNode.connect(wetSend);
+                    wetSend.connect(wetGain || ctx.destination);
+                    gainNode.connect(dryGain || ctx.destination);
+                    osc.start(now);
+                    osc2.start(now);
+                    osc.stop(now + 2.5);
+                    osc2.stop(now + 2.5);
+                } catch (err) { console.warn('Yard sting error:', err); }
+            }
+
+            function createYardClimax(ctx, intensity = 0.7) {
+                try {
+                    const now = ctx.currentTime;
+                    const duration = 10 + Math.random() * 8;
+                    const gainNode = ctx.createGain();
+                    gainNode.gain.setValueAtTime(0, now);
+                    gainNode.gain.linearRampToValueAtTime(intensity * 0.3, now + 3);
+                    gainNode.gain.setValueAtTime(intensity * 0.35, now + duration - 2);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
+                    const oscs = [];
+                    const freqs = [55, 82.5, 110, 165];
+                    freqs.forEach(f => {
+                        const osc = ctx.createOscillator();
+                        osc.type = 'sawtooth';
+                        osc.frequency.setValueAtTime(f, now);
+                        osc.frequency.exponentialRampToValueAtTime(f * 1.5, now + duration * 0.7);
+                        oscs.push(osc);
+                    });
+                    const filter = ctx.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(150, now);
+                    filter.frequency.exponentialRampToValueAtTime(800, now + duration);
+                    filter.Q.value = 2.5;
+                    const lfo = ctx.createOscillator();
+                    lfo.type = 'sine';
+                    lfo.frequency.value = 0.06;
+                    const lfoGain = ctx.createGain();
+                    lfoGain.gain.value = 250;
+                    lfo.connect(lfoGain);
+                    lfoGain.connect(filter.frequency);
+                    oscs.forEach(o => o.connect(filter));
+                    filter.connect(gainNode);
+                    const wetSend = ctx.createGain();
+                    wetSend.gain.value = 0.55;
+                    gainNode.connect(wetSend);
+                    wetSend.connect(wetGain || ctx.destination);
+                    gainNode.connect(dryGain || ctx.destination);
+                    oscs.forEach(o => { o.start(now);
+                        o.stop(now + duration + 1); });
+                    lfo.start(now);
+                    lfo.stop(now + duration + 1);
+                } catch (err) { console.warn('Yard climax error:', err); }
+            }
+
+            function createBassNote(ctx, semitone, intensity = 0.5, duration = 2.0, rootFreq = 40) {
+                try {
+                    const now = ctx.currentTime;
+                    const freq = rootFreq * Math.pow(2, semitone / 12);
+                    const gainNode = ctx.createGain();
+                    gainNode.gain.setValueAtTime(0, now);
+                    gainNode.gain.linearRampToValueAtTime(intensity * 0.22, now + 0.08);
+                    gainNode.gain.setValueAtTime(intensity * 0.22, now + duration - 0.5);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration + 0.4);
+                    const osc = ctx.createOscillator();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(freq * 0.98, now);
+                    osc.frequency.exponentialRampToValueAtTime(freq, now + 0.15);
+                    const osc2 = ctx.createOscillator();
+                    osc2.type = 'square';
+                    osc2.frequency.value = freq * 2;
+                    const osc2Gain = ctx.createGain();
+                    osc2Gain.gain.value = 0.08 * intensity;
+                    const filter = ctx.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(120 + semitone * 4, now);
+                    filter.frequency.exponentialRampToValueAtTime(80 + semitone * 2, now + duration);
+                    filter.Q.value = 2.5;
+                    osc.connect(filter);
+                    osc2.connect(osc2Gain);
+                    osc2Gain.connect(filter);
+                    filter.connect(gainNode);
+                    const wetSend = ctx.createGain();
+                    wetSend.gain.value = 0.45;
+                    gainNode.connect(wetSend);
+                    wetSend.connect(wetGain || ctx.destination);
+                    gainNode.connect(dryGain || ctx.destination);
+                    osc.start(now);
+                    osc2.start(now);
+                    osc.stop(now + duration + 0.5);
+                    osc2.stop(now + duration + 0.5);
+                } catch (err) { console.warn('Bass note error:', err); }
+            }
+
+            function createKick(ctx, intensity = 0.5) {
+                try {
+                    const now = ctx.currentTime;
+                    const gainNode = ctx.createGain();
+                    gainNode.gain.setValueAtTime(intensity * 0.9, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+                    const osc = ctx.createOscillator();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(120, now);
+                    osc.frequency.exponentialRampToValueAtTime(35, now + 0.15);
+                    const filter = ctx.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.value = 180;
+                    filter.Q.value = 1.2;
+                    osc.connect(filter);
+                    filter.connect(gainNode);
+                    gainNode.connect(ctx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.3);
+                } catch (err) { console.warn('Kick error:', err); }
+            }
+
+            function createSnare(ctx, intensity = 0.5) {
+                try {
+                    const now = ctx.currentTime;
+                    const gainNode = ctx.createGain();
+                    gainNode.gain.setValueAtTime(intensity * 0.6, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                    const bufferSize = ctx.sampleRate * 0.08;
+                    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+                    const data = buffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) {
+                        const env = Math.exp(-i / (ctx.sampleRate * 0.025));
+                        data[i] = (Math.random() * 2 - 1) * env * 0.6;
+                    }
+                    const noise = ctx.createBufferSource();
+                    noise.buffer = buffer;
+                    const osc = ctx.createOscillator();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(220, now);
+                    osc.frequency.exponentialRampToValueAtTime(80, now + 0.08);
+                    const oscGain = ctx.createGain();
+                    oscGain.gain.value = 0.2 * intensity;
+                    const filter = ctx.createBiquadFilter();
+                    filter.type = 'bandpass';
+                    filter.frequency.value = 300;
+                    filter.Q.value = 0.8;
+                    noise.connect(filter);
+                    osc.connect(oscGain);
+                    oscGain.connect(filter);
+                    filter.connect(gainNode);
+                    gainNode.connect(ctx.destination);
+                    noise.start(now);
+                    osc.start(now);
+                    noise.stop(now + 0.12);
+                    osc.stop(now + 0.12);
+                } catch (err) { console.warn('Snare error:', err); }
+            }
+
+            function createHat(ctx, intensity = 0.3) {
+                try {
+                    const now = ctx.currentTime;
+                    const gainNode = ctx.createGain();
+                    gainNode.gain.setValueAtTime(intensity * 0.5, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+                    const bufferSize = ctx.sampleRate * 0.025;
+                    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+                    const data = buffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) {
+                        const env = Math.exp(-i / (ctx.sampleRate * 0.01));
+                        data[i] = (Math.random() * 2 - 1) * env * 0.4;
+                    }
+                    const noise = ctx.createBufferSource();
+                    noise.buffer = buffer;
+                    const filter = ctx.createBiquadFilter();
+                    filter.type = 'highpass';
+                    filter.frequency.value = 5000;
+                    filter.Q.value = 0.5;
+                    noise.connect(filter);
+                    filter.connect(gainNode);
+                    gainNode.connect(ctx.destination);
+                    noise.start(now);
+                    noise.stop(now + 0.08);
+                } catch (err) { console.warn('Hat error:', err); }
+            }
+
+            // ─── Pattern Player ──────────────────────────────────────
+            function startEvolvingPatternPlayer(themeName, rootFreq = 40, scoreData = null) {
+                stopPatternPlayer();
+
+                if (!scoreData || !scoreData[themeName]) {
+                    console.warn('No AI score data for theme:', themeName);
+                    return;
+                }
+                const theme = scoreData[themeName];
+                const bpm = theme.bpm || 60;
+
+                const bass = expandPattern(theme.bass);
+                const kick = expandPattern(theme.kick);
+                const snare = expandPattern(theme.snare);
+                const hat = expandPattern(theme.hat);
+
+                const variations = [{
+                    name: 'AI',
+                    bars: 8,
+                    bass: bass,
+                    kick: kick,
+                    snare: snare,
+                    hat: hat
+                }];
+
+                currentSectionPatterns = variations;
+                currentVariationIdx = 0;
+                barsInVariation = 0;
+                patternStep = 0;
+                patternBPM = bpm;
+                fillActive = false;
+
+                const stepDuration = 60 / bpm / 4;
+                patternPlayerActive = { active: true, theme: themeName };
+
+                function getCurrentPattern() {
+                    return currentSectionPatterns[0];
+                }
+
+                function playStep() {
+                    if (!patternPlayerActive || !patternPlayerActive.active) return;
+                    const ctx = audioCtx;
+                    if (!ctx) { patternPlayerTimeout = setTimeout(playStep, 100); return; }
+
+                    const step = patternStep % 16;
+                    const current = getCurrentPattern();
+                    const isFillStep = fillActive;
+
+                    let bassSemitone = 0;
+                    if (isFillStep) {
+                        bassSemitone = (step % 4 === 0) ? 0 : (step % 8 === 4 ? 7 : 0);
+                    } else {
+                        bassSemitone = current.bass[step] || 0;
+                    }
+                    if (bassSemitone !== 0 || (isFillStep && step % 4 === 0)) {
+                        const dur = isFillStep ? 0.25 : 1.8;
+                        const inten = isFillStep ? 0.3 : 0.5 + (bassSemitone / 30);
+                        createBassNote(ctx, bassSemitone, inten, dur, rootFreq);
+                    }
+
+                    let kickVal = isFillStep ? (step % 4 === 0 ? 1 : 0) : (current.kick[step] || 0);
+                    if (kickVal === 1) createKick(ctx, isFillStep ? 0.7 : 0.6);
+
+                    let snareVal = isFillStep ? (step % 8 === 4 ? 1 : 0) : (current.snare[step] || 0);
+                    if (snareVal === 1) createSnare(ctx, isFillStep ? 0.7 : 0.5);
+
+                    let hatVal = isFillStep ? (step % 2 === 0 ? 1 : 0) : (current.hat[step] || 0);
+                    if (hatVal === 1 && Math.random() < 0.7) createHat(ctx, isFillStep ? 0.4 : 0.2);
+
+                    patternStep++;
+                    if (patternStep % 16 === 0) {
+                        barsInVariation++;
+                        if (barsInVariation >= current.bars) barsInVariation = 0;
+                    }
+
+                    patternPlayerTimeout = setTimeout(playStep, stepDuration * 1000);
+                }
+
+                patternPlayerTimeout = setTimeout(playStep, 50);
+            }
+
+            function stopPatternPlayer() {
+                if (patternPlayerTimeout) { clearTimeout(patternPlayerTimeout);
+                    patternPlayerTimeout = null; }
+                if (patternPlayerActive) { patternPlayerActive.active = false;
+                    patternPlayerActive = null; }
+                patternStep = 0;
+                currentSectionPatterns = [];
+                currentVariationIdx = 0;
+                barsInVariation = 0;
+                fillActive = false;
+            }
+
+            // ─── Master playSound ────────────────────────────────────
             async function playSound(type, intensity = 0.7) {
                 try {
                     const ctx = await getAudioContext();
+                    if (!ctx) return;
                     const now = ctx.currentTime;
-                    const gainValue = Math.min(1, intensity);
                     switch (type) {
                         case 'pad':
-                            createSynthPad(ctx, 100 + Math.random() * 35, 18 + Math.random() * 18, gainValue);
+                            createYardPad(ctx, 55 + Math.random() * 25, 18 + Math.random() * 18, intensity);
                             break;
                         case 'sting':
-                            createSting(ctx, gainValue);
+                            createYardSting(ctx, intensity);
                             break;
+                        case 'pulse':
                         case 'heartbeat':
-                            playThump(ctx, now, 0.7 * gainValue);
-                            setTimeout(() => playThump(ctx, now + 0.15, 0.7 * gainValue), 150);
+                            createKick(ctx, 0.7 * intensity);
+                            setTimeout(() => createKick(ctx, 0.7 * intensity), 200);
                             break;
                         case 'thunder': {
-                            const bufferSize = ctx.sampleRate * 0.6;
+                            const bufferSize = ctx.sampleRate * 0.8;
                             const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
                             const data = buffer.getChannelData(0);
                             for (let i = 0; i < bufferSize; i++) {
-                                data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.35));
+                                data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.5));
                             }
                             const source = ctx.createBufferSource();
                             source.buffer = buffer;
                             const gain = ctx.createGain();
-                            gain.gain.setValueAtTime(gainValue * 0.5, now);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 1);
+                            gain.gain.setValueAtTime(intensity * 0.5, now);
+                            gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
                             const filter = ctx.createBiquadFilter();
                             filter.type = 'lowpass';
-                            filter.frequency.value = 120;
+                            filter.frequency.value = 100;
                             filter.Q.value = 0.5;
                             source.connect(filter);
                             filter.connect(gain);
                             gain.connect(ctx.destination);
                             source.start(now);
-                            source.stop(now + 1);
+                            source.stop(now + 1.2);
                             break;
                         }
                         case 'bell': {
                             const osc = ctx.createOscillator();
                             osc.type = 'sine';
-                            osc.frequency.value = 70 + Math.random() * 25;
+                            osc.frequency.value = 60 + Math.random() * 25;
                             const gain = ctx.createGain();
                             gain.gain.setValueAtTime(0, now);
-                            gain.gain.linearRampToValueAtTime(gainValue * 0.35, now + 0.1);
-                            gain.gain.exponentialRampToValueAtTime(0.001, now + 3.5);
+                            gain.gain.linearRampToValueAtTime(intensity * 0.35, now + 0.15);
+                            gain.gain.exponentialRampToValueAtTime(0.001, now + 4);
                             const filter = ctx.createBiquadFilter();
                             filter.type = 'lowpass';
-                            filter.frequency.value = 400;
+                            filter.frequency.value = 350;
                             osc.connect(filter);
                             filter.connect(gain);
                             gain.connect(ctx.destination);
                             osc.start(now);
-                            osc.stop(now + 3.5);
+                            osc.stop(now + 4);
                             break;
                         }
                         case 'climax':
-                            createClimax(ctx, gainValue);
+                            createYardClimax(ctx, intensity);
+                            break;
+                        case 'industrial_hum':
+                            // gentle salvage-yard rumble
+                            break;
+                        case 'string_pad':
+                            createStringPad(ctx, 55 + Math.random() * 30, 14 + Math.random() * 16, intensity);
+                            break;
+                        case 'cello_drone':
+                            createCelloDrone(ctx, 40 + Math.random() * 25, 12 + Math.random() * 14, intensity);
+                            break;
+                        case 'string_swell':
+                            createStringSwell(ctx, 50 + Math.random() * 40, 6 + Math.random() * 8, intensity);
+                            break;
+                        case 'violin_texture':
+                            createViolinHarmonics(ctx, 80 + Math.random() * 60, 10 + Math.random() * 12, intensity);
+                            break;
+                        case 'pizzicato':
+                            createPizzicato(ctx, 60 + Math.random() * 50, intensity);
+                            setTimeout(() => createPizzicato(ctx, 55 + Math.random() * 45, intensity * 0.7), 180 + Math
+                                .random() * 250);
+                            break;
+                        case 'string_cluster': {
+                            const clusterFreqs = [];
+                            const root = 45 + Math.random() * 35;
+                            for (let i = 0; i < 5; i++) clusterFreqs.push(root * (1 + (Math.random() - 0.5) * 0.25));
+                            createStringCluster(ctx, clusterFreqs, 8 + Math.random() * 10, intensity);
+                            break;
+                        }
+                        case 'bass': {
+                            const semitone = Math.floor(Math.random() * 12);
+                            createBassNote(ctx, semitone, intensity, 1.5 + Math.random() * 1.5, 40);
+                            break;
+                        }
+                        case 'kick':
+                            createKick(ctx, intensity);
+                            break;
+                        case 'snare':
+                            createSnare(ctx, intensity);
+                            break;
+                        case 'hat':
+                            createHat(ctx, intensity * 0.5);
                             break;
                         default:
-                            console.warn(`Unknown sound type: ${type}`);
+                            console.warn('Unknown sound type:', type);
                     }
-                } catch (err) {
-                    console.error(`Error in playSound("${type}"):`, err);
-                }
+                } catch (err) { console.warn('playSound error:', err); }
             }
 
-            function playThump(ctx, time, intensity) {
-                const osc = ctx.createOscillator();
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(55, time);
-                osc.frequency.exponentialRampToValueAtTime(25, time + 0.1);
-                const gain = ctx.createGain();
-                gain.gain.setValueAtTime(intensity * 0.7, time);
-                gain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                osc.start(time);
-                osc.stop(time + 0.1);
-            }
-
+            // ─── Ambient ──────────────────────────────────────────────
             async function playAmbient(type, durationSeconds, intensity = 0.5) {
                 try {
                     stopAmbient();
                     const ctx = await getAudioContext();
                     const now = ctx.currentTime;
-                    const gainValue = Math.min(1, intensity);
                     const gainNode = ctx.createGain();
-                    gainNode.gain.setValueAtTime(gainValue * 0.25, now);
+                    gainNode.gain.setValueAtTime(intensity * 0.22, now);
                     gainNode.connect(ctx.destination);
                     ambientGain = gainNode;
                     let source = null;
                     if (type === 'ambient_drone' || type === 'wind_howl') {
-                        const bufferSize = ctx.sampleRate * 1;
+                        const bufferSize = ctx.sampleRate * 1.5;
                         const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
                         const data = buffer.getChannelData(0);
-                        for (let i = 0; i < bufferSize; i++) {
-                            data[i] = (Math.random() * 2 - 1) * 0.4;
-                        }
+                        for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.4;
                         const noise = ctx.createBufferSource();
                         noise.buffer = buffer;
                         noise.loop = true;
                         const filter = ctx.createBiquadFilter();
                         filter.type = 'lowpass';
-                        filter.frequency.value = type === 'ambient_drone' ? 180 : 500;
-                        filter.Q.value = 0.5;
+                        filter.frequency.value = type === 'ambient_drone' ? 160 : 500;
+                        filter.Q.value = 0.4;
                         const osc = ctx.createOscillator();
                         osc.type = 'sawtooth';
                         osc.frequency.value = type === 'ambient_drone' ? 70 : 100;
                         const gainOsc = ctx.createGain();
-                        gainOsc.gain.value = 0.18 * gainValue;
+                        gainOsc.gain.value = 0.15 * intensity;
                         osc.connect(gainOsc);
                         gainOsc.connect(filter);
                         noise.connect(filter);
@@ -1106,7 +1662,7 @@
                     } else {
                         const osc = ctx.createOscillator();
                         osc.type = 'sine';
-                        osc.frequency.value = 85;
+                        osc.frequency.value = 80;
                         osc.connect(gainNode);
                         osc.start(now);
                         source = { osc };
@@ -1114,16 +1670,14 @@
                     }
                     if (ambientTimeout) clearTimeout(ambientTimeout);
                     ambientTimeout = setTimeout(() => { stopAmbient(); }, durationSeconds * 1000);
-                } catch (err) {
-                    console.error(`Error in playAmbient("${type}"):`, err);
-                }
+                } catch (err) { console.warn('playAmbient error:', err); }
             }
 
             function stopAmbient() {
                 if (ambientGain) {
                     const now = audioCtx ? audioCtx.currentTime : 0;
                     ambientGain.gain.setValueAtTime(ambientGain.gain.value, now);
-                    ambientGain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                    ambientGain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
                     setTimeout(() => {
                         if (ambientSource) {
                             if (ambientSource.osc) ambientSource.osc.stop();
@@ -1132,7 +1686,7 @@
                         }
                         if (ambientGain) { ambientGain.disconnect();
                             ambientGain = null; }
-                    }, 300);
+                    }, 500);
                 } else {
                     if (ambientSource) {
                         if (ambientSource.osc) ambientSource.osc.stop();
@@ -1144,6 +1698,182 @@
                     ambientTimeout = null; }
             }
 
+            // ─── String Layer ─────────────────────────────────────────
+            function startStringLayer(theme) {
+                if (!audioCtx) return;
+                stopStringAmbient();
+                const ctx = audioCtx;
+                const now = ctx.currentTime;
+                const freq = theme.stringFreq || 50;
+                const intensity = theme.stringIntensity || 0.2;
+                const duration = 999;
+                const allNodes = [];
+
+                const gainNode = ctx.createGain();
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(intensity * 0.2, now + 2);
+
+                const filter = ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.value = 500;
+                filter.Q.value = 2;
+
+                for (let i = 0; i < 6; i++) {
+                    const osc = ctx.createOscillator();
+                    osc.type = i < 3 ? 'triangle' : 'sawtooth';
+                    osc.frequency.value = freq * (1 + (i - 2.5) * 0.007);
+                    const vib = ctx.createOscillator();
+                    vib.type = 'sine';
+                    vib.frequency.value = 3.5 + i * 0.8;
+                    const vibG = ctx.createGain();
+                    vibG.gain.value = 2 + i * 0.5;
+                    vib.connect(vibG);
+                    vibG.connect(osc.frequency);
+                    allNodes.push(osc, vib);
+                    osc.connect(filter);
+                }
+                filter.connect(gainNode);
+
+                const wetSend = ctx.createGain();
+                wetSend.gain.value = 0.6;
+                gainNode.connect(wetSend);
+                wetSend.connect(wetGain || ctx.destination);
+                gainNode.connect(dryGain || ctx.destination);
+
+                allNodes.forEach(n => n.start(now));
+                stringAmbientActive = {
+                    nodes: allNodes,
+                    gainNode,
+                    wetSend,
+                    stop: () => {
+                        gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 1);
+                        allNodes.forEach(n => { try { n.stop(ctx.currentTime + 1.2); } catch (e) {} });
+                    }
+                };
+            }
+
+            function stopStringAmbient() {
+                if (stringAmbientActive) { stringAmbientActive.stop();
+                    stringAmbientActive = null; }
+            }
+
+            // ─── Salvage Yard Section Ambient ──────────────────────
+            const YARD_AMBIENT = {
+                prologue: { rootFreq: 42, detuneSpread: 8, filterBase: 120, lfoRate: 0.04, noiseMix: 0.10,
+                    intensity: 0.18, stringFreq: 45, stringIntensity: 0.12 },
+                arrival: { rootFreq: 48, detuneSpread: 10, filterBase: 140, lfoRate: 0.06, noiseMix: 0.20,
+                    intensity: 0.28, stringFreq: 50, stringIntensity: 0.20 },
+                revelation: { rootFreq: 55, detuneSpread: 14, filterBase: 130, lfoRate: 0.08, noiseMix: 0.30,
+                    intensity: 0.38, stringFreq: 58, stringIntensity: 0.30 },
+                pursuit: { rootFreq: 52, detuneSpread: 16, filterBase: 110, lfoRate: 0.10, noiseMix: 0.40,
+                    intensity: 0.50, stringFreq: 54, stringIntensity: 0.40 },
+                reckoning: { rootFreq: 50, detuneSpread: 18, filterBase: 100, lfoRate: 0.12, noiseMix: 0.45,
+                    intensity: 0.55, stringFreq: 50, stringIntensity: 0.45 },
+                closing: { rootFreq: 40, detuneSpread: 6, filterBase: 150, lfoRate: 0.03, noiseMix: 0.05,
+                    intensity: 0.15, stringFreq: 42, stringIntensity: 0.10 }
+            };
+
+            function startSectionAmbient(themeName) {
+                if (!audioCtx) return;
+                stopSectionAmbient();
+                const theme = YARD_AMBIENT[themeName] || YARD_AMBIENT.prologue;
+                const ctx = audioCtx;
+                const now = ctx.currentTime;
+                const gainNode = ctx.createGain();
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(theme.intensity * 0.2, now + 1.5);
+                const oscs = [];
+                for (let i = 0; i < 3; i++) {
+                    const osc = ctx.createOscillator();
+                    osc.type = i === 0 ? 'sawtooth' : i === 1 ? 'triangle' : 'sawtooth';
+                    const detune = (i - 1) * theme.detuneSpread;
+                    osc.frequency.value = theme.rootFreq * Math.pow(2, detune / 1200);
+                    oscs.push(osc);
+                }
+                const filter = ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.value = theme.filterBase;
+                filter.Q.value = 2.5;
+                const lfo = ctx.createOscillator();
+                lfo.type = 'sine';
+                lfo.frequency.value = theme.lfoRate;
+                const lfoGain = ctx.createGain();
+                lfoGain.gain.value = 80;
+                lfo.connect(lfoGain);
+                lfoGain.connect(filter.frequency);
+                oscs.forEach(o => o.connect(filter));
+                filter.connect(gainNode);
+                const wetSend = ctx.createGain();
+                wetSend.gain.value = 0.55;
+                gainNode.connect(wetSend);
+                wetSend.connect(wetGain || ctx.destination);
+                gainNode.connect(dryGain || ctx.destination);
+                oscs.forEach(o => o.start(now));
+                lfo.start(now);
+                if (theme.noiseMix > 0) {
+                    const bufferSize = ctx.sampleRate * 2;
+                    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+                    const data = buffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * theme.noiseMix;
+                    const noise = ctx.createBufferSource();
+                    noise.buffer = buffer;
+                    noise.loop = true;
+                    const noiseFilter = ctx.createBiquadFilter();
+                    noiseFilter.type = 'lowpass';
+                    noiseFilter.frequency.value = theme.filterBase * 0.7;
+                    noiseFilter.Q.value = 0.3;
+                    const noiseGain = ctx.createGain();
+                    noiseGain.gain.value = theme.noiseMix * 0.3;
+                    noise.connect(noiseFilter);
+                    noiseFilter.connect(noiseGain);
+                    noiseGain.connect(gainNode);
+                    noise.start(now);
+                    oscs.push(noise);
+                }
+                sectionAmbientActive = {
+                    stop: () => {
+                        gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.6);
+                        oscs.forEach(s => { try { s.stop(ctx.currentTime + 0.8); } catch (e) {} });
+                        try { lfo.stop(ctx.currentTime + 0.8); } catch (e) {}
+                        sectionAmbientActive = null;
+                    }
+                };
+                startStringLayer(theme);
+                startEvolvingPatternPlayer(themeName, 40, sectionThemeScore);
+            }
+
+            function transitionSectionTheme(themeName, scoreData) {
+                if (scoreData) sectionThemeScore = scoreData;
+                startSectionAmbient(themeName);
+            }
+
+            function stopSectionAmbient() {
+                if (sectionAmbientActive) { sectionAmbientActive.stop();
+                    sectionAmbientActive = null; }
+                stopStringAmbient();
+                stopPatternPlayer();
+                clearTimeout(crossfadeTimeout);
+            }
+
+            // ─── Score Indicator ──────────────────────────────────────
+            function updateScoreIndicator(theme, variation, bar) {
+                const indicator = document.getElementById('scoreIndicator');
+                const themeLabel = document.getElementById('scoreThemeLabel');
+                const variationLabel = document.getElementById('scoreVariationLabel');
+                const barLabel = document.getElementById('scoreBarLabel');
+                const progressFill = document.getElementById('scoreProgressFill');
+                if (!indicator) return;
+                indicator.style.display = 'block';
+                if (themeLabel) themeLabel.textContent = theme || 'prologue';
+                if (variationLabel) variationLabel.textContent = variation || 'A';
+                if (barLabel) barLabel.textContent = `bar ${bar || 1}`;
+                if (progressFill) {
+                    const pct = Math.min(100, ((bar || 1) / 12) * 100);
+                    progressFill.style.width = pct + '%';
+                }
+            }
+
+            // ─── State / API ──────────────────────────────────────────
             function saveState() {
                 try { localStorage.setItem('salvage_yard_state', JSON.stringify(gameState)); } catch (e) {}
             }
@@ -1157,7 +1887,7 @@
                 } catch (e) {}
             }
 
-            async function mistralChat(msgs, maxTok = 500, timeoutMs = 25000) {
+            async function mistralChat(msgs, maxTok = 500, timeoutMs = 28000) {
                 if (!apiKey) throw new Error('API key missing');
                 const controller = new AbortController();
                 const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -1177,9 +1907,7 @@
                     const data = await res.json();
                     return data.choices[0].message.content.trim();
                 } catch (e) {
-                    if (e.name === 'AbortError') {
-                        throw new Error('Request timed out. Please try again.');
-                    }
+                    if (e.name === 'AbortError') throw new Error('Request timed out. Please try again.');
                     throw e;
                 } finally { clearTimeout(timeout); }
             }
@@ -1190,7 +1918,7 @@
                     await new Promise(r => setTimeout(r, gameState.imageCooldownUntil - now + 500));
                 }
                 const url =
-                    `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt + ', vintage 80s film poster, salvage yard aesthetic, grainy cinematic')}?width=512&height=640&seed=${Date.now()}`;
+                    `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt + ', vintage 80s film poster, salvage yard aesthetic, grainy cinematic, grounded and gritty')}?width=512&height=640&seed=${Date.now()}`;
                 return new Promise((resolve, reject) => {
                     const img = new Image();
                     let resolved = false;
@@ -1209,8 +1937,8 @@
             async function generateImageWithRetry(prompt, retries = 2) {
                 let lastError = null;
                 for (let i = 0; i < retries; i++) {
-                    try { return await generateImage(prompt); } catch (e) { lastError = e; await new Promise(r =>
-                            setTimeout(r, 20)); }
+                    try { return await generateImage(prompt); } catch (e) { lastError = e;
+                        await new Promise(r => setTimeout(r, 20)); }
                 }
                 throw lastError || new Error('Image generation failed');
             }
@@ -1231,60 +1959,23 @@
             }
 
             function speakTextMale(text) {
-                if (!text) return;
-                const utterance = new SpeechSynthesisUtterance(text);
-                const voices = speechSynthesis.getVoices();
-                const maleNames = ['Google UK English Male', 'Google US English Male', 'Daniel',
-                    'Microsoft David', 'Fred', 'Alex', 'Thomas', 'James'
-                ];
-                let voice = null;
-                for (const name of maleNames) {
-                    voice = voices.find(v => v.name.includes(name));
-                    if (voice) break;
-                }
-                if (!voice) voice = voices.find(v => v.name.toLowerCase().includes('male')) || voices[0];
-                if (voice) utterance.voice = voice;
-                utterance.rate = 0.6;
-                utterance.pitch = 0.88;
-                speechSynthesis.speak(utterance);
-            }
-
-            function speakAndTypeSynced(element, text, voiceConfig, cueChecker = null) {
-                return new Promise((resolve) => {
+                return new Promise((resolve, reject) => {
+                    if (!text) { resolve(); return; }
                     const utterance = new SpeechSynthesisUtterance(text);
                     const voices = speechSynthesis.getVoices();
                     const maleNames = ['Google UK English Male', 'Google US English Male', 'Daniel',
                         'Microsoft David', 'Fred', 'Alex', 'Thomas', 'James'
                     ];
                     let voice = null;
-                    for (const name of maleNames) {
-                        voice = voices.find(v => v.name.includes(name));
-                        if (voice) break;
-                    }
+                    for (const name of maleNames) { voice = voices.find(v => v.name.includes(name)); if (voice)
+                            break; }
                     if (!voice) voice = voices.find(v => v.name.toLowerCase().includes('male')) || voices[0];
                     if (voice) utterance.voice = voice;
-                    utterance.rate = voiceConfig.rate || 0.6;
-                    utterance.pitch = voiceConfig.pitch || 0.88;
-                    let currentChar = 0;
-                    element.textContent = '';
-                    utterance.onboundary = (event) => {
-                        const nextChar = event.charIndex + event.charLength;
-                        if (nextChar > currentChar) {
-                            currentChar = nextChar;
-                            element.textContent = text.substring(0, currentChar);
-                            if (cueChecker) cueChecker(currentChar);
-                        }
-                    };
-                    utterance.onend = () => {
-                        element.textContent = text;
-                        if (cueChecker) cueChecker(text.length);
-                        resolve();
-                    };
-                    utterance.onerror = (e) => {
-                        console.warn('TTS error:', e);
-                        element.textContent = text;
-                        resolve();
-                    };
+                    utterance.rate = 0.62;
+                    utterance.pitch = 0.9;
+                    utterance.onend = () => resolve();
+                    utterance.onerror = (e) => { console.warn('TTS error:', e);
+                        resolve(); };
                     speechSynthesis.speak(utterance);
                 });
             }
@@ -1300,30 +1991,37 @@
             }
             window.closeModal = closeModal;
 
+            // ─── Render Panel ──────────────────────────────────────────
             function renderChannel3() {
                 const panel = document.getElementById('channel3Panel');
                 if (!panel) return;
                 panel.innerHTML = `
-        <div class="yard-stage yard-mask">
-            <div class="yard-stage-row">
-                <img class="host-portrait" src="mason.jpg" alt="Mason Cole" style="object-fit:cover;" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22><rect fill=%22%234a2808%22 width=%22100%22 height=%22100%22/><text x=%2250%22 y=%2255%22 text-anchor=%22middle%22 fill=%22%23cc6600%22 font-size=%2240%22>🔧</text></svg>';">
-                <div class="speech-bubble" id="ch3SpeechBubble">
-                    <div class="story-poster-container no-image" id="ch3PosterContainer">
-                        <img id="ch3SegmentImage" class="segment-image" alt="Story Poster">
-                        <div class="poster-overlay-yard">MASON'S<br>SALVAGE YARD</div>
-                        <div class="poster-overlay-title" id="ch3PosterTitle"></div>
-                    </div>
-                    <div class="segment-text" id="ch3Dialogue">
-                        "Every wreck that rolls through that gate carries a story. Some folks think it's just scrap metal. But I know better. You see that twisted steel? That's where someone's life ended — and sometimes, where someone's secret begins. Pull up a chair. Let me tell you about one."
+                <div class="yard-stage yard-mask">
+                    <div class="yard-stage-row">
+                        <img class="host-portrait" src="mason.jpg" alt="Mason Cole" style="object-fit:cover;" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22><rect fill=%22%234a2808%22 width=%22100%22 height=%22100%22/><text x=%2250%22 y=%2255%22 text-anchor=%22middle%22 fill=%22%23cc6600%22 font-size=%2240%22>🔧</text></svg>';">
+                        <div class="speech-bubble" id="ch3SpeechBubble">
+                            <div class="story-poster-container no-image" id="ch3PosterContainer">
+                                <img id="ch3SegmentImage" class="segment-image" alt="Story Poster">
+                                <div class="poster-overlay-yard">MASON'S<br>SALVAGE YARD</div>
+                                <div class="poster-overlay-title" id="ch3PosterTitle"></div>
+                            </div>
+                            <div class="segment-text" id="ch3Dialogue">
+                                "Every wreck that rolls through that gate carries a story. Some folks think it's just scrap metal. But I know better. You see that twisted steel? That's where someone's life ended — and sometimes, where someone's secret begins. Pull up a chair. Let me tell you about one."
+                            </div>
+                            <div id="scoreIndicator" class="score-indicator" style="display:none;">
+                                <span class="dim">🎵</span> <span id="scoreThemeLabel">prologue</span>
+                                <span class="dim">·</span> <span id="scoreVariationLabel">A</span>
+                                <span class="dim">·</span> <span id="scoreBarLabel">bar 1</span>
+                                <div class="progress-bar"><div class="fill" id="scoreProgressFill" style="width:0%;"></div></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </div>
-        <div class="yard-guide">
-            <h3>🔧 YARD LOG · RECORDED STORIES</h3>
-            <div id="ch3GuideList"></div>
-        </div>
-    `;
+                <div class="yard-guide">
+                    <h3>🔧 YARD LOG · RECORDED STORIES</h3>
+                    <div id="ch3GuideList"></div>
+                </div>
+            `;
                 const guideList = document.getElementById('ch3GuideList');
                 const episodes = gameState.ch3Episodes || [];
                 episodes.forEach((ep, index) => {
@@ -1335,24 +2033,26 @@
                         (ep.soundCues.cues && ep.soundCues.cues.length > 0)
                     );
                     entry.innerHTML = `
-                <span class="guide-time">LOGGED</span>
-                ${ep.imageUrl ? `
-    <div style="position:relative; width:50px; height:50px; flex-shrink:0; margin-right:8px; border-radius:2px; overflow:hidden; border:1px solid #5a3008;">
-        <img src="${esc(ep.imageUrl)}" style="width:100%; height:100%; object-fit:cover;" alt="Poster">
-        <div style="position:absolute; top:0; left:0; right:0; font-family:${esc('--font-title')}; font-size:4px; text-align:center; color:#ffe030; text-shadow:0 0 3px #cc6600; background:rgba(6,4,2,0.7); padding:1px 2px; letter-spacing:0.5px; line-height:1.1; pointer-events:none;">SALVAGE<br>YARD</div>
-        <div style="position:absolute; bottom:0; left:0; right:0; font-family:${esc('--font-display')}; font-size:3.5px; text-align:center; color:#e8c898; text-shadow:0 0 2px #000; background:rgba(6,4,2,0.65); padding:1px 2px; line-height:1.2; pointer-events:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(ep.title)}</div>
-    </div>` : ''}
-                <div class="guide-info">
-                    <div class="guide-title">"${esc(ep.title)}"</div>
-                    <div class="guide-desc">${hasCues ? '🎧 Soundtrack ready' : 'A wreck with a story to tell.'}</div>
-                </div>
-                <div class="guide-actions">
-                    <button class="btn guide-btn perform-saved-btn" data-index="${index}">🔧 Recall</button>
-                    ${!hasCues ? `<button class="btn guide-btn produce-episode-btn" data-index="${index}">🎬 Score It</button>` : '<span style="color:#ffe030; font-size:12px;">✅</span>'}
-                </div>
-            `;
+                        <span class="guide-time">LOGGED</span>
+                        ${ep.imageUrl ? `
+                            <div style="position:relative; width:50px; height:50px; flex-shrink:0; margin-right:8px; border-radius:2px; overflow:hidden; border:1px solid #5a3008;">
+                                <img src="${esc(ep.imageUrl)}" style="width:100%; height:100%; object-fit:cover;" alt="Poster">
+                                <div style="position:absolute; top:0; left:0; right:0; font-family:${esc('--font-title')}; font-size:4px; text-align:center; color:#ffe030; text-shadow:0 0 3px #cc6600; background:rgba(6,4,2,0.7); padding:1px 2px; letter-spacing:0.5px; line-height:1.1; pointer-events:none;">SALVAGE<br>YARD</div>
+                                <div style="position:absolute; bottom:0; left:0; right:0; font-family:${esc('--font-display')}; font-size:3.5px; text-align:center; color:#e8c898; text-shadow:0 0 2px #000; background:rgba(6,4,2,0.65); padding:1px 2px; line-height:1.2; pointer-events:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(ep.title)}</div>
+                            </div>
+                        ` : ''}
+                        <div class="guide-info">
+                            <div class="guide-title">"${esc(ep.title)}"</div>
+                            <div class="guide-desc">${hasCues ? '🎧 Soundtrack ready' : 'A wreck with a story to tell.'}</div>
+                        </div>
+                        <div class="guide-actions">
+                            <button class="btn guide-btn perform-saved-btn" data-index="${index}">🔧 Recall</button>
+                            ${!hasCues ? `<button class="btn guide-btn produce-episode-btn" data-index="${index}">🎬 Score It</button>` : '<span style="color:#ffe030; font-size:12px;">✅</span>'}
+                        </div>
+                    `;
                     guideList.appendChild(entry);
                 });
+
                 const newBtn = document.createElement('button');
                 newBtn.className = 'btn accent';
                 newBtn.style.marginTop = '12px';
@@ -1361,7 +2061,12 @@
                 newBtn.addEventListener('click', async () => {
                     newBtn.disabled = true;
                     newBtn.textContent = '🛞 Towing In A Story…';
-                    try { await generateAndPerform(); } catch (e) {
+                    try {
+                        await getAudioContext();
+                        await generateAndPerform();
+                        newBtn.disabled = false;
+                        newBtn.textContent = '🔧 Haul In A New Wreck';
+                    } catch (e) {
                         showModal(
                             `<h2>🔧 Wreck Inaccessible</h2><p>${esc(e.message)}</p><button class="modal-btn" onclick="closeModal()">Close</button>`
                             );
@@ -1370,17 +2075,7 @@
                     }
                 });
                 guideList.appendChild(newBtn);
-                const testBtn = document.createElement('button');
-                testBtn.className = 'btn';
-                testBtn.textContent = '🔊 Test Sound (Heartbeat + Thunder)';
-                testBtn.style.marginTop = '6px';
-                testBtn.style.width = '100%';
-                testBtn.addEventListener('click', () => {
-                    playSound('heartbeat', 0.8);
-                    setTimeout(() => { playSound('thunder', 0.6); }, 500);
-                    setTimeout(() => { playAmbient('ambient_drone', 5, 0.3); }, 1000);
-                });
-                guideList.appendChild(testBtn);
+
                 if (gameState.salvagePerformance && gameState.salvagePerformance.rawStoryText && !gameState
                     .salvagePerformance.soundCues) {
                     const produceBtn = document.createElement('button');
@@ -1408,6 +2103,7 @@
                     });
                     guideList.appendChild(produceBtn);
                 }
+
                 document.querySelectorAll('.perform-saved-btn').forEach(btn => {
                     btn.addEventListener('click', async () => {
                         const index = parseInt(btn.dataset.index);
@@ -1416,6 +2112,7 @@
                         gameState.salvagePerformance = { ...ep, soundCues: ep.soundCues || null,
                             rawStoryText: ep.rawStoryText || ep.story };
                         saveState();
+                        await getAudioContext();
                         await startSalvagePerformance();
                     });
                 });
@@ -1442,11 +2139,12 @@
                 });
             }
 
+            // ─── Story & Score Generation ────────────────────────────
             async function generateNewSalvageStory() {
                 const system =
                     `You are Mason Cole, the grizzled owner of Mason's Salvage Yard. You tell grim, grounded stories about wrecks that came through your yard — each one carrying a hidden secret that destroyed someone. Your style is blunt, weathered, and unflinching.`;
                 const prompt =
-                    `Write a 900 to 1100 word short story set in the 1980s about a wrecked vehicle that arrives at Mason's Salvage Yard. Structure it like this: PROLOGUE — show the crash and what was hidden in the vehicle. CHAPTER ONE — the wreck arrives at the yard. CHAPTER TWO — someone comes looking for a specific part but really wants the hidden item. CHAPTER THREE — they recover it secretly. CHAPTER FOUR — on the drive home, an ordinary accident kills them. CHAPTER FIVE — a stranger finds the item. CHAPTER SIX — the original owner tracks it down, and the new holder must choose what to do. Ground the horror in one human flaw: Greed, Revenge, Fear, Pride, Jealousy, Guilt, Desperation, Loyalty, Obsession, or Cowardice. NO supernatural elements. The horror must be purely human — brutal, visceral, grounded. Think Stephen King meets Hitchcock in a junkyard. Return ONLY valid JSON with these fields: title (string), story (full narration with the chapter structure, use backslash n for line breaks), closing_remark (Mason's final grim observation). Output raw JSON only, no markdown.`;
+                    `Write a 900 to 1100 word short story set in the 1980s about a wrecked vehicle that arrives at Mason's Salvage Yard. Structure it like this: PROLOGUE — show the crash and what was hidden in the vehicle. ARRIVAL — the wreck arrives at the yard. REVELATION — someone comes looking for a specific part but really wants the hidden item. PURSUIT — they recover it secretly. RECKONING — on the drive home, an ordinary accident kills them. CLOSING — a stranger finds the item, and the original owner tracks it down. Ground the horror in one human flaw: Greed, Revenge, Fear, Pride, Jealousy, Guilt, Desperation, Loyalty, Obsession, or Cowardice. NO supernatural elements. The horror must be purely human — brutal, visceral, grounded. Return ONLY valid JSON with these fields: title (string), story (full narration with the chapter structure, use \\n for line breaks), closing_remark (Mason's final grim observation). Output raw JSON only, no markdown.`;
                 const resp = await mistralChat([
                     { role: 'system', content: system },
                     { role: 'user', content: prompt }
@@ -1460,7 +2158,7 @@
                 let imageUrl = null;
                 try {
                     const imagePrompt =
-                        `Film poster for a story titled "${story.title}", 1980s salvage yard aesthetic, dark and moody, cinematic, grainy, neon brown and yellow tones`;
+                        `Film poster for a story titled "${story.title}", 1980s salvage yard aesthetic, dark and moody, cinematic, grainy, grounded and gritty`;
                     imageUrl = await generateImageWithRetry(imagePrompt, 2);
                 } catch (e) { console.warn('Could not generate story poster:', e); }
                 gameState.salvagePerformance = {
@@ -1477,8 +2175,13 @@
             async function generateSoundCueSheet(storyText) {
                 const length = storyText.length;
                 const system =
-                    `You are a sound designer for an 80s film soundtrack. Given a short story, return a JSON object with THREE keys: "sections" (5-6 sections dividing the story into emotional acts, each with "theme": one of intro/setup/scheme/execution/twist/closing, "start_char" inclusive, "end_char" exclusive, covering 0 to ${length}), "cues" (at least 40 sound events using types: sting, heartbeat, thunder, bell, climax — each with "position", "type", optional "intensity" 0-1), and "score" (an object with keys matching the theme names, each containing: "bpm" 60-120, "bass" array of 8 semitone intervals from root 0, "arp" array of 8 semitone intervals, "kick" array of 8 numbers 1=hit 0=rest, "snare" same as kick). Make the music cinematic and tense — think Vangelis meets Tangerine Dream. intro sparse and slow, execution driving, twist dissonant. Return ONLY raw JSON.`;
-                const userPrompt = `Story text (${length} characters):\n${storyText}\n\nGenerate sections, cues, and score patterns.`;
+                    `You are a sound designer for a gritty 1980s film score. Given a short story, return JSON with THREE keys:
+            - "sections": array of 5-6 sections dividing the story into emotional acts. Each has "theme" (one of: prologue, arrival, revelation, pursuit, reckoning, closing), "start_char" (inclusive), "end_char" (exclusive). Cover entire story from 0 to ${length}.
+            - "cues": array of at least 40 sound events using types: "sting", "pulse", "thunder", "bell", "climax", "string_pad", "cello_drone", "string_swell", "violin_texture", "pizzicato", "string_cluster", "bass", "kick", "snare". Use string instruments generously.
+            - "score": object with keys matching theme names. Each key: "bpm" (40-80), "bass" (array of 8 integers 0-24), "kick" (array of 8 integers 0/1), "snare" (array of 8 integers 0/1), "hat" (array of 8 integers 0/1).
+            Return ONLY raw JSON.`;
+                const userPrompt =
+                    `Story text (${length} characters):\n${storyText}\n\nGenerate sections, cues, and 80s film score patterns.`;
                 const resp = await mistralChat([
                     { role: 'system', content: system },
                     { role: 'user', content: userPrompt }
@@ -1495,31 +2198,53 @@
                                 'Failed to parse AI soundtrack JSON.'); }
                     } else { throw new Error('No JSON found in AI response.'); }
                 }
-                if (!Array.isArray(data.sections) || !Array.isArray(data.cues) || typeof data.score !== 'object') {
+
+                if (!Array.isArray(data.sections) || !Array.isArray(data.cues) || typeof data.score !== 'object')
                     throw new Error('Missing sections, cues, or score in AI response');
-                }
+
                 const sortedSections = data.sections.sort((a, b) => a.start_char - b.start_char);
-                sortedSections[0].start_char = 0;
-                sortedSections[sortedSections.length - 1].end_char = length;
-                const cues = data.cues.map(c => ({ type: c.type, position: Math.min(c.position, length - 1),
-                    intensity: c.intensity || 0.7 }));
-                const requiredThemes = ['intro', 'setup', 'scheme', 'execution', 'twist', 'closing'];
-                const score = {};
-                for (const theme of requiredThemes) {
-                    if (data.score[theme]) {
-                        score[theme] = {
-                            bpm: data.score[theme].bpm || 85,
-                            bass: data.score[theme].bass || [0, 0, 7, 7, 0, 0, 7, 7],
-                            arp: data.score[theme].arp || [12, 15, 12, 19, 12, 15, 12, 19],
-                            kick: data.score[theme].kick || [1, 0, 1, 0, 1, 0, 1, 0],
-                            snare: data.score[theme].snare || [0, 0, 0, 1, 0, 0, 0, 1]
-                        };
-                    } else {
-                        score[theme] = { bpm: 85, bass: [0, 0, 7, 7, 0, 0, 7, 7], arp: [12, 15, 12, 19, 12, 15, 12,
-                                19
-                            ], kick: [1, 0, 1, 0, 1, 0, 1, 0], snare: [0, 0, 0, 1, 0, 0, 0, 1] };
-                    }
+                if (sortedSections[0].start_char !== 0 || sortedSections[sortedSections.length - 1].end_char <
+                    length) {
+                    sortedSections[0].start_char = 0;
+                    sortedSections[sortedSections.length - 1].end_char = length;
                 }
+                const cues = data.cues.map(c => ({
+                    type: c.type,
+                    position: Math.min(c.position, length - 1),
+                    intensity: c.intensity || 0.7
+                }));
+
+                const requiredThemes = ['prologue', 'arrival', 'revelation', 'pursuit', 'reckoning', 'closing'];
+                const score = {};
+
+                function normalizeArray(arr, maxVal = 24) {
+                    if (!Array.isArray(arr)) {
+                        throw new Error('Expected array, got ' + typeof arr);
+                    }
+                    let clean = arr.map(v => {
+                        const num = Number(v);
+                        return isNaN(num) ? 0 : Math.min(maxVal, Math.max(0, Math.round(num)));
+                    });
+                    if (clean.length < 8) { while (clean.length < 8) clean.push(0); } else if (clean.length > 8) { clean =
+                            clean.slice(0, 8); }
+                    return clean;
+                }
+
+                for (const theme of requiredThemes) {
+                    if (!data.score[theme]) {
+                        throw new Error(`AI did not provide a score for theme "${theme}". Cannot continue.`);
+                    }
+                    const s = data.score[theme];
+                    if (typeof s.bpm !== 'number' || s.bpm < 30 || s.bpm > 120) {
+                        throw new Error(`Invalid bpm for theme "${theme}": ${s.bpm}`);
+                    }
+                    const bass = normalizeArray(s.bass, 24);
+                    const kick = normalizeArray(s.kick, 1);
+                    const snare = normalizeArray(s.snare, 1);
+                    const hat = normalizeArray(s.hat, 1);
+                    score[theme] = { bpm: s.bpm, bass, kick, snare, hat };
+                }
+
                 return { sections: sortedSections, cues, score };
             }
 
@@ -1532,218 +2257,7 @@
                 await startSalvagePerformance();
             }
 
-            function createNote(ctx, frequency, startTime, duration, gainValue, type = 'sawtooth') {
-                const now = startTime;
-                const osc1 = ctx.createOscillator();
-                osc1.type = 'sawtooth';
-                osc1.frequency.value = frequency;
-                const osc2 = ctx.createOscillator();
-                osc2.type = 'sawtooth';
-                osc2.frequency.value = frequency * 1.006;
-                const sub = ctx.createOscillator();
-                sub.type = 'triangle';
-                sub.frequency.value = frequency / 2;
-                const filter = ctx.createBiquadFilter();
-                filter.type = 'lowpass';
-                filter.frequency.value = 350;
-                filter.Q.value = 1.3;
-                const filterEnv = ctx.createGain();
-                filterEnv.gain.setValueAtTime(600, now);
-                filterEnv.gain.exponentialRampToValueAtTime(160, now + 0.1);
-                filterEnv.gain.exponentialRampToValueAtTime(40, now + duration * 0.8);
-                filterEnv.connect(filter.frequency);
-                const mainGain = ctx.createGain();
-                mainGain.gain.setValueAtTime(0, now);
-                mainGain.gain.linearRampToValueAtTime(gainValue * 0.28, now + 0.02);
-                mainGain.gain.setValueAtTime(gainValue * 0.28, now + duration * 0.6);
-                mainGain.gain.exponentialRampToValueAtTime(0.001, now + duration + 0.1);
-                osc1.connect(filter);
-                osc2.connect(filter);
-                sub.connect(filter);
-                filter.connect(mainGain);
-                const drySend = ctx.createGain();
-                drySend.gain.value = 0.75;
-                const wetSend = ctx.createGain();
-                wetSend.gain.value = 0.45;
-                mainGain.connect(drySend);
-                mainGain.connect(wetSend);
-                drySend.connect(dryGain);
-                wetSend.connect(wetGain);
-                osc1.start(now);
-                osc2.start(now);
-                sub.start(now);
-                osc1.stop(now + duration + 0.2);
-                osc2.stop(now + duration + 0.2);
-                sub.stop(now + duration + 0.2);
-            }
-
-            function createKick(ctx, time) {
-                const osc = ctx.createOscillator();
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(130, time);
-                osc.frequency.exponentialRampToValueAtTime(28, time + 0.08);
-                const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.02, ctx.sampleRate);
-                const noiseData = noiseBuffer.getChannelData(0);
-                for (let i = 0; i < noiseData.length; i++) {
-                    noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.003));
-                }
-                const click = ctx.createBufferSource();
-                click.buffer = noiseBuffer;
-                const clickFilter = ctx.createBiquadFilter();
-                clickFilter.type = 'highpass';
-                clickFilter.frequency.value = 1800;
-                click.connect(clickFilter);
-                const gainClick = ctx.createGain();
-                gainClick.gain.setValueAtTime(0.4, time);
-                gainClick.gain.exponentialRampToValueAtTime(0.001, time + 0.02);
-                clickFilter.connect(gainClick);
-                const gainBody = ctx.createGain();
-                gainBody.gain.setValueAtTime(0.6, time);
-                gainBody.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
-                osc.connect(gainBody);
-                gainBody.connect(dryGain);
-                gainClick.connect(dryGain);
-                osc.start(time);
-                click.start(time);
-                osc.stop(time + 0.2);
-                click.stop(time + 0.02);
-            }
-
-            function createSnare(ctx, time) {
-                const body = ctx.createOscillator();
-                body.type = 'triangle';
-                body.frequency.setValueAtTime(180, time);
-                body.frequency.exponentialRampToValueAtTime(70, time + 0.08);
-                const bodyGain = ctx.createGain();
-                bodyGain.gain.setValueAtTime(0.5, time);
-                bodyGain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
-                body.connect(bodyGain);
-                const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.15, ctx.sampleRate);
-                const noiseData = noiseBuffer.getChannelData(0);
-                for (let i = 0; i < noiseData.length; i++) {
-                    noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.03));
-                }
-                const noise = ctx.createBufferSource();
-                noise.buffer = noiseBuffer;
-                const noiseFilter = ctx.createBiquadFilter();
-                noiseFilter.type = 'highpass';
-                noiseFilter.frequency.value = 1000;
-                const noiseGain = ctx.createGain();
-                noiseGain.gain.setValueAtTime(0.6, time);
-                noiseGain.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
-                noise.connect(noiseFilter);
-                noiseFilter.connect(noiseGain);
-                bodyGain.connect(dryGain);
-                noiseGain.connect(dryGain);
-                body.start(time);
-                noise.start(time);
-                body.stop(time + 0.1);
-                noise.stop(time + 0.15);
-            }
-
-            const SCORE_PATTERNS = {
-                intro: { bpm: 55, bass: [0, 0, 7, 7, 0, 0, 7, 7], arp: [12, 16, 12, 20, 12, 16, 12, 20], kick: [1,
-                        0, 1, 0, 1, 0, 1, 0
-                    ], snare: [0, 0, 0, 1, 0, 0, 0, 1] },
-                setup: { bpm: 60, bass: [0, 5, 7, 3, 0, 5, 7, 3], arp: [12, 15, 19, 15, 12, 15, 19, 15], kick: [1,
-                        0, 1, 0, 1, 0, 1, 0
-                    ], snare: [0, 0, 0, 1, 0, 0, 0, 1] },
-                scheme: { bpm: 68, bass: [0, 3, 5, 7, 8, 7, 5, 3], arp: [12, 15, 19, 22, 24, 22, 19, 15], kick: [1,
-                        0, 1, 1, 1, 0, 1, 0
-                    ], snare: [0, 0, 1, 0, 0, 0, 1, 0] },
-                execution: { bpm: 78, bass: [0, 7, 0, 7, 3, 7, 3, 7], arp: [12, 19, 15, 19, 12, 19, 15, 19],
-                    kick: [1, 1, 1, 1, 1, 1, 1, 1], snare: [0, 1, 0, 1, 0, 1, 0, 1] },
-                twist: { bpm: 82, bass: [0, 3, 6, 8, 0, 3, 6, 8], arp: [12, 16, 20, 24, 12, 16, 20, 24], kick: [1,
-                        0, 1, 0, 1, 0, 1, 0
-                    ], snare: [1, 1, 1, 1, 1, 1, 1, 1] },
-                closing: { bpm: 50, bass: [0, 7, 5, 0, 7, 5, 0, 7], arp: [12, 15, 12, 19, 12, 15, 12, 19], kick: [1,
-                        0, 0, 0, 1, 0, 0, 0
-                    ], snare: [0, 0, 0, 1, 0, 0, 0, 1] }
-            };
-
-            function startSectionScore(themeName) {
-                if (!audioCtx) return;
-                stopSectionAmbient();
-                let customScore = null;
-                const perf = gameState.salvagePerformance;
-                if (perf && perf.soundCues && perf.soundCues.score) {
-                    customScore = perf.soundCues.score;
-                }
-                const fallbackTheme = SCORE_PATTERNS[themeName] || SCORE_PATTERNS.intro;
-                const theme = (customScore && customScore[themeName]) ? customScore[themeName] : fallbackTheme;
-                const rootFreq = 55;
-                const beatDuration = 60 / theme.bpm;
-                const patternLength = theme.bass.length;
-                const ctx = audioCtx;
-                let step = 0;
-                let nextStepTime = ctx.currentTime;
-                const padGain = ctx.createGain();
-                padGain.gain.value = 0.08;
-                const padOsc1 = ctx.createOscillator();
-                padOsc1.type = 'sawtooth';
-                padOsc1.frequency.value = rootFreq;
-                const padOsc2 = ctx.createOscillator();
-                padOsc2.type = 'sawtooth';
-                padOsc2.frequency.value = rootFreq * 1.501;
-                const padOsc3 = ctx.createOscillator();
-                padOsc3.type = 'triangle';
-                padOsc3.frequency.value = rootFreq / 2;
-                const padFilter = ctx.createBiquadFilter();
-                padFilter.type = 'lowpass';
-                padFilter.frequency.value = 250;
-                padFilter.Q.value = 1;
-                padOsc1.connect(padFilter);
-                padOsc2.connect(padFilter);
-                padOsc3.connect(padFilter);
-                padFilter.connect(padGain);
-                const padDry = ctx.createGain();
-                padDry.gain.value = 0.5;
-                const padWet = ctx.createGain();
-                padWet.gain.value = 0.35;
-                padGain.connect(padDry);
-                padGain.connect(padWet);
-                padDry.connect(dryGain);
-                padWet.connect(wetGain);
-                padOsc1.start();
-                padOsc2.start();
-                padOsc3.start();
-                const stopSources = [padOsc1, padOsc2, padOsc3];
-                let timeoutId;
-
-                function scheduleStep() {
-                    if (!sectionAmbientActive) return;
-                    const now = nextStepTime;
-                    const bassSemitone = theme.bass[step % patternLength];
-                    const bassFreq = rootFreq * Math.pow(2, bassSemitone / 12);
-                    createNote(ctx, bassFreq, now, beatDuration * 0.9, 0.7, 'sawtooth');
-                    const arpSemitone = theme.arp[step % patternLength];
-                    const arpFreq = rootFreq * Math.pow(2, arpSemitone / 12);
-                    createNote(ctx, arpFreq, now, beatDuration * 0.5, 0.5, 'square');
-                    if (theme.kick[step % patternLength]) createKick(ctx, now);
-                    if (theme.snare[step % patternLength]) createSnare(ctx, now);
-                    step++;
-                    nextStepTime += beatDuration;
-                    timeoutId = setTimeout(scheduleStep, (nextStepTime - ctx.currentTime) * 1000);
-                }
-                nextStepTime = ctx.currentTime + 0.05;
-                timeoutId = setTimeout(scheduleStep, 50);
-                sectionAmbientActive = {
-                    stop: () => {
-                        clearTimeout(timeoutId);
-                        padGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.2);
-                        stopSources.forEach(s => { try { s.stop(ctx.currentTime + 0.3); } catch (e) {} });
-                        sectionAmbientActive = null;
-                    }
-                };
-            }
-            const transitionSectionTheme = startSectionScore;
-
-            function stopSectionAmbient() {
-                if (sectionAmbientActive) { sectionAmbientActive.stop();
-                    sectionAmbientActive = null; }
-                clearTimeout(crossfadeTimeout);
-            }
-
+            // ─── Performance Player ──────────────────────────────────
             async function startSalvagePerformance() {
                 speechSynthesis.cancel();
                 if (window.ch3Timeout) clearTimeout(window.ch3Timeout);
@@ -1752,16 +2266,22 @@
                     await generateNewSalvageStory();
                     return startSalvagePerformance();
                 }
-                let sectionList = null;
-                let cueList = null;
+
+                await getAudioContext();
+
+                let sectionList = null,
+                    cueList = null,
+                    scoreData = null;
                 if (storyData.soundCues) {
                     if (Array.isArray(storyData.soundCues)) {
                         cueList = storyData.soundCues.filter(c => c.type && c.position !== undefined);
                     } else if (storyData.soundCues.sections && storyData.soundCues.cues) {
                         sectionList = storyData.soundCues.sections;
                         cueList = storyData.soundCues.cues.filter(c => c.type && c.position !== undefined);
+                        scoreData = storyData.soundCues.score;
                     }
                 }
+
                 const bubble = document.getElementById('ch3SpeechBubble');
                 const dialogue = document.getElementById('ch3Dialogue');
                 const imageEl = document.getElementById('ch3SegmentImage');
@@ -1785,14 +2305,43 @@
                     posterContainer.classList.add('visible');
                     if (posterTitle) { posterTitle.textContent = storyData.title || ''; }
                 } else if (posterContainer) { posterContainer.classList.add('no-image'); }
+
+                // Intro
                 const intro =
                     `"Every wreck has a story. Some stories refuse to stay buried. This one… this one came through my gate back in '86. I remember the bent frame, the shattered glass, and what they found tucked under the passenger seat. Settle in. This is '${storyData.title}'."`;
                 dialogue.textContent = '';
                 speakTextMale(intro);
                 await typewriterEffect(dialogue, intro, 45);
                 await new Promise(r => setTimeout(r, 1500));
-                if (sectionList && sectionList.length > 0) { transitionSectionTheme(sectionList[0].theme); }
+
+                // Score indicator update loop
+                let indicatorInterval = setInterval(() => {
+                    if (patternPlayerActive) {
+                        const theme = patternPlayerActive.theme || 'prologue';
+                        const varIdx = currentVariationIdx;
+                        const varName = currentSectionPatterns[varIdx] ? currentSectionPatterns[varIdx].name :
+                            'A';
+                        const bar = barsInVariation + 1;
+                        updateScoreIndicator(theme, varName, bar);
+                    } else {
+                        updateScoreIndicator('...', '—', 0);
+                    }
+                }, 1000);
+
+                // Start section music
+                if (sectionList && sectionList.length > 0) {
+                    transitionSectionTheme(sectionList[0].theme, scoreData);
+                } else if (scoreData) {
+                    transitionSectionTheme('prologue', scoreData);
+                }
+
                 const storyText = storyData.rawStoryText || storyData.story;
+                if (!storyText) {
+                    await showClosingAndFinish(storyData, dialogue, indicatorInterval);
+                    return;
+                }
+
+                // Build cue checker
                 let cueChecker = null;
                 if (cueList && cueList.length > 0) {
                     const sortedCues = [...cueList].sort((a, b) => a.position - b.position);
@@ -1808,42 +2357,59 @@
                         while (sectionIdx < sortedSections.length && sortedSections[sectionIdx]
                             .start_char <= idx) {
                             const sec = sortedSections[sectionIdx];
-                            if (sec.theme !== currentTheme) { currentTheme = sec.theme;
-                                transitionSectionTheme(currentTheme); }
+                            if (sec.theme !== currentTheme) {
+                                currentTheme = sec.theme;
+                                transitionSectionTheme(currentTheme, scoreData);
+                            }
                             sectionIdx++;
                         }
                         while (cueIdx < sortedCues.length && sortedCues[cueIdx].position <= idx) {
                             const cue = sortedCues[cueIdx];
-                            if (!triggered.has(cueIdx)) { triggered.add(cueIdx);
-                                playSound(cue.type, cue.intensity); }
+                            if (!triggered.has(cueIdx)) {
+                                triggered.add(cueIdx);
+                                playSound(cue.type, cue.intensity);
+                            }
                             cueIdx++;
                         }
                     };
                 }
+
                 dialogue.textContent = '';
-                if (cueChecker) {
-                    await speakAndTypeSynced(dialogue, storyText, { rate: 0.6, pitch: 0.88 }, (idx) => cueChecker(
-                        idx));
-                } else {
-                    await speakAndTypeSynced(dialogue, storyText, { rate: 0.6, pitch: 0.88 });
-                }
-                await new Promise(r => setTimeout(r, 1200));
+                const typingPromise = typewriterEffect(dialogue, storyText, 30, cueChecker);
+                const speechPromise = speakTextMale(storyText);
+
+                await speechPromise;
+                await typingPromise;
+
+                await showClosingAndFinish(storyData, dialogue, indicatorInterval);
+            }
+
+            async function showClosingAndFinish(storyData, dialogue, indicatorInterval) {
                 const closing = `"${storyData.closing_remark}"`;
                 const closingLine = document.createElement('p');
                 closingLine.style.marginTop = '16px';
                 closingLine.style.fontStyle = 'italic';
                 closingLine.style.color = '#e8c898';
                 dialogue.appendChild(closingLine);
-                speakTextMale(closing);
-                await typewriterEffect(closingLine, closing, 42);
+
+                const closingSpeech = speakTextMale(closing);
+                const closingTyping = typewriterEffect(closingLine, closing, 42);
+                await Promise.all([closingSpeech, closingTyping]);
+
                 await new Promise(r => setTimeout(r, 1000));
+
                 const curtainText = document.createElement('p');
                 curtainText.textContent = '— Mason shuts the yard gate —';
                 stopSectionAmbient();
+                stopPatternPlayer();
+                clearInterval(indicatorInterval);
+                const indicator = document.getElementById('scoreIndicator');
+                if (indicator) indicator.style.display = 'none';
                 curtainText.style.color = '#7a6a50';
                 curtainText.style.fontSize = '14px';
                 dialogue.appendChild(curtainText);
                 stopAmbient();
+
                 const btnRow = document.createElement('div');
                 btnRow.style.marginTop = '12px';
                 btnRow.style.display = 'flex';
@@ -1876,9 +2442,13 @@
             function leaveYard() {
                 stopAmbient();
                 stopSectionAmbient();
+                stopPatternPlayer();
+                const indicator = document.getElementById('scoreIndicator');
+                if (indicator) indicator.style.display = 'none';
                 renderChannel3();
             }
 
+            // ─── Init ──────────────────────────────────────────────────
             function init() {
                 loadState();
                 renderChannel3();
@@ -1898,6 +2468,7 @@
                 });
                 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
                 if (!apiKey) { setTimeout(() => document.getElementById('resetApiBtn').click(), 800); }
+                document.addEventListener('click', () => { getAudioContext().catch(() => {}); }, { once: true });
             }
             init();
         })();
