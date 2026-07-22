@@ -223,46 +223,42 @@
   });
 
   // FIXED image generation with fetch (handles Pollinations correctly)
- async function generateImage(prompt, attempt = 0) {
-  const MAX_ATTEMPTS = 2;          // try up to twice total
-  const TIMEOUT_MS = 60000;        // 60 seconds – safe margin
+async function generateImage(prompt, attempt = 0) {
+  const MAX_ATTEMPTS = 2;
+  const TIMEOUT_MS = 60000;
+
+  // Clean the prompt: remove trailing punctuation and extra spaces
+  let cleanPrompt = prompt.trim().replace(/[.,;:!?]+$/g, '').trim();
+  // Append the desired suffix only once
+  cleanPrompt += ', vintage 1987 small town portrait';
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  const seed = Date.now();         // use a fresh seed each try
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(
-    prompt + ', vintage 1987 small town portrait'
-  )}?width=256&height=256&seed=${seed}&nologo=true`;
+  const seed = Date.now();
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?width=256&height=256&seed=${seed}&nologo=true`;
 
   try {
     const response = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout); // clear manually in case the fetch finishes just at the edge
+    clearTimeout(timeout);
 
     if (!response.ok) {
       console.warn(`Pollinations status ${response.status} (attempt ${attempt + 1})`);
-      // Retry on server errors / rate limits
       if (attempt < MAX_ATTEMPTS && (response.status === 429 || response.status >= 500)) {
         const delay = response.status === 429 ? 5000 : 3000;
         await new Promise(r => setTimeout(r, delay));
-        return generateImage(prompt, attempt + 1);
+        return generateImage(prompt, attempt + 1); // retry with same original prompt, cleaning again
       }
       return null;
     }
 
     const blob = await response.blob();
-    console.log(`Blob: ${blob.type}, ${blob.size} bytes`);
-
-    if (blob.type.startsWith('image/') && blob.size > 500) { // any real image is >500 bytes
+    if (blob.type.startsWith('image/') && blob.size > 500) {
       return URL.createObjectURL(blob);
     }
-
-    // If it's not a valid image, return null (don't retry on tiny placeholder)
-    console.warn('Invalid image content');
     return null;
   } catch (err) {
     clearTimeout(timeout);
     console.warn('Fetch error:', err.message);
-    // Retry on network errors / abort
     if (attempt < MAX_ATTEMPTS) {
       await new Promise(r => setTimeout(r, 2000));
       return generateImage(prompt, attempt + 1);
@@ -270,7 +266,6 @@
     return null;
   }
 }
-
   async function mistralChat(messages, maxTok=400) {
     if (!apiKey) throw new Error('No API key');
     const res = await fetch(MISTRAL_ENDPOINT, {
