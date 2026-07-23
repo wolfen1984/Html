@@ -871,18 +871,23 @@
         function saveWorld() { localStorage.setItem('ember_creek_world', JSON.stringify(world)); }
 
         function loadWorld() {
-            const saved = localStorage.getItem('ember_creek_world');
-            if (saved) {
-                world = JSON.parse(saved);
-                if (!world.inbox) world.inbox = [];
-if (!world.gossipThreads) world.gossipThreads = [];
-                if (!world.transientNpcs) world.transientNpcs = [];
-                if (!world.lastProactiveCheck) world.lastProactiveCheck = getTotalGameMinutes();
-                if (!world.lastTransientSpawn) world.lastTransientSpawn = getTotalGameMinutes();
-                return true;
-            }
-            return false;
-        }
+    const saved = localStorage.getItem('ember_creek_world');
+    if (saved) {
+        world = JSON.parse(saved);
+        if (!world.inbox) world.inbox = [];
+        if (!world.gossipThreads) world.gossipThreads = [];
+        // Ensure each thread has lastGameMinute for continuation tracking
+        world.gossipThreads.forEach(t => {
+            if (!t.lastGameMinute) t.lastGameMinute = getTotalGameMinutes();
+        });
+        if (!world.transientNpcs) world.transientNpcs = [];
+        if (!world.lastProactiveCheck) world.lastProactiveCheck = getTotalGameMinutes();
+        if (!world.lastTransientSpawn) world.lastTransientSpawn = getTotalGameMinutes();
+        if (!world.lastGossipContinuationCheck) world.lastGossipContinuationCheck = getTotalGameMinutes();
+        return true;
+    }
+    return false;
+}
 
         function applyTheme(t) { document.querySelector('.pda').setAttribute('data-theme', t); }
 
@@ -1060,6 +1065,12 @@ if (!world.gossipThreads) world.gossipThreads = [];
                 cleanupTransientNpcs();
             }
             checkForProactiveMessages().catch(() => {});
+const gossipNow = getTotalGameMinutes();
+if (!world.lastGossipContinuationCheck) world.lastGossipContinuationCheck = gossipNow;
+if (gossipNow - world.lastGossipContinuationCheck >= 30) {   // check every 30 game minutes
+    world.lastGossipContinuationCheck = gossipNow;
+    continueGossipThreads().catch(() => {});
+}
         }
 
         function updateNpcLocations() {
@@ -1105,14 +1116,12 @@ function addGossipMessage(senderId, receiverId, text, triggeredByPlayer = false)
         text,
         timestamp: Date.now(),
         triggeredByPlayer,
-        read: false   // player hasn't read this yet
+        read: false
     });
+    thread.lastGameMinute = getTotalGameMinutes();   // ← add this
     saveWorld();
     updateGossipIndicator();
-    // You could also log a subtle system message:
-    // logMessage(`💬 ${getNpcById(senderId)?.name} whispered something to ${getNpcById(receiverId)?.name}...`, 'system');
 }
-
 function updateGossipIndicator() {
     const btn = document.getElementById('gossipBtn');
     if (!btn) return;
@@ -1217,6 +1226,61 @@ Output ONLY the reply text, no quotes, no JSON.`;
         }
     } catch (e) {
         // fail silently
+    }
+}
+
+async function continueGossipThreads() {
+    if (!world.gossipThreads || world.gossipThreads.length === 0) return;
+    if (!apiKey) return;
+
+    const now = getTotalGameMinutes();
+    for (const thread of world.gossipThreads) {
+        // How long since the last message?
+        const since = now - (thread.lastGameMinute || 0);
+        if (since < 45) continue;                    // at least 45 game minutes must have passed
+        if (Math.random() > 0.3) continue;            // 30% chance to reply
+
+        const npcA = getNpcById(thread.participants[0]);
+        const npcB = getNpcById(thread.participants[1]);
+        if (!npcA || !npcB) continue;
+
+        // Determine who speaks next: the one who did NOT send the last message
+        const lastMsg = thread.messages[thread.messages.length - 1];
+        const nextSpeaker = (lastMsg.senderId === npcA.id) ? npcB : npcA;
+        const other = (nextSpeaker === npcA) ? npcB : npcA;
+
+        // Build a prompt using the last 4 messages as context
+        const recent = thread.messages.slice(-4).map(m => {
+            const sender = m.senderId === npcA.id ? npcA.name : npcB.name;
+            return `${sender}: ${m.text}`;
+        }).join('\n');
+
+        const systemPrompt = `You are ${nextSpeaker.name}, a ${nextSpeaker.isTransient ? nextSpeaker.type+' passing through' : 'resident of'} Ember Creek in 1987.
+Personality: ${nextSpeaker.personality}. Bio: ${nextSpeaker.bio}. Age: ${nextSpeaker.age}, Sex: ${nextSpeaker.sex}.
+You are having a private conversation with ${other.name}.
+
+Recent messages:
+${recent}
+
+Write your next message in the conversation. Keep it 1-3 sentences. Stay in character.
+Output ONLY the message text, no quotes, no JSON.`;
+
+        try {
+            const reply = await mistralChat([
+                { role: "system", content: systemPrompt },
+                { role: "user", content: "Continue the conversation." }
+            ], 150, false);
+
+            const clean = reply.replace(/^["']|["']$/g, '').trim();
+            if (clean) {
+                addGossipMessage(nextSpeaker.id, other.id, clean, false);  // not triggered by player
+            }
+        } catch (e) {
+            // fail silently
+        }
+
+        // Small delay to respect API rate limits (optional)
+        await new Promise(r => setTimeout(r, 500));
     }
 }
 
@@ -1520,7 +1584,8 @@ if (result.gossipFromNpc) {
 gossipThreads: [],
                     transientNpcs: [],
                     lastProactiveCheck: 1 * 1440 + 8 * 60,
-                    lastTransientSpawn: 1 * 1440 + 8 * 60
+                    lastTransientSpawn: 1 * 1440 + 8 * 60,
+lastGossipContinuationCheck: 1 * 1440 + 8 * 60
                 };
                 updateNpcLocations();
                 spawnTransientNpc();
