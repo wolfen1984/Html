@@ -544,6 +544,7 @@
                     <button class="btn" id="lookBtn">👁</button>
                     <button class="btn" id="invBtn">🎒</button>
                     <button class="btn inbox-btn" id="inboxBtn">📬</button>
+<button class="btn" id="gossipBtn">💬</button>
                 </div>
             </div>
         </div>
@@ -561,6 +562,8 @@
     <div id="genericModal" class="modal"><div class="modal-content" id="genericModalContent"></div></div>
     <div id="chatModal" class="modal"><div class="chat-modal-content" id="chatModalContent"></div></div>
     <div id="inboxListModal" class="modal"><div class="modal-content" id="inboxListContent"></div></div>
+<div id="gossipListModal" class="modal"><div class="modal-content" id="gossipListContent"></div></div>
+<div id="gossipThreadModal" class="modal"><div class="chat-modal-content" id="gossipThreadContent"></div></div>
 
     <script>
         const MISTRAL_ENDPOINT = 'https://api.mistral.ai/v1/chat/completions';
@@ -872,6 +875,7 @@
             if (saved) {
                 world = JSON.parse(saved);
                 if (!world.inbox) world.inbox = [];
+if (!world.gossipThreads) world.gossipThreads = [];
                 if (!world.transientNpcs) world.transientNpcs = [];
                 if (!world.lastProactiveCheck) world.lastProactiveCheck = getTotalGameMinutes();
                 if (!world.lastTransientSpawn) world.lastTransientSpawn = getTotalGameMinutes();
@@ -1077,6 +1081,60 @@
             return t;
         }
 
+// ──────────────── GOSSIP (NPC‑TO‑NPC) ────────────────
+function getGossipThread(npcIdA, npcIdB) {
+    const sorted = [npcIdA, npcIdB].sort();
+    let thread = world.gossipThreads.find(
+        t => t.participants[0] === sorted[0] && t.participants[1] === sorted[1]
+    );
+    if (!thread) {
+        thread = {
+            id: uid(),
+            participants: sorted,
+            messages: []
+        };
+        world.gossipThreads.push(thread);
+    }
+    return thread;
+}
+
+function addGossipMessage(senderId, receiverId, text, triggeredByPlayer = false) {
+    const thread = getGossipThread(senderId, receiverId);
+    thread.messages.push({
+        senderId,
+        text,
+        timestamp: Date.now(),
+        triggeredByPlayer,
+        read: false   // player hasn't read this yet
+    });
+    saveWorld();
+    updateGossipIndicator();
+    // You could also log a subtle system message:
+    // logMessage(`💬 ${getNpcById(senderId)?.name} whispered something to ${getNpcById(receiverId)?.name}...`, 'system');
+}
+
+function updateGossipIndicator() {
+    const btn = document.getElementById('gossipBtn');
+    if (!btn) return;
+    let unread = 0;
+    world.gossipThreads.forEach(thread => {
+        thread.messages.forEach(m => { if (!m.read) unread++; });
+    });
+    const badge = btn.querySelector('.unread-badge');
+    if (badge) badge.remove();
+    if (unread > 0) {
+        btn.classList.add('has-unread');
+        const b = document.createElement('span');
+        b.className = 'unread-badge';
+        b.textContent = unread > 9 ? '!' : unread;
+        btn.appendChild(b);
+        btn.title = `${unread} unread gossip message${unread>1?'s':''}`;
+    } else {
+        btn.classList.remove('has-unread');
+        btn.title = 'Gossip';
+    }
+}
+
         function addMessageToThread(npcId, sender, text, isProactive = false) {
             const thread = getThread(npcId);
             thread.messages.push({ sender, text, timestamp: Date.now(), read: sender === 'player' ? true : false,
@@ -1137,6 +1195,73 @@
                     chatModal.style.display = 'none'; } };
         }
 
+async function generateGossipReply(fromNpc, toNpc, initialMessage) {
+    if (!apiKey) return;
+    const systemPrompt = `You are ${toNpc.name}, a ${toNpc.isTransient ? toNpc.type+' passing through' : 'resident of'} Ember Creek in 1987.
+Personality: ${toNpc.personality}. Bio: ${toNpc.bio}. Age: ${toNpc.age}, Sex: ${toNpc.sex}.
+
+${fromNpc.name} just sent you this private message:
+"${initialMessage}"
+
+Write your natural reply. Keep it 1-3 sentences. Stay in character.
+Output ONLY the reply text, no quotes, no JSON.`;
+
+    try {
+        const reply = await mistralChat([
+            { role: "system", content: systemPrompt },
+            { role: "user", content: "What do you say?" }
+        ], 150, false);
+        const clean = reply.replace(/^["']|["']$/g, '').trim();
+        if (clean) {
+            addGossipMessage(toNpc.id, fromNpc.id, clean, true);
+        }
+    } catch (e) {
+        // fail silently
+    }
+}
+
+async function maybeGenerateGossip(fromNpc, playerMessage) {
+    if (!apiKey) return;
+    // 1. Find any NPC names mentioned in the player's message (case-insensitive)
+    const mentioned = [];
+    const allNpcs = [...world.npcs, ...(world.transientNpcs || [])];
+    allNpcs.forEach(n => {
+        // Escape special regex characters in name just in case
+        const nameRegex = new RegExp('\\b' + n.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+        if (playerMessage.match(nameRegex) && n.id !== fromNpc.id) {
+            mentioned.push(n);
+        }
+    });
+    if (mentioned.length === 0) return;  // nobody else mentioned
+
+    // Pick the first mentioned NPC (or you could handle multiple)
+    const toNpc = mentioned[0];
+
+    // 2. Generate a short message from fromNpc to toNpc about what the player said
+    const systemPrompt = `You are ${fromNpc.name}, a ${fromNpc.isTransient ? fromNpc.type+' passing through' : 'resident of'} Ember Creek in 1987.
+Personality: ${fromNpc.personality}. Bio: ${fromNpc.bio}. Age: ${fromNpc.age}, Sex: ${fromNpc.sex}.
+The player just told you this in private:
+"${playerMessage}"
+
+You now want to send a private message to ${toNpc.name} about this information.
+Write your message (1-2 sentences, in character). Output ONLY the message text, no quotes.`;
+
+    try {
+        const messageText = await mistralChat([
+            { role: "system", content: systemPrompt },
+            { role: "user", content: "Write your message." }
+        ], 150, false);
+
+        const clean = messageText.replace(/^["']|["']$/g, '').trim();
+        if (clean) {
+            addGossipMessage(fromNpc.id, toNpc.id, clean, true);
+            // Get target's reply
+            await generateGossipReply(fromNpc, toNpc, clean);
+        }
+    } catch (e) {
+        // Silently fail
+    }
+}
         async function sendChatMessage(npcId) {
             const input = document.getElementById('chatInput');
             const text = input.value.trim();
@@ -1160,6 +1285,7 @@
                 msgDiv.scrollTop = msgDiv.scrollHeight;
                 saveWorld();
                 updateInboxIndicator();
+maybeGenerateGossip(npc, text).catch(() => {});
             } catch (e) {
                 logMessage(`Chat error: ${e.message}`, 'system');
                 addMessageToThread(npcId, 'npc', "*static*...");
@@ -1203,6 +1329,75 @@
             };
         }
 
+function showGossipList() {
+    if (!world.gossipThreads || world.gossipThreads.length === 0) {
+        modal(`<h2>💬 Gossip</h2><p>No gossip yet.</p><button class="modal-btn" onclick="playClick();window._closeModal()">Close</button>`);
+        return;
+    }
+    const sorted = [...world.gossipThreads].sort((a, b) => {
+        const aT = a.messages.length ? a.messages[a.messages.length - 1].timestamp : 0;
+        const bT = b.messages.length ? b.messages[b.messages.length - 1].timestamp : 0;
+        return bT - aT;
+    });
+    let html = `<h2>💬 Gossip</h2>`;
+    sorted.forEach(t => {
+        const npcA = getNpcById(t.participants[0]);
+        const npcB = getNpcById(t.participants[1]);
+        if (!npcA || !npcB) return;
+        const last = t.messages[t.messages.length - 1];
+        const unread = t.messages.filter(m => !m.read).length;
+        const prefix = last?.triggeredByPlayer ? '👂 You started this' : '';
+        html += `<div style="background:#0f140f; margin:8px 0; padding:10px; border-radius:6px; cursor:pointer; border:1px solid #1a2a1a;"
+                    onclick="playClick();closeGossipListAndOpen('${t.id}')">
+            <strong>${esc(npcA.name)}</strong> ↔️ <strong>${esc(npcB.name)}</strong>
+            ${unread ? `<span class="unread-dot"></span> (${unread} new)` : ''}
+            <div style="font-size:12px; color:var(--text-dim); margin-top:4px;">
+                ${last ? esc(last.text.substring(0, 50)) + (last.text.length > 50 ? '...' : '') : 'No messages'}
+            </div>
+            ${prefix ? `<div style="font-size:10px; color:#ff9944;">${prefix}</div>` : ''}
+        </div>`;
+    });
+    html += `<button class="modal-btn" onclick="playClick();document.getElementById('gossipListModal').style.display='none'">Close</button>`;
+    document.getElementById('gossipListContent').innerHTML = html;
+    const gossipListModal = document.getElementById('gossipListModal');
+gossipListModal.style.display = 'flex';
+gossipListModal.onclick = e => { if (e.target === gossipListModal) { playClick(); gossipListModal.style.display = 'none'; } };
+}
+
+function closeGossipListAndOpen(threadId) {
+    document.getElementById('gossipListModal').style.display = 'none';
+    openGossipThread(threadId);
+}
+
+function openGossipThread(threadId) {
+    const thread = world.gossipThreads.find(t => t.id === threadId);
+    if (!thread) return;
+    // Mark all as read
+    thread.messages.forEach(m => m.read = true);
+    saveWorld();
+    updateGossipIndicator();
+
+    const npcA = getNpcById(thread.participants[0]);
+    const npcB = getNpcById(thread.participants[1]);
+    const content = document.getElementById('gossipThreadContent');
+    content.innerHTML = `
+        <div class="chat-header">💬 ${esc(npcA.name)} ↔️ ${esc(npcB.name)}</div>
+        <div class="chat-messages" id="gossipMessages">
+            ${thread.messages.map(m => {
+                const sender = m.senderId === thread.participants[0] ? npcA : npcB;
+                return `<div class="chat-msg npc"><strong>${esc(sender.name)}:</strong> ${esc(m.text)}</div>`;
+            }).join('')}
+        </div>
+        <button class="modal-btn" id="closeGossipThreadBtn" style="margin-top:8px;">Close</button>
+    `;
+    const modal = document.getElementById('gossipThreadModal');
+    modal.style.display = 'flex';
+    const msgDiv = document.getElementById('gossipMessages');
+    msgDiv.scrollTop = msgDiv.scrollHeight;
+    document.getElementById('closeGossipThreadBtn').onclick = () => { playClick(); modal.style.display = 'none'; };
+    modal.onclick = e => { if (e.target === modal) { playClick(); modal.style.display = 'none'; } };
+}
+
         function closeInboxAndChat(npcId) {
             document.getElementById('inboxListModal').style.display = 'none';
             openChat(npcId);
@@ -1224,19 +1419,23 @@
                 ).join('\n');
                 const systemPrompt = `You are the AI Game Master for "Ember Creek", a small rural town set in 1987. The game is an open-world sandbox where the player can attempt any action, and you simulate realistic consequences. No action is off-limits; the world reacts logically and without censorship.
 
-        Current world state:
-        - Player: ${world.player.name}
-        - Location: ${world.player.location}
-        - Time: Day ${world.time.day}, ${timeStr()}
-        - Location desc: ${world.locationDescriptions[world.player.location]}
-        - Inventory: ${world.player.inventory.join(', ')||'nothing'}
-        - NPCs present (indices):
-        ${npcCtx||'No one else here.'}
+Current world state:
+- Player: ${world.player.name}
+- Location: ${world.player.location}
+- Time: Day ${world.time.day}, ${timeStr()}
+- Location desc: ${world.locationDescriptions[world.player.location]}
+- Inventory: ${world.player.inventory.join(', ')||'nothing'}
+- NPCs present (indices):
+${npcCtx||'No one else here.'}
 
-        Respond ONLY with a JSON object:
-        - "narrative": detailed second-person description.
-        - "worldStateChanges": object with paths like "player.inventory", "player.location", "npcs.0.trust" (add number), etc. Use indices from the present list. Leave {} if none.
-        - "messageFromNpc" (optional): { "npcIndex": 0, "text": "..." } if an NPC present would send a later message.`;
+Respond ONLY with a JSON object:
+- "narrative": detailed second-person description.
+- "worldStateChanges": object with paths like "player.inventory", "player.location", "npcs.0.trust" (add number), etc. Use indices from the present list. Leave {} if none.
+- "messageFromNpc" (optional): { "npcIndex": 0, "text": "..." } if an NPC present would send a later message.
+- "gossipFromNpc" (optional): if an NPC present would privately contact another NPC (by name) because of the player's action. Include:
+   { "fromNpcIndex": <index of the NPC present>, "toNpcName": "<full name of target NPC>", "text": "<the message they send>" }.
+   Example: if player says "the waitress is stealing" to the sheriff, the sheriff might message the waitress privately.`;
+
 
                 const result = await mistralChat([{ role: "system", content: systemPrompt }, { role: "user",
                     content: action }], 600, true);
@@ -1246,6 +1445,14 @@
                     const { npcIndex, text } = result.messageFromNpc;
                     if (npcsHere[npcIndex]) addMessageToThread(npcsHere[npcIndex].id, 'npc', text);
                 }
+if (result.gossipFromNpc) {
+    const { fromNpcIndex, toNpcName, text } = result.gossipFromNpc;
+    const fromNpc = npcsHere[fromNpcIndex];
+    const toNpc = world.npcs.find(n => n.name === toNpcName);
+    if (fromNpc && toNpc && fromNpc.id !== toNpc.id && text) {
+        addGossipMessage(fromNpc.id, toNpc.id, text, true); // true = triggered by player
+    }
+}
                 advanceTime(5);
                 saveWorld();
                 updateUI();
@@ -1310,6 +1517,7 @@
                     locationDescriptions: townData.locationDescriptions,
                     time: { day: 1, hour: 8, minute: 0 },
                     inbox: [],
+gossipThreads: [],
                     transientNpcs: [],
                     lastProactiveCheck: 1 * 1440 + 8 * 60,
                     lastTransientSpawn: 1 * 1440 + 8 * 60
@@ -1355,6 +1563,7 @@
                 updateUI();
                 logMessage("🌲 Welcome back to Ember Creek.", 'system');
                 updateInboxIndicator();
+updateGossipIndicator();
             } else await startNewGame();
 
             document.getElementById('sendActionBtn').addEventListener('click', () => {
@@ -1371,6 +1580,7 @@
             });
             document.getElementById('inboxBtn').addEventListener('click', () => { playClick();
                 showInboxList(); });
+document.getElementById('gossipBtn').addEventListener('click', () => { playClick(); showGossipList(); });
             document.getElementById('actionInput').addEventListener('keypress', e => { if (e.key === 'Enter') {
                     playSend();
                     handleAction(e.target.value); } });
