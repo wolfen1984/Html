@@ -884,6 +884,7 @@
         if (!world.lastProactiveCheck) world.lastProactiveCheck = getTotalGameMinutes();
         if (!world.lastTransientSpawn) world.lastTransientSpawn = getTotalGameMinutes();
         if (!world.lastGossipContinuationCheck) world.lastGossipContinuationCheck = getTotalGameMinutes();
+if (!world.lastAutonomousGossipCheck) world.lastAutonomousGossipCheck = getTotalGameMinutes();
         return true;
     }
     return false;
@@ -1048,6 +1049,72 @@
             checkForProactiveMessages().catch(() => {});
         }
 
+async function autonomousGossip() {
+    if (!apiKey) return;
+    const allNpcs = [...world.npcs, ...(world.transientNpcs || [])];
+    if (allNpcs.length < 2) return;
+
+    // Decide how many new threads to create this check (1 or 2)
+    const threadsToCreate = Math.random() < 0.6 ? 1 : 2;
+
+    for (let i = 0; i < threadsToCreate; i++) {
+        // Pick two different random NPCs
+        const shuffled = [...allNpcs].sort(() => Math.random() - 0.5);
+        const npcA = shuffled[0];
+        const npcB = shuffled.find(n => n.id !== npcA.id);
+        if (!npcB) continue;
+
+        // Skip if a thread already exists between them (to avoid duplicates)
+        const existing = world.gossipThreads?.find(t =>
+            t.participants.includes(npcA.id) && t.participants.includes(npcB.id)
+        );
+        if (existing) continue;
+
+        // Generate a natural opening message from npcA to npcB
+        const systemPrompt = `You are ${npcA.name}, a ${npcA.isTransient ? npcA.type+' passing through' : 'resident of'} Ember Creek in 1987.
+Personality: ${npcA.personality}. Bio: ${npcA.bio}. Age: ${npcA.age}, Sex: ${npcA.sex}.
+You decide to start a private conversation with ${npcB.name}. Write your first message to them. It could be about something happening in town, a shared acquaintance, a concern, a rumor, or just checking in. Keep it 1-2 sentences. Stay in character.
+Output ONLY the message text, no quotes, no JSON.`;
+
+        try {
+            const msgA = await mistralChat([
+                { role: "system", content: systemPrompt },
+                { role: "user", content: "Start the conversation." }
+            ], 120, false);
+
+            const cleanA = msgA.replace(/^["']|["']$/g, '').trim();
+            if (!cleanA) continue;
+
+            addGossipMessage(npcA.id, npcB.id, cleanA, false); // not triggered by player
+
+            // Now generate a quick reply from npcB to complete the exchange
+            const replyPrompt = `You are ${npcB.name}, a ${npcB.isTransient ? npcB.type+' passing through' : 'resident of'} Ember Creek in 1987.
+Personality: ${npcB.personality}. Bio: ${npcB.bio}. Age: ${npcB.age}, Sex: ${npcB.sex}.
+${npcA.name} just sent you this private message:
+"${cleanA}"
+
+Write your natural reply. Keep it 1-3 sentences. Stay in character.
+Output ONLY the reply text, no quotes, no JSON.`;
+
+            const reply = await mistralChat([
+                { role: "system", content: replyPrompt },
+                { role: "user", content: "Reply to them." }
+            ], 120, false);
+
+            const cleanReply = reply.replace(/^["']|["']$/g, '').trim();
+            if (cleanReply) {
+                addGossipMessage(npcB.id, npcA.id, cleanReply, false);
+            }
+
+            // Small delay to avoid hitting rate limits
+            await new Promise(r => setTimeout(r, 800));
+
+        } catch (e) {
+            // Silently continue
+        }
+    }
+}
+
         function advanceTime(minutes) {
             world.time.minute += minutes;
             while (world.time.minute >= 60) { world.time.minute -= 60;
@@ -1070,6 +1137,15 @@ if (!world.lastGossipContinuationCheck) world.lastGossipContinuationCheck = goss
 if (gossipNow - world.lastGossipContinuationCheck >= 30) {   // check every 30 game minutes
     world.lastGossipContinuationCheck = gossipNow;
     continueGossipThreads().catch(() => {});
+}
+// Autonomous new gossip (every ~120 game minutes, 15% chance)
+const autoGossipNow = getTotalGameMinutes();
+if (!world.lastAutonomousGossipCheck) world.lastAutonomousGossipCheck = autoGossipNow;
+if (autoGossipNow - world.lastAutonomousGossipCheck >= 120) {
+    world.lastAutonomousGossipCheck = autoGossipNow;
+    if (Math.random() < 0.15) {
+        autonomousGossip().catch(() => {});
+    }
 }
         }
 
@@ -1580,6 +1656,7 @@ if (result.gossipFromNpc) {
                         currentLocation: n.homeLocation, inventory: [] })),
                     locationDescriptions: townData.locationDescriptions,
                     time: { day: 1, hour: 8, minute: 0 },
+lastAutonomousGossipCheck: 1 * 1440 + 8 * 60,
                     inbox: [],
 gossipThreads: [],
                     transientNpcs: [],
