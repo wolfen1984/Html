@@ -411,6 +411,8 @@ function viewFilm(filmId){
   return `<div class="review-block"><strong>${esc(author?.name||'Unknown')}</strong> ${r.rating>0?`· ${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}`:''}${ratingText}<br>${esc(r.text)}</div>`;
 }).join('')||'<p style="color:var(--text-dim);">No reviews yet.</p>'}
     <button class="btn" id="viewForumBtn">💬 Forum Discussion (${film.forumPosts?.length||0} posts)</button>
+<button class="btn" id="moreLikeThisBtn">🎞️ More Like This</button>
+<div id="moreLikeThisContainer"></div>
   `;
   main.innerHTML = html;
   document.getElementById('backFilmBtn').onclick = ()=>{ playClick(); delete main.dataset.currentFilmId; browseFilms(); };
@@ -423,6 +425,10 @@ function viewFilm(filmId){
   document.getElementById('toggleWatchlistBtn').onclick = ()=>{ playClick(); toggleWatchlist(filmId); };
   document.getElementById('viewForumBtn').onclick = ()=>{ playClick(); viewFilmForum(filmId); };
 document.getElementById('watchBtn').onclick = ()=>{ playClick(); watchFilm(filmId); };
+document.getElementById('moreLikeThisBtn').onclick = () => {
+  playClick();
+  showMoreLikeThis(filmId);
+};
 }
 
 function rateFilm(filmId){
@@ -555,6 +561,76 @@ Start with a retro title screen and then write the full movie in screenplay form
     modal.onclick = (e) => { if (e.target === modal) closePlayer(); };
   }
 }
+async function showMoreLikeThis(filmId) {
+  const film = world.social.films.find(f => f.id === filmId);
+  if (!film) return;
+
+  const container = document.getElementById('moreLikeThisContainer');
+  container.innerHTML = '<p style="color:var(--text-dim);">Loading similar films…</p>';
+
+  let similar = world.social.films.filter(f => f.genre === film.genre && f.id !== filmId);
+
+  // If we need more, generate with AI
+  if (similar.length < 4) {
+    const needed = 4 - similar.length;
+    try {
+      const prompt = `Generate ${needed} new 1980s films similar to "${film.title}" (genre: ${film.genre}). Return JSON with key "films": array of objects each with "title", "year" (1980-1989), "director", "cast" (3-4 names), "genre" (must be ${film.genre}), "description" (2 sentences), "asciiPoster" (4-line ASCII art, max 20 chars wide). Output ONLY valid JSON.`;
+      const data = await mistralChat([{role:"user",content:prompt}], 4000, true);
+      const newFilms = data?.films || data || [];
+      if (Array.isArray(newFilms)) {
+        newFilms.forEach(nf => {
+          const newFilm = {
+            id: uid(),
+            title: nf.title,
+            year: nf.year || 1985,
+            director: nf.director,
+            cast: nf.cast,
+            genre: nf.genre,
+            description: nf.description,
+            asciiPoster: sanitizeAscii(nf.asciiPoster),
+            reviews: [],
+            forumPosts: []
+          };
+          world.social.films.push(newFilm);
+          similar.push(newFilm);
+        });
+        saveWorld();
+      }
+    } catch (e) {
+      container.innerHTML = `<p style="color:var(--danger);">Could not load similar films: ${e.message}</p>`;
+      return;
+    }
+  }
+
+  // Pick up to 4 to display
+  const display = similar.slice(0, 4);
+
+  // Render the horizontal row
+  let html = '<h3 style="margin-top:10px;">More Like This</h3><div style="display:flex; gap:10px; overflow-x:auto; padding-bottom:8px;">';
+  display.forEach(f => {
+    html += `<div class="film-card" style="flex:0 0 140px; display:block; text-align:center; cursor:pointer;" data-filmId="${f.id}">
+      <div class="film-poster" style="width:100%; height:100px; margin:0 auto;">
+        ${f.posterUrl
+          ? `<img src="${esc(f.posterUrl)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentNode.innerHTML='${esc(getAsciiLines(f.asciiPoster))}'">`
+          : esc(getAsciiLines(f.asciiPoster))
+        }
+      </div>
+      <strong style="font-size:11px;">${esc(f.title)}</strong><br>
+      <span style="font-size:10px; color:var(--text-dim);">${f.year}</span>
+    </div>`;
+  });
+  html += '</div>';
+  container.innerHTML = html;
+
+  // Make them clickable
+  container.querySelectorAll('.film-card').forEach(el => {
+    el.onclick = () => {
+      playClick();
+      viewFilm(el.dataset.filmid);
+    };
+  });
+}
+
 // ---------- Typewriter + TTS helper ----------
 function playMovie(text) {
   const movieTextEl = document.getElementById('movieText');
