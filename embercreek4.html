@@ -228,11 +228,18 @@ world.social.films.forEach(f => {
     return true;
   }
   return false;
-}async function mistralChat(messages, maxTok=300, jsonMode=true){
+}
+
+async function mistralChat(messages, maxTok=300, jsonMode=true, signal=null){
   if(!apiKey) throw new Error('No API key');
   const body = { model:MODEL, messages, temperature:0.9, max_tokens:maxTok };
   if(jsonMode) body.response_format = { type:"json_object" };
-  const res = await fetch(MISTRAL_ENDPOINT, { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey}, body:JSON.stringify(body) });
+  const res = await fetch(MISTRAL_ENDPOINT, {
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
+    body:JSON.stringify(body),
+    signal   // ← pass the abort signal
+  });
   if(!res.ok) {
     if(res.status===429) throw new Error('Rate limited. Please wait a moment.');
     throw new Error('API '+res.status);
@@ -485,6 +492,16 @@ async function watchFilm(filmId) {
   const modal = document.getElementById('watchModal');
   const content = document.getElementById('watchModalContent');
 
+  // Create an AbortController to cancel the fetch when the user closes early
+  const controller = new AbortController();
+
+  const closePlayer = () => {
+    playClick();
+    window.speechSynthesis.cancel();   // stop any TTS
+    controller.abort();                // cancel the Mistral request
+    modal.style.display = 'none';
+  };
+
   // Show loading
   content.innerHTML = `<h2 style="color:var(--text)">🎬 Now Playing: ${esc(film.title)}</h2>
     <p style="color:var(--text-dim);">Generating the movie... please wait.</p>`;
@@ -496,47 +513,113 @@ async function watchFilm(filmId) {
 Description: ${film.description}. 
 Cast: ${film.cast?.join(', ') || 'Unknown'}.
 
-Start with a retro title screen and then write the full movie in screenplay format: scene headings, action, and dialogue. Make it feel like a vintage computer playing a film. Keep it around 2000 tokens, but make it a satisfying story. Output ONLY the movie script, no extra commentary.`;
+Start with a retro title screen and then write the full movie in screenplay format: scene headings, action, and dialogue. Make it feel like a vintage computer playing a film. **Do NOT use markdown formatting – no asterisks for bold or italic, no symbols at all. Output plain text only.** Keep it around 6000 tokens, but make it a satisfying story. Output ONLY the movie script, no extra commentary.`;
 
     const script = await mistralChat(
       [{ role: "user", content: prompt }],
-      2000,
-      false   // plain text, not JSON
+      8000,
+      false,              // plain text, not JSON
+      controller.signal   // pass the abort signal
     );
 
-    // Display the script in a styled pre block
+    // Remove any stray asterisks, just in case
+    const cleanScript = script.replace(/\*{1,2}/g, '');
+
+    // Build the typewriter + TTS viewer
     content.innerHTML = `
       <h2 style="color:var(--accent2); text-align:center;">🎬 ${esc(film.title)} (${film.year})</h2>
-      <pre style="white-space:pre-wrap; font-family:'Share Tech Mono', monospace; font-size:13px; color:var(--text); background:#0a0d0a; padding:16px; border-radius:8px; max-height:70vh; overflow-y:auto; border:1px solid #1a2a1a;">${esc(script)}</pre>
+      <div id="movieContainer" style="background:#0a0d0a; padding:16px; border-radius:8px; border:1px solid #1a2a1a; max-height:70vh; overflow-y:auto; font-family:'Share Tech Mono', monospace; font-size:13px; color:var(--text); white-space:pre-wrap;">
+        <span id="movieText"></span><span id="cursor" style="color:var(--text);">█</span>
+      </div>
       <button class="btn" id="closeWatchBtn" style="display:block; margin:10px auto;">Close</button>
     `;
 
-    // Bind close button
-    document.getElementById('closeWatchBtn').onclick = () => {
-      playClick();
-      modal.style.display = 'none';
-    };
+    document.getElementById('closeWatchBtn').onclick = closePlayer;
+    modal.onclick = (e) => { if (e.target === modal) closePlayer(); };
+
+    playMovie(cleanScript);   // your existing TTS + typewriter function
+
   } catch (e) {
+    // If the user aborted, just close silently
+    if (e.name === 'AbortError') {
+      modal.style.display = 'none';
+      return;
+    }
+    // Otherwise show the error
     content.innerHTML = `
       <h2 style="color:var(--danger);">Error</h2>
       <p>Could not generate movie: ${esc(e.message)}</p>
       <button class="btn" id="closeWatchBtn">Close</button>
     `;
-    document.getElementById('closeWatchBtn').onclick = () => {
-      playClick();
-      modal.style.display = 'none';
-    };
+    document.getElementById('closeWatchBtn').onclick = closePlayer;
+    modal.onclick = (e) => { if (e.target === modal) closePlayer(); };
+  }
+}
+// ---------- Typewriter + TTS helper ----------
+function playMovie(text) {
+  const movieTextEl = document.getElementById('movieText');
+  const cursorEl = document.getElementById('cursor');
+  if (!movieTextEl) return;
+
+  // Check for speech synthesis support
+  if (!window.speechSynthesis) {
+    // Fallback: just reveal text quickly
+    movieTextEl.textContent = text;
+    if (cursorEl) cursorEl.style.display = 'none';
+    return;
   }
 
-  // Also close when clicking outside the modal content
-  modal.onclick = (e) => {
-    if (e.target === modal) {
-      playClick();
-      modal.style.display = 'none';
+  // Cancel any ongoing speech
+  window.speechSynthesis.cancel();
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 0.9;   // slightly slower for dramatic effect
+  utterance.pitch = 1;
+  utterance.volume = 1;
+
+  // Sync typewriter with spoken words
+  utterance.onboundary = (event) => {
+    if (event.name === 'word') {
+      const upTo = event.charIndex;
+      movieTextEl.textContent = text.substring(0, upTo);
+      // Keep cursor after the revealed text
+      if (cursorEl) cursorEl.style.display = 'inline';
     }
   };
-}
 
+  utterance.onend = () => {
+    // Show full text when done
+    movieTextEl.textContent = text;
+    if (cursorEl) cursorEl.style.display = 'none';
+  };
+
+  utterance.onerror = (e) => {
+    console.warn('Speech error:', e);
+    // Show full text and hide cursor on error
+    movieTextEl.textContent = text;
+    if (cursorEl) cursorEl.style.display = 'none';
+  };
+
+  // Start speaking
+  window.speechSynthesis.speak(utterance);
+
+  // Blink cursor
+  let blinkInterval = setInterval(() => {
+    if (cursorEl) cursorEl.style.visibility = (cursorEl.style.visibility === 'hidden') ? 'visible' : 'hidden';
+  }, 500);
+
+  // Clean up blink when speech ends
+  utterance.onend = () => {
+    clearInterval(blinkInterval);
+    movieTextEl.textContent = text;
+    if (cursorEl) cursorEl.style.display = 'none';
+  };
+  utterance.onerror = () => {
+    clearInterval(blinkInterval);
+    movieTextEl.textContent = text;
+    if (cursorEl) cursorEl.style.display = 'none';
+  };
+}
 // ──────────────────────── FILM FORUM ────────────────────────
 function viewFilmForum(filmId){
   const film = world.social.films.find(f=>f.id===filmId);
