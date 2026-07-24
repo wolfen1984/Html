@@ -385,7 +385,7 @@ function viewFilm(filmId){
   }
 </div>
       <div>
-        <p><strong>Director:</strong> ${esc(film.director)}</p>
+        <p><strong>Director:</strong> <span class="director-link" style="cursor:pointer; text-decoration:underline; color:var(--accent2);" data-director="${esc(film.director)}">${esc(film.director)}</span></p>
         <p><strong>Cast:</strong> ${esc(film.cast?.join(', ')||'Unknown')}</p>
         <p><strong>Genre:</strong> ${esc(film.genre)}</p>
         <p><strong>Description:</strong> ${esc(film.description)}</p>
@@ -429,6 +429,13 @@ document.getElementById('moreLikeThisBtn').onclick = () => {
   playClick();
   showMoreLikeThis(filmId);
 };
+const directorLink = document.querySelector('.director-link');
+if (directorLink) {
+  directorLink.onclick = () => {
+    playClick();
+    showFilmsByDirector(directorLink.dataset.director);
+  };
+}
 }
 
 function rateFilm(filmId){
@@ -491,6 +498,86 @@ function toggleWatchlist(filmId){
   viewFilm(filmId);
 }
 
+async function showFilmsByDirector(director) {
+  const main = document.getElementById('mainScreen');
+  let films = world.social.films.filter(f => f.director === director);
+
+  // If there aren’t enough, generate more with the AI
+  if (films.length < 3) {
+    const needed = 3 - films.length;
+    try {
+      const prompt = `Generate ${needed} additional 1980s films directed by "${director}". Return JSON with key "films": array of objects each with "title", "year" (1980-1989), "director" (must be "${director}"), "cast" (3-4 names), "genre", "description" (2 sentences), "asciiPoster" (4-line ASCII art, max 20 chars wide). Output ONLY valid JSON.`;
+      const data = await mistralChat([{role:"user",content:prompt}], 4000, true);
+      const newFilms = data?.films || data || [];
+      if (Array.isArray(newFilms)) {
+        newFilms.forEach(nf => {
+          const newFilm = {
+            id: uid(),
+            title: nf.title,
+            year: nf.year || 1985,
+            director: director,   // force the same director
+            cast: nf.cast,
+            genre: nf.genre,
+            description: nf.description,
+            asciiPoster: sanitizeAscii(nf.asciiPoster),
+            reviews: [],
+            forumPosts: []
+          };
+          world.social.films.push(newFilm);
+          films.push(newFilm);
+        });
+        saveWorld();
+      }
+    } catch (e) {
+      // If AI fails, just show whatever we have
+    }
+  }
+
+  let html = `<h2>🎬 Films directed by ${esc(director)}</h2>
+    <button class="btn" id="backFromDirectorBtn">⬅️ Back</button><hr>`;
+
+  if (films.length === 0) {
+    html += '<p>No other films found for this director.</p>';
+  } else {
+    films.forEach(f => {
+      html += `<div class="film-card" data-filmId="${f.id}">
+        <div class="film-poster">
+          ${f.posterUrl
+            ? `<img src="${esc(f.posterUrl)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentNode.innerHTML='${esc(getAsciiLines(f.asciiPoster))}'">`
+            : esc(getAsciiLines(f.asciiPoster))
+          }
+        </div>
+        <div style="flex:1;">
+          <strong>${esc(f.title)}</strong> (${f.year})
+          <div style="font-size:10px;color:var(--text-dim);">${esc(f.genre)}</div>
+          <div style="font-size:11px;color:var(--accent2);">${getFilmStarDisplay(f)}</div>
+        </div>
+      </div>`;
+    });
+  }
+
+  main.innerHTML = html;
+
+  document.getElementById('backFromDirectorBtn').onclick = () => {
+    playClick();
+    const filmId = main.dataset.currentFilmId;
+    delete main.dataset.currentFilmId;
+    if (filmId) {
+      viewFilm(filmId);
+    } else {
+      showMainMenu();
+    }
+  };
+
+  document.querySelectorAll('.film-card').forEach(el => {
+  el.onclick = () => {
+    playClick();
+    const filmId = el.dataset.filmid;
+    delete main.dataset.currentFilmId;   // ← clear the guard
+    viewFilm(filmId);
+  };
+});
+}
 async function watchFilm(filmId) {
   const film = world.social.films.find(f => f.id === filmId);
   if (!film) return;
