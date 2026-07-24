@@ -153,6 +153,9 @@
 </div>
 <div id="genericModal" class="modal"><div class="modal-content" id="genericModalContent"></div></div>
 <div id="inboxModal" class="modal"><div class="modal-content" id="inboxModalContent"></div></div>
+<div id="watchModal" class="modal">
+  <div class="modal-content" id="watchModalContent" style="max-width:640px; max-height:90vh; overflow-y:auto;"></div>
+</div>
 
 <script>
 const MISTRAL_ENDPOINT = 'https://api.mistral.ai/v1/chat/completions';
@@ -180,6 +183,19 @@ let audioCtx = null;
 function ensureAudio(){ if(!audioCtx){ try{ audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){return false;} } if(audioCtx.state==='suspended') audioCtx.resume().catch(()=>{}); return audioCtx.state!=='closed'; }
 function playClick(){ if(!ensureAudio())return; const t=audioCtx.currentTime,o=audioCtx.createOscillator(),g=audioCtx.createGain(); o.connect(g); g.connect(audioCtx.destination); o.type='sine'; o.frequency.setValueAtTime(700,t); o.frequency.exponentialRampToValueAtTime(500,t+0.06); g.gain.setValueAtTime(0.08,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.08); o.start(t); o.stop(t+0.08); }
 function playNotification(){ if(!ensureAudio())return; const t=audioCtx.currentTime,o=audioCtx.createOscillator(),g=audioCtx.createGain(); o.connect(g); g.connect(audioCtx.destination); o.type='sine'; o.frequency.setValueAtTime(880,t); g.gain.setValueAtTime(0.1,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.12); o.start(t); o.stop(t+0.12); }
+
+function getAsciiLines(poster) {
+  // If it's a string, split into lines and take up to 4.
+  if (typeof poster === 'string' && poster.trim().length > 0) {
+    return poster.split('\n').slice(0, 4).join('\n');
+  }
+  // If it's an array, join with newlines and take first 4.
+  if (Array.isArray(poster)) {
+    return poster.slice(0, 4).join('\n');
+  }
+  // Fallback for anything else.
+  return '???';
+}
 
 function saveWorld(){ localStorage.setItem('reeltalk_world', JSON.stringify(world)); }
 function loadWorld(){
@@ -325,7 +341,7 @@ function browseFilms(genreFilter=null, sortBy='title'){
     </div><hr>`;
   films.forEach(f=>{
     html += `<div class="film-card" data-filmId="${f.id}">
-      <div class="film-poster">${esc((f.asciiPoster||'???').split('\n').slice(0,4).join('\n'))}</div>
+      <div class="film-poster">${esc(getAsciiLines(f.asciiPoster))}</div>
       <div style="flex:1;">
         <strong>${esc(f.title)}</strong> (${f.year})
         <div style="font-size:10px;color:var(--text-dim);">${esc(f.genre)} · Dir. ${esc(f.director)}</div>
@@ -357,8 +373,8 @@ function viewFilm(filmId){
     <hr><div style="display:flex;gap:12px;">
       <div class="film-poster" style="width:100px;height:130px;font-size:9px;">
   ${film.posterUrl
-    ? `<img src="${esc(film.posterUrl)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentNode.innerHTML='${esc((film.asciiPoster||'???').split('\\n').slice(0,5).join('\\n'))}'">`
-    : esc((film.asciiPoster||'???').split('\n').slice(0,5).join('\n'))
+    ? `<img src="${esc(film.posterUrl)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentNode.innerHTML='${esc(getAsciiLines(film.asciiPoster))}'">`
+    : esc(getAsciiLines(film.asciiPoster))
   }
 </div>
       <div>
@@ -373,6 +389,7 @@ function viewFilm(filmId){
       ${userReview?`<button class="btn" id="editRatingBtn">⭐ Your Rating: ${userReview.rating>0?userReview.rating+'/5':'Rate'}</button>`:`<button class="btn" id="rateFilmBtn">⭐ Rate this Film</button>`}
       <button class="btn" id="addReviewBtn">✍️ Write Review</button>
       <button class="btn" id="toggleWatchlistBtn">${world.social.watchlist[world.player.id]?.includes(filmId)?'📋 Remove from Watchlist':'📋 Add to Watchlist'}</button>
+<button class="btn accent" id="watchBtn">▶️ Watch</button>
     </div>
     <hr><h3>📝 Reviews (${film.reviews.filter(r=>r.text).length})</h3>
   ${film.reviews.filter(r=>r.text).slice().reverse().map(r=>{
@@ -398,6 +415,7 @@ function viewFilm(filmId){
   document.getElementById('addReviewBtn').onclick = ()=>{ playClick(); addReview(filmId); };
   document.getElementById('toggleWatchlistBtn').onclick = ()=>{ playClick(); toggleWatchlist(filmId); };
   document.getElementById('viewForumBtn').onclick = ()=>{ playClick(); viewFilmForum(filmId); };
+document.getElementById('watchBtn').onclick = ()=>{ playClick(); watchFilm(filmId); };
 }
 
 function rateFilm(filmId){
@@ -458,6 +476,65 @@ function toggleWatchlist(filmId){
   else list.push(filmId);
   saveWorld();
   viewFilm(filmId);
+}
+
+async function watchFilm(filmId) {
+  const film = world.social.films.find(f => f.id === filmId);
+  if (!film) return;
+
+  const modal = document.getElementById('watchModal');
+  const content = document.getElementById('watchModalContent');
+
+  // Show loading
+  content.innerHTML = `<h2 style="color:var(--text)">🎬 Now Playing: ${esc(film.title)}</h2>
+    <p style="color:var(--text-dim);">Generating the movie... please wait.</p>`;
+  modal.style.display = 'flex';
+
+  try {
+    const prompt = `You are a text-based movie experience set in the 1980s. Write a complete script for the film "${
+      film.title}" (${film.year}), directed by ${film.director}. Genre: ${film.genre}. 
+Description: ${film.description}. 
+Cast: ${film.cast?.join(', ') || 'Unknown'}.
+
+Start with a retro title screen and then write the full movie in screenplay format: scene headings, action, and dialogue. Make it feel like a vintage computer playing a film. Keep it around 2000 tokens, but make it a satisfying story. Output ONLY the movie script, no extra commentary.`;
+
+    const script = await mistralChat(
+      [{ role: "user", content: prompt }],
+      2000,
+      false   // plain text, not JSON
+    );
+
+    // Display the script in a styled pre block
+    content.innerHTML = `
+      <h2 style="color:var(--accent2); text-align:center;">🎬 ${esc(film.title)} (${film.year})</h2>
+      <pre style="white-space:pre-wrap; font-family:'Share Tech Mono', monospace; font-size:13px; color:var(--text); background:#0a0d0a; padding:16px; border-radius:8px; max-height:70vh; overflow-y:auto; border:1px solid #1a2a1a;">${esc(script)}</pre>
+      <button class="btn" id="closeWatchBtn" style="display:block; margin:10px auto;">Close</button>
+    `;
+
+    // Bind close button
+    document.getElementById('closeWatchBtn').onclick = () => {
+      playClick();
+      modal.style.display = 'none';
+    };
+  } catch (e) {
+    content.innerHTML = `
+      <h2 style="color:var(--danger);">Error</h2>
+      <p>Could not generate movie: ${esc(e.message)}</p>
+      <button class="btn" id="closeWatchBtn">Close</button>
+    `;
+    document.getElementById('closeWatchBtn').onclick = () => {
+      playClick();
+      modal.style.display = 'none';
+    };
+  }
+
+  // Also close when clicking outside the modal content
+  modal.onclick = (e) => {
+    if (e.target === modal) {
+      playClick();
+      modal.style.display = 'none';
+    }
+  };
 }
 
 // ──────────────────────── FILM FORUM ────────────────────────
@@ -574,8 +651,8 @@ function showSearch(){
 resDiv.innerHTML = results.length===0? '<p style="color:var(--text-dim);">No films found.</p>' :
       results.map(f=>`<div class="film-card" data-filmId="${f.id}"><div class="film-poster">
   ${f.posterUrl
-    ? `<img src="${esc(f.posterUrl)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentNode.innerHTML='${esc((f.asciiPoster||'???').split('\\n').slice(0,4).join('\\n'))}'">`
-    : esc((f.asciiPoster||'???').split('\n').slice(0,4).join('\n'))
+    ? `<img src="${esc(f.posterUrl)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentNode.innerHTML='${esc(getAsciiLines(f.asciiPoster))}'">`
+    : esc(getAsciiLines(f.asciiPoster))
   }
 </div><div style="flex:1;"><strong>${esc(f.title)}</strong> (${f.year})<div style="font-size:10px;">${esc(f.genre)} · Dir. ${esc(f.director)}</div><div style="font-size:11px;color:var(--accent2);">${getFilmStarDisplay(f)}</div></div></div>`).join('');
 
@@ -622,13 +699,13 @@ saveWorld();
     };
     img.onerror = () => {
       // Fallback to ASCII
-      posterDiv.innerHTML = esc((film.asciiPoster || '???').split('\n').slice(0,4).join('\n'));
+      posterDiv.innerHTML = esc(getAsciiLines(film.asciiPoster));
       posterDiv.style.fontSize = '8px';
     };
     img.src = url;
   } catch (e) {
     // Network error – fallback
-    posterDiv.innerHTML = esc((film.asciiPoster || '???').split('\n').slice(0,4).join('\n'));
+    posterDiv.innerHTML = esc(getAsciiLines(film.asciiPoster));
   }
 }
 // ──────────────────────── WATCHLIST & REVIEWS ────────────────────────
@@ -639,8 +716,8 @@ function showWatchlist(){
   if(films.length===0) html += '<p>No films in your watchlist. Browse and add some!</p>';
   else films.forEach(f=>{ html+=`<div class="film-card" data-filmId="${f.id}"><div class="film-poster">
   ${f.posterUrl
-    ? `<img src="${esc(f.posterUrl)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentNode.innerHTML='${esc((f.asciiPoster||'???').split('\\n').slice(0,4).join('\\n'))}'">`
-    : esc((f.asciiPoster||'???').split('\n').slice(0,4).join('\n'))
+    ? `<img src="${esc(f.posterUrl)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentNode.innerHTML='${esc(getAsciiLines(f.asciiPoster))}'">`
+    : esc(getAsciiLines(f.asciiPoster))
   }
 </div><div><strong>${esc(f.title)}</strong> (${f.year})</div></div>`; });
   document.getElementById('mainScreen').innerHTML = html;
