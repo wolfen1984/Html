@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+im still getting systax errors <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1047,107 +1047,58 @@ if (!world.lastAutonomousGossipCheck) world.lastAutonomousGossipCheck = getTotal
             saveWorld();
             updateUI();
             checkForProactiveMessages().catch(() => {});
-        }
-
-async function autonomousGossip() {
-    if (!apiKey) return;
-    const allNpcs = [...world.npcs, ...(world.transientNpcs || [])];
-    if (allNpcs.length < 2) return;
-
-    // Decide how many new threads to create this check (1 or 2)
-    const threadsToCreate = Math.random() < 0.6 ? 1 : 2;
-
-    for (let i = 0; i < threadsToCreate; i++) {
-        // Pick two different random NPCs
-        const shuffled = [...allNpcs].sort(() => Math.random() - 0.5);
-        const npcA = shuffled[0];
-        const npcB = shuffled.find(n => n.id !== npcA.id);
-        if (!npcB) continue;
-
-        // Skip if a thread already exists between them (to avoid duplicates)
-        const existing = world.gossipThreads?.find(t =>
-            t.participants.includes(npcA.id) && t.participants.includes(npcB.id)
-        );
-        if (existing) continue;
-
-        // Generate a natural opening message from npcA to npcB
-        const systemPrompt = `You are ${npcA.name}, a ${npcA.isTransient ? npcA.type+' passing through' : 'resident of'} Ember Creek in 1987.
-Personality: ${npcA.personality}. Bio: ${npcA.bio}. Age: ${npcA.age}, Sex: ${npcA.sex}.
-You decide to start a private conversation with ${npcB.name}. Write your first message to them. It could be about something happening in town, a shared acquaintance, a concern, a rumor, or just checking in. Keep it 1-2 sentences. Stay in character.
-Output ONLY the message text, no quotes, no JSON.`;
-
-        try {
-            const msgA = await mistralChat([
-                { role: "system", content: systemPrompt },
-                { role: "user", content: "Start the conversation." }
-            ], 120, false);
-
-            const cleanA = msgA.replace(/^["']|["']$/g, '').trim();
-            if (!cleanA) continue;
-
-            addGossipMessage(npcA.id, npcB.id, cleanA, false); // not triggered by player
-
-            // Now generate a quick reply from npcB to complete the exchange
-            const replyPrompt = `You are ${npcB.name}, a ${npcB.isTransient ? npcB.type+' passing through' : 'resident of'} Ember Creek in 1987.
-Personality: ${npcB.personality}. Bio: ${npcB.bio}. Age: ${npcB.age}, Sex: ${npcB.sex}.
-${npcA.name} just sent you this private message:
-"${cleanA}"
-
-Write your natural reply. Keep it 1-3 sentences. Stay in character.
-Output ONLY the reply text, no quotes, no JSON.`;
-
-            const reply = await mistralChat([
-                { role: "system", content: replyPrompt },
-                { role: "user", content: "Reply to them." }
-            ], 120, false);
-
-            const cleanReply = reply.replace(/^["']|["']$/g, '').trim();
-            if (cleanReply) {
-                addGossipMessage(npcB.id, npcA.id, cleanReply, false);
-            }
-
-            // Small delay to avoid hitting rate limits
-            await new Promise(r => setTimeout(r, 800));
-
-        } catch (e) {
-            // Silently continue
-        }
-    }
-}
-
-        function advanceTime(minutes) {
-            world.time.minute += minutes;
-            while (world.time.minute >= 60) { world.time.minute -= 60;
-                world.time.hour++; }
-            if (world.time.hour >= 24) { world.time.hour -= 24;
-                world.time.day++; }
-            let prevHour = world.time.hour - Math.floor(minutes / 60);
-            if (prevHour < 0) prevHour += 24;
-            if (world.time.hour !== prevHour) updateNpcLocations();
-            const totalMin = getTotalGameMinutes();
-            if (!world.lastTransientSpawn) world.lastTransientSpawn = totalMin;
-            if (totalMin - world.lastTransientSpawn >= 360) {
-                world.lastTransientSpawn = totalMin;
-                spawnTransientNpc();
-                cleanupTransientNpcs();
-            }
-            checkForProactiveMessages().catch(() => {});
 const gossipNow = getTotalGameMinutes();
 if (!world.lastGossipContinuationCheck) world.lastGossipContinuationCheck = gossipNow;
 if (gossipNow - world.lastGossipContinuationCheck >= 30) {   // check every 30 game minutes
     world.lastGossipContinuationCheck = gossipNow;
     continueGossipThreads().catch(() => {});
 }
-// Autonomous new gossip (every ~120 game minutes, 15% chance)
-const autoGossipNow = getTotalGameMinutes();
-if (!world.lastAutonomousGossipCheck) world.lastAutonomousGossipCheck = autoGossipNow;
-if (autoGossipNow - world.lastAutonomousGossipCheck >= 120) {
-    world.lastAutonomousGossipCheck = autoGossipNow;
-    if (Math.random() < 0.15) {
-        autonomousGossip().catch(() => {});
+        }
+
+       function advanceTime(minutes) {
+    world.time.minute += minutes;
+    while (world.time.minute >= 60) {
+        world.time.minute -= 60;
+        world.time.hour++;
+    }
+    if (world.time.hour >= 24) {
+        world.time.hour -= 24;
+        world.time.day++;
+    }
+
+    let prevHour = world.time.hour - Math.floor(minutes / 60);
+    if (prevHour < 0) prevHour += 24;
+    if (world.time.hour !== prevHour) updateNpcLocations();
+
+    const totalMin = getTotalGameMinutes();
+
+    // Transient NPC spawning
+    if (!world.lastTransientSpawn) world.lastTransientSpawn = totalMin;
+    if (totalMin - world.lastTransientSpawn >= 360) {
+        world.lastTransientSpawn = totalMin;
+        spawnTransientNpc();
+        cleanupTransientNpcs();
+    }
+
+    // Existing proactive player‑message check
+    checkForProactiveMessages().catch(() => {});
+
+    // ────── Gossip continuation (every ~30 game minutes) ──────
+    if (!world.lastGossipContinuationCheck) world.lastGossipContinuationCheck = totalMin;
+    if (totalMin - world.lastGossipContinuationCheck >= 30) {
+        world.lastGossipContinuationCheck = totalMin;
+        continueGossipThreads().catch(() => {});
+    }
+
+    // ────── Autonomous new gossip (every ~120 game minutes, 15% chance) ──────
+    if (!world.lastAutonomousGossipCheck) world.lastAutonomousGossipCheck = totalMin;
+    if (totalMin - world.lastAutonomousGossipCheck >= 120) {
+        world.lastAutonomousGossipCheck = totalMin;
+        if (Math.random() < 0.15) {
+            autonomousGossip().catch(() => {});
+        }
     }
 }
-        }
 
         function updateNpcLocations() {
             const hourStr = `${String(world.time.hour).padStart(2,'0')}:00`;
@@ -1192,12 +1143,15 @@ function addGossipMessage(senderId, receiverId, text, triggeredByPlayer = false)
         text,
         timestamp: Date.now(),
         triggeredByPlayer,
-        read: false
+        read: false   // player hasn't read this yet
     });
-    thread.lastGameMinute = getTotalGameMinutes();   // ← add this
+thread.lastGameMinute = getTotalGameMinutes(); 
     saveWorld();
     updateGossipIndicator();
+    // You could also log a subtle system message:
+    // logMessage(`💬 ${getNpcById(senderId)?.name} whispered something to ${getNpcById(receiverId)?.name}...`, 'system');
 }
+
 function updateGossipIndicator() {
     const btn = document.getElementById('gossipBtn');
     if (!btn) return;
@@ -1280,28 +1234,69 @@ function updateGossipIndicator() {
                     chatModal.style.display = 'none'; } };
         }
 
-async function generateGossipReply(fromNpc, toNpc, initialMessage) {
+async function autonomousGossip() {
     if (!apiKey) return;
-    const systemPrompt = `You are ${toNpc.name}, a ${toNpc.isTransient ? toNpc.type+' passing through' : 'resident of'} Ember Creek in 1987.
-Personality: ${toNpc.personality}. Bio: ${toNpc.bio}. Age: ${toNpc.age}, Sex: ${toNpc.sex}.
+    const allNpcs = [...world.npcs, ...(world.transientNpcs || [])];
+    if (allNpcs.length < 2) return;
 
-${fromNpc.name} just sent you this private message:
-"${initialMessage}"
+    // Decide how many new threads to create this check (1 or 2)
+    const threadsToCreate = Math.random() < 0.6 ? 1 : 2;
+
+    for (let i = 0; i < threadsToCreate; i++) {
+        // Pick two different random NPCs
+        const shuffled = [...allNpcs].sort(() => Math.random() - 0.5);
+        const npcA = shuffled[0];
+        const npcB = shuffled.find(n => n.id !== npcA.id);
+        if (!npcB) continue;
+
+        // Skip if a thread already exists between them (to avoid duplicates)
+        const existing = world.gossipThreads?.find(t =>
+            t.participants.includes(npcA.id) && t.participants.includes(npcB.id)
+        );
+        if (existing) continue;
+
+        // Generate a natural opening message from npcA to npcB
+        const systemPrompt = `You are ${npcA.name}, a ${npcA.isTransient ? npcA.type+' passing through' : 'resident of'} Ember Creek in 1987.
+Personality: ${npcA.personality}. Bio: ${npcA.bio}. Age: ${npcA.age}, Sex: ${npcA.sex}.
+You decide to start a private conversation with ${npcB.name}. Write your first message to them. It could be about something happening in town, a shared acquaintance, a concern, a rumor, or just checking in. Keep it 1-2 sentences. Stay in character.
+Output ONLY the message text, no quotes, no JSON.`;
+
+        try {
+            const msgA = await mistralChat([
+                { role: "system", content: systemPrompt },
+                { role: "user", content: "Start the conversation." }
+            ], 120, false);
+
+            const cleanA = msgA.replace(/^["']|["']$/g, '').trim();
+            if (!cleanA) continue;
+
+            addGossipMessage(npcA.id, npcB.id, cleanA, false); // not triggered by player
+
+            // Now generate a quick reply from npcB to complete the exchange
+            const replyPrompt = `You are ${npcB.name}, a ${npcB.isTransient ? npcB.type+' passing through' : 'resident of'} Ember Creek in 1987.
+Personality: ${npcB.personality}. Bio: ${npcB.bio}. Age: ${npcB.age}, Sex: ${npcB.sex}.
+${npcA.name} just sent you this private message:
+"${cleanA}"
 
 Write your natural reply. Keep it 1-3 sentences. Stay in character.
 Output ONLY the reply text, no quotes, no JSON.`;
 
-    try {
-        const reply = await mistralChat([
-            { role: "system", content: systemPrompt },
-            { role: "user", content: "What do you say?" }
-        ], 150, false);
-        const clean = reply.replace(/^["']|["']$/g, '').trim();
-        if (clean) {
-            addGossipMessage(toNpc.id, fromNpc.id, clean, true);
+            const reply = await mistralChat([
+                { role: "system", content: replyPrompt },
+                { role: "user", content: "Reply to them." }
+            ], 120, false);
+
+            const cleanReply = reply.replace(/^["']|["']$/g, '').trim();
+            if (cleanReply) {
+                addGossipMessage(npcB.id, npcA.id, cleanReply, false);
+            }
+
+            // Small delay to avoid hitting rate limits
+            await new Promise(r => setTimeout(r, 800));
+
+        } catch (e) {
+            // Silently continue
         }
-    } catch (e) {
-        // fail silently
     }
 }
 
@@ -1402,6 +1397,31 @@ Write your message (1-2 sentences, in character). Output ONLY the message text, 
         // Silently fail
     }
 }
+async function generateGossipReply(fromNpc, toNpc, initialMessage) {
+    if (!apiKey) return;
+    const systemPrompt = `You are ${toNpc.name}, a ${toNpc.isTransient ? toNpc.type+' passing through' : 'resident of'} Ember Creek in 1987.
+Personality: ${toNpc.personality}. Bio: ${toNpc.bio}. Age: ${toNpc.age}, Sex: ${toNpc.sex}.
+
+${fromNpc.name} just sent you this private message:
+"${initialMessage}"
+
+Write your natural reply. Keep it 1-3 sentences. Stay in character.
+Output ONLY the reply text, no quotes, no JSON.`;
+
+    try {
+        const reply = await mistralChat([
+            { role: "system", content: systemPrompt },
+            { role: "user", content: "What do you say?" }
+        ], 150, false);
+        const clean = reply.replace(/^["']|["']$/g, '').trim();
+        if (clean) {
+            addGossipMessage(toNpc.id, fromNpc.id, clean, true);
+        }
+    } catch (e) {
+        // fail silently
+    }
+}
+
         async function sendChatMessage(npcId) {
             const input = document.getElementById('chatInput');
             const text = input.value.trim();
@@ -1656,13 +1676,13 @@ if (result.gossipFromNpc) {
                         currentLocation: n.homeLocation, inventory: [] })),
                     locationDescriptions: townData.locationDescriptions,
                     time: { day: 1, hour: 8, minute: 0 },
-lastAutonomousGossipCheck: 1 * 1440 + 8 * 60,
                     inbox: [],
 gossipThreads: [],
                     transientNpcs: [],
                     lastProactiveCheck: 1 * 1440 + 8 * 60,
                     lastTransientSpawn: 1 * 1440 + 8 * 60,
-lastGossipContinuationCheck: 1 * 1440 + 8 * 60
+lastGossipContinuationCheck: 1 * 1440 + 8 * 60,
+lastAutonomousGossipCheck: 1 * 1440 + 8 * 60
                 };
                 updateNpcLocations();
                 spawnTransientNpc();
