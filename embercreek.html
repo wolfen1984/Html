@@ -1,4 +1,4 @@
-im still getting systax errors <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -714,42 +714,150 @@ im still getting systax errors <!DOCTYPE html>
                 validLocations: ['Gas Station', 'Diner', 'Motel', 'Main Street'] }
         ];
 
-        function spawnTransientNpc() {
-            if (!world.transientNpcs) world.transientNpcs = [];
-            const now = getTotalGameMinutes();
-            world.transientNpcs = world.transientNpcs.filter(tn => tn.departureGameMinute > now);
-            if (world.transientNpcs.length >= 3) return null;
-            const tpl = TRANSIENT_TEMPLATES[Math.floor(Math.random() * TRANSIENT_TEMPLATES.length)];
-            const name = tpl.names[Math.floor(Math.random() * tpl.names.length)];
-            const age = tpl.ages[Math.floor(Math.random() * tpl.ages.length)];
-            const sex = tpl.sexes[Math.floor(Math.random() * tpl.sexes.length)];
-            const personality = tpl.personalities[Math.floor(Math.random() * tpl.personalities.length)];
-            const bio = tpl.bios[Math.floor(Math.random() * tpl.bios.length)];
-            const loc = tpl.validLocations[Math.floor(Math.random() * tpl.validLocations.length)];
-            const stayHours = 2 + Math.floor(Math.random() * 8);
-            const tn = {
-                id: uid(),
-                name,
-                age,
-                sex,
-                bio,
-                personality,
-                currentLocation: loc,
-                homeLocation: loc,
-                isTransient: true,
-                type: tpl.type,
-                arrivalGameMinute: now,
-                departureGameMinute: now + stayHours * 60,
-                trust: 0,
-                affection: 0,
-                schedule: [],
-                inventory: []
-            };
-            world.transientNpcs.push(tn);
-            return tn;
-        }
+       function spawnTransientNpc() {
+    if (!world.transientNpcs) world.transientNpcs = [];
+    const now = getTotalGameMinutes();
+    world.transientNpcs = world.transientNpcs.filter(tn => tn.departureGameMinute > now);
+    if (world.transientNpcs.length >= 3) return null;
 
-        function cleanupTransientNpcs() {
+    // Get names already used by active transient NPCs
+    const usedNames = world.transientNpcs.map(tn => tn.name);
+
+    // Collect all available templates, but only use names that aren't currently active
+    const availableTemplates = TRANSIENT_TEMPLATES.flatMap(tpl => {
+        const freeNames = tpl.names.filter(name => !usedNames.includes(name));
+        return freeNames.length > 0 ? [{ ...tpl, names: freeNames }] : [];
+    });
+
+    if (availableTemplates.length === 0) return null; // all names taken
+
+    const tpl = availableTemplates[Math.floor(Math.random() * availableTemplates.length)];
+    const name = tpl.names[Math.floor(Math.random() * tpl.names.length)];
+    const age = tpl.ages[Math.floor(Math.random() * tpl.ages.length)];
+    const sex = tpl.sexes[Math.floor(Math.random() * tpl.sexes.length)];
+    const personality = tpl.personalities[Math.floor(Math.random() * tpl.personalities.length)];
+    const bio = tpl.bios[Math.floor(Math.random() * tpl.bios.length)];
+    const loc = tpl.validLocations[Math.floor(Math.random() * tpl.validLocations.length)];
+    const stayHours = 2 + Math.floor(Math.random() * 8);
+
+    const tn = {
+        id: uid(),
+        name,
+        age,
+        sex,
+        bio,
+        personality,
+        currentLocation: loc,
+        homeLocation: loc,
+        isTransient: true,
+        type: tpl.type,
+        arrivalGameMinute: now,
+        departureGameMinute: now + stayHours * 60,
+        trust: 0,
+        affection: 0,
+        schedule: [],
+        inventory: []
+    };
+
+    world.transientNpcs.push(tn);
+    return tn;
+}
+
+// ─────────────────────────────────────
+// 🖼️ NPC PORTRAIT GENERATION (with rate limit)
+// ─────────────────────────────────────
+async function generateImagePrompt(npc) {
+  if (!apiKey) {
+    return `Portrait of ${npc.name}, a ${npc.age}-year-old ${npc.sex.toLowerCase()}, ${npc.personality}. ${npc.bio}. 1987 small town, retro style, realistic.`;
+  }
+  const system = `Create a short, descriptive prompt for an AI image generator to create a portrait of this NPC. Keep it concise (under 100 chars). Describe their face, expression, clothing, and mood that matches their personality and bio. Output ONLY the prompt text, no quotes.`;
+  const user = `NPC details:
+  Name: ${npc.name}
+  Age: ${npc.age}
+  Sex: ${npc.sex}
+  Personality: ${npc.personality}
+  Bio: ${npc.bio}
+  Location: ${npc.currentLocation || npc.homeLocation}`;
+  try {
+    const prompt = await mistralChat([
+      { role: "system", content: system },
+      { role: "user", content: user }
+    ], 100, false);
+    return prompt.replace(/^["']|["']$/g, '').trim() || `Portrait of ${npc.name}, a ${npc.age}-year-old ${npc.sex.toLowerCase()}, ${npc.personality}. ${npc.bio}. 1987 small town, retro style, realistic.`;
+  } catch {
+    return `Portrait of ${npc.name}, a ${npc.age}-year-old ${npc.sex.toLowerCase()}, ${npc.personality}. ${npc.bio}. 1987 small town, retro style, realistic.`;
+  }
+}
+
+// Fetch image from Pollinations with automatic retry on 429 (Too Many Requests)
+async function pollinationsImage(prompt, retries = 3) {
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=256&height=256&nologo=true`;
+  let lastError;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const response = await fetch(url);
+      if (response.status === 429 && attempt < retries - 1) {
+        // rate limited – wait 32 seconds and retry
+        console.log(`Rate limited, waiting 32s (attempt ${attempt + 1}/${retries})`);
+        await new Promise(r => setTimeout(r, 32000));
+        continue;
+      }
+      if (!response.ok) throw new Error(`Pollinations HTTP ${response.status}`);
+      const blob = await response.blob();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (e) {
+      lastError = e;
+      if (attempt < retries - 1) {
+        await new Promise(r => setTimeout(r, 32000)); // wait between retries
+      }
+    }
+  }
+  throw lastError;
+}
+
+// Full generation pipeline for a single NPC
+async function generateNpcImage(npc) {
+  try {
+    const prompt = await generateImagePrompt(npc);
+    const dataUrl = await pollinationsImage(prompt);
+    npc.avatarDataUrl = dataUrl;
+    saveWorld();
+    return true;
+  } catch (e) {
+    console.warn(`Image generation failed for ${npc.name}:`, e);
+    return false;
+  }
+}
+
+// Schedule image generation one by one, avoiding long loops
+function generateImagesForNpcList(npcs, startIndex = 0) {
+  if (startIndex >= npcs.length) return;
+  const npc = npcs[startIndex];
+  
+  if (npc.avatarDataUrl) {
+    // already has image, skip to next immediately
+    generateImagesForNpcList(npcs, startIndex + 1);
+    return;
+  }
+  
+  generateNpcImage(npc)
+    .then(() => {
+      // Success – wait 31 seconds, then proceed to next NPC
+      setTimeout(() => generateImagesForNpcList(npcs, startIndex + 1), 31000);
+    })
+    .catch((err) => {
+      console.warn(`Skipping ${npc.name} after error:`, err);
+      // Even after failure, wait a bit then continue with the next NPC
+      setTimeout(() => generateImagesForNpcList(npcs, startIndex + 1), 5000);
+    });
+}  
+
+      function cleanupTransientNpcs() {
             if (!world.transientNpcs) return;
             const now = getTotalGameMinutes();
             world.transientNpcs = world.transientNpcs.filter(tn => tn.departureGameMinute > now);
@@ -1191,23 +1299,51 @@ function updateGossipIndicator() {
         }
 
         function viewNpcProfile(id) {
-            const npc = getNpcById(id);
-            if (!npc) return;
-            const ti = npc.isTransient ?
-                `<p><span class="transient-badge">${esc(npc.type)}</span> — Just passing through</p>` : '';
-            modal(`<h2>👤 ${esc(npc.name)}${npc.isTransient?' <span class="transient-badge">'+esc(npc.type)+'</span>':''}</h2>
-            <div class="silhouette" style="margin:10px;"></div>
-            <p><strong>Age:</strong> ${esc(npc.age)} | <strong>Sex:</strong> ${esc(npc.sex)}</p>
-            <p><strong>Bio:</strong> ${esc(npc.bio)}</p>
-            <p><strong>Personality:</strong> ${esc(npc.personality)}</p>
-            <p><strong>Trust:</strong> ${npc.trust||0} | <strong>Affection:</strong> ${npc.affection||0}</p>
-            <p><strong>Currently at:</strong> ${esc(npc.currentLocation)}</p> ${ti}
-            <button class="modal-btn" id="profileChatBtn">💬 Chat</button>
-            <button class="modal-btn" onclick="playClick();window._closeModal()">Close</button>`);
-            document.getElementById('profileChatBtn').onclick = () => { playClick();
-                window._closeModal();
-                openChat(id); };
-        }
+    const npc = getNpcById(id);
+    if (!npc) return;
+    const ti = npc.isTransient ?
+        `<p><span class="transient-badge">${esc(npc.type)}</span> — Just passing through</p>` : '';
+    
+    // ★ NEW: image handling ★
+    let avatarHtml = '';
+    if (npc.avatarDataUrl) {
+        avatarHtml = `<img src="${npc.avatarDataUrl}" style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:2px solid var(--border);box-shadow:var(--border-glow);margin:10px;">`;
+    } else {
+        avatarHtml = `
+                      <button class="modal-btn" id="genImgProfileBtn">🖼️ Generate Image</button>`;
+    }
+    
+    modal(`<h2>👤 ${esc(npc.name)}${npc.isTransient?' <span class="transient-badge">'+esc(npc.type)+'</span>':''}</h2>
+        ${avatarHtml}
+        <p><strong>Age:</strong> ${esc(npc.age)} | <strong>Sex:</strong> ${esc(npc.sex)}</p>
+        <p><strong>Bio:</strong> ${esc(npc.bio)}</p>
+        <p><strong>Personality:</strong> ${esc(npc.personality)}</p>
+        <p><strong>Trust:</strong> ${npc.trust||0} | <strong>Affection:</strong> ${npc.affection||0}</p>
+        <p><strong>Currently at:</strong> ${esc(npc.currentLocation)}</p> ${ti}
+        <button class="modal-btn" id="profileChatBtn">💬 Chat</button>
+        <button class="modal-btn" onclick="playClick();window._closeModal()">Close</button>`);
+    
+    document.getElementById('profileChatBtn').onclick = () => { playClick();
+        window._closeModal();
+        openChat(id); };
+    
+    // ★ NEW: handle the "Generate Image" button if visible ★
+    const genBtn = document.getElementById('genImgProfileBtn');
+    if (genBtn) {
+        genBtn.onclick = async () => {
+            playClick();
+            genBtn.disabled = true;
+            genBtn.textContent = '⏳ Generating...';
+            const success = await generateNpcImage(npc);
+            window._closeModal();
+            if (success) {
+                viewNpcProfile(id);  // reopen to show the new image
+            } else {
+                alertModal('Image generation failed. Check console for details.');
+            }
+        };
+    }
+}
 
         function openChat(npcId) {
             const npc = getNpcById(npcId);
@@ -1685,11 +1821,12 @@ lastGossipContinuationCheck: 1 * 1440 + 8 * 60,
 lastAutonomousGossipCheck: 1 * 1440 + 8 * 60
                 };
                 updateNpcLocations();
-                spawnTransientNpc();
-                saveWorld();
-                updateUI();
-                logMessage("☀️ A new day begins in Ember Creek. You wake up in your house. What do you do?", 'system');
-            } catch (e) {
+spawnTransientNpc();
+saveWorld();
+updateUI();
+logMessage("☀️ A new day begins in Ember Creek. You wake up in your house. What do you do?", 'system');
+
+generateImagesForNpcList(world.npcs);            } catch (e) {
                 document.getElementById('gameLog').innerHTML = '';
                 logMessage(`Failed to create town: ${e.message}`, 'system');
             }
