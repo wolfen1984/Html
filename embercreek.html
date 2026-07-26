@@ -1497,7 +1497,6 @@ async function maybeGenerateGossip(fromNpc, playerMessage) {
     const mentioned = [];
     const allNpcs = [...world.npcs, ...(world.transientNpcs || [])];
     allNpcs.forEach(n => {
-        // Escape special regex characters in name just in case
         const nameRegex = new RegExp('\\b' + n.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
         if (playerMessage.match(nameRegex) && n.id !== fromNpc.id) {
             mentioned.push(n);
@@ -1505,17 +1504,19 @@ async function maybeGenerateGossip(fromNpc, playerMessage) {
     });
     if (mentioned.length === 0) return;  // nobody else mentioned
 
-    // Pick the first mentioned NPC (or you could handle multiple)
+    // Pick the first mentioned NPC
     const toNpc = mentioned[0];
 
-    // 2. Generate a short message from fromNpc to toNpc about what the player said
+    // 2. Generate a message that specifically references the player's tip
     const systemPrompt = `You are ${fromNpc.name}, a ${fromNpc.isTransient ? fromNpc.type+' passing through' : 'resident of'} Ember Creek in 1987.
 Personality: ${fromNpc.personality}. Bio: ${fromNpc.bio}. Age: ${fromNpc.age}, Sex: ${fromNpc.sex}.
 The player just told you this in private:
 "${playerMessage}"
 
-You now want to send a private message to ${toNpc.name} about this information.
-Write your message (1-2 sentences, in character). Output ONLY the message text, no quotes.`;
+You now decide to send a private message to ${toNpc.name} about this information.
+Your message MUST include the specific concern the player raised (e.g., the gun, the theft, the drugs, etc.). 
+Do NOT send a generic greeting. Ask directly about the issue, warn them, or request an explanation.
+Keep it 1-2 sentences. Output ONLY the message text, no quotes.`;
 
     try {
         const messageText = await mistralChat([
@@ -1526,13 +1527,14 @@ Write your message (1-2 sentences, in character). Output ONLY the message text, 
         const clean = messageText.replace(/^["']|["']$/g, '').trim();
         if (clean) {
             addGossipMessage(fromNpc.id, toNpc.id, clean, true);
-            // Get target's reply
+            // Get target's reply right away
             await generateGossipReply(fromNpc, toNpc, clean);
         }
     } catch (e) {
         // Silently fail
     }
 }
+
 async function generateGossipReply(fromNpc, toNpc, initialMessage) {
     if (!apiKey) return;
     const systemPrompt = `You are ${toNpc.name}, a ${toNpc.isTransient ? toNpc.type+' passing through' : 'resident of'} Ember Creek in 1987.
