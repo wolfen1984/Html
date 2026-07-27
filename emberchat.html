@@ -988,6 +988,7 @@ ${memoryContext}
         if (!world.lastTransientSpawn) world.lastTransientSpawn = getTotalGameMinutes();
         if (!world.lastGossipContinuationCheck) world.lastGossipContinuationCheck = getTotalGameMinutes();
 if (!world.rumors) world.rumors = [];
+if (!world.npcRelationships) world.npcRelationships = {};
 // Ensure every NPC has a memories array
 world.npcs.forEach(n => { if (!n.memories) n.memories = []; });
 if (world.transientNpcs) world.transientNpcs.forEach(n => { if (!n.memories) n.memories = []; });
@@ -1213,6 +1214,12 @@ checkRumorDiscovery();
 checkExpiredPromises(); 
     }
 
+if (!world.lastSocialInteractionCheck) world.lastSocialInteractionCheck = totalMin;
+if (totalMin - world.lastSocialInteractionCheck >= 30) {
+    world.lastSocialInteractionCheck = totalMin;
+    processSocialInteractions();
+}
+
     // ────── Autonomous new gossip (every ~120 game minutes, 15% chance) ──────
     if (!world.lastAutonomousGossipCheck) world.lastAutonomousGossipCheck = totalMin;
     if (totalMin - world.lastAutonomousGossipCheck >= 120) {
@@ -1308,6 +1315,7 @@ function spreadRumors() {
 
 // 😨 Check if the target NPC finally hears the rumor
 function checkRumorDiscovery() {
+  if (!world.rumors) return;
   world.rumors.forEach(rumor => {
     if (rumor.resolved) return;
     const target = getNpcById(rumor.targetId);
@@ -1317,6 +1325,15 @@ function checkRumorDiscovery() {
       rumor.resolved = true;
       // Alter trust based on severity
       target.trust = Math.max(-10, (target.trust || 0) + rumor.severity);
+      
+      // Affect relationships between target and everyone who spread the rumor
+      rumor.spreadTo.forEach(spreaderId => {
+        if (spreaderId === target.id) return;
+        const rel = getRelationship(target.id, spreaderId);
+        rel.animosity = Math.min(10, (rel.animosity || 0) + Math.abs(rumor.severity));
+        rel.friendship = Math.max(-10, (rel.friendship || 0) - Math.abs(rumor.severity));
+      });
+      
       saveWorld();
 
       // Target sends a confronting (or grateful) message
@@ -1328,7 +1345,6 @@ function checkRumorDiscovery() {
     }
   });
 }
-
 function addGossipMessage(senderId, receiverId, text, triggeredByPlayer = false) {
     const thread = getGossipThread(senderId, receiverId);
     thread.messages.push({
@@ -1336,13 +1352,73 @@ function addGossipMessage(senderId, receiverId, text, triggeredByPlayer = false)
         text,
         timestamp: Date.now(),
         triggeredByPlayer,
-        read: false   // player hasn't read this yet
+        read: false
     });
-thread.lastGameMinute = getTotalGameMinutes(); 
+    thread.lastGameMinute = getTotalGameMinutes();
     saveWorld();
     updateGossipIndicator();
-    // You could also log a subtle system message:
-    // logMessage(`💬 ${getNpcById(senderId)?.name} whispered something to ${getNpcById(receiverId)?.name}...`, 'system');
+    // Update relationship based on gossip content
+    updateRelationshipFromGossip(senderId, receiverId, text);
+}
+
+function processSocialInteractions() {
+    const allNpcs = [...world.npcs, ...(world.transientNpcs || [])];
+    const locations = [...new Set(allNpcs.map(n => n.currentLocation))];
+
+    locations.forEach(loc => {
+        const npcsHere = allNpcs.filter(n => n.currentLocation === loc);
+        if (npcsHere.length < 2) return;
+
+        // Randomly pick two NPCs at this location
+        const shuffled = [...npcsHere].sort(() => Math.random() - 0.5);
+        const a = shuffled[0];
+        const b = shuffled[1];
+        if (!a || !b) return;
+
+        const rel = getRelationship(a.id, b.id);
+
+        // 20% chance they interact at all
+        if (Math.random() > 0.2) return;
+
+        // Determine interaction type based on existing relationship
+        let message = '';
+        if (rel.animosity > 5 && Math.random() < 0.7) {
+            // Argument
+            const argPool = [
+                "I can't stand being near you.",
+                "Why do you always show up here?",
+                "Stay out of my way.",
+                "I haven't forgotten what you did."
+            ];
+            message = argPool[Math.floor(Math.random() * argPool.length)];
+            rel.animosity = Math.min(10, rel.animosity + 1);
+            rel.friendship = Math.max(-10, rel.friendship - 1);
+        } else if (rel.friendship > 5 && Math.random() < 0.7) {
+            // Friendly chat
+            const friendPool = [
+                "Good to see you! How's things?",
+                "Let me know if you need any help.",
+                "I was just thinking about that time we...",
+                "You're one of the few people I trust around here."
+            ];
+            message = friendPool[Math.floor(Math.random() * friendPool.length)];
+            rel.friendship = Math.min(10, rel.friendship + 1);
+        } else {
+            // Neutral small talk
+            const neutralPool = [
+                "Nice weather today.",
+                "Busy day?",
+                "Seen anything strange lately?",
+                "Just another day in Ember Creek."
+            ];
+            message = neutralPool[Math.floor(Math.random() * neutralPool.length)];
+            // Slight positive nudge
+            if (Math.random() < 0.5) rel.friendship = Math.min(10, rel.friendship + 0.5);
+        }
+
+        // Add as gossip message (player can read)
+        addGossipMessage(a.id, b.id, message, false);
+    });
 }
 
 function updateGossipIndicator() {
@@ -1365,6 +1441,45 @@ function updateGossipIndicator() {
         btn.classList.remove('has-unread');
         btn.title = 'Gossip';
     }
+}
+
+function getRelationship(aId, bId) {
+    const key = [aId, bId].sort().join('_');
+    if (!world.npcRelationships[key]) {
+        world.npcRelationships[key] = { friendship: 0, animosity: 0, history: [] };
+    }
+    return world.npcRelationships[key];
+}
+
+function updateRelationshipFromGossip(senderId, receiverId, messageText) {
+    const rel = getRelationship(senderId, receiverId);
+    const lower = messageText.toLowerCase();
+
+    // Positive sentiment words
+    const posWords = ['friend', 'help', 'good', 'kind', 'trust', 'like', 'love', 'nice', 'great', 'thanks'];
+    // Negative sentiment words
+    const negWords = ['hate', 'steal', 'liar', 'bad', 'dangerous', 'enemy', 'terrible', 'awful', 'thief', 'kill'];
+
+    let posCount = posWords.filter(w => lower.includes(w)).length;
+    let negCount = negWords.filter(w => lower.includes(w)).length;
+
+    if (posCount > negCount) {
+        rel.friendship = Math.min(10, rel.friendship + 1);
+        if (rel.animosity > 0) rel.animosity -= 0.5;
+    } else if (negCount > posCount) {
+        rel.animosity = Math.min(10, rel.animosity + 1);
+        rel.friendship = Math.max(-10, rel.friendship - 1);
+    }
+
+    // Store a snippet in history
+    rel.history.push({
+        snippet: messageText.substring(0, 80),
+        timestamp: getTotalGameMinutes()
+    });
+    // Keep only last 10 entries
+    if (rel.history.length > 10) rel.history.shift();
+
+    saveWorld();
 }
 
         function addMessageToThread(npcId, sender, text, isProactive = false) {
@@ -1482,9 +1597,14 @@ async function autonomousGossip() {
         );
         if (existing) continue;
 
+        // Get the current relationship
+        const rel = getRelationship(npcA.id, npcB.id);
+        const relContext = `Your relationship with ${npcB.name}: Friendship ${rel.friendship}, Animosity ${rel.animosity}. `;
+
         // Generate a natural opening message from npcA to npcB
         const systemPrompt = `You are ${npcA.name}, a ${npcA.isTransient ? npcA.type+' passing through' : 'resident of'} Ember Creek in 1987.
 Personality: ${npcA.personality}. Bio: ${npcA.bio}. Age: ${npcA.age}, Sex: ${npcA.sex}.
+${relContext}
 You decide to start a private conversation with ${npcB.name}. Write your first message to them. It could be about something happening in town, something sinister, a revenge plan, a payback arrangement, a shared acquaintance, a concern, a nasty rumor, or just checking in. Keep it 1-2 sentences. Stay in character.
 Output ONLY the message text, no quotes, no JSON.`;
 
@@ -1500,8 +1620,10 @@ Output ONLY the message text, no quotes, no JSON.`;
             addGossipMessage(npcA.id, npcB.id, cleanA, false); // not triggered by player
 
             // Now generate a quick reply from npcB to complete the exchange
+            const relContext2 = `Your relationship with ${npcA.name}: Friendship ${rel.friendship}, Animosity ${rel.animosity}. `;
             const replyPrompt = `You are ${npcB.name}, a ${npcB.isTransient ? npcB.type+' passing through' : 'resident of'} Ember Creek in 1987.
 Personality: ${npcB.personality}. Bio: ${npcB.bio}. Age: ${npcB.age}, Sex: ${npcB.sex}.
+${relContext2}
 ${npcA.name} just sent you this private message:
 "${cleanA}"
 
@@ -1535,7 +1657,7 @@ async function continueGossipThreads() {
     for (const thread of world.gossipThreads) {
         // How long since the last message?
         const since = now - (thread.lastGameMinute || 0);
-        if (since < 10) continue;                    // at least 45 game minutes must have passed
+        if (since < 10) continue;                    // at least 45 game minutes must have passed (comment says 45 but code uses 10)
         if (Math.random() > 0.7) continue;            // 30% chance to reply
 
         const npcA = getNpcById(thread.participants[0]);
@@ -1547,6 +1669,10 @@ async function continueGossipThreads() {
         const nextSpeaker = (lastMsg.senderId === npcA.id) ? npcB : npcA;
         const other = (nextSpeaker === npcA) ? npcB : npcA;
 
+        // Get relationship and context
+        const rel = getRelationship(nextSpeaker.id, other.id);
+        const relContext = `Your relationship with ${other.name}: Friendship ${rel.friendship}, Animosity ${rel.animosity}. `;
+
         // Build a prompt using the last 4 messages as context
         const recent = thread.messages.slice(-4).map(m => {
             const sender = m.senderId === npcA.id ? npcA.name : npcB.name;
@@ -1555,6 +1681,7 @@ async function continueGossipThreads() {
 
         const systemPrompt = `You are ${nextSpeaker.name}, a ${nextSpeaker.isTransient ? nextSpeaker.type+' passing through' : 'resident of'} Ember Creek in 1987.
 Personality: ${nextSpeaker.personality}. Bio: ${nextSpeaker.bio}. Age: ${nextSpeaker.age}, Sex: ${nextSpeaker.sex}.
+${relContext}
 You are having a private conversation with ${other.name}.
 
 Recent messages:
@@ -2033,7 +2160,8 @@ gossipThreads: [],
                     lastTransientSpawn: 1 * 1440 + 8 * 60,
 lastGossipContinuationCheck: 1 * 1440 + 8 * 60,
 lastAutonomousGossipCheck: 1 * 1440 + 8 * 60,
-rumors: []
+rumors: [],
+npcRelationships: {}
                 };
                 updateNpcLocations();
 spawnTransientNpc();
