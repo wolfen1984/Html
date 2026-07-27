@@ -857,12 +857,7 @@ function generateImagesForNpcList(npcs, startIndex = 0) {
     });
 }  
 
-      function cleanupTransientNpcs() {
-            if (!world.transientNpcs) return;
-            const now = getTotalGameMinutes();
-            world.transientNpcs = world.transientNpcs.filter(tn => tn.departureGameMinute > now);
-        }
-
+      
         function getAllNpcsAtLocation(loc) {
             const regular = world.npcs.filter(n => n.currentLocation === loc);
             const trans = (world.transientNpcs || []).filter(n => n.currentLocation === loc);
@@ -1071,7 +1066,6 @@ if (!world.lastAutonomousGossipCheck) world.lastAutonomousGossipCheck = getTotal
             if (isUpdating) return;
             isUpdating = true;
             document.getElementById('statusTime').textContent = `Day ${world.time.day} ${timeStr()}`;
-            cleanupTransientNpcs();
             renderSidebar();
             showCurrentLocation();
             updateInboxIndicator();
@@ -1102,31 +1096,50 @@ if (!world.lastAutonomousGossipCheck) world.lastAutonomousGossipCheck = getTotal
         }
 
         function renderSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            sidebar.innerHTML = `<h3>📍 LOCATIONS</h3>${LOCATIONS.map(loc =>
-            `<button class="loc-btn${world.player.location===loc?' here':''}" data-loc="${loc}">${loc}</button>`
-          ).join('')}<hr style="border-color:#1a2a1a;margin:10px 0;"><h3>⚙️</h3>
-          <button class="loc-btn" id="saveBtn">💾 Save</button>
-          <button class="loc-btn" id="newGameBtn">🔄 New Game</button>
-          <button class="loc-btn" id="themeBtn">🎨 Theme</button>`;
-            document.querySelectorAll('.loc-btn[data-loc]').forEach(b => b.addEventListener('click', () => {
-                playClick();
-                moveToLocation(b.dataset.loc);
-            }));
-            document.getElementById('saveBtn').addEventListener('click', () => { playClick();
-                saveWorld();
-                logMessage('Game saved.', 'system'); });
-            document.getElementById('newGameBtn').addEventListener('click', () => { playClick(); if (confirm(
-                    'Start a completely new town? All progress lost.')) startNewGame(); });
-            document.getElementById('themeBtn').addEventListener('click', () => {
-                playClick();
-                const themes = ['default', 'amber', 'pink', 'blue'];
-                const idx = themes.indexOf(currentTheme);
-                currentTheme = themes[(idx + 1) % themes.length];
-                applyTheme(currentTheme);
-                localStorage.setItem('ember_theme', currentTheme);
-            });
-        }
+    const sidebar = document.getElementById('sidebar');
+    sidebar.innerHTML = `<h3>📍 LOCATIONS</h3>${LOCATIONS.map(loc =>
+        `<button class="loc-btn${world.player.location===loc?' here':''}" data-loc="${loc}">${loc}</button>`
+    ).join('')}<hr style="border-color:#1a2a1a;margin:10px 0;"><h3>⚙️</h3>
+    <button class="loc-btn" id="saveBtn">💾 Save</button>
+    <button class="loc-btn" id="newGameBtn">🔄 New Game</button>
+    <button class="loc-btn" id="themeBtn">🎨 Theme</button>
+    <button class="loc-btn" id="newTravelersBtn">🚐 New Travelers</button>`;
+
+    // Location buttons
+    document.querySelectorAll('.loc-btn[data-loc]').forEach(b => b.addEventListener('click', () => {
+        playClick();
+        moveToLocation(b.dataset.loc);
+    }));
+
+    // Save
+    document.getElementById('saveBtn').addEventListener('click', () => {
+        playClick();
+        saveWorld();
+        logMessage('Game saved.', 'system');
+    });
+
+    // New Game
+    document.getElementById('newGameBtn').addEventListener('click', () => {
+        playClick();
+        if (confirm('Start a completely new town? All progress lost.')) startNewGame();
+    });
+
+    // Theme
+    document.getElementById('themeBtn').addEventListener('click', () => {
+        playClick();
+        const themes = ['default', 'amber', 'pink', 'blue'];
+        const idx = themes.indexOf(currentTheme);
+        currentTheme = themes[(idx + 1) % themes.length];
+        applyTheme(currentTheme);
+        localStorage.setItem('ember_theme', currentTheme);
+    });
+
+    // New Travelers
+    document.getElementById('newTravelersBtn').addEventListener('click', () => {
+        playClick();
+        refreshTravelers();
+    });
+}
 
         function showCurrentLocation() {
             const loc = world.player.location;
@@ -1180,14 +1193,7 @@ if (gossipNow - world.lastGossipContinuationCheck >= 30) {   // check every 30 g
 
     const totalMin = getTotalGameMinutes();
 
-    // Transient NPC spawning
-    if (!world.lastTransientSpawn) world.lastTransientSpawn = totalMin;
-    if (totalMin - world.lastTransientSpawn >= 360) {
-        world.lastTransientSpawn = totalMin;
-        spawnTransientNpc();
-        cleanupTransientNpcs();
-    }
-
+ 
     // Existing proactive player‑message check
     checkForProactiveMessages().catch(() => {});
 
@@ -1489,6 +1495,20 @@ Output ONLY the message text, no quotes, no JSON.`;
         // Small delay to respect API rate limits (optional)
         await new Promise(r => setTimeout(r, 500));
     }
+}
+
+function refreshTravelers() {
+    if (!world.transientNpcs) world.transientNpcs = [];
+    // Remove all current transients
+    world.transientNpcs = [];
+    // Spawn 2-3 new ones immediately
+    const count = 2 + Math.floor(Math.random() * 2); // 2 or 3
+    for (let i = 0; i < count; i++) {
+        spawnTransientNpc();
+    }
+    saveWorld();
+    updateUI();
+    logMessage('🚐 New travelers have arrived in Ember Creek.', 'system');
 }
 
 async function maybeGenerateGossip(fromNpc, playerMessage) {
@@ -1895,9 +1915,7 @@ generateImagesForNpcList(world.npcs);            } catch (e) {
                 if (!world.inbox) world.inbox = [];
                 if (!world.transientNpcs) world.transientNpcs = [];
                 if (!world.lastProactiveCheck) world.lastProactiveCheck = getTotalGameMinutes();
-                if (!world.lastTransientSpawn) world.lastTransientSpawn = getTotalGameMinutes();
-                cleanupTransientNpcs();
-                updateUI();
+                             updateUI();
                 logMessage("🌲 Welcome back to Ember Creek.", 'system');
                 updateInboxIndicator();
 updateGossipIndicator();
