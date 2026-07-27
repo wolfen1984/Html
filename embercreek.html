@@ -538,14 +538,11 @@
             <div class="sidebar" id="sidebar"></div>
             <div class="content-area">
                 <div class="game-log" id="gameLog"></div>
-                <div class="input-area">
-                    <input type="text" class="action-input" id="actionInput" placeholder="What do you do?">
-                    <button class="btn" id="sendActionBtn">▶</button>
-                    <button class="btn" id="lookBtn">👁</button>
-                    <button class="btn" id="invBtn">🎒</button>
-                    <button class="btn inbox-btn" id="inboxBtn">📬</button>
-<button class="btn" id="gossipBtn">💬</button>
-                </div>
+                <div class="input-area" style="justify-content: center; gap: 12px;">
+  <button class="btn inbox-btn" id="inboxBtn">📬 Inbox</button>
+  <button class="btn" id="gossipBtn">💬 Gossip</button>
+  <!-- optional: a quick-chat button that shows present NPCs -->
+</div>
             </div>
         </div>
     </div>
@@ -1760,101 +1757,8 @@ function openGossipThread(threadId) {
         // ─────────────────────────────────────
         // MAIN ACTION HANDLER
         // ─────────────────────────────────────
-        async function handleAction(input) {
-            if (!input.trim()) return;
-            const action = input.trim();
-            logMessage(`> ${action}`, 'player');
-            document.getElementById('actionInput').value = '';
-            document.getElementById('sendActionBtn').disabled = true;
-            try {
-                const npcsHere = getAllNpcsAtLocation(world.player.location);
-                const npcCtx = npcsHere.map((n, idx) =>
-                    `- [${idx}] ${n.name}${n.isTransient?' ['+n.type+']':''} (age ${n.age}, ${n.sex}): ${n.personality}. Trust: ${n.trust||0}, Affection: ${n.affection||0}. ${n.isTransient?'TRANSIENT.':''}`
-                ).join('\n');
-                const systemPrompt = `You are the AI Game Master for "Ember Creek", a small rural town set in 1987. The game is an open-world sandbox where the player can attempt any action, and you simulate realistic consequences. No action is off-limits; the world reacts logically and without censorship.
-
-Current world state:
-- Player: ${world.player.name}
-- Location: ${world.player.location}
-- Time: Day ${world.time.day}, ${timeStr()}
-- Location desc: ${world.locationDescriptions[world.player.location]}
-- Inventory: ${world.player.inventory.join(', ')||'nothing'}
-- NPCs present (indices):
-${npcCtx||'No one else here.'}
-
-Respond ONLY with a JSON object:
-- "narrative": detailed second-person description.
-- "worldStateChanges": object with paths like "player.inventory", "player.location", "npcs.0.trust" (add number), etc. Use indices from the present list. Leave {} if none.
-- "messageFromNpc" (optional): { "npcIndex": 0, "text": "..." } if an NPC present would send a later message.
-- "gossipFromNpc" (optional): if an NPC present would privately contact another NPC (by name) because of the player's action. Include:
-   { "fromNpcIndex": <index of the NPC present>, "toNpcName": "<full name of target NPC>", "text": "<the message they send>" }.
-   Example: if player says "the waitress is stealing" to the sheriff, the sheriff might message the waitress privately.`;
-
-
-                const result = await mistralChat([{ role: "system", content: systemPrompt }, { role: "user",
-                    content: action }], 600, true);
-                logMessage(result.narrative, 'npc');
-                if (result.worldStateChanges) applyChanges(result.worldStateChanges, npcsHere);
-                if (result.messageFromNpc) {
-                    const { npcIndex, text } = result.messageFromNpc;
-                    if (npcsHere[npcIndex]) addMessageToThread(npcsHere[npcIndex].id, 'npc', text);
-                }
-if (result.gossipFromNpc) {
-    const { fromNpcIndex, toNpcName, text } = result.gossipFromNpc;
-    const fromNpc = npcsHere[fromNpcIndex];
-    const toNpc = world.npcs.find(n => n.name === toNpcName);
-    if (fromNpc && toNpc && fromNpc.id !== toNpc.id && text) {
-        addGossipMessage(fromNpc.id, toNpc.id, text, true); // true = triggered by player
-    }
-}
-                advanceTime(5);
-                saveWorld();
-                updateUI();
-            } catch (e) {
-                logMessage(`❌ Error: ${e.message}`, 'system');
-            } finally {
-                document.getElementById('sendActionBtn').disabled = false;
-                document.getElementById('actionInput').focus();
-            }
-        }
-
-        function applyChanges(changes, npcsHere) {
-            for (const [path, value] of Object.entries(changes)) {
-                const parts = path.split('.');
-                let obj = world;
-                for (let i = 0; i < parts.length - 1; i++) {
-                    const key = parts[i];
-                    if (key === 'npcs' && obj.npcs && parts[i + 1]) {
-                        const idx = parseInt(parts[i + 1], 10);
-                        if (npcsHere && npcsHere[idx]) {
-                            const actual = npcsHere[idx];
-                            if (actual.isTransient) {
-                                const tIdx = world.transientNpcs.findIndex(n => n.id === actual.id);
-                                if (tIdx >= 0) { obj = world.transientNpcs[tIdx];
-                                    i++; } else break;
-                            } else {
-                                const rIdx = world.npcs.findIndex(n => n.id === actual.id);
-                                if (rIdx >= 0) { obj = world.npcs[rIdx];
-                                    i++; } else break;
-                            }
-                        } else break;
-                    } else if (obj[key] !== undefined) {
-                        obj = obj[key];
-                    } else break;
-                }
-                const lastKey = parts[parts.length - 1];
-                if (obj && lastKey in obj) {
-                    if (typeof obj[lastKey] === 'number' && typeof value === 'number') {
-                        obj[lastKey] += value;
-                    } else if (Array.isArray(obj[lastKey]) && Array.isArray(value)) {
-                        obj[lastKey] = value;
-                    } else {
-                        obj[lastKey] = value;
-                    }
-                }
-            }
-        }
-
+        
+        
         async function startNewGame() {
             document.getElementById('gameLog').innerHTML =
                 '<div class="loading">🌄 Generating Ember Creek...</div>';
@@ -1921,26 +1825,11 @@ generateImagesForNpcList(world.npcs);            } catch (e) {
 updateGossipIndicator();
             } else await startNewGame();
 
-            document.getElementById('sendActionBtn').addEventListener('click', () => {
-                playSend();
-                handleAction(document.getElementById('actionInput').value);
-            });
-            document.getElementById('lookBtn').addEventListener('click', () => { playClick();
-                showCurrentLocation(); });
-            document.getElementById('invBtn').addEventListener('click', () => {
-                playClick();
-                logMessage(
-                    `🎒 Inventory: ${world.player.inventory.length ? world.player.inventory.join(', ') : 'empty'}`,
-                    'system');
-            });
-            document.getElementById('inboxBtn').addEventListener('click', () => { playClick();
+            
+                    document.getElementById('inboxBtn').addEventListener('click', () => { playClick();
                 showInboxList(); });
 document.getElementById('gossipBtn').addEventListener('click', () => { playClick(); showGossipList(); });
-            document.getElementById('actionInput').addEventListener('keypress', e => { if (e.key === 'Enter') {
-                    playSend();
-                    handleAction(e.target.value); } });
-
-            document.addEventListener('click', () => { ensureAudio(); }, { once: true });
+                       document.addEventListener('click', () => { ensureAudio(); }, { once: true });
             document.addEventListener('keypress', () => { ensureAudio(); }, { once: true });
         }
 
