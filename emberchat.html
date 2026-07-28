@@ -1158,7 +1158,6 @@ async function checkForInterjection(thread, type) {
     } catch (e) { /* ignore */ }
 }
 
-// Invite an NPC from the chat to your current location
 async function inviteNpcToLocation(threadId, type) {
     let thread;
     if (type === 'inbox') thread = getThread(threadId);
@@ -1169,16 +1168,33 @@ async function inviteNpcToLocation(threadId, type) {
     if (type === 'inbox') {
         targetNpcId = thread.npcId;
     } else {
-        // For group, invite the first non-player participant (can be improved later)
         targetNpcId = thread.participants.find(p => p !== 'player');
     }
 
     const npc = getNpcById(targetNpcId);
     if (!npc) return;
 
+    const inviteBtn = document.getElementById('inviteHereBtn');
+    if (inviteBtn) {
+        inviteBtn.disabled = true;
+        inviteBtn.textContent = '⏳ Inviting...';
+    }
+
     if (!apiKey) {
         logMessage(`${npc.name} can't be invited right now.`, 'system');
+        if (inviteBtn) {
+            inviteBtn.disabled = false;
+            inviteBtn.textContent = '📍 Invite here';
+        }
         return;
+    }
+
+    // Show a "sending" notification in the chat
+    thread.messages.push({ sender: 'system', text: `You invited ${npc.name} to come to ${world.player.location}.`, timestamp: Date.now() });
+    const msgDiv = document.getElementById('chatMessages');
+    if (msgDiv) {
+        msgDiv.innerHTML += `<div class="chat-msg system"><strong>System:</strong> You invited ${esc(npc.name)} to come to ${esc(world.player.location)}.</div>`;
+        msgDiv.scrollTop = msgDiv.scrollHeight;
     }
 
     const systemPrompt = `You are ${npc.name}, a ${npc.personality}. The player invites you to come to their location (${world.player.location}). Your trust: ${npc.trust||0}, affection: ${npc.affection||0}. Do you agree? Reply with "YES" or "NO" and a brief message.`;
@@ -1186,25 +1202,43 @@ async function inviteNpcToLocation(threadId, type) {
         const decision = await mistralChat([{ role: "system", content: systemPrompt }], 100, false);
         const upper = decision.toUpperCase();
         if (upper.startsWith('YES')) {
-            const arrivalDelay = 1 + Math.floor(Math.random() * 5); // game minutes (could also use real time for testing)
+            const arrivalDelay = 1 + Math.floor(Math.random() * 5);
             logMessage(`📩 ${npc.name} agrees to meet you. They'll be here in ${arrivalDelay} minutes.`, 'player');
-            // For now, we'll just instantly move them after a short real-time delay for testing.
-            // In a full game, you'd tie this to advanceTime. We'll use setTimeout for demonstration.
+            thread.messages.push({ sender: npc.id, text: "Sure, I'll head over.", timestamp: Date.now() });
+            if (msgDiv) {
+                msgDiv.innerHTML += `<div class="chat-msg npc"><strong>${esc(npc.name)}:</strong> Sure, I'll head over.</div>`;
+                msgDiv.scrollTop = msgDiv.scrollHeight;
+            }
             setTimeout(() => {
                 npc.currentLocation = world.player.location;
                 saveWorld();
                 updateUI();
                 logMessage(`🚶 ${npc.name} arrives.`, 'system');
                 thread.messages.push({ sender: npc.id, text: "I'm here!", timestamp: Date.now() });
-            }, arrivalDelay * 60000); // real milliseconds, change to game time if you prefer
+                if (msgDiv) {
+                    msgDiv.innerHTML += `<div class="chat-msg npc"><strong>${esc(npc.name)}:</strong> I'm here!</div>`;
+                    msgDiv.scrollTop = msgDiv.scrollHeight;
+                }
+            }, arrivalDelay * 60000);
         } else {
             logMessage(`${npc.name} declines your invitation: "${decision.replace(/^NO\s*:?\s*/i, '')}"`, 'player');
+            thread.messages.push({ sender: npc.id, text: decision.replace(/^NO\s*:?\s*/i, '').trim(), timestamp: Date.now() });
+            if (msgDiv) {
+                msgDiv.innerHTML += `<div class="chat-msg npc"><strong>${esc(npc.name)}:</strong> ${esc(decision.replace(/^NO\s*:?\s*/i, '').trim())}</div>`;
+                msgDiv.scrollTop = msgDiv.scrollHeight;
+            }
         }
     } catch (e) {
         logMessage(`Invite failed: ${e.message}`, 'system');
+    } finally {
+        if (inviteBtn) {
+            inviteBtn.disabled = false;
+            inviteBtn.textContent = '📍 Invite here';
+        }
+        saveWorld();
+        updateInboxIndicator();
     }
 }
-
         // ─────────────────────────────────────
         // 📬 PROACTIVE MESSAGING (FIXED: CHAT-HISTORY ONLY)
         // ─────────────────────────────────────
