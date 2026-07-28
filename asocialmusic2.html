@@ -935,6 +935,139 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
             return stars + ` (${album.reviews.filter(r=>r.rating>0).length})`;
         }
 
+async function generateAlbumMusic(album) {
+    // Always get multi‑section data – no fallback
+    let song;
+    if (album.songData && album.songData.sections) {
+        song = album.songData;
+    } else {
+        song = await generateAlbumSectionsAI(album);
+        album.songData = song;
+        saveWorld();
+    }
+
+    const bpm = song.bpm || 120;
+    const stepDur = 60 / bpm / 2;   // 8th notes (8 steps per bar)
+
+    // Polyphony limiter
+    const MAX_EVENTS = 500;
+    const MAX_SIMULTANEOUS = { lead: 3, bass: 2, drums: 3 };
+    function limitPolyphony(events, max) {
+        if (!events.length) return [];
+        const sorted = [...events].sort((a, b) => a.step - b.step);
+        const result = [];
+        const activeEnds = [];
+        for (const ev of sorted) {
+            const start = ev.step;
+            const end = start + (ev.durSteps || 1);
+            for (let i = activeEnds.length - 1; i >= 0; i--) {
+                if (activeEnds[i] <= start) activeEnds.splice(i, 1);
+            }
+            if (activeEnds.length < max) {
+                result.push(ev);
+                activeEnds.push(end);
+                activeEnds.sort((a, b) => a - b);
+            }
+        }
+        return result;
+    }
+
+    // Process sections
+    const sections = song.sections.map(sec => {
+        const lead = limitPolyphony((sec.lead || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.lead);
+        const bass = limitPolyphony((sec.bass || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.bass);
+        const drumTypes = ['kick', 'snare', 'hat'];
+        const drums = [];
+        drumTypes.forEach(type => {
+            const typeEvents = (sec.drums || []).filter(e => e.type === type);
+            const limited = limitPolyphony(typeEvents, MAX_SIMULTANEOUS.drums);
+            drums.push(...limited);
+        });
+        drums.sort((a, b) => a.step - b.step);
+        const bars = sec.lengthBars || 8;
+        const maxStep = bars * 8;
+        const duration = maxStep * stepDur;
+        return { ...sec, lead, bass, drums, duration };
+    });
+
+    const totalDuration = sections.reduce((sum, s) => sum + s.duration, 0);
+
+    // Create offline context
+    const sampleRate = 44100;
+    const offlineCtx = new OfflineAudioContext(2, sampleRate * totalDuration, sampleRate);
+
+    // Audio graph
+    const masterGain = offlineCtx.createGain();
+    masterGain.gain.value = 0.8;
+    const tapeLP = offlineCtx.createBiquadFilter();
+    tapeLP.type = 'lowpass';
+    tapeLP.frequency.value = 7500;
+    const distCurve = createDistortionCurve(15);
+    const distNode = offlineCtx.createWaveShaper();
+    distNode.curve = distCurve;
+    distNode.oversample = '2x';
+    const reverbDelay = offlineCtx.createDelay(0.5);
+    reverbDelay.delayTime.value = 0.35;
+    const reverbFB = offlineCtx.createGain();
+    reverbFB.gain.value = 0.4;
+    const reverbGain = offlineCtx.createGain();
+    reverbGain.gain.value = 0.25;
+    reverbDelay.connect(reverbFB);
+    reverbFB.connect(reverbDelay);
+    reverbDelay.connect(reverbGain);
+    const echoDelay = offlineCtx.createDelay(0.6);
+    echoDelay.delayTime.value = 0.28;
+    const echoFB = offlineCtx.createGain();
+    echoFB.gain.value = 0.3;
+    const echoGain = offlineCtx.createGain();
+    echoGain.gain.value = 0.18;
+    echoDelay.connect(echoFB);
+    echoFB.connect(echoDelay);
+    echoDelay.connect(echoGain);
+    const leadGain = offlineCtx.createGain();
+    leadGain.gain.value = 0.45;
+    const bassGain = offlineCtx.createGain();
+    bassGain.gain.value = 0.55;
+    const drumGain = offlineCtx.createGain();
+    drumGain.gain.value = 0.7;
+    [leadGain, bassGain, drumGain].forEach(g => g.connect(tapeLP));
+    tapeLP.connect(distNode);
+    distNode.connect(masterGain);
+    distNode.connect(reverbDelay);
+    reverbGain.connect(masterGain);
+    distNode.connect(echoDelay);
+    echoGain.connect(masterGain);
+    masterGain.connect(offlineCtx.destination);
+
+    const drumSched = createDrumSchedulers(offlineCtx, drumGain);
+    let sectionStartTime = 0;
+
+    sections.forEach(section => {
+        const offset = sectionStartTime;
+        section.lead.forEach(ev => {
+            if (freq[ev.note]) {
+                scheduleNote(offlineCtx, offset + ev.step * stepDur, freq[ev.note], (ev.durSteps || 1) * stepDur, ev.vel * 0.5, -0.3, leadGain);
+            }
+        });
+        section.bass.forEach(ev => {
+            if (freq[ev.note]) {
+                scheduleNote(offlineCtx, offset + ev.step * stepDur, freq[ev.note], (ev.durSteps || 1) * stepDur, ev.vel * 0.6, 0.2, bassGain);
+            }
+        });
+        section.drums.forEach(ev => {
+            const t = offset + ev.step * stepDur;
+            if (ev.type === 'kick') drumSched.kick(t, ev.vel);
+            else if (ev.type === 'snare') drumSched.snare(t, ev.vel);
+            else if (ev.type === 'hat') drumSched.hat(t, ev.vel);
+        });
+        sectionStartTime += section.duration;
+    });
+
+    const renderedBuffer = await offlineCtx.startRendering();
+    const url = audioBufferToWav(renderedBuffer);
+    return { url, duration: totalDuration * 1000 };
+}
+
         // ──────────────────────── DIRECT DOWNLOAD (no player needed) ────────────────────────
         async function downloadAlbumDirect(albumId) {
             const album = world.social.albums.find(a => a.id === albumId);
