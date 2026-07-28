@@ -99,6 +99,32 @@
     .btn.accent:hover { box-shadow:0 0 16px var(--accent); }
     .star-btn { background:transparent; border:none; color:var(--text-dim); font-size:18px; cursor:pointer; transition:0.1s; }
     .star-btn.active { color:var(--accent2); text-shadow:0 0 8px var(--accent2); }
+.typed-line {
+  display: block;
+  min-height: 1.2em;
+}
+.typed-line .cursor {
+  color: var(--text);
+  animation: blink 0.5s step-end infinite;
+}
+@keyframes blink {
+  50% { opacity: 0; }
+}
+.scene-heading { 
+  color: var(--accent2); font-weight: bold; text-align: center; 
+  margin: 12px 0 4px; letter-spacing: 1px; font-size: 14px;
+  text-shadow: 0 0 8px var(--accent2);
+}
+.character-name { 
+  color: var(--text-bright); text-align: center; margin-top: 8px;
+  text-transform: uppercase; letter-spacing: 2px;
+}
+.parenthetical { 
+  color: var(--text-dim); text-align: center; font-size: 11px; font-style: italic;
+}
+.action-line { 
+  color: var(--text); text-align: justify; margin: 2px 0;
+}
     .modal {
       display:none; position:fixed; z-index:2000; left:0; top:0; width:100%; height:100%;
       background:rgba(0,0,0,0.92); align-items:center; justify-content:center;
@@ -585,13 +611,12 @@ async function watchFilm(filmId) {
   const modal = document.getElementById('watchModal');
   const content = document.getElementById('watchModalContent');
 
-  // Create an AbortController to cancel the fetch when the user closes early
   const controller = new AbortController();
 
   const closePlayer = () => {
     playClick();
-    window.speechSynthesis.cancel();   // stop any TTS
-    controller.abort();                // cancel the Mistral request
+    window.speechSynthesis.cancel();
+    controller.abort();
     modal.style.display = 'none';
   };
 
@@ -611,18 +636,17 @@ Start with a retro title screen and then write the full movie in screenplay form
     const script = await mistralChat(
       [{ role: "user", content: prompt }],
       8000,
-      false,              // plain text, not JSON
-      controller.signal   // pass the abort signal
+      false,
+      controller.signal
     );
 
-    // Remove any stray asterisks, just in case
     const cleanScript = script.replace(/\*{1,2}/g, '');
 
-    // Build the typewriter + TTS viewer
+    // Build the movie viewer
     content.innerHTML = `
       <h2 style="color:var(--accent2); text-align:center;">🎬 ${esc(film.title)} (${film.year})</h2>
-      <div id="movieContainer" style="background:#0a0d0a; padding:16px; border-radius:8px; border:1px solid #1a2a1a; max-height:70vh; overflow-y:auto; font-family:'Share Tech Mono', monospace; font-size:13px; color:var(--text); white-space:pre-wrap;">
-        <span id="movieText"></span><span id="cursor" style="color:var(--text);">█</span>
+      <div id="movieContainer" style="background:#0a0d0a; padding:16px; border-radius:8px; border:1px solid #1a2a1a; max-height:70vh; overflow-y:auto; font-family:'Share Tech Mono', monospace; font-size:13px; color:var(--text);">
+        <!-- text will be typed here -->
       </div>
       <button class="btn" id="closeWatchBtn" style="display:block; margin:10px auto;">Close</button>
     `;
@@ -630,15 +654,14 @@ Start with a retro title screen and then write the full movie in screenplay form
     document.getElementById('closeWatchBtn').onclick = closePlayer;
     modal.onclick = (e) => { if (e.target === modal) closePlayer(); };
 
-    playMovie(cleanScript);   // your existing TTS + typewriter function
+    // Start the typewriter + TTS with the empty container
+    playMovie(cleanScript);
 
   } catch (e) {
-    // If the user aborted, just close silently
     if (e.name === 'AbortError') {
       modal.style.display = 'none';
       return;
     }
-    // Otherwise show the error
     content.innerHTML = `
       <h2 style="color:var(--danger);">Error</h2>
       <p>Could not generate movie: ${esc(e.message)}</p>
@@ -648,6 +671,7 @@ Start with a retro title screen and then write the full movie in screenplay form
     modal.onclick = (e) => { if (e.target === modal) closePlayer(); };
   }
 }
+
 async function showMoreLikeThis(filmId) {
   const film = world.social.films.find(f => f.id === filmId);
   if (!film) return;
@@ -720,69 +744,135 @@ async function showMoreLikeThis(filmId) {
 
 // ---------- Typewriter + TTS helper ----------
 function playMovie(text) {
-  const movieTextEl = document.getElementById('movieText');
-  const cursorEl = document.getElementById('cursor');
-  if (!movieTextEl) return;
+  const container = document.getElementById('movieContainer');
+  if (!container) return;
 
-  // Check for speech synthesis support
-  if (!window.speechSynthesis) {
-    // Fallback: just reveal text quickly
-    movieTextEl.textContent = text;
-    if (cursorEl) cursorEl.style.display = 'none';
-    return;
+  // 1. Split into lines, classify each line using CSS class names
+  const rawLines = text.split('\n');
+  const lines = rawLines.map(line => {
+    const trimmed = line.trim();
+    let cssClass = 'action-line';                     // default
+    if (/^(INT\.|EXT\.|INT\/EXT\.)/i.test(trimmed)) {
+      cssClass = 'scene-heading';
+    } else if (/^[A-Z]{2,}[A-Z\s]*$/.test(trimmed) && !trimmed.includes('.')) {
+      cssClass = 'character-name';
+    } else if (/^\(.+\)$/.test(trimmed)) {
+      cssClass = 'parenthetical';
+    }
+    return {
+      raw: line,
+      cssClass,
+      html: `<span class="${cssClass}">${esc(line)}</span>`
+    };
+  });
+
+  // 2. Build cumulative character positions (including newline characters)
+  let cumulative = [0];
+  for (let i = 0; i < lines.length; i++) {
+    const len = lines[i].raw.length + 1; // +1 for newline
+    cumulative.push(cumulative[i] + len);
   }
 
-  // Cancel any ongoing speech
+  // 3. Prepare container
+  container.innerHTML = '';
   window.speechSynthesis.cancel();
 
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 0.9;   // slightly slower for dramatic effect
+  utterance.rate = 0.9;
   utterance.pitch = 1;
   utterance.volume = 1;
 
-  // Sync typewriter with spoken words
+  let currentLineIndex = 0;
+  let charOffset = 0;  // within current line
+
+  // Helper to re‑render everything up to the current position
+  function renderUpTo(lineIdx, offsetInLine) {
+    let html = '';
+    // Fully typed previous lines → show as styled HTML
+    for (let i = 0; i < lineIdx; i++) {
+      html += `<div class="typed-line">${lines[i].html}</div>`;
+    }
+    // Current line – show the typed portion with the same class
+    if (lineIdx < lines.length) {
+      const line = lines[lineIdx];
+      const partialText = line.raw.substring(0, offsetInLine);
+      const classAttr = `class="typed-line ${line.type}-line"`;
+      html += `<div ${classAttr}>${esc(partialText)}<span class="cursor">█</span></div>`;
+    }
+    container.innerHTML = html;
+  }
+
+  // 4. Update display on each spoken word
   utterance.onboundary = (event) => {
     if (event.name === 'word') {
-      const upTo = event.charIndex;
-      movieTextEl.textContent = text.substring(0, upTo);
-      // Keep cursor after the revealed text
-      if (cursorEl) cursorEl.style.display = 'inline';
+      const charIndex = event.charIndex;
+      // Find which line and offset this character belongs to
+      for (let i = 0; i < cumulative.length - 1; i++) {
+        const lineStart = cumulative[i];
+        const lineEnd = cumulative[i + 1];
+        if (charIndex >= lineStart && charIndex < lineEnd) {
+          currentLineIndex = i;
+          charOffset = charIndex - lineStart;
+          break;
+        }
+      }
+      renderUpTo(currentLineIndex, charOffset);
     }
   };
 
   utterance.onend = () => {
-    // Show full text when done
-    movieTextEl.textContent = text;
-    if (cursorEl) cursorEl.style.display = 'none';
+    // Show everything at the end
+    let finalHtml = '';
+    lines.forEach(l => {
+      finalHtml += `<div class="typed-line">${l.html}</div>`;
+    });
+    container.innerHTML = finalHtml;
   };
 
   utterance.onerror = (e) => {
     console.warn('Speech error:', e);
-    // Show full text and hide cursor on error
-    movieTextEl.textContent = text;
-    if (cursorEl) cursorEl.style.display = 'none';
+    // Fallback – show all
+    let finalHtml = '';
+    lines.forEach(l => {
+      finalHtml += `<div class="typed-line">${l.html}</div>`;
+    });
+    container.innerHTML = finalHtml;
   };
 
-  // Start speaking
   window.speechSynthesis.speak(utterance);
-
-  // Blink cursor
-  let blinkInterval = setInterval(() => {
-    if (cursorEl) cursorEl.style.visibility = (cursorEl.style.visibility === 'hidden') ? 'visible' : 'hidden';
-  }, 500);
-
-  // Clean up blink when speech ends
-  utterance.onend = () => {
-    clearInterval(blinkInterval);
-    movieTextEl.textContent = text;
-    if (cursorEl) cursorEl.style.display = 'none';
-  };
-  utterance.onerror = () => {
-    clearInterval(blinkInterval);
-    movieTextEl.textContent = text;
-    if (cursorEl) cursorEl.style.display = 'none';
-  };
 }
+function renderStyledScript(rawScript) {
+  const lines = rawScript.split('\n');
+  let html = '';
+  
+  for (let line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      html += '<br>';
+      continue;
+    }
+    
+    // Scene heading: INT./EXT. or all-caps short line ending in a location
+    if (/^(INT\.|EXT\.|INT\/EXT\.)/i.test(trimmed) || 
+        /^[A-Z\s\.'-]+$/.test(trimmed) && trimmed.length < 50) {
+      html += `<div class="scene-heading">${esc(trimmed)}</div>`;
+    }
+    // Character dialogue: starts with a name in ALL CAPS (possibly with parenthetical)
+    else if (/^[A-Z]{2,}[A-Z\s]*$/.test(trimmed) && !trimmed.includes('.')) {
+      html += `<div class="character-name">${esc(trimmed)}</div>`;
+    }
+    // Parenthetical direction
+    else if (/^\(.+\)$/.test(trimmed)) {
+      html += `<div class="parenthetical">${esc(trimmed)}</div>`;
+    }
+    // Everything else is action/description
+    else {
+      html += `<div class="action-line">${esc(trimmed)}</div>`;
+    }
+  }
+  return html;
+}
+
 // ──────────────────────── FILM FORUM ────────────────────────
 function viewFilmForum(filmId){
   const film = world.social.films.find(f=>f.id===filmId);
