@@ -344,6 +344,20 @@
                 box-shadow: 0 0 16px #ff8833aa, 0 0 24px #ff883366;
             }
         }
+
+#addToChatBtn {
+    background: #1a2a2f;
+    border: 1px solid #2a4a5a;
+    color: #77ccff;
+    font-size: 11px;
+    padding: 4px 8px;
+    margin-left: 10px;
+    cursor: pointer;
+}
+
+#genericModal {
+    z-index: 3000 !important;
+}
         .unread-badge {
             position: absolute;
             top: -6px;
@@ -870,6 +884,327 @@ function generateImagesForNpcList(npcs, startIndex = 0) {
             return null;
         }
 
+function getAllNpcs() {
+    return [...world.npcs, ...(world.transientNpcs || [])];
+}
+
+// ─────────────────────────────────────
+// 🧑‍🤝‍🧑 GROUP CHAT & INTERACTION
+// ─────────────────────────────────────
+
+function openChatThread(threadId, type = 'inbox') {
+    let thread, participants, headerText;
+
+    if (type === 'inbox') {
+        thread = getThread(threadId);          // existing 1-on-1
+        const npc = getNpcById(threadId);
+        if (!npc) return;
+        participants = ['player', threadId];
+        headerText = `💬 ${esc(npc.name)}${npc.isTransient ? ' <span class="transient-badge">'+esc(npc.type)+'</span>' : ''}`;
+        markThreadRead(threadId);
+    } else if (type === 'group') {
+        thread = world.groupChats.find(t => t.id === threadId);
+        if (!thread) return;
+        participants = thread.participants;
+        const npcs = participants.filter(p => p !== 'player').map(id => getNpcById(id)).filter(n => n);
+        headerText = '💬 Group: ' + npcs.map(n => esc(n.name)).join(', ');
+    } else return;
+
+    const chatModal = document.getElementById('chatModal');
+    const content = document.getElementById('chatModalContent');
+
+    content.innerHTML = `
+        <div class="chat-header" id="chatHeader">${headerText}
+            <button class="modal-btn" id="addToChatBtn" style="float:right;font-size:12px;">+ Add</button>
+        </div>
+        <div class="chat-messages" id="chatMessages">
+            ${thread.messages.map(m => {
+                const senderName = m.sender === 'player' ? 'You' : (getNpcById(m.sender)?.name || 'Unknown');
+                const cls = m.sender === 'player' ? 'player' : (m.sender === 'system' ? 'system' : 'npc');
+                return `<div class="chat-msg ${cls}"><strong>${esc(senderName)}:</strong> ${esc(m.text)}</div>`;
+            }).join('')}
+        </div>
+        <div class="chat-input-area">
+            <input type="text" class="chat-input" id="chatInput" placeholder="Type your message...">
+            <button class="modal-btn" id="sendChatBtn">Send</button>
+        </div>
+        <button class="modal-btn" id="inviteHereBtn">📍 Invite here</button>
+        <button class="modal-btn" id="closeChatBtn" style="margin-top:8px;">Close</button>
+    `;
+
+    chatModal.style.display = 'flex';
+    const msgDiv = document.getElementById('chatMessages');
+    msgDiv.scrollTop = msgDiv.scrollHeight;
+
+// Mark all NPC messages as read in group chat
+if (type === 'group') {
+    thread.messages.forEach(m => {
+        if (m.sender !== 'player' && m.sender !== 'system') m.read = true;
+    });
+}
+
+    // Store current chat context
+    chatModal.dataset.threadId = threadId;
+    chatModal.dataset.threadType = type;
+
+    // Send button
+    document.getElementById('sendChatBtn').onclick = () => {
+        playSend();
+        sendChatMessage(threadId, type);
+    };
+    document.getElementById('chatInput').addEventListener('keypress', e => {
+        if (e.key === 'Enter') { playSend(); sendChatMessage(threadId, type); }
+    });
+
+    // Add participant
+    document.getElementById('addToChatBtn').onclick = () => {
+        playClick();
+        showAddParticipantModal(threadId, type);
+    };
+
+    // Invite to location
+    document.getElementById('inviteHereBtn').onclick = () => {
+        playClick();
+        inviteNpcToLocation(threadId, type);
+    };
+
+    // Close
+    document.getElementById('closeChatBtn').onclick = () => {
+        playClick();
+        chatModal.style.display = 'none';
+    };
+    chatModal.onclick = e => { if (e.target === chatModal) { playClick(); chatModal.style.display = 'none'; } };
+}
+
+// Replace the old openChat with this wrapper
+function openChat(npcId) {
+    openChatThread(npcId, 'inbox');
+}
+
+// Show modal to pick an NPC to add
+function showAddParticipantModal(threadId, type) {
+    let currentParticipants = [];
+    if (type === 'inbox') {
+        currentParticipants = ['player', threadId];
+    } else {
+        const thread = world.groupChats.find(t => t.id === threadId);
+        if (!thread) return;
+        currentParticipants = thread.participants;
+    }
+
+    const allNpcs = getAllNpcs();
+    const available = allNpcs.filter(n => !currentParticipants.includes(n.id));
+
+    let html = `<h2>👥 Add to Chat</h2>`;
+    if (available.length === 0) html += `<p>No other NPCs available.</p>`;
+    available.forEach(n => {
+        const tl = n.isTransient ? ` <span class="transient-badge">${esc(n.type)}</span>` : '';
+        html += `<div style="background:#0f140f; margin:6px 0; padding:8px; border-radius:6px; cursor:pointer; border:1px solid #1a2a1a;"
+                    onclick="playClick();addNpcToChat('${threadId}','${type}','${n.id}')">
+            <strong>${esc(n.name)}${tl}</strong> (${esc(n.currentLocation)})
+        </div>`;
+    });
+    html += `<button class="modal-btn" onclick="playClick();document.getElementById('genericModal').style.display='none'">Cancel</button>`;
+    modal(html);
+}
+
+function addNpcToChat(threadId, type, newNpcId) {
+    const newNpc = getNpcById(newNpcId);
+    if (!newNpc) return;
+
+    if (type === 'inbox') {
+        // Convert 1‑on‑1 to group – first check if a group with these three already exists
+        const newParticipants = ['player', threadId, newNpcId].sort().join('|');
+        let existingGroup = world.groupChats.find(g =>
+            g.participants.slice().sort().join('|') === newParticipants
+        );
+        if (existingGroup) {
+            // Reuse the existing group chat
+            // Remove old 1‑on‑1 thread from inbox
+            world.inbox = world.inbox.filter(t => t.npcId !== threadId);
+            saveWorld();
+            document.getElementById('genericModal').style.display = 'none';
+            openChatThread(existingGroup.id, 'group');
+            return;
+        }
+
+        // No existing group – create a new one
+        const oldThread = getThread(threadId);
+        const participants = ['player', threadId, newNpcId];
+        const groupThread = {
+            id: uid(),
+            participants: participants,
+            messages: oldThread.messages.map(m => ({
+                sender: m.sender === 'player' ? 'player' : threadId,
+                text: m.text,
+                timestamp: m.timestamp
+            })),
+            lastActivity: Date.now()
+        };
+        groupThread.messages.push({
+            sender: 'system',
+            text: `${newNpc.name} has joined the conversation.`,
+            timestamp: Date.now()
+        });
+        world.groupChats.push(groupThread);
+        world.inbox = world.inbox.filter(t => t.npcId !== threadId);
+        saveWorld();
+        document.getElementById('genericModal').style.display = 'none';
+        openChatThread(groupThread.id, 'group');
+
+    } else if (type === 'group') {
+        const thread = world.groupChats.find(t => t.id === threadId);
+        if (!thread) return;
+        if (thread.participants.includes(newNpcId)) return;
+
+        // Check if adding this NPC would create a set that already exists
+        const futureParticipants = [...thread.participants, newNpcId].sort().join('|');
+        const existingGroup = world.groupChats.find(g =>
+            g.id !== thread.id &&
+            g.participants.slice().sort().join('|') === futureParticipants
+        );
+        if (existingGroup) {
+            // Merge this thread into the existing one
+            existingGroup.messages.push(...thread.messages);
+            existingGroup.messages.push({
+                sender: 'system',
+                text: `${newNpc.name} has joined the conversation.`,
+                timestamp: Date.now()
+            });
+            existingGroup.lastActivity = Date.now();
+            // Remove current thread
+            world.groupChats = world.groupChats.filter(g => g.id !== threadId);
+            saveWorld();
+            document.getElementById('genericModal').style.display = 'none';
+            openChatThread(existingGroup.id, 'group');
+            return;
+        }
+
+        // Otherwise, just add the NPC to the current thread
+        thread.participants.push(newNpcId);
+        thread.messages.push({
+            sender: 'system',
+            text: `${newNpc.name} has joined the conversation.`,
+            timestamp: Date.now()
+        });
+        thread.lastActivity = Date.now();
+        saveWorld();
+        document.getElementById('genericModal').style.display = 'none';
+        openChatThread(threadId, 'group');
+    }
+}
+// Interjection check: NPCs present at the location may butt in
+async function checkForInterjection(thread, type) {
+    if (!apiKey) return;
+    const playerLoc = world.player.location;
+    const presentNpcs = getAllNpcsAtLocation(playerLoc);
+    let currentParticipantIds = type === 'inbox' ? ['player', thread.npcId] : thread.participants;
+    const others = presentNpcs.filter(n => !currentParticipantIds.includes(n.id));
+    if (others.length === 0) return;
+    if (Math.random() > 0.15) return;
+
+    const interjector = others[Math.floor(Math.random() * others.length)];
+    const lastMsg = thread.messages[thread.messages.length - 1]?.text || '';
+
+    const systemPrompt = `You are ${interjector.name}, a ${interjector.personality} in Ember Creek. You overheard the player and others say: "${lastMsg}". Do you interject? If so, output exactly "YES: your message". If not, output "NO".`;
+    try {
+        const decision = await mistralChat([{ role: "system", content: systemPrompt }], 100, false);
+        const parts = decision.split(':');
+        if (parts[0].trim().toUpperCase() === 'YES' && parts.length > 1) {
+            const msg = parts.slice(1).join(':').trim();
+            const confirmed = await new Promise(resolve => {
+                modal(`<p>${esc(interjector.name)} interjects: "${esc(msg)}"</p>
+                       <button class="modal-btn" id="addInterjectBtn">Add to chat</button>
+                       <button class="modal-btn" id="ignoreInterjectBtn">Ignore</button>`);
+                document.getElementById('addInterjectBtn').onclick = () => { playClick(); window._closeModal(); resolve(true); };
+                document.getElementById('ignoreInterjectBtn').onclick = () => { playClick(); window._closeModal(); resolve(false); };
+            });
+                       if (confirmed) {
+                if (type === 'inbox') {
+                    // Convert 1-on-1 to group, including the interjector's message
+                    const oldThread = getThread(thread.npcId);
+                    const participants = ['player', thread.npcId, interjector.id];
+                    const groupThread = {
+                        id: uid(),
+                        participants: participants,
+                        messages: oldThread.messages.map(m => ({
+                            sender: m.sender === 'player' ? 'player' : thread.npcId,
+                            text: m.text,
+                            timestamp: m.timestamp
+                        })),
+                        lastActivity: Date.now()
+                    };
+                    groupThread.messages.push({ sender: 'system', text: `${interjector.name} joined after overhearing.`, timestamp: Date.now() });
+                    groupThread.messages.push({ sender: interjector.id, text: msg, timestamp: Date.now() });
+                    playNotification();   // sound for interjection
+                    world.groupChats.push(groupThread);
+                    world.inbox = world.inbox.filter(t => t.npcId !== thread.npcId);
+                    saveWorld();
+                    document.getElementById('genericModal').style.display = 'none';
+                    openChatThread(groupThread.id, 'group');
+                } else {
+                    const t = world.groupChats.find(x => x.id === thread.id);
+                    if (t && !t.participants.includes(interjector.id)) {
+                        t.participants.push(interjector.id);
+                        t.messages.push({ sender: 'system', text: `${interjector.name} joined after overhearing.`, timestamp: Date.now() });
+                        t.messages.push({ sender: interjector.id, text: msg, timestamp: Date.now() });
+                        playNotification();   // sound for interjection
+                        saveWorld();
+                        openChatThread(thread.id, 'group');
+                    }
+                }
+            }
+        }
+    } catch (e) { /* ignore */ }
+}
+
+// Invite an NPC from the chat to your current location
+async function inviteNpcToLocation(threadId, type) {
+    let thread;
+    if (type === 'inbox') thread = getThread(threadId);
+    else thread = world.groupChats.find(t => t.id === threadId);
+    if (!thread) return;
+
+    let targetNpcId;
+    if (type === 'inbox') {
+        targetNpcId = thread.npcId;
+    } else {
+        // For group, invite the first non-player participant (can be improved later)
+        targetNpcId = thread.participants.find(p => p !== 'player');
+    }
+
+    const npc = getNpcById(targetNpcId);
+    if (!npc) return;
+
+    if (!apiKey) {
+        logMessage(`${npc.name} can't be invited right now.`, 'system');
+        return;
+    }
+
+    const systemPrompt = `You are ${npc.name}, a ${npc.personality}. The player invites you to come to their location (${world.player.location}). Your trust: ${npc.trust||0}, affection: ${npc.affection||0}. Do you agree? Reply with "YES" or "NO" and a brief message.`;
+    try {
+        const decision = await mistralChat([{ role: "system", content: systemPrompt }], 100, false);
+        const upper = decision.toUpperCase();
+        if (upper.startsWith('YES')) {
+            const arrivalDelay = 1 + Math.floor(Math.random() * 5); // game minutes (could also use real time for testing)
+            logMessage(`📩 ${npc.name} agrees to meet you. They'll be here in ${arrivalDelay} minutes.`, 'player');
+            // For now, we'll just instantly move them after a short real-time delay for testing.
+            // In a full game, you'd tie this to advanceTime. We'll use setTimeout for demonstration.
+            setTimeout(() => {
+                npc.currentLocation = world.player.location;
+                saveWorld();
+                updateUI();
+                logMessage(`🚶 ${npc.name} arrives.`, 'system');
+                thread.messages.push({ sender: npc.id, text: "I'm here!", timestamp: Date.now() });
+            }, arrivalDelay * 60000); // real milliseconds, change to game time if you prefer
+        } else {
+            logMessage(`${npc.name} declines your invitation: "${decision.replace(/^NO\s*:?\s*/i, '')}"`, 'player');
+        }
+    } catch (e) {
+        logMessage(`Invite failed: ${e.message}`, 'system');
+    }
+}
+
         // ─────────────────────────────────────
         // 📬 PROACTIVE MESSAGING (FIXED: CHAT-HISTORY ONLY)
         // ─────────────────────────────────────
@@ -977,6 +1312,7 @@ ${memoryContext}
     const saved = localStorage.getItem('ember_creek_world');
     if (saved) {
         world = JSON.parse(saved);
+if (!world.locationDescriptions) world.locationDescriptions = {};
         if (!world.inbox) world.inbox = [];
         if (!world.gossipThreads) world.gossipThreads = [];
         // Ensure each thread has lastGameMinute for continuation tracking
@@ -984,6 +1320,7 @@ ${memoryContext}
             if (!t.lastGameMinute) t.lastGameMinute = getTotalGameMinutes();
         });
         if (!world.transientNpcs) world.transientNpcs = [];
+if (!world.groupChats) world.groupChats = [];
         if (!world.lastProactiveCheck) world.lastProactiveCheck = getTotalGameMinutes();
         if (!world.lastTransientSpawn) world.lastTransientSpawn = getTotalGameMinutes();
         if (!world.lastGossipContinuationCheck) world.lastGossipContinuationCheck = getTotalGameMinutes();
@@ -1551,31 +1888,7 @@ document.getElementById('giveGiftBtn').onclick = () => {
     }
 }
 
-        function openChat(npcId) {
-            const npc = getNpcById(npcId);
-            if (!npc) return;
-            markThreadRead(npcId);
-            const thread = getThread(npcId);
-            const chatModal = document.getElementById('chatModal');
-            const content = document.getElementById('chatModalContent');
-            content.innerHTML = `<div class="chat-header">💬 ${esc(npc.name)}${npc.isTransient?' <span class="transient-badge">'+esc(npc.type)+'</span>':''}</div>
-            <div class="chat-messages" id="chatMessages">${thread.messages.map(m=>`<div class="chat-msg ${m.sender}">${esc(m.text)}${m.proactive?' <span style="font-size:9px;color:var(--text-dim);">(sent earlier)</span>':''}</div>`).join('')}</div>
-            <div class="chat-input-area"><input type="text" class="chat-input" id="chatInput" placeholder="Type your message..."><button class="modal-btn" id="sendChatBtn">Send</button></div>
-            <button class="modal-btn" id="closeChatBtn" style="margin-top:8px;">Close</button>`;
-            chatModal.style.display = 'flex';
-            const msgDiv = document.getElementById('chatMessages');
-            msgDiv.scrollTop = msgDiv.scrollHeight;
-            document.getElementById('sendChatBtn').onclick = () => { playSend();
-                sendChatMessage(npcId); };
-            document.getElementById('chatInput').addEventListener('keypress', e => { if (e.key === 'Enter') {
-                    playSend();
-                    sendChatMessage(npcId); } });
-            document.getElementById('closeChatBtn').onclick = () => { playClick();
-                chatModal.style.display = 'none'; };
-            chatModal.onclick = e => { if (e.target === chatModal) { playClick();
-                    chatModal.style.display = 'none'; } };
-        }
-
+     
 async function autonomousGossip() {
     if (!apiKey) return;
     const allNpcs = [...world.npcs, ...(world.transientNpcs || [])];
@@ -1852,152 +2165,161 @@ Output ONLY the reply text, no quotes, no JSON.`;
     }
 }
 
-        async function sendChatMessage(npcId) {
+       async function sendChatMessage(threadId, type) {
     const input = document.getElementById('chatInput');
     const text = input.value.trim();
     if (!text) return;
     input.value = '';
-// ── Rumor detection ──
-const allNpcs = [...world.npcs, ...(world.transientNpcs || [])];
-const negativeWords = ['steal', 'cheat', 'lie', 'kill', 'hide', 'secret', 'affair', 'drug',
-                       'murder', 'arson', 'thief', 'dangerous', 'weapon', 'gun'];
 
-for (const mentioned of allNpcs) {
-  if (mentioned.id === npcId) continue; // don't count the one you're talking to
-  const nameRegex = new RegExp('\\b' + mentioned.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
-  if (text.match(nameRegex)) {
-    const isNegative = negativeWords.some(w => text.toLowerCase().includes(w));
-    const rumor = {
-      id: uid(),
-      sourceId: 'player',
-      targetId: mentioned.id,
-      spreaderId: npcId,
-      content: text.substring(0, 200),
-      spreadTo: [npcId],
-      timestamp: getTotalGameMinutes(),
-      severity: isNegative ? -2 : 1  // negative gossip hurts, positive/neutral can slightly boost
-    };
-    if (!world.rumors) world.rumors = [];
-    world.rumors.push(rumor);
-    saveWorld();
-    break; // only create one rumor per message for simplicity
-  }
-}
-    const npc = getNpcById(npcId);
-    const thread = getThread(npcId);
-    addMessageToThread(npcId, 'player', text);
+    let thread;
+    if (type === 'inbox') {
+        thread = getThread(threadId);
+    } else if (type === 'group') {
+        thread = world.groupChats.find(t => t.id === threadId);
+    }
+    if (!thread) return;
+
+    // Add player message
+    thread.messages.push({ sender: 'player', text, timestamp: Date.now() });
     const msgDiv = document.getElementById('chatMessages');
-    msgDiv.innerHTML += `<div class="chat-msg player">${esc(text)}</div>`;
+    msgDiv.innerHTML += `<div class="chat-msg player"><strong>You:</strong> ${esc(text)}</div>`;
     msgDiv.scrollTop = msgDiv.scrollHeight;
 
-    try {
-        // ── Gather gossip context for this NPC ──
-        let gossipContext = '';
-        if (world.gossipThreads) {
-            const relevantThreads = world.gossipThreads.filter(t =>
-                t.participants.includes(npc.id)
-            );
-            if (relevantThreads.length > 0) {
-                // Collect last 3 messages from each thread (max 5 threads to keep prompt short)
-                const snippets = [];
-                for (const gThread of relevantThreads.slice(0, 5)) {
-                    const otherId = gThread.participants[0] === npc.id ? gThread.participants[1] : gThread.participants[0];
-                    const otherNpc = getNpcById(otherId);
-                    const otherName = otherNpc ? otherNpc.name : 'someone';
-                    const recent = gThread.messages.slice(-3);
-                    for (const m of recent) {
-                        const sender = m.senderId === npc.id ? 'You' : otherName;
-                        snippets.push(`${sender}: ${m.text}`);
-                    }
-                }
-                if (snippets.length > 0) {
-                    gossipContext = `\n\nRecently you have had private conversations with other townspeople. The player does NOT know about these unless they specifically ask. Only reference these if the player brings up the topic. Here is a summary:\n${snippets.join('\n')}`;
-                }
+    // Get NPC participants (excluding player)
+    const npcIds = type === 'inbox' ? [threadId] : thread.participants.filter(p => p !== 'player');
+    const npcs = npcIds.map(id => getNpcById(id)).filter(n => n);
+
+    // AI reply (if possible)
+    if (apiKey && npcs.length > 0) {
+        try {
+            let systemPrompt = 'You are a group conversation in Ember Creek, 1987.\n';
+            systemPrompt += 'The player just said something. Decide which NPC speaks next (only one per turn).\n';
+            systemPrompt += 'If no NPC has a strong reason to speak, pick one naturally.\n';
+            systemPrompt += 'Output ONLY the NPC name (exactly as given) followed by a colon and their message.\n\n';
+            systemPrompt += 'NPCs:\n';
+            for (const n of npcs) {
+                systemPrompt += `- ${n.name} (${n.personality}, ${n.bio}, Trust ${n.trust||0}, Affection ${n.affection||0})\n`;
             }
+            systemPrompt += '\nConversation history:\n';
+            const historyMsgs = thread.messages.slice(-10);
+            for (const m of historyMsgs) {
+                const speaker = m.sender === 'player' ? 'Player' : (getNpcById(m.sender)?.name || 'Unknown');
+                systemPrompt += `${speaker}: ${m.text}\n`;
+            }
+            systemPrompt += '\nNow generate the next NPC reply.';
+
+            const reply = await mistralChat([{ role: "system", content: systemPrompt }], 200, false);
+            const match = reply.match(/^([^:]+):\s*(.*)/);
+            if (match) {
+                const npcName = match[1].trim();
+                const messageText = match[2].trim();
+                const speakingNpc = npcs.find(n => n.name.toLowerCase() === npcName.toLowerCase());
+                if (speakingNpc && messageText) {
+    thread.messages.push({ sender: speakingNpc.id, text: messageText, timestamp: Date.now() });
+    msgDiv.innerHTML += `<div class="chat-msg npc"><strong>${esc(speakingNpc.name)}:</strong> ${esc(messageText)}</div>`;
+    msgDiv.scrollTop = msgDiv.scrollHeight;
+    playNotification();   // ← add this
+    saveWorld();
+}
+            }
+        } catch (e) {
+            logMessage('Chat error: ' + e.message, 'system');
         }
-
-        const trust = npc.trust || 0;
-const affection = npc.affection || 0;
-
-const relationshipGuide = `
-Relationship with the player:
-- Trust ${trust}, Affection ${affection}.
-- Trust 0-3: guarded, neutral.
-- Trust 4-7: friendly, open to small talk.
-- Trust 8+: trusting, willing to share personal stories, do small favors, consider invitations.
-- Affection 0-3: professional, distant.
-- Affection 4-7: warm, enjoys the player's company.
-- Affection 8+: genuinely fond, may have a crush or strong friendship.
-Based on these levels, adjust your tone and willingness to engage with the player.`;
-
-const memoryContext = getMemoryContext(npc);
-
-const systemPrompt = `You are ${npc.name}, a ${npc.isTransient ? npc.type+' passing through' : 'resident of'} Ember Creek in 1987.
-Personality: ${npc.personality}. Bio: ${npc.bio}. Age: ${npc.age}, Sex: ${npc.sex}.
-${relationshipGuide}
-Stay in character. Keep replies 1-3 sentences.${gossipContext}${memoryContext}`;
-
-        const history = thread.messages.slice(-10).map(m => ({
-            role: m.sender === 'player' ? 'user' : 'assistant',
-            content: m.text
-        }));
-
-        const reply = await mistralChat([
-            { role: "system", content: systemPrompt },
-            ...history
-        ], 150, false);
-
-        addMessageToThread(npcId, 'npc', reply);
-// extract memories from this exchange (non‑blocking, so chat feels fast)
-extractMemories(npcId, text, reply).catch(() => {});
-        msgDiv.innerHTML += `<div class="chat-msg npc">${esc(reply)}</div>`;
-        msgDiv.scrollTop = msgDiv.scrollHeight;
-        saveWorld();
-        updateInboxIndicator();
-
-        maybeGenerateGossip(npc, text).catch(() => {});
-    } catch (e) {
-        logMessage(`Chat error: ${e.message}`, 'system');
-        addMessageToThread(npcId, 'npc', "*static*...");
     }
+
+    // Interjection check
+    await checkForInterjection(thread, type);
+
+    saveWorld();
+    updateInboxIndicator();
 }
 
-        function showInboxList() {
-            if (!world.inbox || world.inbox.length === 0) {
-                modal(
-                    `<h2>📬 Inbox</h2><p>No messages yet.</p><button class="modal-btn" onclick="playClick();window._closeModal()">Close</button>`
-                    );
-                return;
-            }
-            const sorted = [...world.inbox].sort((a, b) => {
-                const aT = a.messages.length ? a.messages[a.messages.length - 1].timestamp : 0;
-                const bT = b.messages.length ? b.messages[b.messages.length - 1].timestamp : 0;
-                return bT - aT;
+function showInboxList() {
+    const entries = [];
+
+    // 1-on-1 threads
+    if (world.inbox) {
+        world.inbox.forEach(t => {
+            const npc = getNpcById(t.npcId);
+            if (!npc) return;
+            const last = t.messages[t.messages.length - 1];
+            const timestamp = last ? last.timestamp : 0;
+            const unread = t.messages.filter(m => m.sender === 'npc' && !m.read).length;
+            entries.push({
+                type: 'inbox',
+                id: t.npcId,
+                name: npc.name,
+                isTransient: npc.isTransient,
+                transientType: npc.type || '',
+                unread,
+                lastText: last ? last.text : '',
+                timestamp,
+                proactive: last && last.proactive
             });
-            let html = `<h2>📬 Inbox</h2>`;
-            sorted.forEach(t => {
-                const npc = getNpcById(t.npcId);
-                if (!npc) return;
-                const last = t.messages[t.messages.length - 1];
-                const unread = t.messages.filter(m => m.sender === 'npc' && !m.read).length;
-                const tl = npc.isTransient ? ` <span class="transient-badge">${esc(npc.type)}</span>` : '';
-                html += `<div style="background:#0f140f; margin:8px 0; padding:10px; border-radius:6px; cursor:pointer; border:1px solid #1a2a1a;" onclick="playClick();closeInboxAndChat('${t.npcId}')">
-            <strong>${esc(npc.name)}${tl}</strong> ${unread ? `<span class="unread-dot"></span> (${unread} new)` : ''}
-            <div style="font-size:12px; color:var(--text-dim); margin-top:4px;">${last ? esc(last.text.substring(0, 50))+(last.text.length>50?'...':'') : 'No messages'}</div>
-            ${last && last.proactive ? '<div style="font-size:10px;color:#ff9944;">📨 Sent on their own</div>' : ''}
-          </div>`;
+        });
+    }
+
+    // Group chats
+    if (world.groupChats) {
+        world.groupChats.forEach(g => {
+            const npcParticipants = g.participants.filter(p => p !== 'player');
+            const npcs = npcParticipants.map(id => getNpcById(id)).filter(n => n);
+            if (npcs.length === 0) return;
+            const last = g.messages[g.messages.length - 1];
+            const timestamp = last ? last.timestamp : 0;
+            entries.push({
+                type: 'group',
+                id: g.id,
+                name: 'Group: ' + npcs.map(n => n.name).join(', '),
+                isTransient: false,
+                transientType: '',
+                unread: 0,
+                lastText: last ? last.text : '',
+                timestamp,
+                proactive: false
             });
-            html +=
-                `<button class="modal-btn" onclick="playClick();document.getElementById('inboxListModal').style.display='none'">Close</button>`;
-            document.getElementById('inboxListContent').innerHTML = html;
-            document.getElementById('inboxListModal').style.display = 'flex';
-            document.getElementById('inboxListModal').onclick = e => {
-                if (e.target === document.getElementById('inboxListModal')) {
-                    playClick();
-                    document.getElementById('inboxListModal').style.display = 'none';
-                }
-            };
-        }
+        });
+    }
+
+    if (entries.length === 0) {
+        modal(`<h2>📬 Inbox</h2><p>No messages yet.</p><button class="modal-btn" onclick="playClick();window._closeModal()">Close</button>`);
+        return;
+    }
+
+    // Sort newest first
+    entries.sort((a, b) => b.timestamp - a.timestamp);
+
+    let html = `<h2>📬 Inbox</h2>`;
+    entries.forEach(entry => {
+        const transientBadge = entry.isTransient ? ` <span class="transient-badge">${esc(entry.transientType)}</span>` : '';
+        const unreadDot = entry.unread > 0 ? ` <span class="unread-dot"></span> (${entry.unread} new)` : '';
+        const proactiveNote = entry.proactive ? '<div style="font-size:10px;color:#ff9944;">📨 Sent on their own</div>' : '';
+        const snippet = entry.lastText ? esc(entry.lastText.substring(0, 50)) + (entry.lastText.length > 50 ? '...' : '') : 'No messages';
+
+        html += `<div style="background:#0f140f; margin:8px 0; padding:10px; border-radius:6px; cursor:pointer; border:1px solid #1a2a1a;"
+                    onclick="playClick();openInboxEntry('${entry.type}','${entry.id}')">
+            <strong>${esc(entry.name)}${transientBadge}</strong> ${unreadDot}
+            <div style="font-size:12px; color:var(--text-dim); margin-top:4px;">${snippet}</div>
+            ${proactiveNote}
+        </div>`;
+    });
+
+    html += `<button class="modal-btn" onclick="playClick();document.getElementById('inboxListModal').style.display='none'">Close</button>`;
+    document.getElementById('inboxListContent').innerHTML = html;
+    const modal = document.getElementById('inboxListModal');
+    modal.style.display = 'flex';
+    modal.onclick = e => { if (e.target === modal) { playClick(); modal.style.display = 'none'; } };
+}
+
+function openInboxEntry(type, id) {
+    document.getElementById('inboxListModal').style.display = 'none';
+    if (type === 'inbox') {
+        openChat(id);
+    } else if (type === 'group') {
+        openChatThread(id, 'group');
+    }
+}       
+
 
 function showGiftModal(npcId) {
   const npc = getNpcById(npcId);
@@ -2156,6 +2478,7 @@ function openGossipThread(threadId) {
                     inbox: [],
 gossipThreads: [],
                     transientNpcs: [],
+groupChats: [],
                     lastProactiveCheck: 1 * 1440 + 8 * 60,
                     lastTransientSpawn: 1 * 1440 + 8 * 60,
 lastGossipContinuationCheck: 1 * 1440 + 8 * 60,
