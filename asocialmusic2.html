@@ -712,106 +712,71 @@ async function generateAlbumSectionsAI(album) {
         'C5','C#5','D5','D#5','E5'
     ];
 
-    // We use 8 steps per bar (1/8th note resolution) to keep the JSON size reasonable.
-    const prompt = `You are a retro 1980s cassette music composer.
-Create a complete instrumental song (about 2 minutes) for the album "${album.title}" by ${album.artist}.
-Genre: ${album.genre}. Year: ${album.year}. Mood from description: "${album.description}".
+    const requiredTotalBars = 60; // ~2 minutes at 120 BPM (8 steps/bar)
 
-The song must consist of several distinct sections: intro, verse, chorus, bridge, outro.
-Return ONLY a valid JSON object (no markdown) with these keys:
-- "bpm": a tempo (number, 60-180) matching the genre.
-- "sections": an array of section objects. Each section has:
-    "name": one of "intro", "verse", "chorus", "bridge", "outro"
-    "lengthBars": number of bars for this section (4 to 16, total of all sections should be around 40-60 bars)
-    "lead", "bass", "drums": each an array of note/hit objects, similar to the old format but now using step resolution of 8 steps per bar.
-Each note/hit object uses:
-    For lead/bass: "step" (0 to lengthBars*8 - 1), "note", "durSteps" (1-8), "vel" (0.1-0.8)
-    For drums: "step", "type" ("kick","snare","hat"), "vel" (0.2-0.9)
+    // Strict, exact prompt – we demand a fixed structure with fixed bar counts
+    const prompt = `You are a 1980s cassette music composer.
+Create a COMPLETE 2‑minute instrumental for the album "${album.title}" by ${album.artist} (genre: ${album.genre}, year: ${album.year}, mood: "${album.description}").
 
-Make each section rhythmically varied and authentic to the genre. The song should feel like a complete piece, with sections that flow into each other.
-Output ONLY the raw JSON.`;
+The song MUST consist of exactly these sections with these bar lengths:
+- intro: 8 bars
+- verse: 16 bars
+- chorus: 8 bars
+- verse: 16 bars
+- bridge: 8 bars
+- chorus: 8 bars
+- outro: 8 bars
+Total bars: 72. Each bar has 8 steps.
 
-    // Try jsonMode first
-    try {
-        const data = await mistralChat(
-            [{ role: 'user', content: prompt }],
-            8000,
-            true
-        );
-        if (data && Array.isArray(data.sections) && data.sections.length > 0) {
-            data.bpm = data.bpm || 120;
-            return data;
-        }
-    } catch (e) {
-        console.warn('jsonMode failed, trying raw text repair:', e.message);
-    }
+Return ONLY a valid JSON object (no markdown, no backticks) with these keys:
+- "bpm": number (60-180)
+- "sections": an array of 7 objects. Each object must have:
+    "name": one of the above section names
+    "lengthBars": exactly the number above
+    "lead": array of objects {"step": integer 0 to (lengthBars*8 - 1), "note": one of the allowed notes, "durSteps": 1-8, "vel": 0.1-0.8}
+    "bass": same structure (use lower octaves)
+    "drums": array of objects {"step": integer, "type": "kick"/"snare"/"hat", "vel": 0.2-0.9}
 
-    // Fallback to raw text with repair
-    const raw = await mistralChat(
-        [{ role: 'user', content: prompt + '\n\nIMPORTANT: Output ONLY the JSON, no markdown.' }],
-        8000,
-        false
-    );
+Make each section rhythmically varied, authentic to the genre, and evolving. Output ONLY the raw JSON.`;
 
-    let jsonString = raw.trim()
-        .replace(/^```(?:json)?\s*/i, '')
-        .replace(/\s*```$/, '')
-        .trim();
-
-    const firstBrace = jsonString.indexOf('{');
-    const lastBrace = jsonString.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-        jsonString = jsonString.substring(firstBrace, lastBrace + 1);
-    }
-    jsonString = repairJSON(jsonString);
-
-    let songData;
-    try { songData = JSON.parse(jsonString); } catch (e) {
-        jsonString = jsonString.replace(/[^\x20-\x7E]/g, '').trim();
-        try { songData = JSON.parse(jsonString); } catch (finalErr) {
-            console.error('All parsing failed. Raw response:', raw);
-            throw new Error('Invalid JSON from AI');
+    let attempts = 0;
+    while (attempts < 5) {
+        try {
+            const data = await mistralChat([{ role: 'user', content: prompt }], 12000, true);
+            if (data && Array.isArray(data.sections)) {
+                const totalBars = data.sections.reduce((sum, sec) => sum + (sec.lengthBars || 0), 0);
+                if (totalBars >= requiredTotalBars) {
+                    data.bpm = data.bpm || 120;
+                    return data;
+                }
+            }
+            // if not enough bars, try again with a firmer prompt
+            attempts++;
+            console.warn(`Attempt ${attempts}: not enough bars (got ${totalBars}), retrying...`);
+        } catch (e) {
+            attempts++;
+            console.error(`Attempt ${attempts} failed:`, e.message);
         }
     }
-
-    if (!songData || !Array.isArray(songData.sections) || songData.sections.length === 0) {
-        throw new Error('Invalid song data from AI');
-    }
-
-    songData.bpm = songData.bpm || 120;
-    return songData;
+    throw new Error('Failed to generate a full song after 5 attempts.');
 }
-
-       // ──────────── REPLACED: OFFLINE RENDER + WAV EXPORT (multi‑section) ────────────
-async function generateAlbumMusic(album) {
-    // 1. Get or create the multi‑section song data
+      async function generateAlbumMusic(album) {
+    // Always get multi‑section data – no fallback
     let song;
     if (album.songData && album.songData.sections) {
         song = album.songData;
     } else {
-        try {
-            song = await generateAlbumSectionsAI(album);
-            album.songData = song;
-            saveWorld();
-        } catch (e) {
-            // fallback to old single‑pattern if section generation fails
-            if (!album.songData) {
-                song = await generateAlbumMusicAI(album);
-                album.songData = song;
-                saveWorld();
-            } else {
-                song = album.songData;
-            }
-        }
+        song = await generateAlbumSectionsAI(album);
+        album.songData = song;
+        saveWorld();
     }
 
     const bpm = song.bpm || 120;
-    const stepDur = 60 / bpm / 8;  // 8 steps per bar
+    const stepDur = 60 / bpm / 8;   // fixed 8 steps per bar for all sections
 
-    // Safety cap on total events per part
+    // Polyphony limiter (same as before)
     const MAX_EVENTS = 500;
     const MAX_SIMULTANEOUS = { lead: 3, bass: 2, drums: 3 };
-
     function limitPolyphony(events, max) {
         if (!events.length) return [];
         const sorted = [...events].sort((a, b) => a.step - b.step);
@@ -832,7 +797,7 @@ async function generateAlbumMusic(album) {
         return result;
     }
 
-    // Process sections and accumulate total duration
+    // Process sections
     const sections = song.sections.map(sec => {
         const lead = limitPolyphony((sec.lead || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.lead);
         const bass = limitPolyphony((sec.bass || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.bass);
@@ -847,16 +812,16 @@ async function generateAlbumMusic(album) {
         const bars = sec.lengthBars || 8;
         const maxStep = bars * 8;
         const duration = maxStep * stepDur;
-        return { ...sec, lead, bass, drums, maxStep, duration };
+        return { ...sec, lead, bass, drums, duration };
     });
 
     const totalDuration = sections.reduce((sum, s) => sum + s.duration, 0);
 
-    // 2. Create offline context
+    // Create offline context
     const sampleRate = 44100;
     const offlineCtx = new OfflineAudioContext(2, sampleRate * totalDuration, sampleRate);
 
-    // 3. Audio graph
+    // Audio graph (same as before)
     const masterGain = offlineCtx.createGain();
     masterGain.gain.value = 0.8;
     const tapeLP = offlineCtx.createBiquadFilter();
@@ -866,7 +831,6 @@ async function generateAlbumMusic(album) {
     const distNode = offlineCtx.createWaveShaper();
     distNode.curve = distCurve;
     distNode.oversample = '2x';
-
     const reverbDelay = offlineCtx.createDelay(0.5);
     reverbDelay.delayTime.value = 0.35;
     const reverbFB = offlineCtx.createGain();
@@ -876,7 +840,6 @@ async function generateAlbumMusic(album) {
     reverbDelay.connect(reverbFB);
     reverbFB.connect(reverbDelay);
     reverbDelay.connect(reverbGain);
-
     const echoDelay = offlineCtx.createDelay(0.6);
     echoDelay.delayTime.value = 0.28;
     const echoFB = offlineCtx.createGain();
@@ -886,14 +849,12 @@ async function generateAlbumMusic(album) {
     echoDelay.connect(echoFB);
     echoFB.connect(echoDelay);
     echoDelay.connect(echoGain);
-
     const leadGain = offlineCtx.createGain();
     leadGain.gain.value = 0.45;
     const bassGain = offlineCtx.createGain();
     bassGain.gain.value = 0.55;
     const drumGain = offlineCtx.createGain();
     drumGain.gain.value = 0.7;
-
     [leadGain, bassGain, drumGain].forEach(g => g.connect(tapeLP));
     tapeLP.connect(distNode);
     distNode.connect(masterGain);
@@ -903,38 +864,31 @@ async function generateAlbumMusic(album) {
     echoGain.connect(masterGain);
     masterGain.connect(offlineCtx.destination);
 
-    // 4. Schedule all sections sequentially
     const drumSched = createDrumSchedulers(offlineCtx, drumGain);
     let sectionStartTime = 0;
 
     sections.forEach(section => {
         const offset = sectionStartTime;
-        const { lead, bass, drums, duration } = section;
-
-        lead.forEach(ev => {
+        section.lead.forEach(ev => {
             if (freq[ev.note]) {
                 scheduleNote(offlineCtx, offset + ev.step * stepDur, freq[ev.note], (ev.durSteps || 1) * stepDur, ev.vel * 0.5, -0.3, leadGain);
             }
         });
-        bass.forEach(ev => {
+        section.bass.forEach(ev => {
             if (freq[ev.note]) {
                 scheduleNote(offlineCtx, offset + ev.step * stepDur, freq[ev.note], (ev.durSteps || 1) * stepDur, ev.vel * 0.6, 0.2, bassGain);
             }
         });
-        drums.forEach(ev => {
+        section.drums.forEach(ev => {
             const t = offset + ev.step * stepDur;
             if (ev.type === 'kick') drumSched.kick(t, ev.vel);
             else if (ev.type === 'snare') drumSched.snare(t, ev.vel);
             else if (ev.type === 'hat') drumSched.hat(t, ev.vel);
         });
-
-        sectionStartTime += duration;
+        sectionStartTime += section.duration;
     });
 
-    // 5. Render
     const renderedBuffer = await offlineCtx.startRendering();
-
-    // 6. Convert to WAV
     const url = audioBufferToWav(renderedBuffer);
     return { url, duration: totalDuration * 1000 };
 }
@@ -1474,10 +1428,10 @@ async function generateAlbumMusic(album) {
         modal.style.display = 'none';
     };
 
-    // 1. Get or create multi‑section song data
+    // 1. Get multi‑section song data – NO FALLBACK
     let song;
     try {
-        // Use the new multi‑section generator
+        // Always use the new multi‑section generator
         song = album.songData?.sections ? album.songData : await generateAlbumSectionsAI(album);
         if (cancelled) return;
         if (!album.songData) {
@@ -1485,32 +1439,22 @@ async function generateAlbumMusic(album) {
             saveWorld();
         }
     } catch (e) {
-        // fallback to old single‑pattern generator
-        try {
-            song = album.songData || await generateAlbumMusicAI(album);
-            if (cancelled) return;
-            if (!album.songData) {
-                album.songData = song;
-                saveWorld();
-            }
-        } catch (e2) {
-            if (cancelled) return;
-            content.innerHTML = `
-            <h2 style="color:var(--danger);">Composition Error</h2>
-            <p>${esc(e2.message)}</p>
-            <button class="btn" id="closeErrorBtn">Close</button>
-          `;
-            document.getElementById('closeErrorBtn').onclick = () => { playClick(); modal.style.display = 'none'; };
-            modal.onclick = (e) => { if (e.target === modal) { playClick(); modal.style.display = 'none'; } };
-            return;
-        }
+        if (cancelled) return;
+        content.innerHTML = `
+        <h2 style="color:var(--danger);">Composition Error</h2>
+        <p>Could not generate the song:<br>${esc(e.message)}</p>
+        <p style="color:var(--text-dim);">The AI may be overloaded. Please try again.</p>
+        <button class="btn" id="closeErrorBtn">Close</button>
+      `;
+        document.getElementById('closeErrorBtn').onclick = () => { playClick(); modal.style.display = 'none'; };
+        return;
     }
 
     if (cancelled) return;
 
-    // ── PROCESS SECTIONS (polyphony & step cap) ──
+    // 2. Process sections
     const bpm = song.bpm || 120;
-    const stepDur = 60 / bpm / 8;      // 8 steps per bar
+    const stepDur = 60 / bpm / 8;   // 8 steps per bar
     const MAX_EVENTS = 500;
     const MAX_SIMULTANEOUS = { lead: 3, bass: 2, drums: 3 };
 
@@ -1534,8 +1478,7 @@ async function generateAlbumMusic(album) {
         return result;
     }
 
-    // Process sections, building flattened note/drum arrays per section
-    const sections = (song.sections || []).map(sec => {
+    const sections = song.sections.map(sec => {
         const lead = limitPolyphony((sec.lead || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.lead);
         const bass = limitPolyphony((sec.bass || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.bass);
         const drumTypes = ['kick', 'snare', 'hat'];
@@ -1549,26 +1492,24 @@ async function generateAlbumMusic(album) {
         const bars = sec.lengthBars || 8;
         const maxStep = bars * 8;
         const duration = maxStep * stepDur;
-        return { ...sec, lead, bass, drums, maxStep, duration };
+        return { ...sec, lead, bass, drums, duration };
     });
 
-    // If no sections (old‑style single pattern), create a single fake section
-    if (sections.length === 0 && song.lead) {
-        const sec = {
-            name: "song",
-            lengthBars: Math.ceil(song.totalSteps / 8),
-            lead: song.lead,
-            bass: song.bass,
-            drums: song.drums,
-            duration: (song.totalSteps * (60 / song.bpm / 4))
-        };
-        sections.push(sec);
+    // Sections must exist
+    if (sections.length === 0) {
+        content.innerHTML = `
+        <h2 style="color:var(--danger);">Empty Song</h2>
+        <p>The AI returned no musical sections. Please try again.</p>
+        <button class="btn" id="closeErrorBtn">Close</button>
+      `;
+        document.getElementById('closeErrorBtn').onclick = () => { playClick(); modal.style.display = 'none'; };
+        return;
     }
 
     const totalDuration = sections.reduce((sum, s) => sum + s.duration, 0);
     const totalSec = Math.ceil(totalDuration);
 
-    // ── SET UP REAL‑TIME AUDIO ──
+    // 3. Set up real‑time audio
     let realtimeAudioOk = false;
     let ctx = null, masterGain = null;
     try {
@@ -1620,7 +1561,7 @@ async function generateAlbumMusic(album) {
 
         const drumSched = createDrumSchedulers(ctx, drumGain);
 
-        // ── BUILD SCHEDULING TASKS (sections sequentially) ──
+        // 4. Build scheduling tasks (sections sequentially)
         const allTasks = [];
         const now = ctx.currentTime + 0.1;
         let sectionStartTime = now;
@@ -1655,7 +1596,7 @@ async function generateAlbumMusic(album) {
             sectionStartTime += section.duration;
         });
 
-        // ── SCHEDULE TASKS IN BATCHES (prevents browser hang) ──
+        // Batch scheduling to avoid browser hang
         const BATCH_SIZE = 200;
         let taskIndex = 0;
         const scheduleBatch = () => {
@@ -1676,131 +1617,118 @@ async function generateAlbumMusic(album) {
         console.warn('Real‑time audio setup failed:', e);
     }
 
-    // ── BUILD PLAYER UI ──
-    try {
-        content.innerHTML = `
-      <div style="text-align:center; background:#0a0d0a; border-radius:12px; padding:16px; border:2px solid #1a2a1a; position:relative; min-width:320px;">
-        <button id="closeXBtn" style="position:absolute; top:8px; right:12px; background:none; border:none; color:var(--text); font-size:20px; cursor:pointer; z-index:10;">✖</button>
-        <div style="font-family:'VT323'; font-size:18px; color:var(--accent2); margin-top:8px;">▶️ NOW SPINNING</div>
-        <div class="album-cover" style="width:120px; height:120px; margin:10px auto; font-size:10px; border-radius:8px;">
-          ${album.posterUrl
-            ? `<img src="${esc(album.posterUrl)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentNode.innerHTML='${esc(getAsciiLines(album.asciiPoster))}'">`
-            : esc(getAsciiLines(album.asciiPoster))}
-        </div>
-        <div style="font-size:20px; color:var(--text);"><strong>${esc(album.title)}</strong></div>
-        <div style="color:var(--text-dim);">${esc(album.artist)} · ${esc(album.genre)} · ${album.year}</div>
-        <div style="margin:12px 0; background:#111511; border-radius:10px; padding:10px;">
-          ${realtimeAudioOk ? `
-            <div style="display:flex; align-items:center; gap:6px; justify-content:center; margin-bottom:8px;">
-              <span id="playPauseBtn" style="font-size:24px; cursor:pointer; color:var(--accent2);">⏸️</span>
-              <span id="stopBtn" style="font-size:24px; cursor:pointer; color:var(--danger);">⏹</span>
-            </div>
-            <div style="background:#1a2a1a; border-radius:4px; height:6px; margin:8px 0;">
-              <div id="progressBar" style="background:var(--accent2); width:0%; height:100%; border-radius:4px;"></div>
-            </div>
-            <div style="display:flex; justify-content:space-between; color:var(--text-dim); font-size:10px;">
-              <span id="timeElapsed">0:00</span>
-              <span id="timeTotal">0:${String(totalSec).padStart(2,'0')}</span>
-            </div>
-          ` : `
-            <p style="color:var(--danger);">⚠️ Audio playback unavailable (browser may require user interaction first).</p>
-          `}
-          <div style="font-size:9px; color:var(--text-dim); margin-top:4px;">
-            🎹 ${bpm} BPM · ${sections.length} sections
-          </div>
-        </div>
-        <button class="btn" id="downloadSongBtn" style="margin-top:8px;">💾 DOWNLOAD WAV</button>
-        <button class="btn accent" id="closePlayerBtn">⏹ STOP & CLOSE</button>
+    // 5. Build player UI
+    content.innerHTML = `
+    <div style="text-align:center; background:#0a0d0a; border-radius:12px; padding:16px; border:2px solid #1a2a1a; position:relative; min-width:320px;">
+      <button id="closeXBtn" style="position:absolute; top:8px; right:12px; background:none; border:none; color:var(--text); font-size:20px; cursor:pointer; z-index:10;">✖</button>
+      <div style="font-family:'VT323'; font-size:18px; color:var(--accent2); margin-top:8px;">▶️ NOW SPINNING</div>
+      <div class="album-cover" style="width:120px; height:120px; margin:10px auto; font-size:10px; border-radius:8px;">
+        ${album.posterUrl
+          ? `<img src="${esc(album.posterUrl)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentNode.innerHTML='${esc(getAsciiLines(album.asciiPoster))}'">`
+          : esc(getAsciiLines(album.asciiPoster))}
       </div>
-    `;
+      <div style="font-size:20px; color:var(--text);"><strong>${esc(album.title)}</strong></div>
+      <div style="color:var(--text-dim);">${esc(album.artist)} · ${esc(album.genre)} · ${album.year}</div>
+      <div style="margin:12px 0; background:#111511; border-radius:10px; padding:10px;">
+        ${realtimeAudioOk ? `
+          <div style="display:flex; align-items:center; gap:6px; justify-content:center; margin-bottom:8px;">
+            <span id="playPauseBtn" style="font-size:24px; cursor:pointer; color:var(--accent2);">⏸️</span>
+            <span id="stopBtn" style="font-size:24px; cursor:pointer; color:var(--danger);">⏹</span>
+          </div>
+          <div style="background:#1a2a1a; border-radius:4px; height:6px; margin:8px 0;">
+            <div id="progressBar" style="background:var(--accent2); width:0%; height:100%; border-radius:4px;"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; color:var(--text-dim); font-size:10px;">
+            <span id="timeElapsed">0:00</span>
+            <span id="timeTotal">0:${String(totalSec).padStart(2,'0')}</span>
+          </div>
+        ` : `
+          <p style="color:var(--danger);">⚠️ Audio playback unavailable (browser may require user interaction first).</p>
+        `}
+        <div style="font-size:9px; color:var(--text-dim); margin-top:4px;">
+          🎹 ${bpm} BPM · ${sections.length} sections
+        </div>
+      </div>
+      <button class="btn" id="downloadSongBtn" style="margin-top:8px;">💾 DOWNLOAD WAV</button>
+      <button class="btn accent" id="closePlayerBtn">⏹ STOP & CLOSE</button>
+    </div>
+  `;
 
-        // ── EVENT HANDLERS ──
-        const closePlayer = () => {
-            clearInterval(progressInterval);
-            if (masterGain) masterGain.disconnect();
-            modal.style.display = 'none';
-        };
+    // 6. Event handlers
+    const closePlayer = () => {
+        clearInterval(progressInterval);
+        if (masterGain) masterGain.disconnect();
+        modal.style.display = 'none';
+    };
 
-        let isPlaying = realtimeAudioOk;
-        let progressInterval;
-        if (realtimeAudioOk) {
-            const startTime = ctx.currentTime;
-            progressInterval = setInterval(() => {
-                const elapsed = ctx.currentTime - startTime;
-                const percent = Math.min(100, (elapsed / totalDuration) * 100);
-                const pb = document.getElementById('progressBar');
-                const te = document.getElementById('timeElapsed');
-                if (pb) pb.style.width = percent + '%';
-                if (te) te.textContent =
-                    `0:${String(Math.floor(Math.min(elapsed, totalDuration))).padStart(2,'0')}`;
-                if (elapsed >= totalDuration) closePlayer();
-            }, 100);
+    let isPlaying = realtimeAudioOk;
+    let progressInterval;
+    if (realtimeAudioOk) {
+        const startTime = ctx.currentTime;
+        progressInterval = setInterval(() => {
+            const elapsed = ctx.currentTime - startTime;
+            const percent = Math.min(100, (elapsed / totalDuration) * 100);
+            const pb = document.getElementById('progressBar');
+            const te = document.getElementById('timeElapsed');
+            if (pb) pb.style.width = percent + '%';
+            if (te) te.textContent =
+                `0:${String(Math.floor(Math.min(elapsed, totalDuration))).padStart(2,'0')}`;
+            if (elapsed >= totalDuration) closePlayer();
+        }, 100);
 
-            document.getElementById('playPauseBtn').onclick = () => {
-                if (isPlaying) {
-                    masterGain.gain.value = 0;
-                    document.getElementById('playPauseBtn').textContent = '▶️';
-                    document.getElementById('playPauseBtn').style.color = 'var(--text-dim)';
-                    isPlaying = false;
-                } else {
-                    masterGain.gain.value = 0.8;
-                    document.getElementById('playPauseBtn').textContent = '⏸️';
-                    document.getElementById('playPauseBtn').style.color = 'var(--accent2)';
-                    isPlaying = true;
-                }
-            };
-
-            document.getElementById('stopBtn').onclick = () => {
+        document.getElementById('playPauseBtn').onclick = () => {
+            if (isPlaying) {
                 masterGain.gain.value = 0;
                 document.getElementById('playPauseBtn').textContent = '▶️';
                 document.getElementById('playPauseBtn').style.color = 'var(--text-dim)';
                 isPlaying = false;
-            };
-        }
-
-        // Download button (now uses the new multi‑section generator via generateAlbumMusic)
-        document.getElementById('downloadSongBtn').onclick = async () => {
-            const btn = document.getElementById('downloadSongBtn');
-            const orig = btn.textContent;
-            btn.textContent = '⏳ RENDERING...';
-            btn.disabled = true;
-            btn.style.opacity = '0.6';
-            try {
-                const result = await generateAlbumMusic(album);
-                const link = document.createElement('a');
-                link.download =
-                    `${album.artist}_-_${album.title}.wav`.replace(/[^a-z0-9._-]/gi, '_');
-                link.href = result.url;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                setTimeout(() => URL.revokeObjectURL(result.url), 5000);
-                btn.textContent = '✅ DOWNLOADED';
-                setTimeout(() => { btn.textContent = orig; btn.disabled = false; btn.style.opacity = '1'; }, 2000);
-            } catch (err) {
-                btn.textContent = '❌ FAILED';
-                btn.style.color = 'var(--danger)';
-                setTimeout(() => { btn.textContent = orig; btn.disabled = false; btn.style.opacity = '1'; btn.style.color = ''; }, 2000);
+            } else {
+                masterGain.gain.value = 0.8;
+                document.getElementById('playPauseBtn').textContent = '⏸️';
+                document.getElementById('playPauseBtn').style.color = 'var(--accent2)';
+                isPlaying = true;
             }
         };
 
-        // Close buttons
-        document.getElementById('closePlayerBtn').onclick = () => { playClick(); closePlayer(); };
-        document.getElementById('closeXBtn').onclick = () => { playClick(); closePlayer(); };
-        modal.onclick = (e) => { if (e.target === modal) { playClick(); closePlayer(); } };
-        const escHandler = (e) => { if (e.key === 'Escape') { closePlayer(); document.removeEventListener('keydown', escHandler); } };
-        document.addEventListener('keydown', escHandler);
-
-    } catch (uiError) {
-        console.error('Failed to create player UI:', uiError);
-        content.innerHTML = `
-      <h2 style="color:var(--danger);">Player Error</h2>
-      <p>Could not display the player. ${esc(uiError.message)}</p>
-      <button class="btn" id="closeErrorBtn">Close</button>
-    `;
-        document.getElementById('closeErrorBtn').onclick = () => { playClick(); modal.style.display = 'none'; };
-        modal.onclick = (e) => { if (e.target === modal) { playClick(); modal.style.display = 'none'; } };
+        document.getElementById('stopBtn').onclick = () => {
+            masterGain.gain.value = 0;
+            document.getElementById('playPauseBtn').textContent = '▶️';
+            document.getElementById('playPauseBtn').style.color = 'var(--text-dim)';
+            isPlaying = false;
+        };
     }
+
+    // Download button (always uses the new multi‑section renderer)
+    document.getElementById('downloadSongBtn').onclick = async () => {
+        const btn = document.getElementById('downloadSongBtn');
+        const orig = btn.textContent;
+        btn.textContent = '⏳ RENDERING...';
+        btn.disabled = true;
+        btn.style.opacity = '0.6';
+        try {
+            const result = await generateAlbumMusic(album);
+            const link = document.createElement('a');
+            link.download = `${album.artist}_-_${album.title}.wav`.replace(/[^a-z0-9._-]/gi, '_');
+            link.href = result.url;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setTimeout(() => URL.revokeObjectURL(result.url), 5000);
+            btn.textContent = '✅ DOWNLOADED';
+            setTimeout(() => { btn.textContent = orig; btn.disabled = false; btn.style.opacity = '1'; }, 2000);
+        } catch (err) {
+            btn.textContent = '❌ FAILED';
+            btn.style.color = 'var(--danger)';
+            setTimeout(() => { btn.textContent = orig; btn.disabled = false; btn.style.opacity = '1'; btn.style.color = ''; }, 2000);
+        }
+    };
+
+    // Close buttons
+    document.getElementById('closePlayerBtn').onclick = () => { playClick(); closePlayer(); };
+    document.getElementById('closeXBtn').onclick = () => { playClick(); closePlayer(); };
+    modal.onclick = (e) => { if (e.target === modal) { playClick(); closePlayer(); } };
+    const escHandler = (e) => { if (e.key === 'Escape') { closePlayer(); document.removeEventListener('keydown', escHandler); } };
+    document.addEventListener('keydown', escHandler);
 }
 
         async function showMoreLikeThis(albumId) {
