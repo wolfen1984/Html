@@ -549,14 +549,19 @@
     <div class="modal-overlay" id="genericModal"><div class="modal-content" id="genericModalContent"></div></div>
     <div class="print-only" id="printContainer"></div>
 
-    <script>
+   <script>
 (function() {
     // ──────────────────────── CONSTANTS ────────────────────────
     const MISTRAL_ENDPOINT = 'https://api.mistral.ai/v1/chat/completions';
     const MODEL = 'mistral-small-latest';
     const TOTAL_PAGES = 20;
     let apiKey = localStorage.getItem('comic_creator_api_key') || '';
-    let comicProject = null;
+
+    // Multiple projects support
+    let comicProjects = [];
+    let activeProjectId = null;
+    let comicProject = null; // convenience reference to the active project
+
     let lastPollinationsCall = 0;
     const POLLINATIONS_COOLDOWN = 15000;
 
@@ -569,9 +574,78 @@
         return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${width}&height=${height}&nologo=true&seed=${Math.floor(Math.random()*99999)}`;
     }
 
-    function saveProject() { if (comicProject) localStorage.setItem('comic_creator_project', JSON.stringify(comicProject)); }
+    // ────── MULTI‑PROJECT STORAGE FUNCTIONS ──────
+    function loadProjectsList() {
+        const stored = localStorage.getItem('comic_creator_projects');
+        if (stored) {
+            try { comicProjects = JSON.parse(stored); } catch(e) { comicProjects = []; }
+        } else {
+            // Migrate old single project if exists
+            const old = localStorage.getItem('comic_creator_project');
+            if (old) {
+                try {
+                    const oldProject = JSON.parse(old);
+                    if (oldProject && oldProject.id) {
+                        comicProjects = [oldProject];
+                        localStorage.removeItem('comic_creator_project');
+                    }
+                } catch(e) {}
+            }
+            if (!comicProjects.length) comicProjects = [];
+        }
+        activeProjectId = localStorage.getItem('comic_creator_active_project_id');
+        if (activeProjectId && comicProjects.length) {
+            comicProject = comicProjects.find(p => p.id === activeProjectId) || null;
+        } else if (comicProjects.length) {
+            activeProjectId = comicProjects[0].id;
+            comicProject = comicProjects[0];
+        }
+        if (comicProjects.length) saveProjectsList();
+    }
 
-    function loadProject() { const saved = localStorage.getItem('comic_creator_project'); if (saved) { comicProject = JSON.parse(saved); return true; } return false; }
+    function saveProjectsList() {
+        localStorage.setItem('comic_creator_projects', JSON.stringify(comicProjects));
+        if (activeProjectId) localStorage.setItem('comic_creator_active_project_id', activeProjectId);
+    }
+
+    function saveProject() {
+        if (!comicProject) return;
+        const index = comicProjects.findIndex(p => p.id === comicProject.id);
+        if (index !== -1) {
+            comicProjects[index] = comicProject;
+        } else {
+            comicProjects.push(comicProject);
+        }
+        saveProjectsList();
+    }
+
+    function loadProject(projectId = null) {
+        loadProjectsList();
+        if (projectId) {
+            const project = comicProjects.find(p => p.id === projectId);
+            if (project) {
+                comicProject = project;
+                activeProjectId = projectId;
+                saveProjectsList();
+                return true;
+            }
+            return false;
+        }
+        return !!comicProject;
+    }
+
+    function setActiveProject(projectId) {
+        return loadProject(projectId);
+    }
+
+    function deleteProject(projectId) {
+        comicProjects = comicProjects.filter(p => p.id !== projectId);
+        if (activeProjectId === projectId) {
+            activeProjectId = comicProjects.length ? comicProjects[0].id : null;
+            comicProject = activeProjectId ? comicProjects.find(p => p.id === activeProjectId) : null;
+        }
+        saveProjectsList();
+    }
 
     function updateStatus(msg) { document.getElementById('statusInfo').textContent = msg || 'Ready'; }
 
@@ -599,7 +673,7 @@
         return content;
     }
 
-    // ──────────────────────── DEFAULT POSITION LAYOUT ────────────────────────
+    // ────── DEFAULT POSITION LAYOUT ──────
     function getDefaultPosition(index) {
         const positions = [
             { top: '5%', left: '5%' }, { top: '5%', right: '5%' }, { top: '30%', left: '5%' },
@@ -610,10 +684,26 @@
         return positions[index % positions.length];
     }
 
-    // ──────────────────────── SCREEN RENDERERS ────────────────────────
+    // ────── RENDER WELCOME (with project list) ──────
     function renderWelcome() {
-        updateStatus('Awaiting concept...');
+        updateStatus('Select a project or start new');
         const main = document.getElementById('mainScreen');
+        let projectsHtml = '';
+        if (comicProjects.length) {
+            projectsHtml = `<h3>📚 Your Saved Comics</h3>`;
+            comicProjects.forEach(proj => {
+                const isActive = proj.id === activeProjectId;
+                const savedPages = proj.pages ? proj.pages.filter(p => p.saved).length : 0;
+                projectsHtml += `
+                <div class="card" style="display:flex;align-items:center;justify-content:space-between; ${isActive ? 'border-color:var(--accent2);' : ''}">
+                  <div style="flex:1;cursor:pointer;" onclick="switchToProject('${proj.id}')">
+                    <strong>${esc(proj.title)}</strong>
+                    <span style="font-size:10px;color:var(--text-dim);">by ${esc(proj.creator||'You')} · ${proj.genre} · ${savedPages}/${TOTAL_PAGES} pages saved</span>
+                  </div>
+                  <button class="btn btn-sm danger" onclick="event.stopPropagation();deleteProjectAndRefresh('${proj.id}')">🗑️</button>
+                </div>`;
+            });
+        }
         main.innerHTML = `
         <div style="text-align:center;padding:20px 10px;">
           <pre style="font-size:18px;line-height:1;color:var(--text);text-shadow:0 0 14px var(--text);margin-bottom:12px;">
@@ -622,22 +712,42 @@
 ║  █▄▄ █▄█ █ ▀ █ █ █▄▄   █▄▄ █▀▄ █▄▄ █▀█  █  █▄█ █▀▄ ║
 ║  █▀▀ █▀█ █▀▄▀█ █ █▀▀   █▀▀ █▀█ █▀▀ █▀█ ▀█▀ █▀█ █▀█ ║
 ╚══════════════════════════════╝</pre>
-          <p style="font-size:14px;color:var(--text-dim);margin-bottom:16px;">Enter a concept, character, or title to begin your comic...</p>
+          <p style="font-size:14px;color:var(--text-dim);margin-bottom:16px;">Enter a concept, character, or title to begin a new comic...</p>
           <input class="input-field" id="conceptInput" placeholder="e.g. Dracula, Space Pirates, Cosmic Horror..." style="font-size:16px;text-align:center;max-width:400px;">
           <br>
           <button class="btn accent" id="generateIdeasBtn" style="margin-top:10px;font-size:16px;padding:10px 24px;">
             ⚡ GENERATE 5 COMIC IDEAS
           </button>
-          <p style="font-size:10px;color:var(--text-dim);margin-top:8px;">AI will create 5 unique comic concepts based on your input</p>
-          ${comicProject ? `<hr><button class="btn gold" id="resumeProjectBtn">📖 RESUME SAVED PROJECT: "${esc(comicProject.title)}"</button>` : ''}
+          <hr>
+          ${projectsHtml}
+          ${comicProjects.length ? '' : '<p style="color:var(--text-dim);">No saved comics yet. Start a new one above!</p>'}
         </div>`;
         document.getElementById('generateIdeasBtn').onclick = () => generateIdeas();
         document.getElementById('conceptInput').addEventListener('keypress', e => { if (e.key === 'Enter') generateIdeas(); });
-        if (comicProject) {
-            document.getElementById('resumeProjectBtn').onclick = () => { updateStatus('Resuming project...'); renderPageEditor(comicProject.currentPage || 0); };
-        }
+        window.switchToProject = (id) => {
+            if (loadProject(id)) {
+                const proj = comicProject;
+                if (proj.pages && proj.pages.length === TOTAL_PAGES && proj.pages.some(p => p.saved)) {
+                    renderPageEditor(proj.currentPage || 0);
+                } else if (proj.creator) {
+                    renderCreatorSetup();
+                } else {
+                    renderCreatorSetup();
+                }
+                updateStatus(`Loaded "${proj.title}"`);
+            } else {
+                updateStatus('Project not found');
+            }
+        };
+        window.deleteProjectAndRefresh = (id) => {
+            if (confirm('Delete this comic? This cannot be undone.')) {
+                deleteProject(id);
+                renderWelcome();
+            }
+        };
     }
 
+    // ────── IDEA GENERATION / SELECTION ──────
     async function generateIdeas() {
         const concept = document.getElementById('conceptInput').value.trim();
         if (!concept) { updateStatus('Please enter a concept first.'); return; }
@@ -676,7 +786,7 @@
         </div>`;
         });
         main.innerHTML = html;
-        document.getElementById('backToWelcomeBtn').onclick = () => { comicProject = null; saveProject(); renderWelcome(); updateStatus('Ready'); };
+        document.getElementById('backToWelcomeBtn').onclick = () => { renderWelcome(); };
         document.getElementById('regenerateIdeasBtn').onclick = () => generateIdeas();
         document.querySelectorAll('.select-idea-btn').forEach(btn => {
             btn.onclick = (e) => { e.stopPropagation(); const idx = parseInt(btn.dataset.index); selectIdea(ideas[idx]); };
@@ -691,7 +801,11 @@
     }
 
     function selectIdea(idea) {
-        comicProject = {
+        // Optional: warn if abandoning unsaved work on the current project
+        if (comicProject && comicProject.title && !comicProject.pages.some(p => p.saved)) {
+            if (!confirm(`Start a new comic? Any unsaved progress on "${comicProject.title}" may be lost.`)) return;
+        }
+        const newProject = {
             id: uid(),
             originalConcept: document.getElementById('conceptInput')?.value?.trim() || '',
             title: idea.title,
@@ -709,7 +823,7 @@
             completed: false
         };
         for (let i = 0; i < TOTAL_PAGES; i++) {
-            comicProject.pages.push({
+            newProject.pages.push({
                 pageNumber: i + 1,
                 panels: [],
                 imageUrl: null,
@@ -718,11 +832,15 @@
                 edited: false
             });
         }
-        saveProject();
+        comicProjects.push(newProject);
+        activeProjectId = newProject.id;
+        comicProject = newProject;
+        saveProjectsList();
         updateStatus('Concept selected');
         renderCreatorSetup();
     }
 
+    // ────── COVER & CREATOR SETUP ──────
     function renderCreatorSetup() {
         if (!comicProject) { renderWelcome(); return; }
         updateStatus('Setup creator & cover');
@@ -755,7 +873,7 @@
         <span style="font-size:10px;color:var(--text-dim);margin-left:8px;">Uses Pollinations AI</span>
         <hr>
         <button class="btn gold" id="startPagesBtn" ${!comicProject.creator ? 'disabled' : ''}>📖 START CREATING PAGES ➡️</button>
-        <button class="btn btn-sm" id="backToIdeasBtn">⬅️ Back to Ideas</button>
+        <button class="btn btn-sm" id="backToWelcomeBtn">⬅️ Back to Projects</button>
         <p style="font-size:10px;color:var(--text-dim);">${!comicProject.creator ? 'Enter a creator name to continue.' : 'Ready to create 20 comic pages!'}</p>`;
         document.getElementById('creatorInput').oninput = (e) => {
             comicProject.creator = e.target.value.trim();
@@ -764,7 +882,7 @@
         };
         document.getElementById('generateCoverBtn').onclick = () => generateCover();
         document.getElementById('startPagesBtn').onclick = () => { renderPageEditor(0); updateStatus('Page editor'); };
-        document.getElementById('backToIdeasBtn').onclick = () => { renderWelcome(); };
+        document.getElementById('backToWelcomeBtn').onclick = () => { renderWelcome(); };
     }
 
     async function generateCover() {
@@ -799,7 +917,7 @@
         img.src = url;
     }
 
-    // ──────────────────────── DRAG FUNCTIONALITY ────────────────────────
+    // ────── DRAG FUNCTIONALITY ──────
     function makeDraggable(el, panel, pageIndex) {
         let startX, startY, startLeft, startTop;
         const container = document.getElementById('pagePreviewContainer');
@@ -807,16 +925,13 @@
 
         function onDragStart(e) {
             e.preventDefault();
-            // Get mouse/touch position
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             startX = clientX;
             startY = clientY;
-            // Current element position in px
             const rect = el.getBoundingClientRect();
             startLeft = rect.left - container.getBoundingClientRect().left;
             startTop = rect.top - container.getBoundingClientRect().top;
-            // Add move/end listeners
             document.addEventListener('mousemove', onDragMove);
             document.addEventListener('mouseup', onDragEnd);
             document.addEventListener('touchmove', onDragMove, { passive: false });
@@ -832,7 +947,6 @@
             const dy = clientY - startY;
             const newLeft = startLeft + dx;
             const newTop = startTop + dy;
-            // Constrain within container (optional)
             const containerRect = container.getBoundingClientRect();
             const maxLeft = containerRect.width - el.offsetWidth;
             const maxTop = containerRect.height - el.offsetHeight;
@@ -840,7 +954,7 @@
             const clampedTop = Math.min(Math.max(0, newTop), maxTop);
             el.style.left = clampedLeft + 'px';
             el.style.top = clampedTop + 'px';
-            el.style.right = 'auto'; // clear automatic right
+            el.style.right = 'auto';
         }
 
         function onDragEnd(e) {
@@ -849,68 +963,48 @@
             document.removeEventListener('touchmove', onDragMove);
             document.removeEventListener('touchend', onDragEnd);
             el.style.cursor = 'pointer';
-            // Convert final pixel position to percentage
             const containerRect = container.getBoundingClientRect();
             const leftPx = parseFloat(el.style.left) || (el.getBoundingClientRect().left - containerRect.left);
             const topPx = parseFloat(el.style.top) || (el.getBoundingClientRect().top - containerRect.top);
             const leftPercent = ((leftPx / containerRect.width) * 100).toFixed(1) + '%';
             const topPercent = ((topPx / containerRect.height) * 100).toFixed(1) + '%';
-            // Save to panel data
             panel.position = { top: topPercent, left: leftPercent };
             comicProject.pages[pageIndex].edited = true;
             saveProject();
-            // Update the element style to use percentages for responsiveness
             el.style.left = leftPercent;
             el.style.top = topPercent;
             el.style.right = 'auto';
         }
 
-        // Attach listeners
         el.addEventListener('mousedown', onDragStart);
         el.addEventListener('touchstart', onDragStart, { passive: false });
-        // Prevent default drag on images etc.
         el.addEventListener('dragstart', (e) => e.preventDefault());
     }
 
-    // ──────────────────────── OVERLAY RENDERING WITH DRAG ────────────────────────
     function renderTextOverlays(page, pageIndex) {
         const container = document.getElementById('pageTextOverlays');
         if (!container) return;
         const previewContainer = document.getElementById('pagePreviewContainer');
         if (!previewContainer) return;
-        let html = '';
-        // Clear existing overlays – we'll rebuild
         container.innerHTML = '';
 
         page.panels.forEach((panel, idx) => {
-            // Use saved position or default
             const pos = panel.position || getDefaultPosition(idx);
             let style = '';
             if (pos.top) style += `top:${pos.top};`;
             if (pos.left) style += `left:${pos.left};`;
-            if (pos.right && !pos.left) style += `right:${pos.right};`; // fallback for default
-            // Ensure absolute positioning
+            if (pos.right && !pos.left) style += `right:${pos.right};`;
             style += 'position:absolute;';
             const text = esc(panel.text || '');
             if (!text) return;
 
             let elClass = '';
             switch (panel.type) {
-                case 'dialogue':
-                    elClass = 'speech-bubble';
-                    break;
-                case 'caption':
-                case 'description':
-                    elClass = 'caption-box';
-                    break;
-                case 'sfx':
-                    elClass = 'sfx-overlay';
-                    break;
-                case 'heading':
-                    elClass = 'heading-overlay';
-                    break;
-                default:
-                    elClass = 'caption-box';
+                case 'dialogue': elClass = 'speech-bubble'; break;
+                case 'caption': case 'description': elClass = 'caption-box'; break;
+                case 'sfx': elClass = 'sfx-overlay'; break;
+                case 'heading': elClass = 'heading-overlay'; break;
+                default: elClass = 'caption-box';
             }
 
             const div = document.createElement('div');
@@ -920,13 +1014,11 @@
             div.innerHTML = panel.type === 'dialogue' ? `<strong>${esc(panel.character||'')}:</strong> ${text}` : (panel.type === 'sfx' ? text.toUpperCase() : text);
             div.style.cursor = 'grab';
             container.appendChild(div);
-
-            // Make draggable
             makeDraggable(div, panel, pageIndex);
         });
     }
 
-    // ──────────────────────── PAGE EDITOR ────────────────────────
+    // ────── PAGE EDITOR ──────
     function renderPageEditor(pageIndex) {
         if (!comicProject) { renderWelcome(); return; }
         if (pageIndex < 0 || pageIndex >= TOTAL_PAGES) pageIndex = 0;
@@ -969,6 +1061,7 @@
         main.innerHTML = `
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <button class="btn btn-sm" id="backToSetupBtn">⬅️ Setup</button>
+          <button class="btn btn-sm" id="backToProjectsBtn">📁 Projects</button>
           <span style="color:var(--text-dim);font-size:12px;">Page</span>
           <strong style="font-size:16px;color:var(--accent);">${pageIndex+1} / ${TOTAL_PAGES}</strong>
           <span style="color:var(--text-dim);font-size:10px;">| ${completedCount}/${TOTAL_PAGES} saved</span>
@@ -1014,7 +1107,6 @@
           💡 <em>Drag speech bubbles, captions, and SFX directly on the preview. Positions are saved automatically.</em>
         </p>`;
         bindPageEditorEvents(pageIndex);
-        // Render overlays after the DOM is updated
         if (page.imageUrl && page.panels.length > 0) {
             setTimeout(() => renderTextOverlays(page, pageIndex), 100);
         }
@@ -1023,6 +1115,7 @@
     function bindPageEditorEvents(pageIndex) {
         const page = comicProject.pages[pageIndex];
         document.getElementById('backToSetupBtn').onclick = () => { renderCreatorSetup(); };
+        document.getElementById('backToProjectsBtn').onclick = () => { renderWelcome(); };
         document.getElementById('prevPageBtn').onclick = () => { renderPageEditor(pageIndex - 1); };
         document.getElementById('nextPageBtn').onclick = () => { renderPageEditor(pageIndex + 1); };
         document.getElementById('addPanelBtn').onclick = () => {
@@ -1085,7 +1178,6 @@
         if (!comicProject) return;
         const page = comicProject.pages[pageIndex];
         updateStatus('AI generating page content...');
-        const main = document.getElementById('mainScreen');
         const panelsContainer = document.getElementById('panelsContainer');
         if (panelsContainer) panelsContainer.innerHTML = '<div class="loading-shimmer" style="position:relative;padding:20px;">AI WRITING...</div>';
         try {
@@ -1098,7 +1190,7 @@
                     type: p.type || 'description',
                     text: p.text || '',
                     character: p.character || '',
-                    position: getDefaultPosition(idx)   // <-- add default position
+                    position: getDefaultPosition(idx)
                 }));
                 page.edited = true;
                 saveProject();
@@ -1155,7 +1247,7 @@
         img.src = url;
     }
 
-    // ──────────────────────── PDF EXPORT ────────────────────────
+    // ────── PDF EXPORT ──────
     function exportPdf() {
         if (!comicProject) return;
         updateStatus('Preparing PDF export...');
@@ -1183,7 +1275,7 @@
             <img src="${esc(page.imageUrl)}" style="max-width:100%;max-height:78vh;display:block;margin:0 auto;border:2px solid #333;box-shadow:3px 3px 10px #00000033;" alt="Page ${page.pageNumber}">
             <div style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;">
               ${page.panels.map((panel)=>{
-                const pos = panel.position || getDefaultPosition(0); // fallback
+                const pos = panel.position || getDefaultPosition(0);
                 const style = `position:absolute; top:${pos.top||'5%'}; left:${pos.left||'5%'};`;
                 const text = esc(panel.text||'');
                 if(!text) return '';
@@ -1207,7 +1299,7 @@
         }, 600);
     }
 
-    // ──────────────────────── INIT ────────────────────────
+    // ────── INIT ──────
     async function init() {
         if (!apiKey) {
             const modal = document.getElementById('genericModal');
@@ -1233,8 +1325,9 @@
             });
             return;
         }
-        const hasProject = loadProject();
-        if (hasProject && comicProject && comicProject.title) {
+        loadProjectsList(); // sets comicProject if a project exists
+        const hasProject = !!comicProject;
+        if (hasProject && comicProject.title) {
             if (comicProject.pages && comicProject.pages.length === TOTAL_PAGES && comicProject.pages.some(p => p.saved)) {
                 renderPageEditor(comicProject.currentPage || 0);
                 updateStatus('Project loaded ✓');
