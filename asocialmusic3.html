@@ -559,120 +559,116 @@
             return curve;
         }
 
-        // ──────────── REALISTIC NOTE SCHEDULER (guitar/bass hybrid) ────────────
-        function scheduleNote(ctx, time, freqVal, dur, gainVal, pan, outputNode) {
-            // Sawtooth layer – body
-            const o1 = ctx.createOscillator();
-            o1.type = 'sawtooth';
-            o1.frequency.value = freqVal;
-            o1.detune.value = -18;
-            const g1 = ctx.createGain();
-            g1.gain.setValueAtTime(0.001, time);
-            g1.gain.exponentialRampToValueAtTime(gainVal * 0.78, time + 0.01);
-            g1.gain.exponentialRampToValueAtTime(gainVal * 0.32, time + dur * 0.6);
-            g1.gain.setValueAtTime(0.001, time + dur - 0.02);
-            // Square layer – bite
-            const o2 = ctx.createOscillator();
-            o2.type = 'square';
-            o2.frequency.value = freqVal;
-            o2.detune.value = 12;
-            const g2 = ctx.createGain();
-            g2.gain.setValueAtTime(0.001, time);
-            g2.gain.exponentialRampToValueAtTime(gainVal * 0.42, time + 0.01);
-            g2.gain.exponentialRampToValueAtTime(gainVal * 0.18, time + dur * 0.65);
-            g2.gain.setValueAtTime(0.001, time + dur - 0.02);
-            // Noise burst – attack
-            const nb = ctx.createBuffer(1, ctx.sampleRate * 0.6, ctx.sampleRate);
-            const nd = nb.getChannelData(0);
-            for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
-            const noise = ctx.createBufferSource();
-            noise.buffer = nb;
-            const ng = ctx.createGain();
-            ng.gain.setValueAtTime(0.001, time);
-            ng.gain.exponentialRampToValueAtTime(gainVal * 0.18, time + 0.03);
-            ng.gain.exponentialRampToValueAtTime(0.001, time + dur * 0.4);
-            // Panning
-            const panNode = ctx.createStereoPanner();
-            panNode.pan.value = pan;
-            o1.connect(g1);
-            o2.connect(g2);
-            noise.connect(ng);
-            g1.connect(panNode);
-            g2.connect(panNode);
-            ng.connect(panNode);
-            panNode.connect(outputNode);
-            o1.start(time);
-            o2.start(time);
-            noise.start(time);
-            o1.stop(time + dur);
-            o2.stop(time + dur);
-            noise.stop(time + dur * 0.35);
+       // ──────────── KARPLUS-STRONG PLUCKED STRING (replaces scheduleNote) ────────────
+function schedulePluck(ctx, time, freqVal, dur, gainVal, pan, outputNode, isBass = false) {
+    const sampleRate = ctx.sampleRate;
+    const delayTime = 1 / freqVal;
+    
+    // Create the delay line (the "string")
+    const delay = ctx.createDelay(delayTime * 2);
+    delay.delayTime.value = delayTime;
+    
+    // Damping filter – brighter for guitar, darker for bass
+    const damping = ctx.createBiquadFilter();
+    damping.type = 'lowpass';
+    // Bass: more muted, Guitar: brighter
+    damping.frequency.value = isBass 
+        ? Math.min(freqVal * 6, 3500)
+        : Math.min(freqVal * 4, 6000);
+    damping.Q.value = 0.5;
+    
+    // Feedback gain – controls decay time (lower = shorter sustain)
+    const feedback = ctx.createGain();
+    feedback.gain.value = isBass ? 0.88 : 0.82; // Bass rings slightly longer
+    
+    // Noise burst for the initial "pluck"
+    const noiseLength = Math.floor(sampleRate * delayTime * 1.5);
+    const noiseBuffer = ctx.createBuffer(1, noiseLength, sampleRate);
+    const noiseData = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noiseLength; i++) {
+        noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (noiseLength * 0.3));
+    }
+    
+    const noiseSource = ctx.createBufferSource();
+    noiseSource.buffer = noiseBuffer;
+    
+    // Body resonance filter – gives it a wooden/acoustic character
+    const bodyResonance = ctx.createBiquadFilter();
+    bodyResonance.type = 'peaking';
+    bodyResonance.frequency.value = isBass ? 180 : 350;
+    bodyResonance.Q.value = 1.5;
+    bodyResonance.gain.value = 4;
+    
+    // Second body peak for more realism
+    const bodyResonance2 = ctx.createBiquadFilter();
+    bodyResonance2.type = 'peaking';
+    bodyResonance2.frequency.value = isBass ? 400 : 800;
+    bodyResonance2.Q.value = 2.0;
+    bodyResonance2.gain.value = 3;
+    
+    // Gain envelope with a sharp attack and natural decay
+    const pluckGain = ctx.createGain();
+    pluckGain.gain.setValueAtTime(0.001, time);
+    pluckGain.gain.exponentialRampToValueAtTime(gainVal * 1.2, time + 0.003); // sharp attack
+    pluckGain.gain.exponentialRampToValueAtTime(gainVal * 0.7, time + dur * 0.3);
+    pluckGain.gain.linearRampToValueAtTime(0.001, time + dur - 0.02);
+    
+    // Slight detune layer for chorus/width on guitar
+    const detuneDelay = ctx.createDelay(delayTime * 2);
+    detuneDelay.delayTime.value = delayTime * 1.002; // +0.2% detune
+    const detuneDamping = ctx.createBiquadFilter();
+    detuneDamping.type = 'lowpass';
+    detuneDamping.frequency.value = damping.frequency.value * 0.9;
+    const detuneFeedback = ctx.createGain();
+    detuneFeedback.gain.value = feedback.gain.value * 0.6;
+    const detuneGain = ctx.createGain();
+    detuneGain.gain.value = gainVal * 0.25;
+    
+    // Panning
+    const panNode = ctx.createStereoPanner();
+    panNode.pan.value = pan;
+    
+    // Main string loop
+    noiseSource.connect(delay);
+    delay.connect(damping);
+    damping.connect(feedback);
+    feedback.connect(delay);
+    damping.connect(bodyResonance);
+    bodyResonance.connect(bodyResonance2);
+    bodyResonance2.connect(pluckGain);
+    pluckGain.connect(panNode);
+    
+    // Detune layer (guitar only, adds stereo width)
+    if (!isBass) {
+        const detuneNoise = ctx.createBufferSource();
+        const detuneBuf = ctx.createBuffer(1, noiseLength, sampleRate);
+        const detuneData = detuneBuf.getChannelData(0);
+        for (let i = 0; i < noiseLength; i++) {
+            detuneData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (noiseLength * 0.25));
         }
-
-// Replacement for scheduleNote – Karplus‑Strong plucked string
-function schedulePluckedNote(ctx, time, freqVal, dur, gainVal, pan, outputNode, options = {}) {
-  const decay = options.decay ?? 0.94;             // feedback gain (0.9–0.99)
-  const dampFreq = options.dampFreq ?? freqVal * 6; // damping filter frequency
-  const pluckLength = 0.001;                       // very short noise burst
-
-  // 1. Feedback delay – determines pitch
-  const delay = ctx.createDelay(1);
-  delay.delayTime.value = 1 / freqVal;
-
-  // 2. Feedback loop with lowpass damping
-  const feedback = ctx.createGain();
-  feedback.gain.setValueAtTime(decay, time);
-  const dampFilter = ctx.createBiquadFilter();
-  dampFilter.type = 'lowpass';
-  dampFilter.frequency.setValueAtTime(dampFreq, time);
-
-  // Connect the loop: delay → dampFilter → feedback → delay
-  delay.connect(dampFilter).connect(feedback);
-  feedback.connect(delay);
-
-  // 3. Excitation – short noise burst
-  const bufferSize = Math.floor(ctx.sampleRate * pluckLength);
-  const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-  const noiseData = noiseBuffer.getChannelData(0);
-  for (let i = 0; i < bufferSize; i++) noiseData[i] = Math.random() * 2 - 1;
-  const pluck = ctx.createBufferSource();
-  pluck.buffer = noiseBuffer;
-  const pluckGain = ctx.createGain();
-  pluckGain.gain.setValueAtTime(gainVal * 0.8, time); // scale as you like
-  pluckGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.005);
-
-  // Feed the burst into the loop
-  pluck.connect(pluckGain).connect(delay);
-
-  // 4. Output envelope – fades the overall sound to avoid endless ringing
-  const outGain = ctx.createGain();
-  outGain.gain.setValueAtTime(0.9, time);
-  outGain.gain.setValueAtTime(0.9, time + dur * 0.7);
-  outGain.gain.exponentialRampToValueAtTime(0.0001, time + dur);
-
-  // Take output from the delay line (or the dampFilter – both work)
-  delay.connect(outGain);
-
-  // 5. Optional body resonator (comb filter) – adds guitar cavity warmth
-  let bodyGain;
-  if (options.bodyMix > 0) {
-    const body = ctx.createDelay(0.001);
-    body.delayTime.value = 1 / (freqVal * 6);      // one octave above fundamental
-    bodyGain = ctx.createGain();
-    bodyGain.gain.value = options.bodyMix;          // e.g., 0.2
-    outGain.connect(body).connect(bodyGain);
-  }
-
-  // 6. Panning and final output
-  const panNode = ctx.createStereoPanner();
-  panNode.pan.value = pan;
-  (bodyGain || outGain).connect(panNode).connect(outputNode);
-
-  // Start the pluck; the loop runs until the gain drops to 0
-  pluck.start(time);
-  pluck.stop(time + pluckLength);
-  // Note: we do not stop the delay/loop manually – it will decay naturally.
-  // If you need to force-stop at exactly `dur`, you can disconnect after `time+dur`.
+        detuneNoise.buffer = detuneBuf;
+        detuneNoise.connect(detuneDelay);
+        detuneDelay.connect(detuneDamping);
+        detuneDamping.connect(detuneFeedback);
+        detuneFeedback.connect(detuneDelay);
+        detuneDamping.connect(detuneGain);
+        detuneGain.connect(panNode);
+        detuneNoise.start(time);
+        detuneNoise.stop(time + dur);
+    }
+    
+    panNode.connect(outputNode);
+    
+    noiseSource.start(time);
+    noiseSource.stop(time + dur);
+    
+    // Stop everything after duration
+    const stopGain = ctx.createGain();
+    stopGain.gain.setValueAtTime(1, time);
+    stopGain.gain.setValueAtTime(0, time + dur + 0.1);
+    stopGain.connect(panNode); // This is crude but effective – silence after dur
+    
+    return { delay, feedback, noiseSource };
 }
 
         // ──────────── DRUM SOUNDS (kick, snare, hi‑hat) ────────────
@@ -1105,19 +1101,19 @@ async function generateAlbumMusic(album) {
     echoGain.connect(masterGain);
     masterGain.connect(offlineCtx.destination);
 
-    const drumSched = createDrumSchedulers(offlineCtx, drumGain);
+        const drumSched = createDrumSchedulers(offlineCtx, drumGain);
     let sectionStartTime = 0;
 
     sections.forEach(section => {
         const offset = sectionStartTime;
         section.lead.forEach(ev => {
             if (freq[ev.note]) {
-                schedulePluckedNote(offlineCtx, offset + ev.step * stepDur, freq[ev.note], (ev.durSteps || 1) * stepDur, ev.vel * 0.5, -0.3, leadGain);
+                schedulePluck(offlineCtx, offset + ev.step * stepDur, freq[ev.note], (ev.durSteps || 1) * stepDur, ev.vel * 0.5, -0.3, leadGain, false);
             }
         });
         section.bass.forEach(ev => {
             if (freq[ev.note]) {
-                schedulePluckedNote(offlineCtx, offset + ev.step * stepDur, freq[ev.note], (ev.durSteps || 1) * stepDur, ev.vel * 0.6, 0.2, bassGain);
+                schedulePluck(offlineCtx, offset + ev.step * stepDur, freq[ev.note], (ev.durSteps || 1) * stepDur, ev.vel * 0.6, 0.2, bassGain, true);
             }
         });
         section.drums.forEach(ev => {
@@ -1665,7 +1661,7 @@ async function generateAlbumMusic(album) {
             lead.forEach(ev => {
                 if (freq[ev.note]) {
                     allTasks.push(() =>
-                        schedulePluckedNote(ctx, offset + ev.step * stepDur, freq[ev.note],
+                        scheduleNote(ctx, offset + ev.step * stepDur, freq[ev.note],
                             (ev.durSteps || 1) * stepDur, ev.vel * 0.5, -0.3, leadGain)
                     );
                 }
@@ -1673,7 +1669,7 @@ async function generateAlbumMusic(album) {
             bass.forEach(ev => {
                 if (freq[ev.note]) {
                     allTasks.push(() =>
-                        schedulePluckedNote(ctx, offset + ev.step * stepDur, freq[ev.note],
+                        scheduleNote(ctx, offset + ev.step * stepDur, freq[ev.note],
                             (ev.durSteps || 1) * stepDur, ev.vel * 0.6, 0.2, bassGain)
                     );
                 }
