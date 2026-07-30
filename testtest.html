@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Test Track – Stable</title>
+</head>
+<body>
+    <button id="playBtn">▶ Play 30s Track</button>
+    <button id="stopBtn">⏹ Stop</button>
+
+    <script>
+        // ──────────── FREQUENCY TABLE ────────────
+        const freq = {
+            'C2':65.41,'D2':73.42,'E2':82.41,'F2':87.31,'G2':98.00,'A2':110.00,'B2':123.47,
+            'C3':130.81,'D3':146.83,'E3':164.81,'F3':174.61,'G3':196.00,'A3':220.00,'B3':246.94,
+            'C4':261.63,'D4':293.66,'E4':329.63,'F4':349.23,'G4':392.00,'A4':440.00,'B4':493.88
+        };
+
+        let audioCtx = null;
+
+        function ensureAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            return audioCtx;
+        }
+
+        // ──────────── DISTORTION ────────────
+        function createDistortionCurve(amount = 5) {
+            const samples = 44100;
+            const curve = new Float32Array(samples);
+            const k = amount * 8;
+            for (let i = 0; i < samples; ++i) {
+                const x = i * 2 / samples - 1;
+                curve[i] = (3 + k) * x * 20 * Math.PI / 180 / (Math.PI + k * Math.abs(x));
+            }
+            return curve;
+        }
+
+        // ──────────── SOFT CLIP LIMITER ────────────
+        function makeSoftClipCurve() {
+            const curve = new Float32Array(44100);
+            for (let i = 0; i < 44100; i++) {
+                const x = (i * 2) / 44100 - 1;
+                curve[i] = Math.tanh(x * 3) * 0.9;
+            }
+            return curve;
+        }
+
+        // ──────────── STABLE KARPLUS‑STRONG STRING ────────────
+        function karplusStrongNote(ctx, time, freqVal, dur, gainVal, pan, outputNode, options = {}) {
+            const { dampFreq = 800, feedbackGain = 0.6, noiseLen = 0.004, bodyGain = 0 } = options;
+            const safeFeedback = freqVal > 1000 ? Math.min(feedbackGain, 0.5) : feedbackGain;
+            const clampedGain = Math.min(gainVal, 0.25);
+
+            const delayTime = 1 / freqVal;
+            const delay = ctx.createDelay(delayTime);
+            const feedback = ctx.createGain();
+            feedback.gain.value = safeFeedback;
+            const damp = ctx.createBiquadFilter();
+            damp.type = 'lowpass';
+            damp.frequency.value = dampFreq;
+            damp.Q.value = 0.5;
+
+            const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * noiseLen, ctx.sampleRate);
+            const noiseData = noiseBuffer.getChannelData(0);
+            for (let i = 0; i < noiseData.length; i++) noiseData[i] = Math.random() * 2 - 1;
+            const exciter = ctx.createBufferSource();
+            exciter.buffer = noiseBuffer;
+
+            const env = ctx.createGain();
+            env.gain.setValueAtTime(0.001, time);
+            env.gain.linearRampToValueAtTime(clampedGain * 0.7, time + 0.005);
+            env.gain.exponentialRampToValueAtTime(clampedGain * 0.1, time + dur * 0.3);
+            env.gain.linearRampToValueAtTime(0.001, time + dur);
+
+            let bodyRes = null;
+            if (bodyGain > 0) {
+                bodyRes = ctx.createBiquadFilter();
+                bodyRes.type = 'peaking';
+                bodyRes.frequency.value = 180;
+                bodyRes.Q.value = 1.0;
+                bodyRes.gain.value = bodyGain * 0.5;
+            }
+
+            const panner = ctx.createStereoPanner();
+            panner.pan.value = pan;
+            const limiter = ctx.createWaveShaper();
+            limiter.curve = makeSoftClipCurve();
+            limiter.oversample = '2x';
+
+            delay.connect(feedback);
+            feedback.connect(damp);
+            damp.connect(delay);
+
+            exciter.connect(delay);
+            exciter.connect(env);
+            delay.connect(env);
+
+            if (bodyRes) { env.connect(bodyRes); bodyRes.connect(panner); }
+            else { env.connect(panner); }
+
+            panner.connect(limiter);
+            limiter.connect(outputNode);
+
+            exciter.start(time);
+            exciter.stop(time + noiseLen);
+        }
+
+        function scheduleGuitarNote(ctx, time, freq, dur, gain, pan, outNode) {
+            karplusStrongNote(ctx, time, freq, dur, gain, pan, outNode, {
+                dampFreq: 1200, feedbackGain: 0.65, noiseLen: 0.003, bodyGain: 0
+            });
+        }
+        function scheduleBassNote(ctx, time, freq, dur, gain, pan, outNode) {
+            karplusStrongNote(ctx, time, freq, dur, gain, pan, outNode, {
+                dampFreq: 400, feedbackGain: 0.65, noiseLen: 0.005, bodyGain: 0
+            });
+        }
+
+        // ──────────── DRUM SOUNDS ────────────
+        function createDrumSchedulers(ctx, outputNode) {
+            return {
+                kick: (t, v) => {
+                    const o = ctx.createOscillator();
+                    o.type = 'triangle';
+                    o.frequency.setValueAtTime(140, t);
+                    o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+                    const g = ctx.createGain();
+                    g.gain.setValueAtTime(0.9 * v, t);
+                    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+                    o.connect(g).connect(outputNode);
+                    o.start(t); o.stop(t + 0.18);
+                },
+                snare: (t, v) => {
+                    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.25, ctx.sampleRate);
+                    const d = buf.getChannelData(0);
+                    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+                    const src = ctx.createBufferSource(); src.buffer = buf;
+                    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2800;
+                    const g = ctx.createGain();
+                    g.gain.setValueAtTime(0.8 * v, t);
+                    g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+                    src.connect(bp).connect(g).connect(outputNode);
+                    src.start(t); src.stop(t + 0.22);
+                },
+                hat: (t, v) => {
+                    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.06, ctx.sampleRate);
+                    const d = buf.getChannelData(0);
+                    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+                    const src = ctx.createBufferSource(); src.buffer = buf;
+                    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 9000;
+                    const g = ctx.createGain();
+                    g.gain.setValueAtTime(0.5 * v, t);
+                    g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+                    src.connect(hp).connect(g).connect(outputNode);
+                    src.start(t); src.stop(t + 0.06);
+                }
+            };
+        }
+
+        // ──────────── HARDCODED TRACK (30 sec, 120 BPM, 8th notes) ────────────
+        const bpm = 120;
+        const stepDur = 60 / bpm / 2;  // 0.25 sec per 8th note
+        const totalBars = 16;
+        const stepsPerBar = 8;
+        const totalSteps = totalBars * stepsPerBar;
+
+        const leadPattern = [
+            { step: 0, note: 'C4', dur: 2 }, { step: 2, note: 'E4', dur: 2 },
+            { step: 4, note: 'G4', dur: 4 }, { step: 8, note: 'A4', dur: 2 },
+            { step: 10, note: 'G4', dur: 2 }, { step: 12, note: 'E4', dur: 4 },
+        ];
+        const bassPattern = [
+            { step: 0, note: 'C3', dur: 8 }, { step: 8, note: 'A2', dur: 4 }, { step: 12, note: 'F3', dur: 4 },
+        ];
+        const drumPattern = [
+            { step: 0, type: 'kick', vel: 0.8 }, { step: 4, type: 'snare', vel: 0.7 },
+            { step: 8, type: 'kick', vel: 0.8 }, { step: 12, type: 'snare', vel: 0.7 },
+            { step: 2, type: 'hat', vel: 0.5 }, { step: 6, type: 'hat', vel: 0.5 },
+            { step: 10, type: 'hat', vel: 0.5 }, { step: 14, type: 'hat', vel: 0.5 },
+        ];
+
+        function scheduleTrack() {
+            const ctx = ensureAudio();
+            const now = ctx.currentTime + 0.1;
+
+            // Master audio graph
+            const masterGain = ctx.createGain();
+            masterGain.gain.value = 0.7;
+            masterGain.connect(ctx.destination);
+
+            const tapeLP = ctx.createBiquadFilter();
+            tapeLP.type = 'lowpass'; tapeLP.frequency.value = 7500;
+            const distNode = ctx.createWaveShaper();
+            distNode.curve = createDistortionCurve(5);
+            distNode.oversample = '2x';
+
+            const leadGain = ctx.createGain(); leadGain.gain.value = 0.25;
+            const bassGain = ctx.createGain(); bassGain.gain.value = 0.35;
+            const drumGain = ctx.createGain(); drumGain.gain.value = 0.7;
+
+            [leadGain, bassGain, drumGain].forEach(g => g.connect(tapeLP));
+            tapeLP.connect(distNode);
+            distNode.connect(masterGain);
+
+            const drumSched = createDrumSchedulers(ctx, drumGain);
+
+            // Loop bars (with safety timeout to avoid infinite loop detection)
+            let scheduledBars = 0;
+            const MAX_BARS = 16;
+            for (let bar = 0; bar < MAX_BARS; bar++) {
+                const barStart = now + bar * stepsPerBar * stepDur;
+                scheduledBars++;
+
+                leadPattern.forEach(ev => {
+                    const t = barStart + ev.step * stepDur;
+                    if (freq[ev.note]) {
+                        scheduleGuitarNote(ctx, t, freq[ev.note], ev.dur * stepDur, 0.2, -0.3, leadGain);
+                    }
+                });
+                bassPattern.forEach(ev => {
+                    const t = barStart + ev.step * stepDur;
+                    if (freq[ev.note]) {
+                        scheduleBassNote(ctx, t, freq[ev.note], ev.dur * stepDur, 0.25, 0.2, bassGain);
+                    }
+                });
+                drumPattern.forEach(ev => {
+                    const t = barStart + ev.step * stepDur;
+                    if (ev.type === 'kick') drumSched.kick(t, ev.vel);
+                    else if (ev.type === 'snare') drumSched.snare(t, ev.vel);
+                    else if (ev.type === 'hat') drumSched.hat(t, ev.vel);
+                });
+            }
+
+            // Safety stop
+            const totalDuration = totalSteps * stepDur;
+            setTimeout(() => {
+                try { masterGain.disconnect(); } catch(e) {}
+            }, totalDuration * 1000);
+        }
+
+        // ──────────── BUTTON HANDLERS ────────────
+        document.getElementById('playBtn').addEventListener('click', () => {
+            try { scheduleTrack(); } catch (e) { alert('Error: ' + e.message); console.error(e); }
+        });
+        document.getElementById('stopBtn').addEventListener('click', () => {
+            if (audioCtx) {
+                audioCtx.close();
+                audioCtx = null;
+            }
+        });
+    </script>
+</body>
+</html>
