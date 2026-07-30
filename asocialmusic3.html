@@ -609,25 +609,43 @@
             noise.stop(time + dur * 0.35);
         }
 
-// The core Karplus‑Strong plucked string
+// Helper: soft‑clip curve for a simple limiter
+function makeSoftClipCurve() {
+    const curve = new Float32Array(44100);
+    for (let i = 0; i < 44100; i++) {
+        const x = (i * 2) / 44100 - 1;
+        curve[i] = Math.tanh(x * 3) * 0.9;   // ceiling at 0.9
+    }
+    return curve;
+}
+
+// Stable Karplus‑Strong plucked string
 function karplusStrongNote(ctx, time, freqVal, dur, gainVal, pan, outputNode, options = {}) {
     const {
-        dampFreq = 2000,
-        feedbackGain = 0.75,
+        dampFreq = 800,        // low default for safety
+        feedbackGain = 0.6,
         noiseLen = 0.004,
-        bodyGain = 4
+        bodyGain = 0          // disable body boost by default
     } = options;
+
+    // Safety: reduce feedback for high frequencies (stops squealing)
+    const safeFeedback = freqVal > 1000 ? Math.min(feedbackGain, 0.5) : feedbackGain;
+
+    // Hard cap on input gain – prevents the string from being driven too hard
+    const clampedGain = Math.min(gainVal, 0.25);
 
     const delayTime = 1 / freqVal;
     const delay = ctx.createDelay(delayTime);
-delay.delayTime.value = delayTime;
     const feedback = ctx.createGain();
-    feedback.gain.value = feedbackGain;
+    feedback.gain.value = safeFeedback;
+
+    // Damping filter – cut highs aggressively
     const damp = ctx.createBiquadFilter();
     damp.type = 'lowpass';
     damp.frequency.value = dampFreq;
     damp.Q.value = 0.5;
 
+    // Excitation (short noise burst)
     const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * noiseLen, ctx.sampleRate);
     const noiseData = noiseBuffer.getChannelData(0);
     for (let i = 0; i < noiseData.length; i++) {
@@ -636,24 +654,33 @@ delay.delayTime.value = delayTime;
     const exciter = ctx.createBufferSource();
     exciter.buffer = noiseBuffer;
 
+    // Amplitude envelope – fast attack, quick decay
     const env = ctx.createGain();
     env.gain.setValueAtTime(0.001, time);
-    env.gain.exponentialRampToValueAtTime(gainVal * 0.5, time + 0.005);
-    env.gain.exponentialRampToValueAtTime(gainVal * 0.8, time + dur * 0.5);
-    env.gain.exponentialRampToValueAtTime(0.001, time + dur);
+    env.gain.linearRampToValueAtTime(clampedGain * 0.7, time + 0.005);
+    env.gain.exponentialRampToValueAtTime(clampedGain * 0.1, time + dur * 0.3); // 30% in, already quiet
+    env.gain.linearRampToValueAtTime(0.001, time + dur);
 
-    const panner = ctx.createStereoPanner();
-    panner.pan.value = pan;
-
+    // Optional body resonance (very subtle)
     let bodyRes = null;
     if (bodyGain > 0) {
         bodyRes = ctx.createBiquadFilter();
         bodyRes.type = 'peaking';
         bodyRes.frequency.value = 180;
         bodyRes.Q.value = 1.0;
-        bodyRes.gain.value = bodyGain;
+        bodyRes.gain.value = bodyGain * 0.5; // reduce further
     }
 
+    // Panning
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = pan;
+
+    // Built‑in soft limiter (prevents clipping)
+    const limiter = ctx.createWaveShaper();
+    limiter.curve = makeSoftClipCurve();
+    limiter.oversample = '2x';
+
+    // Connect the feedback loop
     delay.connect(feedback);
     feedback.connect(damp);
     damp.connect(delay);
@@ -668,32 +695,33 @@ delay.delayTime.value = delayTime;
     } else {
         env.connect(panner);
     }
-    panner.connect(outputNode);
+
+    panner.connect(limiter);
+    limiter.connect(outputNode);
 
     exciter.start(time);
     exciter.stop(time + noiseLen);
 }
 
-// Wrapper for guitar – bright, sustaining
+// Safe guitar – warm, no feedback
 function scheduleGuitarNote(ctx, time, freq, dur, gain, pan, outNode) {
     karplusStrongNote(ctx, time, freq, dur, gain, pan, outNode, {
-        dampFreq: 1500,
-        feedbackGain: 0.85,
-        noiseLen: 0.004,
-        bodyGain: 3
+        dampFreq: 1200,        // quite dark – no fizz
+        feedbackGain: 0.65,    // low sustain – no runaway
+        noiseLen: 0.003,
+        bodyGain: 0            // disable body resonance to avoid boom
     });
 }
 
-// Wrapper for bass – warmer, shorter sustain
+// Safe bass – deep, clean
 function scheduleBassNote(ctx, time, freq, dur, gain, pan, outNode) {
     karplusStrongNote(ctx, time, freq, dur, gain, pan, outNode, {
-        dampFreq: 600,
-        feedbackGain: 0.85,
-        noiseLen: 0.006,
-        bodyGain: 3
+        dampFreq: 400,
+        feedbackGain: 0.65,
+        noiseLen: 0.005,
+        bodyGain: 0
     });
-}
-      // ──────────── DRUM SOUNDS (kick, snare, hi‑hat) ────────────
+}      // ──────────── DRUM SOUNDS (kick, snare, hi‑hat) ────────────
         function createDrumSchedulers(ctx, outputNode) {
             return {
                 kick: (t, v) => {
@@ -1086,7 +1114,7 @@ async function generateAlbumMusic(album) {
     const tapeLP = offlineCtx.createBiquadFilter();
     tapeLP.type = 'lowpass';
     tapeLP.frequency.value = 7500;
-    const distCurve = createDistortionCurve(15);
+    const distCurve = createDistortionCurve(5);
     const distNode = offlineCtx.createWaveShaper();
     distNode.curve = distCurve;
     distNode.oversample = '2x';
@@ -1629,7 +1657,7 @@ async function generateAlbumMusic(album) {
 
         ctx = audioCtx;
         masterGain = ctx.createGain();
-        masterGain.gain.value = 0.8;
+        masterGain.gain.value = 0.7;
         masterGain.connect(ctx.destination);
 
 
@@ -1659,7 +1687,7 @@ async function generateAlbumMusic(album) {
         echoFB.connect(echoDelay);
         echoDelay.connect(echoGain);
         const leadGain = ctx.createGain();
-        leadGain.gain.value = 0.45;
+        leadGain.gain.value = 0.25;
         const bassGain = ctx.createGain();
         bassGain.gain.value = 0.6;
         const drumGain = ctx.createGain();
@@ -1685,7 +1713,7 @@ sections.forEach(section => {
     section.lead.forEach(ev => {
         if (freq[ev.note]) {
             scheduleGuitarNote(ctx, offset + ev.step * stepDur, freq[ev.note],
-                (ev.durSteps || 1) * stepDur, ev.vel * 0.5, -0.3, leadGain);
+                (ev.durSteps || 1) * stepDur, ev.vel * 0.35, -0.3, leadGain);
         }
     });
 
@@ -1693,7 +1721,7 @@ sections.forEach(section => {
     section.bass.forEach(ev => {
         if (freq[ev.note]) {
             scheduleBassNote(ctx, offset + ev.step * stepDur, freq[ev.note],
-                (ev.durSteps || 1) * stepDur, ev.vel * 0.6, 0.2, bassGain);
+                (ev.durSteps || 1) * stepDur, ev.vel * 0.5, 0.2, bassGain);
         }
     });
 
