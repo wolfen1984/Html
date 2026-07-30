@@ -609,19 +609,22 @@
             noise.stop(time + dur * 0.35);
         }
 
+// ──────────── SAFE KARPLUS‑STRONG WITH LIMITER ────────────
 function karplusStrongNote(ctx, time, freqVal, dur, gainVal, pan, outputNode, options = {}) {
-    // options: dampFreq (lowpass cutoff), feedbackGain, noiseLen (sec), bodyGain (dB for resonator)
     const {
-        dampFreq = 3500,     // brightness – lower for bass, higher for guitar
-        feedbackGain = 0.94, // sustain – lower for bass (0.85-0.90), higher for guitar (0.92-0.97)
-        noiseLen = 0.006,    // excitation noise burst duration
-        bodyGain = 6         // dB boost at body resonance frequency (0 to disable)
+        dampFreq = 2000,      // lower = less bright
+        feedbackGain = 0.75,  // lower = less sustain, safer
+        noiseLen = 0.004,
+        bodyGain = 4
     } = options;
+
+    // Hard safety: if frequency is too high, reduce feedback drastically
+    const safeFeedback = freqVal > 1000 ? Math.min(feedbackGain, 0.6) : feedbackGain;
 
     const delayTime = 1 / freqVal;
     const delay = ctx.createDelay(delayTime);
     const feedback = ctx.createGain();
-    feedback.gain.value = feedbackGain;
+    feedback.gain.value = safeFeedback;
     const damp = ctx.createBiquadFilter();
     damp.type = 'lowpass';
     damp.frequency.value = dampFreq;
@@ -636,19 +639,19 @@ function karplusStrongNote(ctx, time, freqVal, dur, gainVal, pan, outputNode, op
     const exciter = ctx.createBufferSource();
     exciter.buffer = noiseBuffer;
 
-    // Amplitude envelope
+    // Amplitude envelope – soft attack, fast decay to prevent ringing
     const env = ctx.createGain();
-   env.gain.setValueAtTime(0.001, time);
-env.gain.linearRampToValueAtTime(gainVal * 0.6, time + 0.01);  // linear, slower
-env.gain.exponentialRampToValueAtTime(gainVal * 0.12, time + dur * 0.7);
-env.gain.linearRampToValueAtTime(0.001, time + dur);  // smooth end
+    env.gain.setValueAtTime(0.001, time);
+    env.gain.linearRampToValueAtTime(gainVal * 0.5, time + 0.005);
+    env.gain.exponentialRampToValueAtTime(gainVal * 0.08, time + dur * 0.5); // decay faster
+    env.gain.linearRampToValueAtTime(0.001, time + dur);
 
-    // Body resonance (optional, for acoustic feel)
+    // Body resonance (optional)
     let bodyRes = null;
     if (bodyGain > 0) {
         bodyRes = ctx.createBiquadFilter();
         bodyRes.type = 'peaking';
-        bodyRes.frequency.value = 180;   // typical guitar body resonance
+        bodyRes.frequency.value = 180;
         bodyRes.Q.value = 1.0;
         bodyRes.gain.value = bodyGain;
     }
@@ -657,51 +660,65 @@ env.gain.linearRampToValueAtTime(0.001, time + dur);  // smooth end
     const panner = ctx.createStereoPanner();
     panner.pan.value = pan;
 
-    // Connections: exciter → delay → damp → feedback (loop)
-    //               exciter → env (direct attack)
-    //               delay → env (string sustain)
+    // Safety limiter – hard clip at 0.9 to avoid runaway
+    const limiter = ctx.createWaveShaper();
+    limiter.curve = makeLimiterCurve(0.9);
+
+    // Connections
     delay.connect(feedback);
     feedback.connect(damp);
     damp.connect(delay);
 
     exciter.connect(delay);
     exciter.connect(env);
-
     delay.connect(env);
+
     if (bodyRes) {
         env.connect(bodyRes);
         bodyRes.connect(panner);
     } else {
         env.connect(panner);
     }
-    panner.connect(outputNode);
 
-    // Schedule
+    panner.connect(limiter);
+    limiter.connect(outputNode);
+
     exciter.start(time);
     exciter.stop(time + noiseLen);
 }
 
-
-// Wrapper for guitar – warm, less sustain, softer attack
-function scheduleGuitarNote(ctx, time, freq, dur, gain, pan, outNode) {
-    karplusStrongNote(ctx, time, freq, dur, gain, pan, outNode, {
-        dampFreq: 1800,       // lower = less fizzy
-        feedbackGain: 0.88,   // shorter sustain
-        noiseLen: 0.004,      // softer pick
-        bodyGain: 4           // subtle body
-    });
+// Helper: simple tanh‑based limiter curve
+function makeLimiterCurve(ceiling = 0.9) {
+    const samples = 44100;
+    const curve = new Float32Array(samples);
+    for (let i = 0; i < samples; i++) {
+        const x = (i * 2) / samples - 1;
+        curve[i] = Math.tanh(x * 3) * ceiling;
+    }
+    return curve;
 }
 
-// Wrapper for bass – deeper and rounder
-function scheduleBassNote(ctx, time, freq, dur, gain, pan, outNode) {
+// ──────────── GUITAR WRAPPER (safe, warm) ────────────
+function scheduleGuitarNote(ctx, time, freq, dur, gain, pan, outNode) {
     karplusStrongNote(ctx, time, freq, dur, gain, pan, outNode, {
-        dampFreq: 600,
-        feedbackGain: 0.85,
-        noiseLen: 0.006,
+        dampFreq: 1200,        // much less fizzy
+        feedbackGain: 0.78,    // shorter sustain
+        noiseLen: 0.003,
         bodyGain: 3
     });
 }
-        // ──────────── DRUM SOUNDS (kick, snare, hi‑hat) ────────────
+
+// ──────────── BASS WRAPPER ────────────
+function scheduleBassNote(ctx, time, freq, dur, gain, pan, outNode) {
+    karplusStrongNote(ctx, time, freq, dur, gain, pan, outNode, {
+        dampFreq: 500,
+        feedbackGain: 0.8,
+        noiseLen: 0.005,
+        bodyGain: 2
+    });
+}  
+
+      // ──────────── DRUM SOUNDS (kick, snare, hi‑hat) ────────────
         function createDrumSchedulers(ctx, outputNode) {
             return {
                 kick: (t, v) => {
