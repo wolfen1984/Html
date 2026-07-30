@@ -609,28 +609,24 @@
             noise.stop(time + dur * 0.35);
         }
 
-// ──────────── SAFE KARPLUS‑STRONG WITH LIMITER ────────────
+// The core Karplus‑Strong plucked string
 function karplusStrongNote(ctx, time, freqVal, dur, gainVal, pan, outputNode, options = {}) {
     const {
-        dampFreq = 2000,      // lower = less bright
-        feedbackGain = 0.75,  // lower = less sustain, safer
+        dampFreq = 2000,
+        feedbackGain = 0.75,
         noiseLen = 0.004,
         bodyGain = 4
     } = options;
 
-    // Hard safety: if frequency is too high, reduce feedback drastically
-    const safeFeedback = freqVal > 1000 ? Math.min(feedbackGain, 0.6) : feedbackGain;
-
     const delayTime = 1 / freqVal;
     const delay = ctx.createDelay(delayTime);
     const feedback = ctx.createGain();
-    feedback.gain.value = safeFeedback;
+    feedback.gain.value = feedbackGain;
     const damp = ctx.createBiquadFilter();
     damp.type = 'lowpass';
     damp.frequency.value = dampFreq;
     damp.Q.value = 0.5;
 
-    // Excitation noise burst
     const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * noiseLen, ctx.sampleRate);
     const noiseData = noiseBuffer.getChannelData(0);
     for (let i = 0; i < noiseData.length; i++) {
@@ -639,14 +635,15 @@ function karplusStrongNote(ctx, time, freqVal, dur, gainVal, pan, outputNode, op
     const exciter = ctx.createBufferSource();
     exciter.buffer = noiseBuffer;
 
-    // Amplitude envelope – soft attack, fast decay to prevent ringing
     const env = ctx.createGain();
     env.gain.setValueAtTime(0.001, time);
-    env.gain.linearRampToValueAtTime(gainVal * 0.5, time + 0.005);
-    env.gain.exponentialRampToValueAtTime(gainVal * 0.08, time + dur * 0.5); // decay faster
-    env.gain.linearRampToValueAtTime(0.001, time + dur);
+    env.gain.exponentialRampToValueAtTime(gainVal * 0.7, time + 0.003);
+    env.gain.exponentialRampToValueAtTime(gainVal * 0.15, time + dur * 0.8);
+    env.gain.exponentialRampToValueAtTime(0.001, time + dur);
 
-    // Body resonance (optional)
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = pan;
+
     let bodyRes = null;
     if (bodyGain > 0) {
         bodyRes = ctx.createBiquadFilter();
@@ -656,15 +653,6 @@ function karplusStrongNote(ctx, time, freqVal, dur, gainVal, pan, outputNode, op
         bodyRes.gain.value = bodyGain;
     }
 
-    // Panning
-    const panner = ctx.createStereoPanner();
-    panner.pan.value = pan;
-
-    // Safety limiter – hard clip at 0.9 to avoid runaway
-    const limiter = ctx.createWaveShaper();
-    limiter.curve = makeLimiterCurve(0.9);
-
-    // Connections
     delay.connect(feedback);
     feedback.connect(damp);
     damp.connect(delay);
@@ -679,45 +667,31 @@ function karplusStrongNote(ctx, time, freqVal, dur, gainVal, pan, outputNode, op
     } else {
         env.connect(panner);
     }
-
-    panner.connect(limiter);
-    limiter.connect(outputNode);
+    panner.connect(outputNode);
 
     exciter.start(time);
     exciter.stop(time + noiseLen);
 }
 
-// Helper: simple tanh‑based limiter curve
-function makeLimiterCurve(ceiling = 0.9) {
-    const samples = 44100;
-    const curve = new Float32Array(samples);
-    for (let i = 0; i < samples; i++) {
-        const x = (i * 2) / samples - 1;
-        curve[i] = Math.tanh(x * 3) * ceiling;
-    }
-    return curve;
-}
-
-// ──────────── GUITAR WRAPPER (safe, warm) ────────────
+// Wrapper for guitar – bright, sustaining
 function scheduleGuitarNote(ctx, time, freq, dur, gain, pan, outNode) {
     karplusStrongNote(ctx, time, freq, dur, gain, pan, outNode, {
-        dampFreq: 1200,        // much less fizzy
-        feedbackGain: 0.78,    // shorter sustain
-        noiseLen: 0.003,
-        bodyGain: 3
+        dampFreq: 4500,
+        feedbackGain: 0.95,
+        noiseLen: 0.005,
+        bodyGain: 5
     });
 }
 
-// ──────────── BASS WRAPPER ────────────
+// Wrapper for bass – warmer, shorter sustain
 function scheduleBassNote(ctx, time, freq, dur, gain, pan, outNode) {
     karplusStrongNote(ctx, time, freq, dur, gain, pan, outNode, {
-        dampFreq: 500,
-        feedbackGain: 0.8,
-        noiseLen: 0.005,
-        bodyGain: 2
+        dampFreq: 800,
+        feedbackGain: 0.87,
+        noiseLen: 0.008,
+        bodyGain: 4
     });
-}  
-
+}
       // ──────────── DRUM SOUNDS (kick, snare, hi‑hat) ────────────
         function createDrumSchedulers(ctx, outputNode) {
             return {
