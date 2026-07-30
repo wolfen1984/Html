@@ -638,10 +638,10 @@ function karplusStrongNote(ctx, time, freqVal, dur, gainVal, pan, outputNode, op
 
     // Amplitude envelope
     const env = ctx.createGain();
-    env.gain.setValueAtTime(0.001, time);
-    env.gain.exponentialRampToValueAtTime(gainVal * 0.7, time + 0.003);
-    env.gain.exponentialRampToValueAtTime(gainVal * 0.15, time + dur * 0.8);
-    env.gain.exponentialRampToValueAtTime(0.001, time + dur);
+   env.gain.setValueAtTime(0.001, time);
+env.gain.linearRampToValueAtTime(gainVal * 0.6, time + 0.01);  // linear, slower
+env.gain.exponentialRampToValueAtTime(gainVal * 0.12, time + dur * 0.7);
+env.gain.linearRampToValueAtTime(0.001, time + dur);  // smooth end
 
     // Body resonance (optional, for acoustic feel)
     let bodyRes = null;
@@ -681,26 +681,31 @@ function karplusStrongNote(ctx, time, freqVal, dur, gainVal, pan, outputNode, op
     exciter.stop(time + noiseLen);
 }
 
-// Wrapper for guitar – bright, sustaining
+// After panner.connect(outputNode) – add a safety limiter (soft clip)
+const safetyGain = ctx.createGain();
+safetyGain.gain.value = 0.8;   // prevent sudden jumps
+panner.connect(safetyGain);
+safetyGain.connect(outputNode);
+
+// Wrapper for guitar – warm, less sustain, softer attack
 function scheduleGuitarNote(ctx, time, freq, dur, gain, pan, outNode) {
     karplusStrongNote(ctx, time, freq, dur, gain, pan, outNode, {
-        dampFreq: 4500,
-        feedbackGain: 0.95,
-        noiseLen: 0.005,
-        bodyGain: 5
+        dampFreq: 1800,       // lower = less fizzy
+        feedbackGain: 0.88,   // shorter sustain
+        noiseLen: 0.004,      // softer pick
+        bodyGain: 4           // subtle body
     });
 }
 
-// Wrapper for bass – warmer, shorter sustain
+// Wrapper for bass – deeper and rounder
 function scheduleBassNote(ctx, time, freq, dur, gain, pan, outNode) {
     karplusStrongNote(ctx, time, freq, dur, gain, pan, outNode, {
-        dampFreq: 800,
-        feedbackGain: 0.87,
-        noiseLen: 0.008,
-        bodyGain: 4
+        dampFreq: 600,
+        feedbackGain: 0.85,
+        noiseLen: 0.006,
+        bodyGain: 3
     });
 }
-
         // ──────────── DRUM SOUNDS (kick, snare, hi‑hat) ────────────
         function createDrumSchedulers(ctx, outputNode) {
             return {
@@ -1117,11 +1122,11 @@ async function generateAlbumMusic(album) {
     echoFB.connect(echoDelay);
     echoDelay.connect(echoGain);
     const leadGain = offlineCtx.createGain();
-    leadGain.gain.value = 0.45;
+    leadGain.gain.value = 0.35;
     const bassGain = offlineCtx.createGain();
-    bassGain.gain.value = 0.55;
+    bassGain.gain.value = 0.6;
     const drumGain = offlineCtx.createGain();
-    drumGain.gain.value = 0.7;
+    drumGain.gain.value = 0.8;
     [leadGain, bassGain, drumGain].forEach(g => g.connect(tapeLP));
     tapeLP.connect(distNode);
     distNode.connect(masterGain);
@@ -1640,6 +1645,15 @@ async function generateAlbumMusic(album) {
         masterGain.gain.value = 0.8;
         masterGain.connect(ctx.destination);
 
+const leadComp = offlineCtx.createDynamicsCompressor();
+leadComp.threshold.value = -20;
+leadComp.knee.value = 20;
+leadComp.ratio.value = 8;
+leadComp.attack.value = 0.005;
+leadComp.release.value = 0.2;
+leadGain.connect(leadComp);
+leadComp.connect(tapeLP);   // instead of leadGain → tapeLP directly
+
         const tapeLP = ctx.createBiquadFilter();
         tapeLP.type = 'lowpass';
         tapeLP.frequency.value = 7500;
@@ -1666,11 +1680,11 @@ async function generateAlbumMusic(album) {
         echoFB.connect(echoDelay);
         echoDelay.connect(echoGain);
         const leadGain = ctx.createGain();
-        leadGain.gain.value = 0.45;
+        leadGain.gain.value = 0.35;
         const bassGain = ctx.createGain();
-        bassGain.gain.value = 0.55;
+        bassGain.gain.value = 0.6;
         const drumGain = ctx.createGain();
-        drumGain.gain.value = 0.7;
+        drumGain.gain.value = 0.8;
         [leadGain, bassGain, drumGain].forEach(g => g.connect(tapeLP));
         tapeLP.connect(distNode);
         distNode.connect(masterGain);
