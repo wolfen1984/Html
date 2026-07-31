@@ -559,7 +559,7 @@
             return curve;
         }
 
-   // ──────────── KARPLUS-STRONG PLUCKED STRING (FIXED) ────────────
+  // ──────────── KARPLUS-STRONG PLUCKED STRING (FIXED) ────────────
 function schedulePluck(ctx, time, freqVal, dur, gainVal, pan, outputNode, isBass = false) {
     const sampleRate = ctx.sampleRate;
     const delayTime = 1 / freqVal;
@@ -575,7 +575,7 @@ function schedulePluck(ctx, time, freqVal, dur, gainVal, pan, outputNode, isBass
     damping.Q.value = 0.5;
 
     const feedback = ctx.createGain();
-    feedback.gain.setValueAtTime(isBass ? 0.84 : 0.78, time);
+    feedback.gain.setValueAtTime(isBass ? 0.84 : 0.88, time);
     feedback.gain.linearRampToValueAtTime(0, time + dur - 0.02);
     feedback.gain.setValueAtTime(0, time + dur + 0.001);
 
@@ -583,7 +583,7 @@ function schedulePluck(ctx, time, freqVal, dur, gainVal, pan, outputNode, isBass
     const noiseBuffer = ctx.createBuffer(1, noiseLength, sampleRate);
     const noiseData = noiseBuffer.getChannelData(0);
     for (let i = 0; i < noiseLength; i++) {
-        noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (noiseLength * 0.3));
+        noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (noiseLength * 0.5));
     }
     const noiseSource = ctx.createBufferSource();
     noiseSource.buffer = noiseBuffer;
@@ -601,12 +601,21 @@ function schedulePluck(ctx, time, freqVal, dur, gainVal, pan, outputNode, isBass
     bodyResonance2.gain.value = 3;
 
     const pluckGain = ctx.createGain();
-    pluckGain.gain.setValueAtTime(0.001, time);
-    pluckGain.gain.exponentialRampToValueAtTime(gainVal * 1.2, time + 0.003);
-    pluckGain.gain.exponentialRampToValueAtTime(gainVal * 0.7, time + dur * 0.3);
-    pluckGain.gain.linearRampToValueAtTime(0.001, time + dur - 0.02);
+    if (isBass) {
+        // keep bass envelope as before
+        pluckGain.gain.setValueAtTime(0.001, time);
+        pluckGain.gain.exponentialRampToValueAtTime(gainVal * 1.2, time + 0.003);
+        pluckGain.gain.exponentialRampToValueAtTime(gainVal * 0.7, time + dur * 0.3);
+        pluckGain.gain.linearRampToValueAtTime(0.001, time + dur - 0.02);
+    } else {
+        // GUITAR: slower attack, longer sustain
+        pluckGain.gain.setValueAtTime(0.001, time);
+        pluckGain.gain.linearRampToValueAtTime(gainVal * 0.9, time + 0.02);
+        pluckGain.gain.setValueAtTime(gainVal * 0.8, time + dur * 0.7);
+        pluckGain.gain.linearRampToValueAtTime(0.001, time + dur - 0.02);
+    }
 
-    // Detune layer (only for guitar, adds stereo width)
+    // Detune layer (guitar only, adds stereo width)
     if (!isBass) {
         const detuneDelay = ctx.createDelay(delayTime * 2);
         detuneDelay.delayTime.value = delayTime * 1.002;
@@ -651,7 +660,7 @@ function schedulePluck(ctx, time, freqVal, dur, gainVal, pan, outputNode, isBass
 
     noiseSource.start(time);
     noiseSource.stop(time + dur);
-}    
+} 
 
 
         // ──────────── DRUM SOUNDS (kick, snare, hi‑hat) ────────────
@@ -1056,7 +1065,7 @@ async function generateAlbumMusic(album) {
     const reverbFB = offlineCtx.createGain();
     reverbFB.gain.value = 0.4;
     const reverbGain = offlineCtx.createGain();
-    reverbGain.gain.value = 0.25;
+    reverbGain.gain.value = 0.10;
     reverbDelay.connect(reverbFB);
     reverbFB.connect(reverbDelay);
     reverbDelay.connect(reverbGain);
@@ -1065,17 +1074,34 @@ async function generateAlbumMusic(album) {
     const echoFB = offlineCtx.createGain();
     echoFB.gain.value = 0.3;
     const echoGain = offlineCtx.createGain();
-    echoGain.gain.value = 0.18;
+    echoGain.gain.value = 0.06;
     echoDelay.connect(echoFB);
     echoFB.connect(echoDelay);
     echoDelay.connect(echoGain);
-    const leadGain = offlineCtx.createGain();
-    leadGain.gain.value = 0.7;
-    const bassGain = offlineCtx.createGain();
-    bassGain.gain.value = 0.55;
-    const drumGain = offlineCtx.createGain();
-    drumGain.gain.value = 0.7;
-    [leadGain, bassGain, drumGain].forEach(g => g.connect(tapeLP));
+    // ── Gain nodes ──
+const leadGain = offlineCtx.createGain();
+leadGain.gain.value = 0.7;
+const bassGain = offlineCtx.createGain();
+bassGain.gain.value = 0.55;
+const drumGain = offlineCtx.createGain();
+drumGain.gain.value = 0.7;
+
+// ── Guitar‑only distortion ──
+const leadDistCurve = createDistortionCurve(40);
+const leadDistNode = offlineCtx.createWaveShaper();
+leadDistNode.curve = leadDistCurve;
+leadDistNode.oversample = '2x';
+
+leadGain.connect(leadDistNode);
+leadDistNode.connect(tapeLP);
+
+const leadReverbSend = offlineCtx.createGain();
+leadReverbSend.gain.value = 0.3;
+leadDistNode.connect(leadReverbSend);
+leadReverbSend.connect(reverbDelay);
+
+bassGain.connect(tapeLP);
+drumGain.connect(tapeLP);
     tapeLP.connect(distNode);
     distNode.connect(masterGain);
     distNode.connect(reverbDelay);
@@ -1603,7 +1629,7 @@ async function generateAlbumMusic(album) {
         const reverbFB = ctx.createGain();
         reverbFB.gain.value = 0.4;
         const reverbGain = ctx.createGain();
-        reverbGain.gain.value = 0.25;
+        reverbGain.gain.value = 0.10;
         reverbDelay.connect(reverbFB);
         reverbFB.connect(reverbDelay);
         reverbDelay.connect(reverbGain);
@@ -1612,17 +1638,37 @@ async function generateAlbumMusic(album) {
         const echoFB = ctx.createGain();
         echoFB.gain.value = 0.3;
         const echoGain = ctx.createGain();
-        echoGain.gain.value = 0.18;
+        echoGain.gain.value = 0.06;
         echoDelay.connect(echoFB);
         echoFB.connect(echoDelay);
         echoDelay.connect(echoGain);
-        const leadGain = ctx.createGain();
-        leadGain.gain.value = 0.7;
-        const bassGain = ctx.createGain();
-        bassGain.gain.value = 0.55;
-        const drumGain = ctx.createGain();
-        drumGain.gain.value = 0.7;
-        [leadGain, bassGain, drumGain].forEach(g => g.connect(tapeLP));
+       // ── Gain nodes ──
+const leadGain = ctx.createGain();
+leadGain.gain.value = 0.7;   // already boosted
+
+const bassGain = ctx.createGain();
+bassGain.gain.value = 0.55;
+const drumGain = ctx.createGain();
+drumGain.gain.value = 0.7;
+
+// ── Guitar‑only distortion ──
+const leadDistCurve = createDistortionCurve(40);   // 40 = crunchy overdrive
+const leadDistNode = ctx.createWaveShaper();
+leadDistNode.curve = leadDistCurve;
+leadDistNode.oversample = '2x';
+
+// ── Routing ──
+leadGain.connect(leadDistNode);
+leadDistNode.connect(tapeLP);      // guitar main path
+
+// ✨ extra reverb send for guitar ✨
+const leadReverbSend = ctx.createGain();
+leadReverbSend.gain.value = 0.3;   // how much extra reverb for guitar
+leadDistNode.connect(leadReverbSend);
+leadReverbSend.connect(reverbDelay);   // feeds the same reverb loop
+
+bassGain.connect(tapeLP);          // bass and drums go straight to tape filter
+drumGain.connect(tapeLP);
         tapeLP.connect(distNode);
         distNode.connect(masterGain);
         distNode.connect(reverbDelay);
@@ -1642,21 +1688,21 @@ async function generateAlbumMusic(album) {
             const { lead, bass, drums } = section;
 
             lead.forEach(ev => {
-                if (freq[ev.note]) {
-                    allTasks.push(() =>
-                        scheduleNote(ctx, offset + ev.step * stepDur, freq[ev.note],
-                            (ev.durSteps || 1) * stepDur, ev.vel * 0.5, -0.3, leadGain)
-                    );
-                }
-            });
-            bass.forEach(ev => {
-                if (freq[ev.note]) {
-                    allTasks.push(() =>
-                        scheduleNote(ctx, offset + ev.step * stepDur, freq[ev.note],
-                            (ev.durSteps || 1) * stepDur, ev.vel * 0.6, 0.2, bassGain)
-                    );
-                }
-            });
+    if (freq[ev.note]) {
+        allTasks.push(() =>
+            schedulePluck(ctx, offset + ev.step * stepDur, freq[ev.note],
+                (ev.durSteps || 1) * stepDur, ev.vel * 0.5, -0.3, leadGain, false)   // guitar
+        );
+    }
+});
+bass.forEach(ev => {
+    if (freq[ev.note]) {
+        allTasks.push(() =>
+            schedulePluck(ctx, offset + ev.step * stepDur, freq[ev.note],
+                (ev.durSteps || 1) * stepDur, ev.vel * 0.6, 0.2, bassGain, true)   // bass
+        );
+    }
+});
             drums.forEach(ev => {
                 const t = offset + ev.step * stepDur;
                 if (ev.type === 'kick') allTasks.push(() => drumSched.kick(t, ev.vel));
