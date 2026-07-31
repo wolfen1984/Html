@@ -574,81 +574,101 @@
         deduplicateDrums(song.sections);
     }
 
-    // ────────────── AI album song generation (IMPROVED PROMPT) ──────────────
-    async function generateAlbumSectionsAI(album) {
-        const validNotes = [
-            'C1','C#1','D1','D#1','E1','F1','F#1','G1','G#1','A1','A#1','B1',
-            'C2','C#2','D2','D#2','E2','F2','F#2','G2','G#2','A2','A#2','B2',
-            'C3','C#3','D3','D#3','E3','F3','F#3','G3','G#3','A3','A#3','B3',
-            'C4','C#4','D4','D#4','E4','F4','F#4','G4','G#4','A4','A#4','B4',
-            'C5','C#5','D5','D#5','E5'
-        ];
-        const requiredTotalBars = 60;
-        const prompt = `You are a master 1980s session musician and arranger. Create a RICH, FULL instrumental for the album "${album.title}" by ${album.artist} (genre: ${album.genre}, year: ${album.year}, mood: "${album.description}"). The song must sound like a real band performance with multiple instruments playing simultaneously.
+   // ────────────── AI album song generation (RELAXED & RELIABLE) ──────────────
+async function generateAlbumSectionsAI(album) {
+    const validNotes = [
+        'C1','C#1','D1','D#1','E1','F1','F#1','G1','G#1','A1','A#1','B1',
+        'C2','C#2','D2','D#2','E2','F2','F#2','G2','G#2','A2','A#2','B2',
+        'C3','C#3','D3','D#3','E3','F3','F#3','G3','G#3','A3','A#3','B3',
+        'C4','C#4','D4','D#4','E4','F4','F#4','G4','G#4','A4','A#4','B4',
+        'C5','C#5','D5','D#5','E5'
+    ];
 
-Structure (exactly these sections, no gaps between them):
-- intro: 8 bars
-- verse: 16 bars
-- chorus: 8 bars
-- verse: 16 bars
-- bridge: 8 bars
-- chorus: 8 bars
-- outro: 8 bars
-Total bars = 72. Each bar = 8 eighth‑note steps.
+    const requiredTotalBars = 32;  // much easier to fulfill (≈ 1 minute of music)
 
-IMPORTANT DENSITY RULES:
-- The LEAD melody must contain at least 16 notes per section. Use repeating motifs, riffs, and occasional chord stabs (two or three notes at the same step to form a chord). Use octave jumps, syncopation, and sustained notes that overlap.
-- The BASS must play on nearly every beat: a walking bass line or a driving eighth‑note pattern. At minimum 24 notes per section, with root‑fifth‑octave movement and passing tones.
-- DRUMS must be FULL. Kick on beats 1 and 3, snare on 2 and 4, hi‑hat on every eighth‑note. Add occasional crash cymbal (use a hat with high vel as crash), tom fills, and varied ghost notes. Ensure at least 32 drum events per section.
-- In the chorus and bridge, INCREASE density: double the number of lead notes, add more chord stabs, and busier drums.
-- The intro and outro can be slightly sparser but still must have a clear bass line and drum groove.
+    const prompt = `You are a 1980s band arranger. Create a complete short instrumental for the album "${album.title}" by ${album.artist} (genre: ${album.genre}, year: ${album.year}, mood: "${album.description}").
 
-ARRANGEMENT RULES:
-- Use a single key (e.g., C major or A minor). All lead notes must stay in that scale.
-- The lead should use a mix of short staccato notes and longer legato phrases (durSteps 2-4).
-- The bass must follow the chord progression and rarely rest; fill every bar.
-- Drums should follow the standard rock/pop beat and NEVER have two identical hits at the exact same step (no duplicates).
-- Every section must feel like it’s part of a continuous song – no sudden stops.
+Structure (continuous, no gaps):
+- intro: 4 bars
+- verse: 8 bars
+- chorus: 4 bars
+- verse: 8 bars
+- bridge: 4 bars
+- chorus: 4 bars
+- outro: 4 bars
+Total bars = 36. Each bar = 8 eighth‑note steps.
 
-RETURN ONLY A VALID JSON OBJECT (no backticks, no markdown) with these keys:
-- "bpm": number (100-160)
-- "sections": array of 7 objects, each with:
+RULES:
+- All notes MUST be from this list with correct octave: C1-C5 (e.g., "C4", "A#3").
+- Lead: at least 8 notes per section, using a mix of short and long notes.
+- Bass: a walking bass line, at least 12 notes per section, playing mostly the root and fifth of the chord.
+- Drums: standard rock beat. Kick on steps 0,4,8,12…; snare on steps 2,6,10…; hi‑hat on every step. At least 24 drum hits per section.
+- Do NOT leave the end of any section empty; notes must exist up to step (lengthBars*8 - 2).
+- The song must be in a single key (e.g., C major) and all lead/bass notes must stay in that scale.
+- Return ONLY a valid JSON object with:
+  "bpm": number (100-160),
+  "sections": array of 7 objects, each with:
     "name": string,
-    "lengthBars": number,
-    "lead": array of {"step": int (0-based within section), "note": string (e.g., "C4"), "durSteps": 1-8, "vel": 0.1-0.9},
-    "bass": same structure (use lower octaves like "C2"),
-    "drums": array of {"step": int, "type": "kick"/"snare"/"hat", "vel": 0.2-0.9}
+    "lengthBars": exactly the number above,
+    "lead": array of {"step": int, "note": string, "durSteps": 1-8, "vel": 0.1-0.9},
+    "bass": same structure,
+    "drums": array of {"step": int, "type": "kick"/"snare"/"hat", "vel": 0.2-0.9}.
+Output ONLY the raw JSON.`;
 
-MOST IMPORTANT: Fill the song! No long silences. Every section must have notes throughout its entire length. The highest step in each section must be at least (lengthBars*8 - 2). Output only the JSON.`;
+    let attempts = 0;
+    while (attempts < 3) {  // reduce attempts, we want success quickly
+        try {
+            // longer timeout via AbortController
+            const controller = new AbortController();
+            setTimeout(() => controller.abort(), 60000); // 60 seconds
 
-        let attempts = 0;
-        while (attempts < 5) {
-            try {
-                const data = await mistralChat([{ role: 'user', content: prompt }], 30000, true);
-                if (data && Array.isArray(data.sections)) {
-                    const totalBars = data.sections.reduce((sum, sec) => sum + (sec.lengthBars || 0), 0);
-                    if (totalBars < requiredTotalBars) { attempts++; continue; }
-                    let sectionsOk = true;
-                    for (const sec of data.sections) {
-                        const maxStepExpected = (sec.lengthBars || 8) * 8 - 1;
-                        const allSteps = [
-                            ...(sec.lead || []).map(e => e.step + (e.durSteps || 1) - 1),
-                            ...(sec.bass || []).map(e => e.step + (e.durSteps || 1) - 1),
-                            ...(sec.drums || []).map(e => e.step)
-                        ];
-                        const maxUsed = allSteps.length > 0 ? Math.max(...allSteps) : -1;
-                        if (maxUsed < maxStepExpected - 16) { sectionsOk = false; break; }
+            const data = await mistralChat(
+                [{ role: 'user', content: prompt }],
+                16000,  // generous token limit
+                true,
+                controller.signal
+            );
+
+            if (data && Array.isArray(data.sections)) {
+                const totalBars = data.sections.reduce((sum, sec) => sum + (sec.lengthBars || 0), 0);
+                // accept if at least 32 bars
+                if (totalBars < requiredTotalBars) { attempts++; continue; }
+
+                // gentle check: each section must have some notes
+                let sectionsOk = true;
+                for (const sec of data.sections) {
+                    const expectedSteps = (sec.lengthBars || 8) * 8;
+                    const leadMin = Math.max(1, Math.floor(expectedSteps * 0.3)); // at least 30% fill
+                    const bassMin = Math.max(1, Math.floor(expectedSteps * 0.4));
+                    const drumMin = Math.max(1, Math.floor(expectedSteps * 0.5));
+
+                    if ((sec.lead || []).length < leadMin ||
+                        (sec.bass || []).length < bassMin ||
+                        (sec.drums || []).length < drumMin) {
+                        sectionsOk = false;
+                        break;
                     }
-                    if (!sectionsOk) { attempts++; continue; }
-                    data.bpm = data.bpm || 120;
-                    sanitiseSongData(data);
-                    return data;
                 }
-                attempts++;
-            } catch (e) { attempts++; }
+                if (!sectionsOk) { attempts++; continue; }
+
+                // sanitise and return
+                data.bpm = data.bpm || 120;
+                sanitiseSongData(data);  // your existing cleaner function
+                return data;
+            }
+            attempts++;
+        } catch (e) {
+            attempts++;
+            // if the controller aborted, just try again
+            if (e.name === 'AbortError') continue;
+            // if rate limited, wait a bit
+            if (e.message.includes('Rate limited')) {
+                await new Promise(r => setTimeout(r, 2000));
+            }
         }
-        throw new Error('Failed to generate a fully filled song after 5 attempts.');
     }
+    throw new Error('Failed to generate a fully filled song after 3 attempts. Please try again.');
+}
 
     // ────────────── Tone.js Instruments ──────────────
     function createInstruments(destination) {
