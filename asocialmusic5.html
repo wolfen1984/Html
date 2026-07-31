@@ -663,6 +663,83 @@ function scheduleNote(ctx, time, freqVal, dur, gainVal, pan, outputNode) {
   }
 }
 
+// ──────────── PAD NOTE SCHEDULER (Lush Chords with Chorus) ────────────
+function schedulePadChord(ctx, time, notes, dur, vel, outputNode) {
+  // notes: array of frequency values (e.g., [261.63, 329.63, 392.00] for C major)
+  const wave = ctx._guitarWavetable || (ctx._guitarWavetable = makeGuitarWavetable(ctx));
+  const attack = 0.3;     // slow swell
+  const release = 0.6;
+
+  // Chorus effect – a single modulated delay shared by all voices of this chord
+  const chorusDelayTime = 0.025; // 25 ms
+  const chorusModDepth = 0.005;
+  const chorusModFreq = 0.8;     // slow LFO
+
+  const dryGain = ctx.createGain();
+  dryGain.gain.value = 0.7;
+  const wetGain = ctx.createGain();
+  wetGain.gain.value = 0.3;
+
+  const chorusDelay = ctx.createDelay(chorusDelayTime + 0.01);
+  chorusDelay.delayTime.value = chorusDelayTime;
+  const feedback = ctx.createGain();
+  feedback.gain.value = 0.4;
+  const lfo = ctx.createOscillator();
+  lfo.type = 'sine';
+  lfo.frequency.value = chorusModFreq;
+  const lfoGain = ctx.createGain();
+  lfoGain.gain.value = chorusModDepth;
+  lfo.connect(lfoGain);
+  lfoGain.connect(chorusDelay.delayTime);
+  lfo.start(time);
+  lfo.stop(time + dur + 2);
+
+  // Feedback loop
+  chorusDelay.connect(feedback);
+  feedback.connect(chorusDelay);
+
+  // Each note in the chord gets its own oscillator + envelope + filter
+  notes.forEach(freqVal => {
+    const osc = ctx.createOscillator();
+    osc.setPeriodicWave(wave);
+    osc.frequency.value = freqVal;
+
+    // ADSR gain
+    const voiceGain = ctx.createGain();
+    voiceGain.gain.setValueAtTime(0, time);
+    voiceGain.gain.linearRampToValueAtTime(vel * 0.5, time + attack);
+    voiceGain.gain.setValueAtTime(vel * 0.45, time + dur - release);
+    voiceGain.gain.linearRampToValueAtTime(0, time + dur);
+
+    // Soft low-pass filter (fixed)
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 3800;
+    filter.Q.value = 0.8;
+
+    // Pan each chord note slightly differently
+    const panNode = ctx.createStereoPanner();
+    const panVal = (notes.indexOf(freqVal) / (notes.length - 1 || 1)) * 2 - 1; // spread -1 to 1
+    panNode.pan.value = panVal * 0.6;
+
+    // Dry path
+    osc.connect(voiceGain);
+    voiceGain.connect(filter);
+    filter.connect(panNode);
+    panNode.connect(dryGain);
+    dryGain.connect(outputNode);
+
+    // Wet (chorus) path
+    panNode.connect(chorusDelay);
+    chorusDelay.connect(wetGain);
+    wetGain.connect(outputNode);
+
+    osc.start(time);
+    osc.stop(time + dur + 0.05);
+  });
+}
+
+
             // ──────────── DRUM SOUNDS (kick, snare, hi‑hat) ────────────
         function createDrumSchedulers(ctx, outputNode) {
             return {
@@ -790,6 +867,7 @@ MUSICAL RULES:
 - Drums should follow a consistent pattern: kick on beats 1 and 3, snare on beats 2 and 4, hi‑hat on every eighth‑note (typical rock/pop beat). Vary the pattern slightly in the chorus and bridge.  
 - Each section must have at least 4 lead notes, 4 bass notes, and 8 drum hits.  
 - The intro and outro should be simpler, with fewer instruments.
+- The pad should play sustained chords (whole notes or half notes) in the background, changing every 2-4 bars, using notes from the same key. The pad should not overpower the lead.
 
 Return ONLY a valid JSON object (no markdown, no backticks) with these keys:
 - "bpm": number (60-180)
@@ -799,6 +877,7 @@ Return ONLY a valid JSON object (no markdown, no backticks) with these keys:
     "lead": array of objects {"step": integer, "note": one of the allowed notes, "durSteps": 1-8, "vel": 0.1-0.8}
     "bass": same structure (use lower octaves)
     "drums": array of objects {"step": integer, "type": "kick"/"snare"/"hat", "vel": 0.2-0.9}
+    "pad": array of objects {"step": integer, "notes": array of 2-4 notes (from the allowed notes, harmony from the key), "durSteps": 4-16, "vel": 0.1-0.6}
 
 Make the music rhythmically varied, authentic to the genre, and evolving across sections. Output ONLY the raw JSON.`;
 
@@ -1013,7 +1092,7 @@ async function generateAlbumMusic(album) {
 
     // Polyphony limiter
     const MAX_EVENTS = 500;
-    const MAX_SIMULTANEOUS = { lead: 3, bass: 2, drums: 3 };
+    const MAX_SIMULTANEOUS = { lead: 3, bass: 2, drums: 3, pad: 2 };
     function limitPolyphony(events, max) {
         if (!events.length) return [];
         const sorted = [...events].sort((a, b) => a.step - b.step);
@@ -1046,16 +1125,35 @@ async function generateAlbumMusic(album) {
         drums.push(...limited);
     });
     drums.sort((a, b) => a.step - b.step);
+    // ── Pad polyphony (max 2 simultaneous chords) ──
+    const padRaw = (sec.pad || []).slice(0, MAX_EVENTS);
+    padRaw.sort((a, b) => a.step - b.step);
+    const pad = [];
+    const chordEnds = [];
+    for (const ev of padRaw) {
+      const start = ev.step;
+      const end = start + (ev.durSteps || 4);
+      // Remove finished chords
+      for (let i = chordEnds.length - 1; i >= 0; i--) {
+        if (chordEnds[i] <= start) chordEnds.splice(i, 1);
+      }
+      if (chordEnds.length < 2) {   // maximum 2 overlapping pad chords
+        pad.push(ev);
+        chordEnds.push(end);
+        chordEnds.sort((a, b) => a - b);
+      }
+    }
 
     const bars = sec.lengthBars || 8;
     const totalSteps = bars * 8;          // total 8th-note steps in this section
     const duration = totalSteps * stepDur;
 
     // Find the highest step actually used in ANY part
-    const maxLead = lead.reduce((m, e) => Math.max(m, e.step + (e.durSteps || 1) - 1), 0);
+        const maxLead = lead.reduce((m, e) => Math.max(m, e.step + (e.durSteps || 1) - 1), 0);
     const maxBass = bass.reduce((m, e) => Math.max(m, e.step + (e.durSteps || 1) - 1), 0);
     const maxDrums = drums.reduce((m, e) => Math.max(m, e.step), 0);
-    const maxUsed = Math.max(maxLead, maxBass, maxDrums, 0);
+    const maxPad = pad.reduce((m, e) => Math.max(m, e.step + (e.durSteps || 4) - 1), 0);
+    const maxUsed = Math.max(maxLead, maxBass, maxDrums, maxPad, 0);
 
     // If the section is empty or doesn't reach near the end, fill the rest with a simple pattern
     if (maxUsed < totalSteps - 4) {   // more than half a bar of silence
@@ -1079,7 +1177,7 @@ async function generateAlbumMusic(album) {
         bass = limitPolyphony(bass, MAX_SIMULTANEOUS.bass);  // re‑apply polyphony limit
     }
 
-    return { ...sec, lead, bass, drums, duration };
+        return { ...sec, lead, bass, drums, pad, duration };
 });
 
     const totalDuration = sections.reduce((sum, s) => sum + s.duration, 0);
@@ -1135,6 +1233,8 @@ const bassGain = offlineCtx.createGain();
 bassGain.gain.value = 1.1;
 const drumGain = offlineCtx.createGain();
 drumGain.gain.value = 0.7;
+    const padGain = offlineCtx.createGain();
+    padGain.gain.value = 0.18;
 
 // ── ROUTING ──
 // Lead & drums → tapeLP → distortion → master & effects
@@ -1598,7 +1698,7 @@ masterGain.connect(offlineCtx.destination);
     const bpm = song.bpm || 120;
     const stepDur = 60 / bpm / 2;   // 8 steps per bar
     const MAX_EVENTS = 500;
-    const MAX_SIMULTANEOUS = { lead: 3, bass: 2, drums: 3 };
+    const MAX_SIMULTANEOUS = { lead: 3, bass: 2, drums: 3, pad: 2 };
 
     function limitPolyphony(events, max) {
         if (!events.length) return [];
@@ -1631,16 +1731,35 @@ masterGain.connect(offlineCtx.destination);
         drums.push(...limited);
     });
     drums.sort((a, b) => a.step - b.step);
+    // ── Pad polyphony (max 2 simultaneous chords) ──
+    const padRaw = (sec.pad || []).slice(0, MAX_EVENTS);
+    padRaw.sort((a, b) => a.step - b.step);
+    const pad = [];
+    const chordEnds = [];
+    for (const ev of padRaw) {
+      const start = ev.step;
+      const end = start + (ev.durSteps || 4);
+      // Remove finished chords
+      for (let i = chordEnds.length - 1; i >= 0; i--) {
+        if (chordEnds[i] <= start) chordEnds.splice(i, 1);
+      }
+      if (chordEnds.length < 2) {   // maximum 2 overlapping pad chords
+        pad.push(ev);
+        chordEnds.push(end);
+        chordEnds.sort((a, b) => a - b);
+      }
+    }
 
     const bars = sec.lengthBars || 8;
     const totalSteps = bars * 8;          // total 8th-note steps in this section
     const duration = totalSteps * stepDur;
 
     // Find the highest step actually used in ANY part
-    const maxLead = lead.reduce((m, e) => Math.max(m, e.step + (e.durSteps || 1) - 1), 0);
+       const maxLead = lead.reduce((m, e) => Math.max(m, e.step + (e.durSteps || 1) - 1), 0);
     const maxBass = bass.reduce((m, e) => Math.max(m, e.step + (e.durSteps || 1) - 1), 0);
     const maxDrums = drums.reduce((m, e) => Math.max(m, e.step), 0);
-    const maxUsed = Math.max(maxLead, maxBass, maxDrums, 0);
+    const maxPad = pad.reduce((m, e) => Math.max(m, e.step + (e.durSteps || 4) - 1), 0);
+    const maxUsed = Math.max(maxLead, maxBass, maxDrums, maxPad, 0);
 
     // If the section is empty or doesn't reach near the end, fill the rest with a simple pattern
     if (maxUsed < totalSteps - 4) {   // more than half a bar of silence
@@ -1664,7 +1783,7 @@ masterGain.connect(offlineCtx.destination);
         bass = limitPolyphony(bass, MAX_SIMULTANEOUS.bass);  // re‑apply polyphony limit
     }
 
-    return { ...sec, lead, bass, drums, duration };
+        return { ...sec, lead, bass, drums, pad, duration };
 });
 
     // Sections must exist
