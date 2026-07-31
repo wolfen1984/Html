@@ -999,24 +999,44 @@ async function generateAlbumMusic(album) {
     // Audio graph
     const masterGain = offlineCtx.createGain();
     masterGain.gain.value = 0.8;
-    // ── original: tapeLP + distNode for lead/drums ──
+    // ── Filters & distortion ──
 const tapeLP = offlineCtx.createBiquadFilter();
 tapeLP.type = 'lowpass';
 tapeLP.frequency.value = 7500;
 
-const distCurve = createDistortionCurve(15);   // keep as is
+const distCurve = createDistortionCurve(15);
 const distNode = offlineCtx.createWaveShaper();
 distNode.curve = distCurve;
 distNode.oversample = '2x';
 
-// ── NEW: dedicated clean path for bass ──
+// ── Clean path for bass ──
 const bassTapeLP = offlineCtx.createBiquadFilter();
 bassTapeLP.type = 'lowpass';
-bassTapeLP.frequency.value = 7500;
+bassTapeLP.frequency.value = 2500;
 
-// … reverb/echo nodes remain the same …
+// ── Reverb ──
+const reverbDelay = offlineCtx.createDelay(0.5);
+reverbDelay.delayTime.value = 0.35;
+const reverbFB = offlineCtx.createGain();
+reverbFB.gain.value = 0.4;
+const reverbGain = offlineCtx.createGain();
+reverbGain.gain.value = 0.25;
+reverbDelay.connect(reverbFB);
+reverbFB.connect(reverbDelay);
+reverbDelay.connect(reverbGain);
 
-// Gain nodes
+// ── Echo ──
+const echoDelay = offlineCtx.createDelay(0.6);
+echoDelay.delayTime.value = 0.28;
+const echoFB = offlineCtx.createGain();
+echoFB.gain.value = 0.3;
+const echoGain = offlineCtx.createGain();
+echoGain.gain.value = 0.18;
+echoDelay.connect(echoFB);
+echoFB.connect(echoDelay);
+echoDelay.connect(echoGain);
+
+// ── Gains ──
 const leadGain = offlineCtx.createGain();
 leadGain.gain.value = 0.45;
 const bassGain = offlineCtx.createGain();
@@ -1030,16 +1050,17 @@ leadGain.connect(tapeLP);
 drumGain.connect(tapeLP);
 tapeLP.connect(distNode);
 distNode.connect(masterGain);
-distNode.connect(reverbDelay);
-distNode.connect(echoDelay);
+distNode.connect(reverbDelay);   // now defined
+distNode.connect(echoDelay);     // now defined
 
-// Bass → bassTapeLP (NO distortion) → master only
+// Bass → bassTapeLP (no distortion) → master only
 bassGain.connect(bassTapeLP);
 bassTapeLP.connect(masterGain);
 
-// Effects returns to master (unchanged)
+// Effects returns to master
 reverbGain.connect(masterGain);
 echoGain.connect(masterGain);
+
 masterGain.connect(offlineCtx.destination);
 
     const drumSched = createDrumSchedulers(offlineCtx, drumGain);
@@ -1549,7 +1570,7 @@ masterGain.connect(offlineCtx.destination);
         masterGain.gain.value = 0.8;
         masterGain.connect(ctx.destination);
 
-        const tapeLP = ctx.createBiquadFilter();
+       const tapeLP = ctx.createBiquadFilter();
 tapeLP.type = 'lowpass';
 tapeLP.frequency.value = 7500;
 
@@ -1562,6 +1583,28 @@ distNode.oversample = '2x';
 const bassTapeLP = ctx.createBiquadFilter();
 bassTapeLP.type = 'lowpass';
 bassTapeLP.frequency.value = 7500;
+
+// Reverb
+const reverbDelay = ctx.createDelay(0.5);
+reverbDelay.delayTime.value = 0.35;
+const reverbFB = ctx.createGain();
+reverbFB.gain.value = 0.4;
+const reverbGain = ctx.createGain();
+reverbGain.gain.value = 0.25;
+reverbDelay.connect(reverbFB);
+reverbFB.connect(reverbDelay);
+reverbDelay.connect(reverbGain);
+
+// Echo
+const echoDelay = ctx.createDelay(0.6);
+echoDelay.delayTime.value = 0.28;
+const echoFB = ctx.createGain();
+echoFB.gain.value = 0.3;
+const echoGain = ctx.createGain();
+echoGain.gain.value = 0.18;
+echoDelay.connect(echoFB);
+echoFB.connect(echoDelay);
+echoDelay.connect(echoGain);
 
 // Gains
 const leadGain = ctx.createGain(); leadGain.gain.value = 0.45;
