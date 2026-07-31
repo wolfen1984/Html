@@ -411,10 +411,10 @@
         <div class="modal-content" id="listenModalContent" style="max-width:640px; max-height:90vh; overflow-y:auto;"></div>
     </div>
 
-    <script>
-    // ============================================================
+<script>
+   // ============================================================
     //  TAPETRACKS · ALBUM DATABASE · 1987
-    //  Sound Engine: Tone.js – fully sanitised AI data
+    //  Sound Engine: Tone.js – Rich prompt, fully sanitised
     // ============================================================
     const MISTRAL_ENDPOINT = 'https://api.mistral.ai/v1/chat/completions';
     const MODEL = 'mistral-small-latest';
@@ -550,14 +550,10 @@
     function isValidNote(note) {
         return typeof note === 'string' && /^[A-Ga-g]#?\d$/.test(note);
     }
-
-    // Cleans an array of {step, note, ...} by keeping only valid notes
     function cleanNotes(arr) {
         if (!arr) return [];
         return arr.filter(ev => ev && isValidNote(ev.note));
     }
-
-    // Deduplicate drums per type per absolute step (across whole song)
     function deduplicateDrums(sections) {
         const seen = new Set();
         sections.forEach(sec => {
@@ -570,8 +566,6 @@
         });
         return sections;
     }
-
-    // Sanitise whole song data – mutate the object directly
     function sanitiseSongData(song) {
         song.sections.forEach(sec => {
             sec.lead = cleanNotes(sec.lead);
@@ -580,7 +574,7 @@
         deduplicateDrums(song.sections);
     }
 
-    // ────────────── AI album song generation (sanitises output) ──────────────
+    // ────────────── AI album song generation (IMPROVED PROMPT) ──────────────
     async function generateAlbumSectionsAI(album) {
         const validNotes = [
             'C1','C#1','D1','D#1','E1','F1','F#1','G1','G#1','A1','A#1','B1',
@@ -590,10 +584,9 @@
             'C5','C#5','D5','D#5','E5'
         ];
         const requiredTotalBars = 60;
-        const prompt = `You are a 1980s cassette music composer.
-Create a COMPLETE 2‑minute instrumental for the album "${album.title}" by ${album.artist} (genre: ${album.genre}, year: ${album.year}, mood: "${album.description}").
+        const prompt = `You are a master 1980s session musician and arranger. Create a RICH, FULL instrumental for the album "${album.title}" by ${album.artist} (genre: ${album.genre}, year: ${album.year}, mood: "${album.description}"). The song must sound like a real band performance with multiple instruments playing simultaneously.
 
-The song MUST consist of exactly these sections with these bar lengths:
+Structure (exactly these sections, no gaps between them):
 - intro: 8 bars
 - verse: 16 bars
 - chorus: 8 bars
@@ -601,29 +594,32 @@ The song MUST consist of exactly these sections with these bar lengths:
 - bridge: 8 bars
 - chorus: 8 bars
 - outro: 8 bars
-Total bars: 72. Each bar has 8 steps (8th notes, two steps per beat).
+Total bars = 72. Each bar = 8 eighth‑note steps.
 
-CRITICAL RULE FOR EACH SECTION:
-The lead, bass, and drum parts MUST be distributed across ALL bars of that section. The highest step in each section must be at least (lengthBars * 8 - 2). Use sustained chords, rhythmic ostinatos, drum fills, or repeating patterns – do NOT leave silent gaps.
+IMPORTANT DENSITY RULES:
+- The LEAD melody must contain at least 16 notes per section. Use repeating motifs, riffs, and occasional chord stabs (two or three notes at the same step to form a chord). Use octave jumps, syncopation, and sustained notes that overlap.
+- The BASS must play on nearly every beat: a walking bass line or a driving eighth‑note pattern. At minimum 24 notes per section, with root‑fifth‑octave movement and passing tones.
+- DRUMS must be FULL. Kick on beats 1 and 3, snare on 2 and 4, hi‑hat on every eighth‑note. Add occasional crash cymbal (use a hat with high vel as crash), tom fills, and varied ghost notes. Ensure at least 32 drum events per section.
+- In the chorus and bridge, INCREASE density: double the number of lead notes, add more chord stabs, and busier drums.
+- The intro and outro can be slightly sparser but still must have a clear bass line and drum groove.
 
-MUSICAL RULES:
-- The song must be in a single musical key (e.g., C major, A minor).
-- The bass should play the root note of the chord on the first beat of each bar, and occasionally add fifths or octaves.
-- The lead melody should use only notes from the same scale.
-- Drums should follow a consistent pattern: kick on beats 1 and 3, snare on beats 2 and 4, hi‑hat on every eighth‑note (typical rock/pop beat). Vary the pattern slightly in the chorus and bridge.
-- Each section must have at least 4 lead notes, 4 bass notes, and 8 drum hits.
-- The intro and outro should be simpler, with fewer instruments.
+ARRANGEMENT RULES:
+- Use a single key (e.g., C major or A minor). All lead notes must stay in that scale.
+- The lead should use a mix of short staccato notes and longer legato phrases (durSteps 2-4).
+- The bass must follow the chord progression and rarely rest; fill every bar.
+- Drums should follow the standard rock/pop beat and NEVER have two identical hits at the exact same step (no duplicates).
+- Every section must feel like it’s part of a continuous song – no sudden stops.
 
-Return ONLY a valid JSON object (no markdown, no backticks) with these keys:
-- "bpm": number (60-180)
-- "sections": an array of 7 objects. Each object must have:
-    "name": one of the above section names
-    "lengthBars": exactly the number above
-    "lead": array of objects {"step": integer, "note": one of these notes with octave (e.g., "C4"), "durSteps": 1-8, "vel": 0.1-0.8}
-    "bass": same structure (use lower octaves, e.g., "C2")
-    "drums": array of objects {"step": integer, "type": "kick"/"snare"/"hat", "vel": 0.2-0.9}
+RETURN ONLY A VALID JSON OBJECT (no backticks, no markdown) with these keys:
+- "bpm": number (100-160)
+- "sections": array of 7 objects, each with:
+    "name": string,
+    "lengthBars": number,
+    "lead": array of {"step": int (0-based within section), "note": string (e.g., "C4"), "durSteps": 1-8, "vel": 0.1-0.9},
+    "bass": same structure (use lower octaves like "C2"),
+    "drums": array of {"step": int, "type": "kick"/"snare"/"hat", "vel": 0.2-0.9}
 
-Make the music rhythmically varied, authentic to the genre, and evolving across sections. Output ONLY the raw JSON.`;
+MOST IMPORTANT: Fill the song! No long silences. Every section must have notes throughout its entire length. The highest step in each section must be at least (lengthBars*8 - 2). Output only the JSON.`;
 
         let attempts = 0;
         while (attempts < 5) {
@@ -645,7 +641,6 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
                     }
                     if (!sectionsOk) { attempts++; continue; }
                     data.bpm = data.bpm || 120;
-                    // ** Clean the data immediately **
                     sanitiseSongData(data);
                     return data;
                 }
@@ -714,7 +709,6 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
         sections.forEach(section => {
             const totalSteps = (section.lengthBars || 8) * 8;
             const offset = absoluteStep;
-
             (section.lead || []).forEach(ev => {
                 const start = `+${offset + ev.step} * ${stepDur}`;
                 const dur = `${ev.durSteps || 1} * ${stepDur}`;
@@ -722,7 +716,6 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
                     instruments.lead.triggerAttackRelease(ev.note, dur, time, ev.vel * 0.7);
                 }, start);
             });
-
             (section.bass || []).forEach(ev => {
                 const start = `+${offset + ev.step} * ${stepDur}`;
                 const dur = `${ev.durSteps || 1} * ${stepDur}`;
@@ -730,7 +723,6 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
                     instruments.bass.triggerAttackRelease(ev.note, dur, time, ev.vel * 0.8);
                 }, start);
             });
-
             (section.drums || []).forEach(ev => {
                 const start = `+${offset + ev.step} * ${stepDur}`;
                 Tone.Transport.schedule((time) => {
@@ -739,7 +731,6 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
                     else if (ev.type === 'hat') instruments.hat.triggerAttackRelease('8n', time, ev.vel * 0.8);
                 }, start);
             });
-
             absoluteStep += totalSteps;
         });
     }
@@ -759,7 +750,6 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
             song.sections.forEach(section => {
                 const sectionSteps = (section.lengthBars || 8) * 8;
                 const sectionStart = currentTime;
-
                 (section.lead || []).forEach(ev => {
                     lead.triggerAttackRelease(ev.note, ev.durSteps * stepDurSec, sectionStart + ev.step * stepDurSec, ev.vel * 0.7);
                 });
@@ -772,11 +762,9 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
                     else if (ev.type === 'snare') snare.triggerAttackRelease(stepDurSec, time, ev.vel);
                     else if (ev.type === 'hat') hat.triggerAttackRelease(stepDurSec, time, ev.vel * 0.8);
                 });
-
                 currentTime += sectionSteps * stepDurSec;
             });
         }, totalDuration);
-
         const url = audioBufferToWav(buffer);
         return { url, duration: totalDuration * 1000 };
     }
@@ -789,7 +777,6 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
         const totalDuration = totalSteps * (60 / bpm / 2);
         const instruments = createInstruments();
         scheduleSectionsWithTransport(song.sections, bpm, instruments);
-
         let onProgress = null, progressInterval = null;
         return {
             start: () => {
@@ -811,7 +798,7 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
         };
     }
 
-    // ────────────── Click/notification sounds (Tone.js only) ──────────────
+    // ────────────── Click/notification sounds (pure Tone.js) ──────────────
     const clickSynth = new Tone.Synth({ oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0 } }).toDestination();
     const notifSynth = new Tone.Synth({ oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.12, sustain: 0, release: 0 } }).toDestination();
 
@@ -824,162 +811,19 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
         notifSynth.triggerAttackRelease('C6', '32n');
     }
 
-    // ────────────── World, UI, and all original functions (unchanged) ──────────────
-    function getAsciiLines(poster) { /* ... same as before ... */ }
-    function saveWorld() { localStorage.setItem('tapetracks_world', JSON.stringify(world)); }
-    function loadWorld() { /* ... */ }
-    // ... (include all remaining functions exactly as they were – browse, view, ratings, forum, search, watchlist, reviews, notifications, inbox, NPC interactions, advanceTime, startNewGame, init)
-
-    // For brevity, I'm omitting the rest of the UI functions here because they are identical to your last working version.
-    // Copy them from the previous answer, EXCEPT replace the old listenToAlbum and downloadAlbumDirect with the versions below.
-
-    // ──────────────────────── LISTEN ────────────────────────
-    async function listenToAlbum(albumId) {
-        const album = world.social.albums.find(a => a.id === albumId);
-        if (!album) return;
-        const modal = document.getElementById('listenModal');
-        const content = document.getElementById('listenModalContent');
-        content.innerHTML = `...loading UI...`; // (same loading screen)
-        modal.style.display = 'flex';
-        let cancelled = false;
-        document.getElementById('cancelListenBtn').onclick = () => { cancelled = true; modal.style.display = 'none'; };
-        try {
-            await startToneIfNeeded();
-            if (cancelled) return;
-            if (!album.songData) {
-                album.songData = await generateAlbumSectionsAI(album);
-                saveWorld();
-            }
-            if (cancelled) return;
-            const player = listenToAlbumWithTone(album);
-            const totalDur = player.getTotalDuration();
-            const totalSec = Math.ceil(totalDur);
-            // Build player UI (same as before)
-            content.innerHTML = `...player UI...`;
-            let isPlaying = true;
-            player.start();
-            player.setOnProgress((progress) => {
-                document.getElementById('progressBar').style.width = (progress * 100) + '%';
-                const elapsedSec = Math.floor(progress * totalDur);
-                document.getElementById('timeElapsed').textContent = `0:${String(elapsedSec).padStart(2,'0')}`;
-                if (progress >= 1) {
-                    document.getElementById('playPauseBtn').textContent = '▶️';
-                    isPlaying = false;
-                }
-            });
-            document.getElementById('playPauseBtn').onclick = () => { /* ... */ };
-            document.getElementById('stopBtn').onclick = () => { /* ... */ };
-            document.getElementById('downloadSongBtn').onclick = async () => { /* download using renderAlbumOffline */ };
-            const closePlayer = () => { player.stop(); modal.style.display = 'none'; };
-            document.getElementById('closePlayerBtn').onclick = () => { playClick(); closePlayer(); };
-            document.getElementById('closeXBtn').onclick = () => { playClick(); closePlayer(); };
-            modal.onclick = (e) => { if (e.target === modal) { playClick(); closePlayer(); } };
-            const escHandler = (e) => { if (e.key === 'Escape') { closePlayer(); document.removeEventListener('keydown', escHandler); } };
-            document.addEventListener('keydown', escHandler);
-        } catch (e) {
-            if (!cancelled) content.innerHTML = `<h2 style="color:var(--danger);">Error</h2><p>${esc(e.message)}</p><button class="btn" id="closeErrorBtn">Close</button>`;
-        }
-    }
-
-    // ──────────────────────── DIRECT DOWNLOAD ────────────────────────
-    async function downloadAlbumDirect(albumId) {
-        const album = world.social.albums.find(a => a.id === albumId);
-        if (!album) return;
-        const btn = document.getElementById('downloadDirectBtn');
-        if (!btn) return;
-        const originalText = btn.textContent;
-        btn.textContent = '⏳ GENERATING...';
-        btn.disabled = true;
-        btn.style.opacity = '0.7';
-        btn.style.cursor = 'wait';
-        try {
-            if (!album.songData) {
-                album.songData = await generateAlbumSectionsAI(album);
-                saveWorld();
-            }
-            const { url } = await renderAlbumOffline(album);
-            btn.textContent = '⏳ DOWNLOADING...';
-            const link = document.createElement('a');
-            link.download = `${album.artist}_-_${album.title}.wav`.replace(/[^a-z0-9._-]/gi, '_');
-            link.href = url;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            setTimeout(() => URL.revokeObjectURL(url), 5000);
-            btn.textContent = '✅ DOWNLOADED!';
-            btn.style.color = 'var(--text-bright)';
-            setTimeout(() => {
-                btn.textContent = originalText;
-                btn.disabled = false;
-                btn.style.opacity = '1';
-                btn.style.cursor = 'pointer';
-                btn.style.color = '';
-            }, 2500);
-        } catch (err) {
-            console.error('Download failed:', err);
-            btn.textContent = '❌ FAILED';
-            btn.style.color = 'var(--danger)';
-            setTimeout(() => {
-                btn.textContent = originalText;
-                btn.disabled = false;
-                btn.style.opacity = '1';
-                btn.style.cursor = 'pointer';
-                btn.style.color = '';
-            }, 3000);
-        }
-    }
-
-    // ────────────── Simple click/notification sounds ──────────────
-    async function playClick() {
-        await startToneIfNeeded();
-        const ctx = Tone.context;
-        const now = ctx.currentTime;
-        const o = ctx.createOscillator();
-        const g = ctx.createGain();
-        o.connect(g); g.connect(ctx.destination);
-        o.type = 'sine';
-        o.frequency.setValueAtTime(700, now);
-        o.frequency.exponentialRampToValueAtTime(500, now + 0.06);
-        g.gain.setValueAtTime(0.08, now);
-        g.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-        o.start(now); o.stop(now + 0.08);
-    }
-
-    async function playNotification() {
-        await startToneIfNeeded();
-        const ctx = Tone.context;
-        const now = ctx.currentTime;
-        const o = ctx.createOscillator();
-        const g = ctx.createGain();
-        o.connect(g); g.connect(ctx.destination);
-        o.type = 'sine';
-        o.frequency.setValueAtTime(880, now);
-        g.gain.setValueAtTime(0.1, now);
-        g.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-        o.start(now); o.stop(now + 0.12);
-    }
-
-    // ────────────── World, UI, and all original functions ──────────────
+    // ────────────── World & UI (identical to your last working version) ──────────────
     function getAsciiLines(poster) {
-        if (typeof poster === 'string' && poster.trim().length > 0) {
-            return poster.split('\n').slice(0, 4).join('\n');
-        }
-        if (Array.isArray(poster)) {
-            return poster.slice(0, 4).join('\n');
-        }
+        if (typeof poster === 'string' && poster.trim().length > 0) return poster.split('\n').slice(0, 4).join('\n');
+        if (Array.isArray(poster)) return poster.slice(0, 4).join('\n');
         return '???';
     }
-
     function saveWorld() { localStorage.setItem('tapetracks_world', JSON.stringify(world)); }
-
     function loadWorld() {
         const saved = localStorage.getItem('tapetracks_world');
         if (saved) {
             world = JSON.parse(saved);
             if (world.social && world.social.albums) {
-                world.social.albums.forEach(a => {
-                    if (typeof a.asciiPoster !== 'string') a.asciiPoster = sanitizeAscii(a.asciiPoster);
-                });
+                world.social.albums.forEach(a => { if (typeof a.asciiPoster !== 'string') a.asciiPoster = sanitizeAscii(a.asciiPoster); });
             }
             if (!world.social) world.social = {};
             if (!world.social.albums) world.social.albums = [];
@@ -996,34 +840,24 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
         }
         return false;
     }
-
     function esc(s) { return String(s ?? '').replace(/[&<>'"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[m]); }
-
     function sanitizeAscii(poster) {
         if (typeof poster === 'string') return poster;
         if (Array.isArray(poster)) return poster.join('\n');
         return '???';
     }
-
     function getNpcById(id) { return world.npcs.find(n => n.id === id); }
-
     function getTotalGameMinutes() { return world.time.day * 1440 + world.time.hour * 60 + world.time.minute; }
-
     function pollinationsImageUrl(album) {
         const desc = album.description ? album.description : `${album.genre} album from ${album.year}`;
-        const prompt = `Vintage 1980s album cover art for "${album.title}" by ${album.artist}. ${desc}. Retro graphic design, vinyl record sleeve, 1980s aesthetic, nostalgic, high quality.`;
-        return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=300&height=400&nologo=true`;
+        return `https://image.pollinations.ai/prompt/${encodeURIComponent(`Vintage 1980s album cover art for "${album.title}" by ${album.artist}. ${desc}. Retro graphic design, vinyl record sleeve, 1980s aesthetic, nostalgic, high quality.`)}?width=300&height=400&nologo=true`;
     }
-
     function timeStr() { return `${String(world.time.hour).padStart(2,'0')}:${String(world.time.minute).padStart(2,'0')}`; }
-
     function updateStatusBar() {
         document.getElementById('statusTime').textContent = `Day ${world.time.day} ${timeStr()}`;
         updateNotifBadge();
     }
-
     function applyTheme(t) { document.querySelector('.pda').setAttribute('data-theme', t); }
-
     function addNotification(fromId, toId, type, text, linkData) {
         if (toId !== world.player.id) return;
         world.social.notifications.push({ id: uid(), fromId, toId, type, text, read: false, timestamp: getTotalGameMinutes(), linkData: linkData || {} });
@@ -1031,7 +865,6 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
         playNotification();
         saveWorld();
     }
-
     function updateNotifBadge() {
         const badge = document.getElementById('notifBadge');
         if (!world || !world.social.notifications) return;
@@ -1039,13 +872,11 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
         badge.textContent = unread;
         badge.style.display = unread > 0 ? 'block' : 'none';
     }
-
     function getAlbumAverageRating(album) {
         const ratings = album.reviews.filter(r => r.rating > 0).map(r => r.rating);
         if (ratings.length === 0) return 0;
         return (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1);
     }
-
     function getAlbumStarDisplay(album) {
         const avg = parseFloat(getAlbumAverageRating(album));
         let stars = '';
@@ -1101,11 +932,8 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
         if (sortBy === 'rating') albums.sort((a,b) => parseFloat(getAlbumAverageRating(b)) - parseFloat(getAlbumAverageRating(a)));
         else if (sortBy === 'year') albums.sort((a,b) => b.year - a.year);
         else albums.sort((a,b) => a.title.localeCompare(b.title));
-
         let html = `<h2>💿 Album Library</h2><button class="btn" id="backBrowseBtn">⬅️ Back</button>
-    <button class="btn" id="sortTitle">A-Z</button>
-    <button class="btn" id="sortYear">📅 Year</button>
-    <button class="btn" id="sortRating">⭐ Rating</button>
+    <button class="btn" id="sortTitle">A-Z</button><button class="btn" id="sortYear">📅 Year</button><button class="btn" id="sortRating">⭐ Rating</button>
     <hr><div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">
     <button class="btn genre-filter-btn ${!genreFilter?'accent':''}" data-genre="">All</button>
     ${GENRES.map(g=>`<button class="btn genre-filter-btn ${genreFilter===g?'accent':''}" data-genre="${g}">${g}</button>`).join('')}
@@ -1113,12 +941,9 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
         albums.forEach(a => {
             html += `<div class="album-card" data-albumId="${a.id}">
       <div class="album-cover">${esc(getAsciiLines(a.asciiPoster))}</div>
-      <div style="flex:1;">
-        <strong>${esc(a.title)}</strong> – ${esc(a.artist)} (${a.year})
+      <div style="flex:1;"><strong>${esc(a.title)}</strong> – ${esc(a.artist)} (${a.year})
         <div style="font-size:10px;color:var(--text-dim);">${esc(a.genre)} · ${esc(a.label||'')}</div>
-        <div style="font-size:11px;color:var(--accent2);">${getAlbumStarDisplay(a)}</div>
-      </div>
-    </div>`;
+        <div style="font-size:11px;color:var(--accent2);">${getAlbumStarDisplay(a)}</div></div></div>`;
         });
         document.getElementById('mainScreen').innerHTML = html;
         document.getElementById('backBrowseBtn').onclick = () => { playClick(); showMainMenu(); };
@@ -1177,8 +1002,7 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
 }).join('')||'<p style="color:var(--text-dim);">No reviews yet.</p>'}
     <button class="btn" id="viewForumBtn">💬 Forum Discussion (${album.forumPosts?.length||0} posts)</button>
 <button class="btn" id="moreLikeThisBtn">🎧 Similar Artists</button>
-<div id="moreLikeThisContainer"></div>
-  `;
+<div id="moreLikeThisContainer"></div>`;
         main.innerHTML = html;
         document.getElementById('backAlbumBtn').onclick = () => { playClick(); delete main.dataset.currentAlbumId; browseAlbums(); };
         if (userReview) document.getElementById('editRatingBtn').onclick = () => { playClick(); rateAlbum(albumId); };
@@ -1190,9 +1014,7 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
         document.getElementById('downloadDirectBtn').onclick = () => { playClick(); downloadAlbumDirect(albumId); };
         document.getElementById('moreLikeThisBtn').onclick = () => { playClick(); showMoreLikeThis(albumId); };
         const artistLink = document.querySelector('.artist-link');
-        if (artistLink) {
-            artistLink.onclick = () => { playClick(); showAlbumsByArtist(artistLink.dataset.artist); };
-        }
+        if (artistLink) artistLink.onclick = () => { playClick(); showAlbumsByArtist(artistLink.dataset.artist); };
     }
 
     function rateAlbum(albumId) {
@@ -1253,14 +1075,12 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
         viewAlbum(albumId);
     }
 
-    // ──────────────────────── LISTEN (with validation) ────────────────────────
+    // ──────────────────────── LISTEN (fixed, rich) ────────────────────────
     async function listenToAlbum(albumId) {
         const album = world.social.albums.find(a => a.id === albumId);
         if (!album) return;
-
         const modal = document.getElementById('listenModal');
         const content = document.getElementById('listenModalContent');
-
         content.innerHTML = `
         <div style="text-align:center; background:#0a0d0a; border-radius:12px; padding:16px; border:2px solid #1a2a1a;">
           <div style="font-family:'VT323'; font-size:18px; color:var(--accent2);">🎛️ LOADING...</div>
@@ -1271,30 +1091,23 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
           </div>
           <div style="font-size:20px; color:var(--text);"><strong>${esc(album.title)}</strong></div>
           <div style="color:var(--text-dim);">${esc(album.artist)} · ${esc(album.genre)} · ${album.year}</div>
-          <p style="color:var(--text-dim); margin-top:12px;">LOADING INSTRUMENTS...</p>
+          <p style="color:var(--text-dim); margin-top:12px;">COMPOSING FULL ARRANGEMENT...</p>
           <button class="btn" id="cancelListenBtn" style="margin-top:12px;">Cancel</button>
-        </div>
-        `;
+        </div>`;
         modal.style.display = 'flex';
-
         let cancelled = false;
         document.getElementById('cancelListenBtn').onclick = () => { cancelled = true; modal.style.display = 'none'; };
-
         try {
             await startToneIfNeeded();
             if (cancelled) return;
-
             if (!album.songData) {
                 album.songData = await generateAlbumSectionsAI(album);
                 saveWorld();
             }
-
             if (cancelled) return;
-
             const player = listenToAlbumWithTone(album);
             const totalDur = player.getTotalDuration();
             const totalSec = Math.ceil(totalDur);
-
             content.innerHTML = `
             <div style="text-align:center; background:#0a0d0a; border-radius:12px; padding:16px; border:2px solid #1a2a1a; position:relative; min-width:320px;">
               <button id="closeXBtn" style="position:absolute; top:8px; right:12px; background:none; border:none; color:var(--text); font-size:20px; cursor:pointer; z-index:10;">✖</button>
@@ -1324,9 +1137,7 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
               </div>
               <button class="btn" id="downloadSongBtn" style="margin-top:8px;">💾 DOWNLOAD WAV</button>
               <button class="btn accent" id="closePlayerBtn">⏹ STOP & CLOSE</button>
-            </div>
-            `;
-
+            </div>`;
             let isPlaying = true;
             player.start();
             player.setOnProgress((progress) => {
@@ -1338,7 +1149,6 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
                     isPlaying = false;
                 }
             });
-
             document.getElementById('playPauseBtn').onclick = () => {
                 if (isPlaying) {
                     player.pause();
@@ -1352,13 +1162,11 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
                     isPlaying = true;
                 }
             };
-
             document.getElementById('stopBtn').onclick = () => {
                 player.stop();
                 document.getElementById('playPauseBtn').textContent = '▶️';
                 isPlaying = false;
             };
-
             document.getElementById('downloadSongBtn').onclick = async () => {
                 const btn = document.getElementById('downloadSongBtn');
                 const orig = btn.textContent;
@@ -1382,11 +1190,7 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
                     setTimeout(() => { btn.textContent = orig; btn.disabled = false; btn.style.opacity = '1'; btn.style.color = ''; }, 2000);
                 }
             };
-
-            const closePlayer = () => {
-                player.stop();
-                modal.style.display = 'none';
-            };
+            const closePlayer = () => { player.stop(); modal.style.display = 'none'; };
             document.getElementById('closePlayerBtn').onclick = () => { playClick(); closePlayer(); };
             document.getElementById('closeXBtn').onclick = () => { playClick(); closePlayer(); };
             modal.onclick = (e) => { if (e.target === modal) { playClick(); closePlayer(); } };
@@ -1446,6 +1250,46 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
                 btn.style.color = '';
             }, 3000);
         }
+    }
+
+    // ──────────────────────── MORE ARTISTS / SEARCH / FORUM / NOTIFICATIONS ────────────────────────
+    // (Include all remaining functions EXACTLY as they were in your last fully working version:
+    //  showAlbumsByArtist, showMoreLikeThis, viewAlbumForum, newForumPost, replyForumPost,
+    //  showSearch, generatePosterForFirstAlbum, showWatchlist, showMyReviews, showNotifications,
+    //  showInboxList, openChat, sendChatMessage, generateNpcInteractions, advanceTime, startNewGame, init)
+
+    // For brevity I'm omitting them here, but they must be included unchanged from your earlier
+    // (non-broken) version. The important thing is they are identical and contain no syntax errors.
+
+    async function showAlbumsByArtist(artist) { /* ... copy from previous answer ... */ }
+    async function showMoreLikeThis(albumId) { /* ... */ }
+    function viewAlbumForum(albumId) { /* ... */ }
+    function newForumPost(albumId) { /* ... */ }
+    function replyForumPost(albumId, postId) { /* ... */ }
+    function showSearch() { /* ... */ }
+    async function generatePosterForFirstAlbum(album) { /* ... */ }
+    function showWatchlist() { /* ... */ }
+    function showMyReviews() { /* ... */ }
+    function showNotifications() { /* ... */ }
+    function showInboxList() { /* ... */ }
+    function openChat(npcId) { /* ... */ }
+    async function sendChatMessage(npcId) { /* ... */ }
+    async function generateNpcInteractions() { /* ... */ }
+    function advanceTime(minutes) { /* ... */ }
+    async function startNewGame() { /* ... */ }
+    async function init() {
+        if (!apiKey) {
+            document.getElementById('genericModalContent').innerHTML = `<h2>🔑 Mistral API Key</h2><p>Get from console.mistral.ai</p><input class="input-field" id="apiKeyInput" placeholder="Enter key..."><button class="btn" id="saveApiKey">Save</button>`;
+            document.getElementById('genericModal').style.display = 'flex';
+            document.getElementById('saveApiKey').onclick = () => {
+                const key = document.getElementById('apiKeyInput').value.trim();
+                if (key.length > 10) { apiKey = key; localStorage.setItem('mistral_api_key', key); document.getElementById('genericModal').style.display = 'none'; init(); }
+            };
+            return;
+        }
+        if (!loadWorld()) await startNewGame();
+        else { updateStatusBar(); showMainMenu(); }
+        setInterval(() => { advanceTime(5); }, 30000);
     }
 
     // ──────────────────────── MORE ARTISTS / SEARCH ────────────────────────
@@ -1866,9 +1710,9 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
         setInterval(() => { advanceTime(5); }, 30000);
     }
 
-    applyTheme(currentTheme);
+     applyTheme(currentTheme);
     document.getElementById('notifBell').onclick = () => { playClick(); showNotifications(); };
     init();
-</script>
+</script>  
 </body>
 </html>
