@@ -894,7 +894,7 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
                     continue;
                 }
                 // Check that each section is filled to near the end
-                let sectionsOk = true;
+                               let sectionsOk = true;
                 for (const sec of data.sections) {
                     const maxStepExpected = (sec.lengthBars || 8) * 8 - 1;
                     const allSteps = [
@@ -903,9 +903,27 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
                         ...(sec.drums || []).map(e => e.step)
                     ];
                     const maxUsed = allSteps.length > 0 ? Math.max(...allSteps) : -1;
-                    // Allow a tiny gap of 2 steps at most, but ideally 0
+
+                    // 1. Check step coverage (existing)
                     if (maxUsed < maxStepExpected - 16) {
                         console.warn(`Section ${sec.name}: max step ${maxUsed}, expected near ${maxStepExpected}, retrying...`);
+                        sectionsOk = false;
+                        break;
+                    }
+
+                    // 2. Check minimum event counts per part
+                    const leadCount = (sec.lead || []).length;
+                    const bassCount = (sec.bass || []).length;
+                    const drumCount = (sec.drums || []).length;
+                    const padCount = (sec.pad || []).length;
+                    if (leadCount < 4 || bassCount < 4 || drumCount < 8) {
+                        console.warn(`Section ${sec.name}: insufficient events (lead:${leadCount}, bass:${bassCount}, drums:${drumCount}), retrying...`);
+                        sectionsOk = false;
+                        break;
+                    }
+                    // optional: require at least some pad events in non‑intro/outro sections
+                    if (sec.name !== 'intro' && sec.name !== 'outro' && padCount < 2) {
+                        console.warn(`Section ${sec.name}: missing pad events, retrying...`);
                         sectionsOk = false;
                         break;
                     }
@@ -1278,6 +1296,12 @@ masterGain.connect(offlineCtx.destination);
         });
         sectionStartTime += section.duration;
     });
+        section.pad.forEach(ev => {
+          const chordNotes = (ev.notes || []).map(note => freq[note]).filter(f => f);
+          if (chordNotes.length > 0) {
+            schedulePadChord(offlineCtx, offset + ev.step * stepDur, chordNotes, (ev.durSteps || 4) * stepDur, ev.vel || 0.3, padGain);
+          }
+        });
 
     const renderedBuffer = await offlineCtx.startRendering();
     const url = audioBufferToWav(renderedBuffer);
@@ -1766,6 +1790,13 @@ masterGain.connect(offlineCtx.destination);
         const fillStart = maxUsed + 2;
         // Add a repeating bass note (root of the key, e.g., C2 or the first bass note's pitch)
         const bassNote = bass.length > 0 ? bass[0].note : 'C2';  // fallback to C2
+        // Also add a simple lead using the same bass note, but an octave higher and longer notes
+        if (lead.length === 0) {
+          const leadNote = bassNote.replace(/(\d+)$/, (n) => parseInt(n) + 1); // up an octave
+          for (let step = fillStart; step < totalSteps; step += 16) {
+            lead.push({ step, note: leadNote, durSteps: 8, vel: 0.4 });
+          }
+        }
         // Add a kick on the first beat of each remaining bar
         const barLength = 8;
         for (let step = fillStart; step < totalSteps; step++) {
@@ -1851,6 +1882,8 @@ echoDelay.connect(echoGain);
 const leadGain = ctx.createGain(); leadGain.gain.value = 0.25;
 const bassGain = ctx.createGain(); bassGain.gain.value = 1.1;
 const drumGain = ctx.createGain(); drumGain.gain.value = 0.7;
+        const padGain = ctx.createGain();
+        padGain.gain.value = 0.18;
 
 // Routing
 leadGain.connect(tapeLP);
@@ -1862,6 +1895,14 @@ distNode.connect(echoDelay);
 
 bassGain.connect(bassTapeLP);
 bassTapeLP.connect(masterGain);
+// Pad routing
+const padLP = ctx.createBiquadFilter();
+padLP.type = 'lowpass';
+padLP.frequency.value = 4200;
+padGain.connect(padLP);
+padLP.connect(masterGain);
+padLP.connect(reverbDelay);
+padLP.connect(echoDelay);
 
 reverbGain.connect(masterGain);
 echoGain.connect(masterGain);
@@ -1899,6 +1940,14 @@ masterGain.connect(ctx.destination);
                 if (ev.type === 'kick') allTasks.push(() => drumSched.kick(t, ev.vel));
                 else if (ev.type === 'snare') allTasks.push(() => drumSched.snare(t, ev.vel));
                 else if (ev.type === 'hat') allTasks.push(() => drumSched.hat(t, ev.vel));
+            });
+            section.pad.forEach(ev => {
+              const chordNotes = (ev.notes || []).map(note => freq[note]).filter(f => f);
+              if (chordNotes.length > 0) {
+                allTasks.push(() =>
+                  schedulePadChord(ctx, offset + ev.step * stepDur, chordNotes, (ev.durSteps || 4) * stepDur, ev.vel || 0.3, padGain)
+                );
+              }
             });
 
             sectionStartTime += section.duration;
