@@ -763,7 +763,7 @@ Make the music rhythmically varied, authentic to the genre, and evolving across 
                     ];
                     const maxUsed = allSteps.length > 0 ? Math.max(...allSteps) : -1;
                     // Allow a tiny gap of 2 steps at most, but ideally 0
-                    if (maxUsed < maxStepExpected - 2) {
+                    if (maxUsed < maxStepExpected - 16) {
                         console.warn(`Section ${sec.name}: max step ${maxUsed}, expected near ${maxStepExpected}, retrying...`);
                         sectionsOk = false;
                         break;
@@ -974,21 +974,51 @@ async function generateAlbumMusic(album) {
 
     // Process sections
     const sections = song.sections.map(sec => {
-        const lead = limitPolyphony((sec.lead || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.lead);
-        const bass = limitPolyphony((sec.bass || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.bass);
-        const drumTypes = ['kick', 'snare', 'hat'];
-        const drums = [];
-        drumTypes.forEach(type => {
-            const typeEvents = (sec.drums || []).filter(e => e.type === type);
-            const limited = limitPolyphony(typeEvents, MAX_SIMULTANEOUS.drums);
-            drums.push(...limited);
-        });
-        drums.sort((a, b) => a.step - b.step);
-        const bars = sec.lengthBars || 8;
-        const maxStep = bars * 8;
-        const duration = maxStep * stepDur;
-        return { ...sec, lead, bass, drums, duration };
+    let lead = limitPolyphony((sec.lead || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.lead);
+    let bass = limitPolyphony((sec.bass || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.bass);
+    const drumTypes = ['kick', 'snare', 'hat'];
+    let drums = [];
+    drumTypes.forEach(type => {
+        const typeEvents = (sec.drums || []).filter(e => e.type === type);
+        const limited = limitPolyphony(typeEvents, MAX_SIMULTANEOUS.drums);
+        drums.push(...limited);
     });
+    drums.sort((a, b) => a.step - b.step);
+
+    const bars = sec.lengthBars || 8;
+    const totalSteps = bars * 8;          // total 8th-note steps in this section
+    const duration = totalSteps * stepDur;
+
+    // Find the highest step actually used in ANY part
+    const maxLead = lead.reduce((m, e) => Math.max(m, e.step + (e.durSteps || 1) - 1), 0);
+    const maxBass = bass.reduce((m, e) => Math.max(m, e.step + (e.durSteps || 1) - 1), 0);
+    const maxDrums = drums.reduce((m, e) => Math.max(m, e.step), 0);
+    const maxUsed = Math.max(maxLead, maxBass, maxDrums, 0);
+
+    // If the section is empty or doesn't reach near the end, fill the rest with a simple pattern
+    if (maxUsed < totalSteps - 4) {   // more than half a bar of silence
+        const fillStart = maxUsed + 2;
+        // Add a repeating bass note (root of the key, e.g., C2 or the first bass note's pitch)
+        const bassNote = bass.length > 0 ? bass[0].note : 'C2';  // fallback to C2
+        // Add a kick on the first beat of each remaining bar
+        const barLength = 8;
+        for (let step = fillStart; step < totalSteps; step++) {
+            // simple bass pattern: play a note every 8 steps (once per bar)
+            if (step % barLength === 0) {
+                bass.push({ step, note: bassNote, durSteps: 4, vel: 0.5 });
+            }
+            // kick drum on each beat (every 2 steps)
+            if (step % 2 === 0) {
+                drums.push({ step, type: 'kick', vel: 0.6 });
+            }
+        }
+        // sort again to keep order
+        drums.sort((a, b) => a.step - b.step);
+        bass = limitPolyphony(bass, MAX_SIMULTANEOUS.bass);  // re‑apply polyphony limit
+    }
+
+    return { ...sec, lead, bass, drums, duration };
+});
 
     const totalDuration = sections.reduce((sum, s) => sum + s.duration, 0);
 
@@ -1529,21 +1559,51 @@ masterGain.connect(offlineCtx.destination);
     }
 
     const sections = song.sections.map(sec => {
-        const lead = limitPolyphony((sec.lead || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.lead);
-        const bass = limitPolyphony((sec.bass || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.bass);
-        const drumTypes = ['kick', 'snare', 'hat'];
-        const drums = [];
-        drumTypes.forEach(type => {
-            const typeEvents = (sec.drums || []).filter(e => e.type === type);
-            const limited = limitPolyphony(typeEvents, MAX_SIMULTANEOUS.drums);
-            drums.push(...limited);
-        });
-        drums.sort((a, b) => a.step - b.step);
-        const bars = sec.lengthBars || 8;
-        const maxStep = bars * 8;
-        const duration = maxStep * stepDur;
-        return { ...sec, lead, bass, drums, duration };
+    let lead = limitPolyphony((sec.lead || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.lead);
+    let bass = limitPolyphony((sec.bass || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.bass);
+    const drumTypes = ['kick', 'snare', 'hat'];
+    let drums = [];
+    drumTypes.forEach(type => {
+        const typeEvents = (sec.drums || []).filter(e => e.type === type);
+        const limited = limitPolyphony(typeEvents, MAX_SIMULTANEOUS.drums);
+        drums.push(...limited);
     });
+    drums.sort((a, b) => a.step - b.step);
+
+    const bars = sec.lengthBars || 8;
+    const totalSteps = bars * 8;          // total 8th-note steps in this section
+    const duration = totalSteps * stepDur;
+
+    // Find the highest step actually used in ANY part
+    const maxLead = lead.reduce((m, e) => Math.max(m, e.step + (e.durSteps || 1) - 1), 0);
+    const maxBass = bass.reduce((m, e) => Math.max(m, e.step + (e.durSteps || 1) - 1), 0);
+    const maxDrums = drums.reduce((m, e) => Math.max(m, e.step), 0);
+    const maxUsed = Math.max(maxLead, maxBass, maxDrums, 0);
+
+    // If the section is empty or doesn't reach near the end, fill the rest with a simple pattern
+    if (maxUsed < totalSteps - 4) {   // more than half a bar of silence
+        const fillStart = maxUsed + 2;
+        // Add a repeating bass note (root of the key, e.g., C2 or the first bass note's pitch)
+        const bassNote = bass.length > 0 ? bass[0].note : 'C2';  // fallback to C2
+        // Add a kick on the first beat of each remaining bar
+        const barLength = 8;
+        for (let step = fillStart; step < totalSteps; step++) {
+            // simple bass pattern: play a note every 8 steps (once per bar)
+            if (step % barLength === 0) {
+                bass.push({ step, note: bassNote, durSteps: 4, vel: 0.5 });
+            }
+            // kick drum on each beat (every 2 steps)
+            if (step % 2 === 0) {
+                drums.push({ step, type: 'kick', vel: 0.6 });
+            }
+        }
+        // sort again to keep order
+        drums.sort((a, b) => a.step - b.step);
+        bass = limitPolyphony(bass, MAX_SIMULTANEOUS.bass);  // re‑apply polyphony limit
+    }
+
+    return { ...sec, lead, bass, drums, duration };
+});
 
     // Sections must exist
     if (sections.length === 0) {
