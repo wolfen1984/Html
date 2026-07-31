@@ -575,7 +575,7 @@
     }
 
    // ────────────── AI album song generation (RELAXED & RELIABLE) ──────────────
-async function generateAlbumSectionsAI(album) {
+ async function generateAlbumSectionsAI(album) {
     const validNotes = [
         'C1','C#1','D1','D#1','E1','F1','F#1','G1','G#1','A1','A#1','B1',
         'C2','C#2','D2','D#2','E2','F2','F#2','G2','G#2','A2','A#2','B2',
@@ -584,93 +584,87 @@ async function generateAlbumSectionsAI(album) {
         'C5','C#5','D5','D#5','E5'
     ];
 
-    const requiredTotalBars = 32;  // much easier to fulfill (≈ 1 minute of music)
+    const requiredTotalBars = 36;
+    const MAX_EVENTS_PER_SECTION = 400;   // hard cap
 
-    const prompt = `You are a 1980s band arranger. Create a complete short instrumental for the album "${album.title}" by ${album.artist} (genre: ${album.genre}, year: ${album.year}, mood: "${album.description}").
+    const prompt = `You are a 1980s cassette music composer.
+Create a FULL but NOT over‑dense instrumental for "${album.title}" by ${album.artist} (genre: ${album.genre}, year: ${album.year}, mood: "${album.description}").
 
-Structure (continuous, no gaps):
-- intro: 4 bars
-- verse: 8 bars
-- chorus: 4 bars
-- verse: 8 bars
-- bridge: 4 bars
-- chorus: 4 bars
-- outro: 4 bars
-Total bars = 36. Each bar = 8 eighth‑note steps.
+STRUCTURE (exactly):
+intro: 4 bars
+verse: 8 bars
+chorus: 4 bars
+verse: 8 bars
+bridge: 4 bars
+chorus: 4 bars
+outro: 4 bars
+Total = 36 bars. Each bar = 8 eighth‑note steps.
 
 RULES:
-- All notes MUST be from this list with correct octave: C1-C5 (e.g., "C4", "A#3").
-- Lead: at least 8 notes per section, using a mix of short and long notes.
-- Bass: a walking bass line, at least 12 notes per section, playing mostly the root and fifth of the chord.
-- Drums: standard rock beat. Kick on steps 0,4,8,12…; snare on steps 2,6,10…; hi‑hat on every step. At least 24 drum hits per section.
-- Do NOT leave the end of any section empty; notes must exist up to step (lengthBars*8 - 2).
-- The song must be in a single key (e.g., C major) and all lead/bass notes must stay in that scale.
-- Return ONLY a valid JSON object with:
-  "bpm": number (100-160),
-  "sections": array of 7 objects, each with:
-    "name": string,
-    "lengthBars": exactly the number above,
-    "lead": array of {"step": int, "note": string, "durSteps": 1-8, "vel": 0.1-0.9},
-    "bass": same structure,
-    "drums": array of {"step": int, "type": "kick"/"snare"/"hat", "vel": 0.2-0.9}.
-Output ONLY the raw JSON.`;
+- Drums: hi‑hat on every step (step 0 to totalSteps-1). Kick on steps 0,4,8,12… and some off‑beats. Snare on steps 2,6,10… Add fills but keep total drum notes UNDER 200 per section.
+- Bass: a note on about 40-50% of steps. Walking line.
+- Lead: chords/arpeggios on about 30-40% of steps.
+- Every section must contain notes up to step (bars*8 - 2) – no early cutoffs.
+- All notes from: ${validNotes.join(',')}
+- Return ONLY valid JSON:
+{
+  "bpm": 100-160,
+  "sections": [{
+    "name": "intro",
+    "lengthBars": 4,
+    "lead": [{"step":0,"note":"C4","durSteps":2,"vel":0.6}],
+    "bass": ...,
+    "drums": [{"step":0,"type":"kick","vel":0.8}]
+  }, ...]
+}
+Do NOT exceed ${MAX_EVENTS_PER_SECTION} total events per section (lead+bass+drums).`;
 
     let attempts = 0;
-    while (attempts < 3) {  // reduce attempts, we want success quickly
+    while (attempts < 5) {
         try {
-            // longer timeout via AbortController
-            const controller = new AbortController();
-            setTimeout(() => controller.abort(), 60000); // 60 seconds
-
-            const data = await mistralChat(
-                [{ role: 'user', content: prompt }],
-                16000,  // generous token limit
-                true,
-                controller.signal
-            );
-
+            const data = await mistralChat([{ role: 'user', content: prompt }], 16000, true);
             if (data && Array.isArray(data.sections)) {
                 const totalBars = data.sections.reduce((sum, sec) => sum + (sec.lengthBars || 0), 0);
-                // accept if at least 32 bars
                 if (totalBars < requiredTotalBars) { attempts++; continue; }
 
-                // gentle check: each section must have some notes
-                let sectionsOk = true;
+                let ok = true;
                 for (const sec of data.sections) {
-                    const expectedSteps = (sec.lengthBars || 8) * 8;
-                    const leadMin = Math.max(1, Math.floor(expectedSteps * 0.3)); // at least 30% fill
-                    const bassMin = Math.max(1, Math.floor(expectedSteps * 0.4));
-                    const drumMin = Math.max(1, Math.floor(expectedSteps * 0.5));
+                    const bars = sec.lengthBars || 8;
+                    const totalSteps = bars * 8;
+                    const lead = sec.lead || [];
+                    const bass = sec.bass || [];
+                    const drums = sec.drums || [];
+                    const totalEvents = lead.length + bass.length + drums.length;
 
-                    if ((sec.lead || []).length < leadMin ||
-                        (sec.bass || []).length < bassMin ||
-                        (sec.drums || []).length < drumMin) {
-                        sectionsOk = false;
-                        break;
+                    // Reject if too few OR too many
+                    if (totalEvents < bars * 4 || totalEvents > MAX_EVENTS_PER_SECTION) {
+                        ok = false; break;
                     }
-                }
-                if (!sectionsOk) { attempts++; continue; }
 
-                // sanitise and return
+                    // Must reach the end
+                    const allSteps = [
+                        ...lead.map(e => e.step + (e.durSteps || 1) - 1),
+                        ...bass.map(e => e.step + (e.durSteps || 1) - 1),
+                        ...drums.map(e => e.step)
+                    ];
+                    const maxUsed = Math.max(...allSteps, 0);
+                    if (maxUsed < totalSteps - 8) { ok = false; break; }
+                }
+                if (!ok) { attempts++; continue; }
+
                 data.bpm = data.bpm || 120;
-                sanitiseSongData(data);  // your existing cleaner function
                 return data;
             }
             attempts++;
         } catch (e) {
             attempts++;
-            // if the controller aborted, just try again
-            if (e.name === 'AbortError') continue;
-            // if rate limited, wait a bit
-            if (e.message.includes('Rate limited')) {
-                await new Promise(r => setTimeout(r, 2000));
-            }
+            if (e.message.includes('Rate limited')) await new Promise(r => setTimeout(r, 3000));
         }
     }
-    throw new Error('Failed to generate a fully filled song after 3 attempts. Please try again.');
+    throw new Error('AI failed to generate a suitable arrangement after 5 attempts.');
 }
 
-    // ────────────── Tone.js Instruments ──────────────
+// ────────────── Tone.js Instruments ──────────────
     function createInstruments(destination) {
         const master = destination || Tone.Destination;
         const lead = new Tone.PolySynth(Tone.Synth, {
@@ -721,73 +715,124 @@ Output ONLY the raw JSON.`;
     }
 
     function scheduleSectionsWithTransport(sections, bpm, instruments) {
-        Tone.Transport.cancel();
-        Tone.Transport.stop();
-        Tone.Transport.bpm.value = bpm;
-        const stepDur = '8n';
-        let absoluteStep = 0;
-        sections.forEach(section => {
-            const totalSteps = (section.lengthBars || 8) * 8;
-            const offset = absoluteStep;
-            (section.lead || []).forEach(ev => {
-                const start = `+${offset + ev.step} * ${stepDur}`;
-                const dur = `${ev.durSteps || 1} * ${stepDur}`;
-                Tone.Transport.schedule((time) => {
-                    instruments.lead.triggerAttackRelease(ev.note, dur, time, ev.vel * 0.7);
-                }, start);
+    Tone.Transport.cancel();
+    Tone.Transport.stop();
+    Tone.Transport.bpm.value = bpm;
+    const stepDur = '8n';
+    let absoluteStep = 0;
+
+    // Flatten all events into one array with absolute start times
+    const allEvents = [];
+    sections.forEach(section => {
+        // Sort and cap per section
+        section.lead.sort((a, b) => a.step - b.step);
+        section.bass.sort((a, b) => a.step - b.step);
+        section.drums.sort((a, b) => a.step - b.step);
+
+        const maxNotes = 300;   // safety cap
+        const lead = (section.lead || []).slice(0, maxNotes);
+        const bass = (section.bass || []).slice(0, maxNotes);
+        const drums = (section.drums || []).slice(0, maxNotes);
+
+        const offset = absoluteStep;
+        lead.forEach(ev => {
+            allEvents.push({
+                time: `+${offset + ev.step} * ${stepDur}`,
+                dur: `${ev.durSteps || 1} * ${stepDur}`,
+                type: 'lead',
+                note: ev.note,
+                vel: ev.vel
             });
-            (section.bass || []).forEach(ev => {
-                const start = `+${offset + ev.step} * ${stepDur}`;
-                const dur = `${ev.durSteps || 1} * ${stepDur}`;
-                Tone.Transport.schedule((time) => {
-                    instruments.bass.triggerAttackRelease(ev.note, dur, time, ev.vel * 0.8);
-                }, start);
-            });
-            (section.drums || []).forEach(ev => {
-                const start = `+${offset + ev.step} * ${stepDur}`;
-                Tone.Transport.schedule((time) => {
-                    if (ev.type === 'kick') instruments.kick.triggerAttackRelease('C2', '8n', time, ev.vel);
-                    else if (ev.type === 'snare') instruments.snare.triggerAttackRelease('8n', time, ev.vel);
-                    else if (ev.type === 'hat') instruments.hat.triggerAttackRelease('8n', time, ev.vel * 0.8);
-                }, start);
-            });
-            absoluteStep += totalSteps;
         });
+        bass.forEach(ev => {
+            allEvents.push({
+                time: `+${offset + ev.step} * ${stepDur}`,
+                dur: `${ev.durSteps || 1} * ${stepDur}`,
+                type: 'bass',
+                note: ev.note,
+                vel: ev.vel
+            });
+        });
+        drums.forEach(ev => {
+            allEvents.push({
+                time: `+${offset + ev.step} * ${stepDur}`,
+                type: 'drum',
+                drumType: ev.type,
+                vel: ev.vel
+            });
+        });
+        absoluteStep += (section.lengthBars || 8) * 8;
+    });
+
+    // Schedule in chunks to keep the browser responsive
+    let i = 0;
+    const CHUNK_SIZE = 100;
+    function scheduleChunk() {
+        const end = Math.min(i + CHUNK_SIZE, allEvents.length);
+        for (; i < end; i++) {
+            const ev = allEvents[i];
+            Tone.Transport.schedule((time) => {
+                if (ev.type === 'lead') {
+                    instruments.lead.triggerAttackRelease(ev.note, ev.dur, time, ev.vel * 0.7);
+                } else if (ev.type === 'bass') {
+                    instruments.bass.triggerAttackRelease(ev.note, ev.dur, time, ev.vel * 0.8);
+                } else if (ev.type === 'drum') {
+                    if (ev.drumType === 'kick') instruments.kick.triggerAttackRelease('C2', '8n', time, ev.vel);
+                    else if (ev.drumType === 'snare') instruments.snare.triggerAttackRelease('8n', time, ev.vel);
+                    else if (ev.drumType === 'hat') instruments.hat.triggerAttackRelease('8n', time, ev.vel * 0.8);
+                }
+            }, ev.time);
+        }
+        if (i < allEvents.length) {
+            requestAnimationFrame(scheduleChunk);
+        }
     }
+    requestAnimationFrame(scheduleChunk);
+}
 
     async function renderAlbumOffline(album) {
-        await startToneIfNeeded();
-        const song = album.songData;
-        if (!song || !song.sections) throw new Error('No song data');
-        const bpm = song.bpm || 120;
-        const stepDurSec = 60 / bpm / 2;
-        const totalSteps = song.sections.reduce((sum, s) => sum + (s.lengthBars || 8) * 8, 0);
-        const totalDuration = totalSteps * stepDurSec;
+    await startToneIfNeeded();
+    const song = album.songData;
+    if (!song || !song.sections) throw new Error('No song data');
+    const bpm = song.bpm || 120;
+    const stepDurSec = 60 / bpm / 2;
+    const totalSteps = song.sections.reduce((sum, s) => sum + (s.lengthBars || 8) * 8, 0);
+    const totalDuration = totalSteps * stepDurSec;
 
-        const buffer = await Tone.Offline(() => {
-            const { lead, bass, kick, snare, hat } = createInstruments();
-            let currentTime = 0;
-            song.sections.forEach(section => {
-                const sectionSteps = (section.lengthBars || 8) * 8;
-                const sectionStart = currentTime;
-                (section.lead || []).forEach(ev => {
-                    lead.triggerAttackRelease(ev.note, ev.durSteps * stepDurSec, sectionStart + ev.step * stepDurSec, ev.vel * 0.7);
-                });
-                (section.bass || []).forEach(ev => {
-                    bass.triggerAttackRelease(ev.note, ev.durSteps * stepDurSec, sectionStart + ev.step * stepDurSec, ev.vel * 0.8);
-                });
-                (section.drums || []).forEach(ev => {
-                    const time = sectionStart + ev.step * stepDurSec;
-                    if (ev.type === 'kick') kick.triggerAttackRelease('C2', stepDurSec, time, ev.vel);
-                    else if (ev.type === 'snare') snare.triggerAttackRelease(stepDurSec, time, ev.vel);
-                    else if (ev.type === 'hat') hat.triggerAttackRelease(stepDurSec, time, ev.vel * 0.8);
-                });
-                currentTime += sectionSteps * stepDurSec;
+    const buffer = await Tone.Offline(() => {
+        const { lead, bass, kick, snare, hat } = createInstruments();
+        let currentTime = 0;
+        song.sections.forEach(section => {
+            // Sort and hard‑cap
+            section.lead.sort((a, b) => a.step - b.step);
+            section.bass.sort((a, b) => a.step - b.step);
+            section.drums.sort((a, b) => a.step - b.step);
+
+            const MAX = 300;
+            const leadEvents = (section.lead || []).slice(0, MAX);
+            const bassEvents = (section.bass || []).slice(0, MAX);
+            const drumEvents = (section.drums || []).slice(0, MAX);
+
+            const sectionSteps = (section.lengthBars || 8) * 8;
+            const sectionStart = currentTime;
+            leadEvents.forEach(ev => {
+                lead.triggerAttackRelease(ev.note, ev.durSteps * stepDurSec, sectionStart + ev.step * stepDurSec, ev.vel * 0.7);
             });
-        }, totalDuration);
-        const url = audioBufferToWav(buffer);
-        return { url, duration: totalDuration * 1000 };
-    }
+            bassEvents.forEach(ev => {
+                bass.triggerAttackRelease(ev.note, ev.durSteps * stepDurSec, sectionStart + ev.step * stepDurSec, ev.vel * 0.8);
+            });
+            drumEvents.forEach(ev => {
+                const time = sectionStart + ev.step * stepDurSec;
+                if (ev.type === 'kick') kick.triggerAttackRelease('C2', stepDurSec, time, ev.vel);
+                else if (ev.type === 'snare') snare.triggerAttackRelease(stepDurSec, time, ev.vel);
+                else if (ev.type === 'hat') hat.triggerAttackRelease(stepDurSec, time, ev.vel * 0.8);
+            });
+            currentTime += sectionSteps * stepDurSec;
+        });
+    }, totalDuration);
+    const url = audioBufferToWav(buffer);
+    return { url, duration: totalDuration * 1000 };
+}
 
     function listenToAlbumWithTone(album) {
         const song = album.songData;
@@ -1018,6 +1063,10 @@ async function generateAlbumMusic(album) {
     let sectionStartTime = 0;
 
     song.sections.forEach(section => {
+section.lead.sort((a, b) => a.step - b.step);
+    section.bass.sort((a, b) => a.step - b.step);
+    section.drums.sort((a, b) => a.step - b.step);
+
         const offset = sectionStartTime;
         const lead = section.lead || [];
         const bass = section.bass || [];
