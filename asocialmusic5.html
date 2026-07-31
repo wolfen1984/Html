@@ -1173,26 +1173,29 @@ async function generateAlbumMusic(album) {
     const maxPad = pad.reduce((m, e) => Math.max(m, e.step + (e.durSteps || 4) - 1), 0);
     const maxUsed = Math.max(maxLead, maxBass, maxDrums, maxPad, 0);
 
-    // If the section is empty or doesn't reach near the end, fill the rest with a simple pattern
+       // If the section is empty or doesn't reach near the end, fill the rest with a simple pattern
     if (maxUsed < totalSteps - 4) {   // more than half a bar of silence
         const fillStart = maxUsed + 2;
-        // Add a repeating bass note (root of the key, e.g., C2 or the first bass note's pitch)
-        const bassNote = bass.length > 0 ? bass[0].note : 'C2';  // fallback to C2
-        // Add a kick on the first beat of each remaining bar
+        const bassNote = bass.length > 0 ? bass[0].note : 'C2';
+        // Add a simple lead using the same bass note, an octave higher and longer notes
+        if (lead.length === 0) {
+          const leadNote = bassNote.replace(/(\d+)$/, (n) => parseInt(n) + 1);
+          for (let step = fillStart; step < totalSteps; step += 16) {
+            lead.push({ step, note: leadNote, durSteps: 8, vel: 0.4 });
+          }
+        }
+        // Add repeating bass and kick
         const barLength = 8;
         for (let step = fillStart; step < totalSteps; step++) {
-            // simple bass pattern: play a note every 8 steps (once per bar)
             if (step % barLength === 0) {
                 bass.push({ step, note: bassNote, durSteps: 4, vel: 0.5 });
             }
-            // kick drum on each beat (every 2 steps)
             if (step % 2 === 0) {
                 drums.push({ step, type: 'kick', vel: 0.6 });
             }
         }
-        // sort again to keep order
         drums.sort((a, b) => a.step - b.step);
-        bass = limitPolyphony(bass, MAX_SIMULTANEOUS.bass);  // re‑apply polyphony limit
+        bass = limitPolyphony(bass, MAX_SIMULTANEOUS.bass);
     }
 
         return { ...sec, lead, bass, drums, pad, duration };
@@ -1267,6 +1270,15 @@ distNode.connect(echoDelay);     // now defined
 bassGain.connect(bassTapeLP);
 bassTapeLP.connect(masterGain);
 
+// Pad → clean low‑pass → master, and send to reverb/echo
+const padLP = offlineCtx.createBiquadFilter();
+padLP.type = 'lowpass';
+padLP.frequency.value = 4200;
+padGain.connect(padLP);
+padLP.connect(masterGain);
+padLP.connect(reverbDelay);
+padLP.connect(echoDelay);
+
 // Effects returns to master
 reverbGain.connect(masterGain);
 echoGain.connect(masterGain);
@@ -1276,7 +1288,7 @@ masterGain.connect(offlineCtx.destination);
     const drumSched = createDrumSchedulers(offlineCtx, drumGain);
     let sectionStartTime = 0;
 
-    sections.forEach(section => {
+        sections.forEach(section => {
         const offset = sectionStartTime;
         section.lead.forEach(ev => {
             if (freq[ev.note]) {
@@ -1294,14 +1306,14 @@ masterGain.connect(offlineCtx.destination);
             else if (ev.type === 'snare') drumSched.snare(t, ev.vel);
             else if (ev.type === 'hat') drumSched.hat(t, ev.vel);
         });
-        sectionStartTime += section.duration;
-    });
         section.pad.forEach(ev => {
           const chordNotes = (ev.notes || []).map(note => freq[note]).filter(f => f);
           if (chordNotes.length > 0) {
             schedulePadChord(offlineCtx, offset + ev.step * stepDur, chordNotes, (ev.durSteps || 4) * stepDur, ev.vel || 0.3, padGain);
           }
         });
+        sectionStartTime += section.duration;
+    });
 
     const renderedBuffer = await offlineCtx.startRendering();
     const url = audioBufferToWav(renderedBuffer);
