@@ -837,6 +837,218 @@ Output ONLY the raw JSON.`;
         if (Array.isArray(poster)) return poster.slice(0, 4).join('\n');
         return '???';
     }
+
+// ──────────────── FREQUENCY TABLE (from original) ────────────────
+const freq = {
+    'C1': 32.70, 'C#1': 34.65, 'D1': 36.71, 'D#1': 38.89, 'E1': 41.20,
+    'F1': 43.65, 'F#1': 46.25, 'G1': 49.00, 'G#1': 51.91, 'A1': 55.00,
+    'A#1': 58.27, 'B1': 61.74, 'C2': 65.41, 'C#2': 69.30, 'D2': 73.42,
+    'D#2': 77.78, 'E2': 82.41, 'F2': 87.31, 'F#2': 92.50, 'G2': 98.00,
+    'G#2': 103.83, 'A2': 110.00, 'A#2': 116.54, 'B2': 123.47, 'C3': 130.81,
+    'C#3': 138.59, 'D3': 146.83, 'D#3': 155.56, 'E3': 164.81, 'F3': 174.61,
+    'F#3': 185.00, 'G3': 196.00, 'G#3': 207.65, 'A3': 220.00, 'A#3': 233.08,
+    'B3': 246.94, 'C4': 261.63, 'C#4': 277.18, 'D4': 293.66, 'D#4': 311.13,
+    'E4': 329.63, 'F4': 349.23, 'F#4': 369.99, 'G4': 392.00, 'G#4': 415.30,
+    'A4': 440.00, 'A#4': 466.16, 'B4': 493.88, 'C5': 523.25, 'C#5': 554.37,
+    'D5': 587.33, 'D#5': 622.25, 'E5': 659.25
+};
+
+function createDistortionCurve(amount = 50) {
+    if (amount <= 0.001) return null;
+    const samples = 44100, curve = new Float32Array(samples);
+    const k = amount * 8;
+    for (let i = 0; i < samples; ++i) {
+        const x = i * 2 / samples - 1;
+        curve[i] = (3 + k) * x * 20 * (Math.PI / 180) / (Math.PI + k * Math.abs(x));
+    }
+    return curve;
+}
+
+function scheduleNote(ctx, time, freqVal, dur, gainVal, pan, outputNode) {
+    const o1 = ctx.createOscillator();
+    o1.type = 'triangle'; o1.frequency.value = freqVal; o1.detune.value = -18;
+    const g1 = ctx.createGain();
+    g1.gain.setValueAtTime(0.001, time);
+    g1.gain.exponentialRampToValueAtTime(gainVal * 0.78, time + 0.01);
+    g1.gain.exponentialRampToValueAtTime(gainVal * 0.32, time + dur * 0.6);
+    g1.gain.setValueAtTime(0.001, time + dur - 0.02);
+
+    const o2 = ctx.createOscillator();
+    o2.type = 'square'; o2.frequency.value = freqVal; o2.detune.value = 12;
+    const g2 = ctx.createGain();
+    g2.gain.setValueAtTime(0.001, time);
+    g2.gain.exponentialRampToValueAtTime(gainVal * 0.42, time + 0.01);
+    g2.gain.exponentialRampToValueAtTime(gainVal * 0.18, time + dur * 0.65);
+    g2.gain.setValueAtTime(0.001, time + dur - 0.02);
+
+    const nb = ctx.createBuffer(1, ctx.sampleRate * 0.6, ctx.sampleRate);
+    const nd = nb.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource();
+    noise.buffer = nb;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.001, time);
+    ng.gain.exponentialRampToValueAtTime(gainVal * 0.18, time + 0.03);
+    ng.gain.exponentialRampToValueAtTime(0.001, time + dur * 0.4);
+
+    const panNode = ctx.createStereoPanner();
+    panNode.pan.value = pan;
+    o1.connect(g1); o2.connect(g2); noise.connect(ng);
+    g1.connect(panNode); g2.connect(panNode); ng.connect(panNode);
+    panNode.connect(outputNode);
+    o1.start(time); o2.start(time); noise.start(time);
+    o1.stop(time + dur); o2.stop(time + dur); noise.stop(time + dur * 0.35);
+}
+
+function createDrumSchedulers(ctx, outputNode) {
+    return {
+        kick: (t, v) => {
+            const o = ctx.createOscillator();
+            o.type = 'triangle';
+            o.frequency.setValueAtTime(140, t);
+            o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+            const g = ctx.createGain();
+            g.gain.setValueAtTime(0.92 * v, t);
+            g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+            o.connect(g).connect(outputNode);
+            o.start(t); o.stop(t + 0.18);
+        },
+        snare: (t, v) => {
+            const buf = ctx.createBuffer(1, ctx.sampleRate * 0.25, ctx.sampleRate);
+            const d = buf.getChannelData(0);
+            for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+            const src = ctx.createBufferSource();
+            src.buffer = buf;
+            const bp = ctx.createBiquadFilter();
+            bp.type = 'bandpass';
+            bp.frequency.value = 2800;
+            const g = ctx.createGain();
+            g.gain.setValueAtTime(0.82 * v, t);
+            g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+            src.connect(bp).connect(g).connect(outputNode);
+            src.start(t); src.stop(t + 0.22);
+        },
+        hat: (t, v) => {
+            const buf = ctx.createBuffer(1, ctx.sampleRate * 0.06, ctx.sampleRate);
+            const d = buf.getChannelData(0);
+            for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+            const src = ctx.createBufferSource();
+            src.buffer = buf;
+            const hp = ctx.createBiquadFilter();
+            hp.type = 'highpass';
+            hp.frequency.value = 9000;
+            const g = ctx.createGain();
+            g.gain.setValueAtTime(0.48 * v, t);
+            g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+            src.connect(hp).connect(g).connect(outputNode);
+            src.start(t); src.stop(t + 0.06);
+        }
+    };
+}
+
+async function generateAlbumMusic(album) {
+    let song = album.songData;
+    if (!song || !song.sections) {
+        song = await generateAlbumSectionsAI(album);
+        album.songData = song;
+        saveWorld();
+    }
+
+    const bpm = song.bpm || 120;
+    const stepDur = 60 / bpm / 2;
+    const totalSteps = song.sections.reduce((sum, s) => sum + (s.lengthBars || 8) * 8, 0);
+    const totalDuration = totalSteps * stepDur;
+
+    const sampleRate = 44100;
+    const offlineCtx = new OfflineAudioContext(2, sampleRate * totalDuration, sampleRate);
+
+    // master audio graph (same as original)
+    const masterGain = offlineCtx.createGain();
+    masterGain.gain.value = 0.8;
+
+    const tapeLP = offlineCtx.createBiquadFilter();
+    tapeLP.type = 'lowpass'; tapeLP.frequency.value = 7500;
+
+    const distCurve = createDistortionCurve(15);
+    const distNode = offlineCtx.createWaveShaper();
+    distNode.curve = distCurve; distNode.oversample = '2x';
+
+    const bassTapeLP = offlineCtx.createBiquadFilter();
+    bassTapeLP.type = 'lowpass'; bassTapeLP.frequency.value = 2500;
+
+    const reverbDelay = offlineCtx.createDelay(0.5);
+    reverbDelay.delayTime.value = 0.35;
+    const reverbFB = offlineCtx.createGain();
+    reverbFB.gain.value = 0.4;
+    const reverbGain = offlineCtx.createGain();
+    reverbGain.gain.value = 0.25;
+    reverbDelay.connect(reverbFB); reverbFB.connect(reverbDelay);
+    reverbDelay.connect(reverbGain);
+
+    const echoDelay = offlineCtx.createDelay(0.6);
+    echoDelay.delayTime.value = 0.28;
+    const echoFB = offlineCtx.createGain();
+    echoFB.gain.value = 0.3;
+    const echoGain = offlineCtx.createGain();
+    echoGain.gain.value = 0.18;
+    echoDelay.connect(echoFB); echoFB.connect(echoDelay);
+    echoDelay.connect(echoGain);
+
+    const leadGain = offlineCtx.createGain();
+    leadGain.gain.value = 0.25;
+    const bassGain = offlineCtx.createGain();
+    bassGain.gain.value = 1.1;
+    const drumGain = offlineCtx.createGain();
+    drumGain.gain.value = 0.7;
+
+    // routing
+    leadGain.connect(tapeLP);
+    drumGain.connect(tapeLP);
+    tapeLP.connect(distNode);
+    distNode.connect(masterGain);
+    distNode.connect(reverbDelay);
+    distNode.connect(echoDelay);
+    bassGain.connect(bassTapeLP);
+    bassTapeLP.connect(masterGain);
+    reverbGain.connect(masterGain);
+    echoGain.connect(masterGain);
+    masterGain.connect(offlineCtx.destination);
+
+    const drumSched = createDrumSchedulers(offlineCtx, drumGain);
+    let sectionStartTime = 0;
+
+    song.sections.forEach(section => {
+        const offset = sectionStartTime;
+        const lead = section.lead || [];
+        const bass = section.bass || [];
+        const drums = section.drums || [];
+
+        lead.forEach(ev => {
+            if (freq[ev.note]) {
+                scheduleNote(offlineCtx, offset + ev.step * stepDur, freq[ev.note],
+                    (ev.durSteps || 1) * stepDur, ev.vel * 0.5, -0.3, leadGain);
+            }
+        });
+        bass.forEach(ev => {
+            if (freq[ev.note]) {
+                scheduleNote(offlineCtx, offset + ev.step * stepDur, freq[ev.note],
+                    (ev.durSteps || 1) * stepDur, ev.vel * 0.6, 0.2, bassGain);
+            }
+        });
+        drums.forEach(ev => {
+            const t = offset + ev.step * stepDur;
+            if (ev.type === 'kick') drumSched.kick(t, ev.vel);
+            else if (ev.type === 'snare') drumSched.snare(t, ev.vel);
+            else if (ev.type === 'hat') drumSched.hat(t, ev.vel);
+        });
+        sectionStartTime += (section.lengthBars || 8) * 8 * stepDur;
+    });
+
+    const renderedBuffer = await offlineCtx.startRendering();
+    const url = audioBufferToWav(renderedBuffer);
+    return { url, duration: totalDuration * 1000 };
+}
+
     function saveWorld() { localStorage.setItem('tapetracks_world', JSON.stringify(world)); }
     function loadWorld() {
         const saved = localStorage.getItem('tapetracks_world');
@@ -1194,7 +1406,7 @@ Output ONLY the raw JSON.`;
                 btn.disabled = true;
                 btn.style.opacity = '0.6';
                 try {
-                    const { url } = await renderAlbumOffline(album);
+                    const { url } = await generateAlbumMusic(album);
                     const link = document.createElement('a');
                     link.download = `${album.artist}_-_${album.title}.wav`.replace(/[^a-z0-9._-]/gi, '_');
                     link.href = url;
@@ -1226,51 +1438,48 @@ Output ONLY the raw JSON.`;
 
     // ──────────────────────── DIRECT DOWNLOAD ────────────────────────
     async function downloadAlbumDirect(albumId) {
-        const album = world.social.albums.find(a => a.id === albumId);
-        if (!album) return;
-        const btn = document.getElementById('downloadDirectBtn');
-        if (!btn) return;
-        const originalText = btn.textContent;
-        btn.textContent = '⏳ GENERATING...';
-        btn.disabled = true;
-        btn.style.opacity = '0.7';
-        btn.style.cursor = 'wait';
-        try {
-            if (!album.songData) {
-                album.songData = await generateAlbumSectionsAI(album);
-                saveWorld();
-            }
-            const { url } = await renderAlbumOffline(album);
-            btn.textContent = '⏳ DOWNLOADING...';
-            const link = document.createElement('a');
-            link.download = `${album.artist}_-_${album.title}.wav`.replace(/[^a-z0-9._-]/gi, '_');
-            link.href = url;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            setTimeout(() => URL.revokeObjectURL(url), 5000);
-            btn.textContent = '✅ DOWNLOADED!';
-            btn.style.color = 'var(--text-bright)';
-            setTimeout(() => {
-                btn.textContent = originalText;
-                btn.disabled = false;
-                btn.style.opacity = '1';
-                btn.style.cursor = 'pointer';
-                btn.style.color = '';
-            }, 2500);
-        } catch (err) {
-            console.error('Download failed:', err);
-            btn.textContent = '❌ FAILED';
-            btn.style.color = 'var(--danger)';
-            setTimeout(() => {
-                btn.textContent = originalText;
-                btn.disabled = false;
-                btn.style.opacity = '1';
-                btn.style.cursor = 'pointer';
-                btn.style.color = '';
-            }, 3000);
-        }
+    const album = world.social.albums.find(a => a.id === albumId);
+    if (!album) return;
+    const btn = document.getElementById('downloadDirectBtn');
+    if (!btn) return;
+    const originalText = btn.textContent;
+    btn.textContent = '⏳ GENERATING...';
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+    btn.style.cursor = 'wait';
+    try {
+        // old call: await renderAlbumOffline(album)
+        const { url } = await generateAlbumMusic(album);
+        btn.textContent = '⏳ DOWNLOADING...';
+        const link = document.createElement('a');
+        link.download = `${album.artist}_-_${album.title}.wav`.replace(/[^a-z0-9._-]/gi, '_');
+        link.href = url;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        btn.textContent = '✅ DOWNLOADED!';
+        btn.style.color = 'var(--text-bright)';
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
+            btn.style.color = '';
+        }, 2500);
+    } catch (err) {
+        console.error('Download failed:', err);
+        btn.textContent = '❌ FAILED';
+        btn.style.color = 'var(--danger)';
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
+            btn.style.color = '';
+        }, 3000);
     }
+}
 
     // ──────────────────────── MORE ARTISTS / SEARCH / FORUM / NOTIFICATIONS ────────────────────────
     // (Include all remaining functions EXACTLY as they were in your last fully working version:
