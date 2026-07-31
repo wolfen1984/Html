@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
     <title>TAPETRACKS · ALBUM DATABASE · 1987</title>
     <link href="https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&display=swap" rel="stylesheet">
     <style>
@@ -410,33 +411,38 @@
         <div class="modal-content" id="listenModalContent" style="max-width:640px; max-height:90vh; overflow-y:auto;"></div>
     </div>
 
-    <script>
-       const MISTRAL_ENDPOINT = 'https://api.mistral.ai/v1/chat/completions';
+<script>
+    // ============================================================
+    //  TAPETRACKS · ALBUM DATABASE · 1987
+    //  Sound Engine: Tone.js
+    // ============================================================
+    const MISTRAL_ENDPOINT = 'https://api.mistral.ai/v1/chat/completions';
     const MODEL = 'mistral-small-latest';
     let apiKey = localStorage.getItem('mistral_api_key') || '';
     let world = null;
     let lastPollinationsCall = 0;
     let currentTheme = localStorage.getItem('tapetracks_theme') || 'default';
+
     const GENRES = [
-        'Rock', 'Pop', 'Metal', 'Hip-Hop', 'R&B', 'Electronic', 'Jazz', 'Funk', 'Soul',
-        'Punk', 'New Wave', 'Indie', 'Folk', 'Blues', 'Reggae', 'Disco', 'Country', 'Alternative'
+        'Rock','Pop','Metal','Hip-Hop','R&B','Electronic','Jazz','Funk','Soul',
+        'Punk','New Wave','Indie','Folk','Blues','Reggae','Disco','Country','Alternative'
     ];
+
     const HARDCODED_PERSONALITIES = [
-        { style: "the music nerd", traits: ["collector", "liner-note-reader", "audiophile", "analytical"] },
-        { style: "the mixtape creator", traits: ["romantic", "eclectic", "playlist-obsessed", "enthusiastic"] },
-        { style: "the metalhead", traits: ["loud", "headbanger", "leather-jacket", "excitable"] },
-        { style: "the indie purist", traits: ["obscure-taste", "pretentious", "vinyl-only", "discerning"] },
-        { style: "the guitar shred fan", traits: ["solo-lover", "fast-tempo", "air-guitarist", "high-energy"] },
-        { style: "the pop optimist", traits: ["bubblegum", "dance", "sing-along", "lighthearted"] },
-        { style: "the synthwave explorer", traits: ["futurist", "analog-synth", "retro-fan", "imaginative"] },
-        { style: "the jazz historian", traits: ["cool", "miles-davis-quoter", "improvisation", "serious"] },
-        { style: "the MTV addict", traits: ["music-video-hoarder", "trendy", "visual", "energetic"] }
+        { style: "the music nerd", traits: ["collector","liner-note-reader","audiophile","analytical"] },
+        { style: "the mixtape creator", traits: ["romantic","eclectic","playlist-obsessed","enthusiastic"] },
+        { style: "the metalhead", traits: ["loud","headbanger","leather-jacket","excitable"] },
+        { style: "the indie purist", traits: ["obscure-taste","pretentious","vinyl-only","discerning"] },
+        { style: "the guitar shred fan", traits: ["solo-lover","fast-tempo","air-guitarist","high-energy"] },
+        { style: "the pop optimist", traits: ["bubblegum","dance","sing-along","lighthearted"] },
+        { style: "the synthwave explorer", traits: ["futurist","analog-synth","retro-fan","imaginative"] },
+        { style: "the jazz historian", traits: ["cool","miles-davis-quoter","improvisation","serious"] },
+        { style: "the MTV addict", traits: ["music-video-hoarder","trendy","visual","energetic"] }
     ];
 
     const uid = () => Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 8);
 
-    // ──────────── Tone.js global setup ────────────
-    // Will be initialised after user gesture via Tone.start()
+    // ────────────── Tone.js initialisation ──────────────
     let toneStarted = false;
     async function startToneIfNeeded() {
         if (!toneStarted) {
@@ -445,11 +451,11 @@
         }
     }
 
-    // ──────────── Utility: AudioBuffer to WAV (unchanged) ────────────
+    // ────────────── Utility: AudioBuffer to WAV ──────────────
     function audioBufferToWav(buffer) {
         const numChannels = buffer.numberOfChannels;
         const sampleRate = buffer.sampleRate;
-        const format = 1; // PCM
+        const format = 1;
         const bitDepth = 16;
         const length = buffer.length * numChannels * (bitDepth / 8);
         const header = new ArrayBuffer(44);
@@ -491,11 +497,63 @@
         return URL.createObjectURL(blob);
     }
 
-    // ──────────── AI helpers (unchanged) ────────────
-    function repairJSON(str) { /* ... same as before ... */ }
+    // ────────────── JSON repair ──────────────
+    function repairJSON(str) {
+        let s = str.trim();
+        if (!s.startsWith('{')) return s;
+        let openCurly = 0, closeCurly = 0;
+        let openSquare = 0, closeSquare = 0;
+        for (let ch of s) {
+            if (ch === '{') openCurly++;
+            if (ch === '}') closeCurly++;
+            if (ch === '[') openSquare++;
+            if (ch === ']') closeSquare++;
+        }
+        while (closeCurly < openCurly) { s += '}'; closeCurly++; }
+        while (closeSquare < openSquare) { s += ']'; closeSquare++; }
+        const lastChar = s.trimEnd().slice(-1);
+        if (lastChar !== '}' && lastChar !== ']' && lastChar !== '"') {
+            s += '"';
+            openCurly = 0; closeCurly = 0;
+            openSquare = 0; closeSquare = 0;
+            for (let ch of s) {
+                if (ch === '{') openCurly++;
+                if (ch === '}') closeCurly++;
+                if (ch === '[') openSquare++;
+                if (ch === ']') closeSquare++;
+            }
+            while (closeCurly < openCurly) { s += '}'; closeCurly++; }
+            while (closeSquare < openSquare) { s += ']'; closeSquare++; }
+        }
+        return s;
+    }
+
+    // ────────────── AI API call ──────────────
+    async function mistralChat(messages, maxTok = 300, jsonMode = true, signal = null) {
+        if (!apiKey) throw new Error('No API key');
+        const body = { model: MODEL, messages, temperature: 0.9, max_tokens: maxTok };
+        if (jsonMode) body.response_format = { type: "json_object" };
+        const res = await fetch(MISTRAL_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+            body: JSON.stringify(body),
+            signal
+        });
+        if (!res.ok) {
+            if (res.status === 429) throw new Error('Rate limited. Please wait a moment.');
+            throw new Error('API ' + res.status);
+        }
+        const data = await res.json();
+        let content = data.choices[0].message.content.trim();
+        if (jsonMode) {
+            content = content.replace(/^```json\s*/, '').replace(/```\s*$/, '').trim();
+            try { return JSON.parse(content); } catch (e) { throw new Error('Invalid JSON from AI'); }
+        }
+        return content;
+    }
+
+    // ────────────── AI album song generation (unchanged prompt) ──────────────
     async function generateAlbumSectionsAI(album) {
-        // identical to your existing implementation
-        // (keep it exactly as in original)
         const validNotes = [
             'C1','C#1','D1','D#1','E1','F1','F#1','G1','G#1','A1','A#1','B1',
             'C2','C#2','D2','D#2','E2','F2','F#2','G2','G#2','A2','A#2','B2',
@@ -504,7 +562,41 @@
             'C5','C#5','D5','D#5','E5'
         ];
         const requiredTotalBars = 60;
-        const prompt = `...`; // your full prompt, unchanged
+        const prompt = `You are a 1980s cassette music composer.
+Create a COMPLETE 2‑minute instrumental for the album "${album.title}" by ${album.artist} (genre: ${album.genre}, year: ${album.year}, mood: "${album.description}").
+
+The song MUST consist of exactly these sections with these bar lengths:
+- intro: 8 bars
+- verse: 16 bars
+- chorus: 8 bars
+- verse: 16 bars
+- bridge: 8 bars
+- chorus: 8 bars
+- outro: 8 bars
+Total bars: 72. Each bar has 8 steps (8th notes, two steps per beat).
+
+CRITICAL RULE FOR EACH SECTION:
+The lead, bass, and drum parts MUST be distributed across ALL bars of that section. Do NOT stop early or leave the end empty. The highest step in each section must be at least (lengthBars * 8 - 2). To achieve this, you can use sustained chords, rhythmic ostinatos, drum fills, or repeating patterns – but DO NOT leave silent gaps at the end. The song should sound completely filled, with no pauses between sections.
+
+MUSICAL RULES:
+- The song must be in a single musical key (e.g., C major, A minor).  
+- The bass should play the root note of the chord on the first beat of each bar, and occasionally add fifths or octaves.  
+- The lead melody should use only notes from the same scale.  
+- Drums should follow a consistent pattern: kick on beats 1 and 3, snare on beats 2 and 4, hi‑hat on every eighth‑note (typical rock/pop beat). Vary the pattern slightly in the chorus and bridge.  
+- Each section must have at least 4 lead notes, 4 bass notes, and 8 drum hits.  
+- The intro and outro should be simpler, with fewer instruments.
+
+Return ONLY a valid JSON object (no markdown, no backticks) with these keys:
+- "bpm": number (60-180)
+- "sections": an array of 7 objects. Each object must have:
+    "name": one of the above section names
+    "lengthBars": exactly the number above
+    "lead": array of objects {"step": integer, "note": one of the allowed notes, "durSteps": 1-8, "vel": 0.1-0.8}
+    "bass": same structure (use lower octaves)
+    "drums": array of objects {"step": integer, "type": "kick"/"snare"/"hat", "vel": 0.2-0.9}
+
+Make the music rhythmically varied, authentic to the genre, and evolving across sections. Output ONLY the raw JSON.`;
+
         let attempts = 0;
         while (attempts < 5) {
             try {
@@ -533,11 +625,9 @@
         throw new Error('Failed to generate a fully filled song after 5 attempts.');
     }
 
-    // ──────────── Sound Engine with Tone.js ────────────
-    function createInstruments(destination = null) {
-        // Creates fresh instruments connected to given node or Tone.Destination
+    // ────────────── Tone.js Instruments & Scheduling ──────────────
+    function createInstruments(destination) {
         const master = destination || Tone.Destination;
-
         const lead = new Tone.PolySynth(Tone.Synth, {
             oscillator: { type: 'fatsawtooth', count: 2, spread: 20 },
             envelope: { attack: 0.01, decay: 0.3, sustain: 0.4, release: 1 }
@@ -586,18 +676,14 @@
     }
 
     function scheduleSectionsWithTransport(sections, bpm, instruments) {
-        // Schedules all sections using Tone.Transport (real-time)
         Tone.Transport.cancel();
         Tone.Transport.stop();
         Tone.Transport.bpm.value = bpm;
-        const stepDur = '8n'; // each step is an eighth note
+        const stepDur = '8n';
         let absoluteStep = 0;
-
         sections.forEach(section => {
-            const bars = section.lengthBars || 8;
-            const totalSteps = bars * 8;
+            const totalSteps = (section.lengthBars || 8) * 8;
             const offset = absoluteStep;
-
             (section.lead || []).forEach(ev => {
                 const start = `+${offset + ev.step} * ${stepDur}`;
                 const dur = `${ev.durSteps || 1} * ${stepDur}`;
@@ -605,7 +691,6 @@
                     instruments.lead.triggerAttackRelease(ev.note, dur, time, ev.vel * 0.7);
                 }, start);
             });
-
             (section.bass || []).forEach(ev => {
                 const start = `+${offset + ev.step} * ${stepDur}`;
                 const dur = `${ev.durSteps || 1} * ${stepDur}`;
@@ -613,7 +698,6 @@
                     instruments.bass.triggerAttackRelease(ev.note, dur, time, ev.vel * 0.8);
                 }, start);
             });
-
             (section.drums || []).forEach(ev => {
                 const start = `+${offset + ev.step} * ${stepDur}`;
                 Tone.Transport.schedule((time) => {
@@ -622,14 +706,12 @@
                     else if (ev.type === 'hat') instruments.hat.triggerAttackRelease('8n', time, ev.vel * 0.8);
                 }, start);
             });
-
             absoluteStep += totalSteps;
         });
     }
 
-    // ─── Offline rendering for WAV download ───
     async function renderAlbumOffline(album) {
-        await startToneIfNeeded(); // ensure context is running
+        await startToneIfNeeded();
         const song = album.songData;
         if (!song || !song.sections) throw new Error('No song data');
         const bpm = song.bpm || 120;
@@ -637,23 +719,17 @@
         const totalSteps = song.sections.reduce((sum, s) => sum + (s.lengthBars || 8) * 8, 0);
         const totalDuration = totalSteps * stepDurSec;
 
-        const buffer = await Tone.Offline(({ transport }) => {
-            // Create fresh instruments inside offline context
+        const buffer = await Tone.Offline(() => {
             const { lead, bass, kick, snare, hat } = createInstruments();
-            // Schedule all events manually (no Transport in offline)
             let currentTime = 0;
             song.sections.forEach(section => {
-                const bars = section.lengthBars || 8;
-                const sectionSteps = bars * 8;
+                const sectionSteps = (section.lengthBars || 8) * 8;
                 const sectionStart = currentTime;
-
                 (section.lead || []).forEach(ev => {
-                    const time = sectionStart + ev.step * stepDurSec;
-                    lead.triggerAttackRelease(ev.note, ev.durSteps * stepDurSec, time, ev.vel * 0.7);
+                    lead.triggerAttackRelease(ev.note, ev.durSteps * stepDurSec, sectionStart + ev.step * stepDurSec, ev.vel * 0.7);
                 });
                 (section.bass || []).forEach(ev => {
-                    const time = sectionStart + ev.step * stepDurSec;
-                    bass.triggerAttackRelease(ev.note, ev.durSteps * stepDurSec, time, ev.vel * 0.8);
+                    bass.triggerAttackRelease(ev.note, ev.durSteps * stepDurSec, sectionStart + ev.step * stepDurSec, ev.vel * 0.8);
                 });
                 (section.drums || []).forEach(ev => {
                     const time = sectionStart + ev.step * stepDurSec;
@@ -669,17 +745,12 @@
         return { url, duration: totalDuration * 1000 };
     }
 
-    // ─── Real‑time playback controller ───
     function listenToAlbumWithTone(album) {
-        // Returns an object { start, pause, stop, onProgress, cleanup }
         const song = album.songData;
         if (!song || !song.sections) throw new Error('No song data');
-
         const bpm = song.bpm || 120;
         const totalSteps = song.sections.reduce((sum, s) => sum + (s.lengthBars || 8) * 8, 0);
         const totalDuration = totalSteps * (60 / bpm / 2);
-
-        // Create fresh instruments for this playback
         const instruments = createInstruments();
         scheduleSectionsWithTransport(song.sections, bpm, instruments);
 
@@ -690,19 +761,15 @@
             start: () => {
                 Tone.Transport.start();
                 progressInterval = setInterval(() => {
-                    const elapsed = Tone.Transport.seconds;
-                    const progress = Math.min(1, elapsed / totalDuration);
+                    const progress = Math.min(1, Tone.Transport.seconds / totalDuration);
                     if (onProgress) onProgress(progress);
-                    if (elapsed >= totalDuration) {
-                        this.stop();
-                    }
+                    if (progress >= 1) this.stop();
                 }, 100);
             },
-            pause: () => { Tone.Transport.pause(); },
+            pause: () => Tone.Transport.pause(),
             stop: () => {
                 Tone.Transport.stop();
                 if (progressInterval) clearInterval(progressInterval);
-                // Dispose instruments
                 ['lead','bass','kick','snare','hat'].forEach(k => instruments[k]?.dispose());
             },
             setOnProgress: (cb) => { onProgress = cb; },
@@ -710,7 +777,331 @@
         };
     }
 
-    // ──────────── UI: Listen Modal (replaces old listenToAlbum) ────────────
+    // ────────────── Simple click/notification sounds (FIXED) ──────────────
+    async function playClick() {
+        await startToneIfNeeded();  // <-- ensures AudioContext is running
+        const ctx = Tone.context;
+        const now = ctx.currentTime;
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.type = 'sine';
+        o.frequency.setValueAtTime(700, now);
+        o.frequency.exponentialRampToValueAtTime(500, now + 0.06);
+        g.gain.setValueAtTime(0.08, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+        o.start(now); o.stop(now + 0.08);
+    }
+
+    async function playNotification() {
+        await startToneIfNeeded();  // <-- ensures AudioContext is running
+        const ctx = Tone.context;
+        const now = ctx.currentTime;
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.type = 'sine';
+        o.frequency.setValueAtTime(880, now);
+        g.gain.setValueAtTime(0.1, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+        o.start(now); o.stop(now + 0.12);
+    }
+
+    // ────────────── World, UI, and all original functions ──────────────
+    function getAsciiLines(poster) {
+        if (typeof poster === 'string' && poster.trim().length > 0) {
+            return poster.split('\n').slice(0, 4).join('\n');
+        }
+        if (Array.isArray(poster)) {
+            return poster.slice(0, 4).join('\n');
+        }
+        return '???';
+    }
+
+    function saveWorld() { localStorage.setItem('tapetracks_world', JSON.stringify(world)); }
+
+    function loadWorld() {
+        const saved = localStorage.getItem('tapetracks_world');
+        if (saved) {
+            world = JSON.parse(saved);
+            if (world.social && world.social.albums) {
+                world.social.albums.forEach(a => {
+                    if (typeof a.asciiPoster !== 'string') a.asciiPoster = sanitizeAscii(a.asciiPoster);
+                });
+            }
+            if (!world.social) world.social = {};
+            if (!world.social.albums) world.social.albums = [];
+            if (!world.social.watchlist) world.social.watchlist = {};
+            if (!world.social.notifications) world.social.notifications = [];
+            if (!world.inbox) world.inbox = [];
+            world.social.albums.forEach(a => {
+                if (!a.reviews) a.reviews = [];
+                if (!a.forumPosts) a.forumPosts = [];
+                a.reviews.forEach(r => { if (!r.rating) r.rating = 0; if (!r.reviewRatings) r.reviewRatings = []; });
+            });
+            if (!world.social.watchlist[world.player.id]) world.social.watchlist[world.player.id] = [];
+            return true;
+        }
+        return false;
+    }
+
+    function esc(s) { return String(s ?? '').replace(/[&<>'"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[m]); }
+
+    function sanitizeAscii(poster) {
+        if (typeof poster === 'string') return poster;
+        if (Array.isArray(poster)) return poster.join('\n');
+        return '???';
+    }
+
+    function getNpcById(id) { return world.npcs.find(n => n.id === id); }
+
+    function getTotalGameMinutes() { return world.time.day * 1440 + world.time.hour * 60 + world.time.minute; }
+
+    function pollinationsImageUrl(album) {
+        const desc = album.description ? album.description : `${album.genre} album from ${album.year}`;
+        const prompt = `Vintage 1980s album cover art for "${album.title}" by ${album.artist}. ${desc}. Retro graphic design, vinyl record sleeve, 1980s aesthetic, nostalgic, high quality.`;
+        return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=300&height=400&nologo=true`;
+    }
+
+    function timeStr() { return `${String(world.time.hour).padStart(2,'0')}:${String(world.time.minute).padStart(2,'0')}`; }
+
+    function updateStatusBar() {
+        document.getElementById('statusTime').textContent = `Day ${world.time.day} ${timeStr()}`;
+        updateNotifBadge();
+    }
+
+    function applyTheme(t) { document.querySelector('.pda').setAttribute('data-theme', t); }
+
+    function addNotification(fromId, toId, type, text, linkData) {
+        if (toId !== world.player.id) return;
+        world.social.notifications.push({ id: uid(), fromId, toId, type, text, read: false, timestamp: getTotalGameMinutes(), linkData: linkData || {} });
+        updateNotifBadge();
+        playNotification();  // async but fire-and-forget
+        saveWorld();
+    }
+
+    function updateNotifBadge() {
+        const badge = document.getElementById('notifBadge');
+        if (!world || !world.social.notifications) return;
+        const unread = world.social.notifications.filter(n => !n.read).length;
+        badge.textContent = unread;
+        badge.style.display = unread > 0 ? 'block' : 'none';
+    }
+
+    function getAlbumAverageRating(album) {
+        const ratings = album.reviews.filter(r => r.rating > 0).map(r => r.rating);
+        if (ratings.length === 0) return 0;
+        return (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1);
+    }
+
+    function getAlbumStarDisplay(album) {
+        const avg = parseFloat(getAlbumAverageRating(album));
+        let stars = '';
+        for (let i = 1; i <= 5; i++) stars += i <= Math.round(avg) ? '★' : '☆';
+        return stars + ` (${album.reviews.filter(r => r.rating > 0).length})`;
+    }
+
+    // ──────────────────────── MAIN MENU ────────────────────────
+    function showMainMenu() {
+        let unreadInbox = 0;
+        if (world.inbox) world.inbox.forEach(t => t.messages.forEach(m => { if (m.sender === 'npc' && !m.read) unreadInbox++; }));
+        let unreadNotifs = world.social.notifications.filter(n => !n.read).length;
+        const albumCount = world.social.albums.length;
+        const main = document.getElementById('mainScreen');
+        main.innerHTML = `
+    <pre style="font-size:13px;line-height:1.1;text-align:center;margin-bottom:8px;">
+████████╗ █████╗ ██████╗ ███████╗████████╗██████╗  █████╗  ██████╗██╗  ██╗███████╗
+╚══██╔══╝██╔══██╗██╔══██╗██╔════╝╚══██╔══╝██╔══██╗██╔══██╗██╔════╝██║ ██╔╝██╔════╝
+   ██║   ███████║██████╔╝█████╗     ██║   ██████╔╝███████║██║     █████╔╝ ███████╗
+   ██║   ██╔══██║██╔═══╝ ██╔══╝     ██║   ██╔══██╗██╔══██║██║     ██╔═██╗ ╚════██║
+   ██║   ██║  ██║██║     ███████╗   ██║   ██║  ██║██║  ██║╚██████╗██║  ██╗███████║
+   ╚═╝   ╚═╝  ╚═╝╚═╝     ╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝
+    ALBUM DATABASE · 1987</pre>
+    <div style="display:flex;flex-direction:column;gap:5px;">
+      <div class="menu-item" id="menuBrowse">💿 Browse Albums (${albumCount} in catalogue)</div>
+      <div class="menu-item" id="menuTopRated">⭐ Top Rated</div>
+      <div class="menu-item" id="menuSearch">🔍 Search</div>
+      <div class="menu-item" id="menuWatchlist">📼 My Listening Queue</div>
+      <div class="menu-item" id="menuMyReviews">✍️ My Reviews</div>
+      <div class="menu-item" id="menuNotifications">🔔 Notifications ${unreadNotifs?`<span class="unread-badge">${unreadNotifs}</span>`:''}</div>
+      <div class="menu-item" id="menuInbox">📬 Private Mail ${unreadInbox?`<span class="unread-badge">${unreadInbox}</span>`:''}</div>
+      <div class="menu-item" id="menuSave">💾 Save</div>
+      <div class="menu-item" id="menuTheme">🎨 Theme</div>
+      <div class="menu-item" id="menuNewGame">🔄 New Game</div>
+    </div>`;
+        document.getElementById('notifBell').onclick = () => { playClick(); showNotifications(); };
+        document.getElementById('menuBrowse').onclick = () => { playClick(); browseAlbums(); };
+        document.getElementById('menuTopRated').onclick = () => { playClick(); browseAlbums(null, 'rating'); };
+        document.getElementById('menuSearch').onclick = () => { playClick(); showSearch(); };
+        document.getElementById('menuWatchlist').onclick = () => { playClick(); showWatchlist(); };
+        document.getElementById('menuMyReviews').onclick = () => { playClick(); showMyReviews(); };
+        document.getElementById('menuNotifications').onclick = () => { playClick(); showNotifications(); };
+        document.getElementById('menuInbox').onclick = () => { playClick(); showInboxList(); };
+        document.getElementById('menuSave').onclick = () => { playClick(); saveWorld(); alert('Saved.'); };
+        document.getElementById('menuTheme').onclick = () => { playClick(); const themes = ['default','amber','pink','blue']; const idx = themes.indexOf(currentTheme); currentTheme = themes[(idx+1)%themes.length]; applyTheme(currentTheme); localStorage.setItem('tapetracks_theme', currentTheme); };
+        document.getElementById('menuNewGame').onclick = () => { playClick(); if (confirm('Start new? All progress lost.')) startNewGame(); };
+    }
+
+    // ──────────────────────── BROWSE / VIEW / INTERACT ────────────────────────
+    function browseAlbums(genreFilter = null, sortBy = 'title') {
+        let albums = [...world.social.albums];
+        if (genreFilter) albums = albums.filter(a => a.genre === genreFilter);
+        if (sortBy === 'rating') albums.sort((a,b) => parseFloat(getAlbumAverageRating(b)) - parseFloat(getAlbumAverageRating(a)));
+        else if (sortBy === 'year') albums.sort((a,b) => b.year - a.year);
+        else albums.sort((a,b) => a.title.localeCompare(b.title));
+
+        let html = `<h2>💿 Album Library</h2><button class="btn" id="backBrowseBtn">⬅️ Back</button>
+    <button class="btn" id="sortTitle">A-Z</button>
+    <button class="btn" id="sortYear">📅 Year</button>
+    <button class="btn" id="sortRating">⭐ Rating</button>
+    <hr><div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">
+    <button class="btn genre-filter-btn ${!genreFilter?'accent':''}" data-genre="">All</button>
+    ${GENRES.map(g=>`<button class="btn genre-filter-btn ${genreFilter===g?'accent':''}" data-genre="${g}">${g}</button>`).join('')}
+    </div><hr>`;
+        albums.forEach(a => {
+            html += `<div class="album-card" data-albumId="${a.id}">
+      <div class="album-cover">${esc(getAsciiLines(a.asciiPoster))}</div>
+      <div style="flex:1;">
+        <strong>${esc(a.title)}</strong> – ${esc(a.artist)} (${a.year})
+        <div style="font-size:10px;color:var(--text-dim);">${esc(a.genre)} · ${esc(a.label||'')}</div>
+        <div style="font-size:11px;color:var(--accent2);">${getAlbumStarDisplay(a)}</div>
+      </div>
+    </div>`;
+        });
+        document.getElementById('mainScreen').innerHTML = html;
+        document.getElementById('backBrowseBtn').onclick = () => { playClick(); showMainMenu(); };
+        document.getElementById('sortTitle').onclick = () => { playClick(); browseAlbums(genreFilter, 'title'); };
+        document.getElementById('sortYear').onclick = () => { playClick(); browseAlbums(genreFilter, 'year'); };
+        document.getElementById('sortRating').onclick = () => { playClick(); browseAlbums(genreFilter, 'rating'); };
+        document.querySelectorAll('.genre-filter-btn').forEach(b => b.onclick = () => { playClick(); browseAlbums(b.dataset.genre || null, sortBy); });
+        document.querySelectorAll('.album-card').forEach(el => el.onclick = () => { playClick(); viewAlbum(el.dataset.albumid); });
+    }
+
+    function viewAlbum(albumId) {
+        const album = world.social.albums.find(a => a.id === albumId);
+        if (!album) { browseAlbums(); return; }
+        const main = document.getElementById('mainScreen');
+        if (main.dataset.currentAlbumId === albumId) return;
+        main.dataset.currentAlbumId = albumId;
+        const avgRating = getAlbumAverageRating(album);
+        const userReview = album.reviews.find(r => r.userId === world.player.id);
+        let html = `
+    <h2>🎵 ${esc(album.title)} – ${esc(album.artist)} (${album.year})</h2>
+    <button class="btn" id="backAlbumBtn">⬅️ Back</button>
+    <hr><div style="display:flex;gap:12px;">
+      <div class="album-cover" style="width:100px;height:130px;font-size:9px;">
+  ${album.posterUrl
+    ? `<img src="${esc(album.posterUrl)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentNode.innerHTML='${esc(getAsciiLines(album.asciiPoster))}'">`
+    : esc(getAsciiLines(album.asciiPoster))
+  }
+</div>
+      <div>
+        <p><strong>Artist/Band:</strong> <span class="artist-link" style="cursor:pointer; text-decoration:underline; color:var(--accent2);" data-artist="${esc(album.artist)}">${esc(album.artist)}</span></p>
+        <p><strong>Members:</strong> ${esc(album.members?.join(', ')||'Unknown')}</p>
+        <p><strong>Genre:</strong> ${esc(album.genre)}</p>
+        <p><strong>Label:</strong> ${esc(album.label||'Independent')}</p>
+        <p><strong>Description:</strong> ${esc(album.description)}</p>
+        <p style="font-size:16px;color:var(--accent2);">${avgRating>0?getAlbumStarDisplay(album):'No ratings yet'}</p>
+      </div>
+    </div>
+    <div style="margin:8px 0;">
+      ${userReview?`<button class="btn" id="editRatingBtn">⭐ Your Rating: ${userReview.rating>0?userReview.rating+'/5':'Rate'}</button>`:`<button class="btn" id="rateAlbumBtn">⭐ Rate this Album</button>`}
+      <button class="btn" id="addReviewBtn">✍️ Write Review</button>
+      <button class="btn" id="toggleWatchlistBtn">${world.social.watchlist[world.player.id]?.includes(albumId)?'📼 Remove from Queue':'📼 Add to Queue'}</button>
+      <button class="btn accent" id="listenBtn">▶️ Listen</button>
+      <button class="btn download-btn" id="downloadDirectBtn">💾 Download WAV</button>
+    </div>
+    <hr><h3>📝 Reviews (${album.reviews.filter(r=>r.text).length})</h3>
+  ${album.reviews.filter(r=>r.text).slice().reverse().map(r=>{
+  const author = r.userId===world.player.id?world.player:getNpcById(r.userId);
+  const reviewRatings = r.reviewRatings || [];
+  const avgReviewRating = reviewRatings.length
+    ? (reviewRatings.reduce((a,b)=>a+b.rating,0)/reviewRatings.length).toFixed(1)
+    : 0;
+  const ratingText = avgReviewRating > 0
+    ? ` <span style="font-size:10px;color:var(--accent2);">(Review rated ${avgReviewRating}★ by ${reviewRatings.length} people)</span>`
+    : '';
+  return `<div class="review-block"><strong>${esc(author?.name||'Unknown')}</strong> ${r.rating>0?`· ${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}`:''}${ratingText}<br>${esc(r.text)}</div>`;
+}).join('')||'<p style="color:var(--text-dim);">No reviews yet.</p>'}
+    <button class="btn" id="viewForumBtn">💬 Forum Discussion (${album.forumPosts?.length||0} posts)</button>
+<button class="btn" id="moreLikeThisBtn">🎧 Similar Artists</button>
+<div id="moreLikeThisContainer"></div>
+  `;
+        main.innerHTML = html;
+        document.getElementById('backAlbumBtn').onclick = () => { playClick(); delete main.dataset.currentAlbumId; browseAlbums(); };
+        if (userReview) document.getElementById('editRatingBtn').onclick = () => { playClick(); rateAlbum(albumId); };
+        else document.getElementById('rateAlbumBtn').onclick = () => { playClick(); rateAlbum(albumId); };
+        document.getElementById('addReviewBtn').onclick = () => { playClick(); addReview(albumId); };
+        document.getElementById('toggleWatchlistBtn').onclick = () => { playClick(); toggleWatchlist(albumId); };
+        document.getElementById('viewForumBtn').onclick = () => { playClick(); viewAlbumForum(albumId); };
+        document.getElementById('listenBtn').onclick = () => { playClick(); listenToAlbum(albumId); };
+        document.getElementById('downloadDirectBtn').onclick = () => { playClick(); downloadAlbumDirect(albumId); };
+        document.getElementById('moreLikeThisBtn').onclick = () => { playClick(); showMoreLikeThis(albumId); };
+        const artistLink = document.querySelector('.artist-link');
+        if (artistLink) {
+            artistLink.onclick = () => { playClick(); showAlbumsByArtist(artistLink.dataset.artist); };
+        }
+    }
+
+    function rateAlbum(albumId) {
+        const album = world.social.albums.find(a => a.id === albumId);
+        if (!album) return;
+        const existing = album.reviews.find(r => r.userId === world.player.id);
+        const currentRating = existing?.rating || 0;
+        const content = document.getElementById('genericModalContent');
+        content.innerHTML = `<h2>⭐ Rate ${esc(album.title)}</h2>
+    <div style="display:flex;gap:4px;justify-content:center;font-size:24px;" id="starSelector">
+      ${[1,2,3,4,5].map(i=>`<span class="star-btn ${i<=currentRating?'active':''}" data-star="${i}">★</span>`).join('')}
+    </div>
+    <button class="btn" id="saveRatingBtn">Save Rating</button>
+    <button class="btn" id="cancelRatingBtn">Cancel</button>`;
+        document.getElementById('genericModal').style.display = 'flex';
+        let selectedRating = currentRating;
+        document.querySelectorAll('#starSelector .star-btn').forEach(star => {
+            star.onclick = () => { selectedRating = parseInt(star.dataset.star); updateStars(); };
+        });
+        const updateStars = () => document.querySelectorAll('#starSelector .star-btn').forEach(s => s.classList.toggle('active', parseInt(s.dataset.star) <= selectedRating));
+        document.getElementById('saveRatingBtn').onclick = () => {
+            playClick();
+            if (existing) { existing.rating = selectedRating; } else { album.reviews.push({ id: uid(), userId: world.player.id, rating: selectedRating, text: '', timestamp: getTotalGameMinutes(), reviewRatings: [] }); }
+            saveWorld();
+            document.getElementById('genericModal').style.display = 'none';
+            viewAlbum(albumId);
+        };
+        document.getElementById('cancelRatingBtn').onclick = () => { playClick(); document.getElementById('genericModal').style.display = 'none'; };
+    }
+
+    function addReview(albumId) {
+        const album = world.social.albums.find(a => a.id === albumId);
+        const content = document.getElementById('genericModalContent');
+        const existing = album.reviews.find(r => r.userId === world.player.id);
+        content.innerHTML = `<h2>✍️ Review for ${esc(album.title)}</h2>
+    <textarea class="input-field" id="reviewText" rows="5" placeholder="Write your review...">${esc(existing?.text||'')}</textarea>
+    <button class="btn" id="saveReviewBtn">Save Review</button>
+    <button class="btn" id="cancelReviewBtn">Cancel</button>`;
+        document.getElementById('genericModal').style.display = 'flex';
+        document.getElementById('saveReviewBtn').onclick = () => {
+            playClick();
+            const text = document.getElementById('reviewText').value.trim();
+            if (!text) return;
+            if (existing) { existing.text = text; } else { album.reviews.push({ id: uid(), userId: world.player.id, rating: 0, text, timestamp: getTotalGameMinutes(), reviewRatings: [] }); }
+            saveWorld();
+            document.getElementById('genericModal').style.display = 'none';
+            viewAlbum(albumId);
+        };
+        document.getElementById('cancelReviewBtn').onclick = () => { playClick(); document.getElementById('genericModal').style.display = 'none'; };
+    }
+
+    function toggleWatchlist(albumId) {
+        if (!world.social.watchlist[world.player.id]) world.social.watchlist[world.player.id] = [];
+        const list = world.social.watchlist[world.player.id];
+        if (list.includes(albumId)) list.splice(list.indexOf(albumId), 1);
+        else list.push(albumId);
+        saveWorld();
+        viewAlbum(albumId);
+    }
+
+    // ──────────────────────── LISTEN (NEW Tone.js VERSION) ────────────────────────
     async function listenToAlbum(albumId) {
         const album = world.social.albums.find(a => a.id === albumId);
         if (!album) return;
@@ -742,7 +1133,6 @@
             await startToneIfNeeded();
             if (cancelled) return;
 
-            // Ensure songData exists (AI generation if missing)
             if (!album.songData) {
                 album.songData = await generateAlbumSectionsAI(album);
                 saveWorld();
@@ -787,7 +1177,6 @@
             </div>
             `;
 
-            // Connect UI
             let isPlaying = true;
             player.start();
             player.setOnProgress((progress) => {
@@ -807,7 +1196,7 @@
                     document.getElementById('playPauseBtn').style.color = 'var(--text-dim)';
                     isPlaying = false;
                 } else {
-                    Tone.Transport.start(); // resume
+                    Tone.Transport.start();
                     document.getElementById('playPauseBtn').textContent = '⏸️';
                     document.getElementById('playPauseBtn').style.color = 'var(--accent2)';
                     isPlaying = true;
@@ -820,7 +1209,6 @@
                 isPlaying = false;
             };
 
-            // Download button
             document.getElementById('downloadSongBtn').onclick = async () => {
                 const btn = document.getElementById('downloadSongBtn');
                 const orig = btn.textContent;
@@ -845,7 +1233,6 @@
                 }
             };
 
-            // Close handlers
             const closePlayer = () => {
                 player.stop();
                 modal.style.display = 'none';
@@ -863,7 +1250,7 @@
         }
     }
 
-    // ──────────── Direct download (no player) ────────────
+    // ──────────────────────── DIRECT DOWNLOAD ────────────────────────
     async function downloadAlbumDirect(albumId) {
         const album = world.social.albums.find(a => a.id === albumId);
         if (!album) return;
@@ -911,1621 +1298,427 @@
         }
     }
 
-    // ──────────── Click/notification sounds (still simple Web Audio) ────────────
-    function playClick() {
-        // Simple click using a quick oscillator
-        const ctx = Tone.context; // uses Tone's shared context
-        const now = ctx.currentTime;
-        const o = ctx.createOscillator();
-        const g = ctx.createGain();
-        o.connect(g); g.connect(ctx.destination);
-        o.type = 'sine';
-        o.frequency.setValueAtTime(700, now);
-        o.frequency.exponentialRampToValueAtTime(500, now + 0.06);
-        g.gain.setValueAtTime(0.08, now);
-        g.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-        o.start(now); o.stop(now + 0.08);
-    }
-
-    function playNotification() {
-        const ctx = Tone.context;
-        const now = ctx.currentTime;
-        const o = ctx.createOscillator();
-        const g = ctx.createGain();
-        o.connect(g); g.connect(ctx.destination);
-        o.type = 'sine';
-        o.frequency.setValueAtTime(880, now);
-        g.gain.setValueAtTime(0.1, now);
-        g.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-        o.start(now); o.stop(now + 0.12);
-    }
-
-        function getAsciiLines(poster) {
-            if (typeof poster === 'string' && poster.trim().length > 0) {
-                return poster.split('\n').slice(0, 4).join('\n');
-            }
-            if (Array.isArray(poster)) {
-                return poster.slice(0, 4).join('\n');
-            }
-            return '???';
-        }
-
-        function saveWorld() { localStorage.setItem('tapetracks_world', JSON.stringify(world)); }
-
-        function loadWorld() {
-            const saved = localStorage.getItem('tapetracks_world');
-            if (saved) {
-                world = JSON.parse(saved);
-                if (world.social && world.social.albums) {
-                    world.social.albums.forEach(a => {
-                        if (typeof a.asciiPoster !== 'string') a.asciiPoster = sanitizeAscii(a
-                            .asciiPoster);
+    // ──────────────────────── MORE ARTISTS / SEARCH ────────────────────────
+    async function showAlbumsByArtist(artist) {
+        const main = document.getElementById('mainScreen');
+        let albums = world.social.albums.filter(a => a.artist === artist);
+        if (albums.length < 3) {
+            const needed = 3 - albums.length;
+            try {
+                const prompt = `Generate ${needed} additional 1980s albums by "${artist}". Return JSON with key "albums": array of objects each with "title", "year" (1980-1989), "artist" (must be "${artist}"), "members" (3-4 names with instruments), "genre", "label", "description" (2 sentences), "asciiPoster" (4-line ASCII album cover art, max 20 chars wide). Output ONLY valid JSON.`;
+                const data = await mistralChat([{ role: "user", content: prompt }], 8000, true);
+                const newAlbums = data?.albums || data || [];
+                if (Array.isArray(newAlbums)) {
+                    newAlbums.forEach(na => {
+                        const newAlbum = { id: uid(), title: na.title, year: na.year || 1985, artist: artist, members: na.members, genre: na.genre, label: na.label, description: na.description, asciiPoster: sanitizeAscii(na.asciiPoster), reviews: [], forumPosts: [] };
+                        world.social.albums.push(newAlbum);
+                        albums.push(newAlbum);
                     });
+                    saveWorld();
                 }
-                if (!world.social) world.social = {};
-                if (!world.social.albums) world.social.albums = [];
-                if (!world.social.watchlist) world.social.watchlist = {};
-                if (!world.social.notifications) world.social.notifications = [];
-                if (!world.inbox) world.inbox = [];
-                world.social.albums.forEach(a => {
-                    if (!a.reviews) a.reviews = [];
-                    if (!a.forumPosts) a.forumPosts = [];
-                    a.reviews.forEach(r => { if (!r.rating) r.rating = 0; if (!r.reviewRatings) r
-                            .reviewRatings = []; });
-                });
-                if (!world.social.watchlist[world.player.id]) world.social.watchlist[world.player.id] = [];
-                return true;
-            }
-            return false;
+            } catch (e) {}
         }
-
-        async function mistralChat(messages, maxTok = 300, jsonMode = true, signal = null) {
-            if (!apiKey) throw new Error('No API key');
-            const body = { model: MODEL, messages, temperature: 0.9, max_tokens: maxTok };
-            if (jsonMode) body.response_format = { type: "json_object" };
-            const res = await fetch(MISTRAL_ENDPOINT, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-                body: JSON.stringify(body),
-                signal
-            });
-            if (!res.ok) {
-                if (res.status === 429) throw new Error('Rate limited. Please wait a moment.');
-                throw new Error('API ' + res.status);
-            }
-            const data = await res.json();
-            let content = data.choices[0].message.content.trim();
-            if (jsonMode) { content = content.replace(/^```json\s*/, '').replace(/```\s*$/, '').trim(); try { return JSON
-                        .parse(content); } catch (e) { throw new Error('Invalid JSON from AI'); } }
-            return content;
-        }
-
-        function esc(s) { return String(s ?? '').replace(/[&<>'"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;',
-                "'": '&#39;', '"': '&quot;' })[m]); }
-
-        function sanitizeAscii(poster) {
-            if (typeof poster === 'string') return poster;
-            if (Array.isArray(poster)) return poster.join('\n');
-            return '???';
-        }
-
-        function getNpcById(id) { return world.npcs.find(n => n.id === id); }
-
-        function getTotalGameMinutes() { return world.time.day * 1440 + world.time.hour * 60 + world.time.minute; }
-
-        function pollinationsImageUrl(album) {
-            const desc = album.description ?
-                album.description :
-                `${album.genre} album from ${album.year}`;
-            const prompt =
-                `Vintage 1980s album cover art for "${album.title}" by ${album.artist}. ${desc}. Retro graphic design, vinyl record sleeve, 1980s aesthetic, nostalgic, high quality.`;
-            return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=300&height=400&nologo=true`;
-        }
-
-        function timeStr() { return `${String(world.time.hour).padStart(2,'0')}:${String(world.time.minute).padStart(2,'0')}`; }
-
-        function updateStatusBar() { document.getElementById('statusTime').textContent =
-                `Day ${world.time.day} ${timeStr()}`;
-            updateNotifBadge(); }
-
-        function applyTheme(t) { document.querySelector('.pda').setAttribute('data-theme', t); }
-
-        function addNotification(fromId, toId, type, text, linkData) {
-            if (toId !== world.player.id) return;
-            world.social.notifications.push({ id: uid(), fromId, toId, type, text, read: false, timestamp: getTotalGameMinutes(),
-                linkData: linkData || {} });
-            updateNotifBadge();
-            playNotification();
-            saveWorld();
-        }
-
-        function updateNotifBadge() {
-            const badge = document.getElementById('notifBadge');
-            if (!world || !world.social.notifications) return;
-            const unread = world.social.notifications.filter(n => !n.read).length;
-            badge.textContent = unread;
-            badge.style.display = unread > 0 ? 'block' : 'none';
-        }
-
-        function getAlbumAverageRating(album) {
-            const ratings = album.reviews.filter(r => r.rating > 0).map(r => r.rating);
-            if (ratings.length === 0) return 0;
-            return (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1);
-        }
-
-        function getAlbumStarDisplay(album) {
-            const avg = parseFloat(getAlbumAverageRating(album));
-            let stars = '';
-            for (let i = 1; i <= 5; i++) stars += i <= Math.round(avg) ? '★' : '☆';
-            return stars + ` (${album.reviews.filter(r=>r.rating>0).length})`;
-        }
-
-async function generateAlbumMusic(album) {
-    // Always get multi‑section data – no fallback
-    let song;
-    if (album.songData && album.songData.sections) {
-        song = album.songData;
-    } else {
-        song = await generateAlbumSectionsAI(album);
-        album.songData = song;
-        saveWorld();
+        let html = `<h2>🎵 Albums by ${esc(artist)}</h2><button class="btn" id="backFromArtistBtn">⬅️ Back</button><hr>`;
+        if (albums.length === 0) html += '<p>No other albums found for this artist.</p>';
+        else albums.forEach(a => { html += `<div class="album-card" data-albumId="${a.id}"><div class="album-cover">${esc(getAsciiLines(a.asciiPoster))}</div><div style="flex:1;"><strong>${esc(a.title)}</strong> (${a.year}) <span style="font-size:10px;color:var(--text-dim);">${esc(a.genre)}</span></div></div>`; });
+        main.innerHTML = html;
+        document.getElementById('backFromArtistBtn').onclick = () => { playClick(); const id = main.dataset.currentAlbumId; delete main.dataset.currentAlbumId; if (id) viewAlbum(id); else showMainMenu(); };
+        document.querySelectorAll('.album-card').forEach(el => el.onclick = () => { playClick(); delete main.dataset.currentAlbumId; viewAlbum(el.dataset.albumid); });
     }
 
-    const bpm = song.bpm || 120;
-    const stepDur = 60 / bpm / 2;   // 8th notes (8 steps per bar)
-
-    // Polyphony limiter
-    const MAX_EVENTS = 500;
-    const MAX_SIMULTANEOUS = { lead: 3, bass: 2, drums: 3 };
-    function limitPolyphony(events, max) {
-        if (!events.length) return [];
-        const sorted = [...events].sort((a, b) => a.step - b.step);
-        const result = [];
-        const activeEnds = [];
-        for (const ev of sorted) {
-            const start = ev.step;
-            const end = start + (ev.durSteps || 1);
-            for (let i = activeEnds.length - 1; i >= 0; i--) {
-                if (activeEnds[i] <= start) activeEnds.splice(i, 1);
-            }
-            if (activeEnds.length < max) {
-                result.push(ev);
-                activeEnds.push(end);
-                activeEnds.sort((a, b) => a - b);
-            }
-        }
-        return result;
-    }
-
-    // Process sections
-    const sections = song.sections.map(sec => {
-    let lead = limitPolyphony((sec.lead || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.lead);
-    let bass = limitPolyphony((sec.bass || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.bass);
-    const drumTypes = ['kick', 'snare', 'hat'];
-    let drums = [];
-    drumTypes.forEach(type => {
-        const typeEvents = (sec.drums || []).filter(e => e.type === type);
-        const limited = limitPolyphony(typeEvents, MAX_SIMULTANEOUS.drums);
-        drums.push(...limited);
-    });
-    drums.sort((a, b) => a.step - b.step);
-
-    const bars = sec.lengthBars || 8;
-    const totalSteps = bars * 8;          // total 8th-note steps in this section
-    const duration = totalSteps * stepDur;
-
-    // Find the highest step actually used in ANY part
-    const maxLead = lead.reduce((m, e) => Math.max(m, e.step + (e.durSteps || 1) - 1), 0);
-    const maxBass = bass.reduce((m, e) => Math.max(m, e.step + (e.durSteps || 1) - 1), 0);
-    const maxDrums = drums.reduce((m, e) => Math.max(m, e.step), 0);
-    const maxUsed = Math.max(maxLead, maxBass, maxDrums, 0);
-
-    // If the section is empty or doesn't reach near the end, fill the rest with a simple pattern
-    if (maxUsed < totalSteps - 4) {   // more than half a bar of silence
-        const fillStart = maxUsed + 2;
-        // Add a repeating bass note (root of the key, e.g., C2 or the first bass note's pitch)
-        const bassNote = bass.length > 0 ? bass[0].note : 'C2';  // fallback to C2
-        // Add a kick on the first beat of each remaining bar
-        const barLength = 8;
-        for (let step = fillStart; step < totalSteps; step++) {
-            // simple bass pattern: play a note every 8 steps (once per bar)
-            if (step % barLength === 0) {
-                bass.push({ step, note: bassNote, durSteps: 4, vel: 0.5 });
-            }
-            // kick drum on each beat (every 2 steps)
-            if (step % 2 === 0) {
-                drums.push({ step, type: 'kick', vel: 0.6 });
-            }
-        }
-        // sort again to keep order
-        drums.sort((a, b) => a.step - b.step);
-        bass = limitPolyphony(bass, MAX_SIMULTANEOUS.bass);  // re‑apply polyphony limit
-    }
-
-    return { ...sec, lead, bass, drums, duration };
-});
-
-    const totalDuration = sections.reduce((sum, s) => sum + s.duration, 0);
-
-    // Create offline context
-    const sampleRate = 44100;
-    const offlineCtx = new OfflineAudioContext(2, sampleRate * totalDuration, sampleRate);
-
-    // Audio graph
-    const masterGain = offlineCtx.createGain();
-    masterGain.gain.value = 0.8;
-    // ── Filters & distortion ──
-const tapeLP = offlineCtx.createBiquadFilter();
-tapeLP.type = 'lowpass';
-tapeLP.frequency.value = 7500;
-
-const distCurve = createDistortionCurve(15);
-const distNode = offlineCtx.createWaveShaper();
-distNode.curve = distCurve;
-distNode.oversample = '2x';
-
-// ── Clean path for bass ──
-const bassTapeLP = offlineCtx.createBiquadFilter();
-bassTapeLP.type = 'lowpass';
-bassTapeLP.frequency.value = 2500;
-
-// ── Reverb ──
-const reverbDelay = offlineCtx.createDelay(0.5);
-reverbDelay.delayTime.value = 0.35;
-const reverbFB = offlineCtx.createGain();
-reverbFB.gain.value = 0.4;
-const reverbGain = offlineCtx.createGain();
-reverbGain.gain.value = 0.25;
-reverbDelay.connect(reverbFB);
-reverbFB.connect(reverbDelay);
-reverbDelay.connect(reverbGain);
-
-// ── Echo ──
-const echoDelay = offlineCtx.createDelay(0.6);
-echoDelay.delayTime.value = 0.28;
-const echoFB = offlineCtx.createGain();
-echoFB.gain.value = 0.3;
-const echoGain = offlineCtx.createGain();
-echoGain.gain.value = 0.18;
-echoDelay.connect(echoFB);
-echoFB.connect(echoDelay);
-echoDelay.connect(echoGain);
-
-// ── Gains ──
-const leadGain = offlineCtx.createGain();
-leadGain.gain.value = 0.25;
-const bassGain = offlineCtx.createGain();
-bassGain.gain.value = 1.1;
-const drumGain = offlineCtx.createGain();
-drumGain.gain.value = 0.7;
-
-// ── ROUTING ──
-// Lead & drums → tapeLP → distortion → master & effects
-leadGain.connect(tapeLP);
-drumGain.connect(tapeLP);
-tapeLP.connect(distNode);
-distNode.connect(masterGain);
-distNode.connect(reverbDelay);   // now defined
-distNode.connect(echoDelay);     // now defined
-
-// Bass → bassTapeLP (no distortion) → master only
-bassGain.connect(bassTapeLP);
-bassTapeLP.connect(masterGain);
-
-// Effects returns to master
-reverbGain.connect(masterGain);
-echoGain.connect(masterGain);
-
-masterGain.connect(offlineCtx.destination);
-
-    const drumSched = createDrumSchedulers(offlineCtx, drumGain);
-    let sectionStartTime = 0;
-
-    sections.forEach(section => {
-        const offset = sectionStartTime;
-        section.lead.forEach(ev => {
-            if (freq[ev.note]) {
-                scheduleNote(offlineCtx, offset + ev.step * stepDur, freq[ev.note], (ev.durSteps || 1) * stepDur, ev.vel * 0.5, -0.3, leadGain);
-            }
-        });
-        section.bass.forEach(ev => {
-            if (freq[ev.note]) {
-                scheduleNote(offlineCtx, offset + ev.step * stepDur, freq[ev.note], (ev.durSteps || 1) * stepDur, ev.vel * 0.6, 0.2, bassGain);
-            }
-        });
-        section.drums.forEach(ev => {
-            const t = offset + ev.step * stepDur;
-            if (ev.type === 'kick') drumSched.kick(t, ev.vel);
-            else if (ev.type === 'snare') drumSched.snare(t, ev.vel);
-            else if (ev.type === 'hat') drumSched.hat(t, ev.vel);
-        });
-        sectionStartTime += section.duration;
-    });
-
-    const renderedBuffer = await offlineCtx.startRendering();
-    const url = audioBufferToWav(renderedBuffer);
-    return { url, duration: totalDuration * 1000 };
-}
-
-        // ──────────────────────── DIRECT DOWNLOAD (no player needed) ────────────────────────
-        async function downloadAlbumDirect(albumId) {
-            const album = world.social.albums.find(a => a.id === albumId);
-            if (!album) return;
-
-            const btn = document.getElementById('downloadDirectBtn');
-            if (!btn) return;
-
-            const originalText = btn.textContent;
-            btn.textContent = '⏳ GENERATING...';
-            btn.disabled = true;
-            btn.style.opacity = '0.7';
-            btn.style.cursor = 'wait';
-
+    async function showMoreLikeThis(albumId) {
+        const album = world.social.albums.find(a => a.id === albumId);
+        if (!album) return;
+        const container = document.getElementById('moreLikeThisContainer');
+        container.innerHTML = '<p style="color:var(--text-dim);">Loading similar artists…</p>';
+        let similar = world.social.albums.filter(a => a.genre === album.genre && a.id !== albumId);
+        if (similar.length < 4) {
+            const needed = 4 - similar.length;
             try {
-                // This will generate songData if needed and render the WAV
-                const result = await generateAlbumMusic(album);
-
-                btn.textContent = '⏳ DOWNLOADING...';
-
-                const link = document.createElement('a');
-                link.download = `${album.artist}_-_${album.title}.wav`.replace(/[^a-z0-9._-]/gi, '_');
-                link.href = result.url;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                setTimeout(() => URL.revokeObjectURL(result.url), 5000);
-
-                btn.textContent = '✅ DOWNLOADED!';
-                btn.style.color = 'var(--text-bright)';
-                setTimeout(() => {
-                    btn.textContent = originalText;
-                    btn.disabled = false;
-                    btn.style.opacity = '1';
-                    btn.style.cursor = 'pointer';
-                    btn.style.color = '';
-                }, 2500);
-            } catch (err) {
-                console.error('Download failed:', err);
-                btn.textContent = '❌ FAILED';
-                btn.style.color = 'var(--danger)';
-                setTimeout(() => {
-                    btn.textContent = originalText;
-                    btn.disabled = false;
-                    btn.style.opacity = '1';
-                    btn.style.cursor = 'pointer';
-                    btn.style.color = '';
-                }, 3000);
-            }
+                const prompt = `Generate ${needed} new 1980s albums similar to "${album.title}" by ${album.artist} (genre: ${album.genre}). Return JSON with key "albums": array of objects each with "title", "year" (1980-1989), "artist", "members", "genre", "description", "asciiPoster" (4-line ASCII art). Output ONLY valid JSON.`;
+                const data = await mistralChat([{ role: "user", content: prompt }], 4000, true);
+                const newAlbums = data?.albums || data || [];
+                if (Array.isArray(newAlbums)) {
+                    newAlbums.forEach(na => {
+                        const newAlbum = { id: uid(), title: na.title, year: na.year || 1985, artist: na.artist, members: na.members, genre: na.genre, description: na.description, asciiPoster: sanitizeAscii(na.asciiPoster), reviews: [], forumPosts: [] };
+                        world.social.albums.push(newAlbum);
+                        similar.push(newAlbum);
+                    });
+                    saveWorld();
+                }
+            } catch (e) { container.innerHTML = `<p style="color:var(--danger);">Could not load: ${e.message}</p>`; return; }
         }
+        const display = similar.slice(0, 4);
+        let html = '<h3>🎧 Similar Artists</h3><div style="display:flex; gap:10px; overflow-x:auto;">';
+        display.forEach(a => { html += `<div class="album-card" style="flex:0 0 140px; display:block; text-align:center; cursor:pointer;" data-albumId="${a.id}"><div class="album-cover" style="width:100%; height:100px;">${esc(getAsciiLines(a.asciiPoster))}</div><strong style="font-size:11px;">${esc(a.title)}</strong><br><span style="font-size:10px;">${esc(a.artist)}</span></div>`; });
+        html += '</div>';
+        container.innerHTML = html;
+        container.querySelectorAll('.album-card').forEach(el => el.onclick = () => { playClick(); viewAlbum(el.dataset.albumid); });
+    }
 
-        // ──────────────────────── MAIN MENU ────────────────────────
-        function showMainMenu() {
-            let unreadInbox = 0;
-            if (world.inbox) world.inbox.forEach(t => t.messages.forEach(m => { if (m.sender === 'npc' && !m.read)
-                    unreadInbox++; }));
-            let unreadNotifs = world.social.notifications.filter(n => !n.read).length;
-            const albumCount = world.social.albums.length;
-            const main = document.getElementById('mainScreen');
-            main.innerHTML = `
-    <pre style="font-size:13px;line-height:1.1;text-align:center;margin-bottom:8px;">
-████████╗ █████╗ ██████╗ ███████╗████████╗██████╗  █████╗  ██████╗██╗  ██╗███████╗
-╚══██╔══╝██╔══██╗██╔══██╗██╔════╝╚══██╔══╝██╔══██╗██╔══██╗██╔════╝██║ ██╔╝██╔════╝
-   ██║   ███████║██████╔╝█████╗     ██║   ██████╔╝███████║██║     █████╔╝ ███████╗
-   ██║   ██╔══██║██╔═══╝ ██╔══╝     ██║   ██╔══██╗██╔══██║██║     ██╔═██╗ ╚════██║
-   ██║   ██║  ██║██║     ███████╗   ██║   ██║  ██║██║  ██║╚██████╗██║  ██╗███████║
-   ╚═╝   ╚═╝  ╚═╝╚═╝     ╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝
-    ALBUM DATABASE · 1987</pre>
-    <div style="display:flex;flex-direction:column;gap:5px;">
-      <div class="menu-item" id="menuBrowse">💿 Browse Albums (${albumCount} in catalogue)</div>
-      <div class="menu-item" id="menuTopRated">⭐ Top Rated</div>
-      <div class="menu-item" id="menuSearch">🔍 Search</div>
-      <div class="menu-item" id="menuWatchlist">📼 My Listening Queue</div>
-      <div class="menu-item" id="menuMyReviews">✍️ My Reviews</div>
-      <div class="menu-item" id="menuNotifications">🔔 Notifications ${unreadNotifs?`<span class="unread-badge">${unreadNotifs}</span>`:''}</div>
-      <div class="menu-item" id="menuInbox">📬 Private Mail ${unreadInbox?`<span class="unread-badge">${unreadInbox}</span>`:''}</div>
-      <div class="menu-item" id="menuSave">💾 Save</div>
-      <div class="menu-item" id="menuTheme">🎨 Theme</div>
-      <div class="menu-item" id="menuNewGame">🔄 New Game</div>
-    </div>`;
-            document.getElementById('notifBell').onclick = () => { playClick();
-                showNotifications(); };
-            document.getElementById('menuBrowse').onclick = () => { playClick();
-                browseAlbums(); };
-            document.getElementById('menuTopRated').onclick = () => { playClick();
-                browseAlbums(null, 'rating'); };
-            document.getElementById('menuSearch').onclick = () => { playClick();
-                showSearch(); };
-            document.getElementById('menuWatchlist').onclick = () => { playClick();
-                showWatchlist(); };
-            document.getElementById('menuMyReviews').onclick = () => { playClick();
-                showMyReviews(); };
-            document.getElementById('menuNotifications').onclick = () => { playClick();
-                showNotifications(); };
-            document.getElementById('menuInbox').onclick = () => { playClick();
-                showInboxList(); };
-            document.getElementById('menuSave').onclick = () => { playClick();
+    // ──────────────────────── FORUM, SEARCH, WATCHLIST, REVIEWS ────────────────────────
+    function viewAlbumForum(albumId) {
+        const album = world.social.albums.find(a => a.id === albumId);
+        if (!album) return;
+        const main = document.getElementById('mainScreen');
+        main.dataset.currentAlbumId = albumId;
+        let html = `<h2>💬 Forum: ${esc(album.title)}</h2><button class="btn" id="backToAlbumBtn">⬅️ Back to Album</button><button class="btn" id="newForumPostBtn">✍️ New Post</button><hr>`;
+        album.forumPosts.slice().reverse().forEach(post => {
+            const author = post.author === world.player.id ? world.player : getNpcById(post.author);
+            html += `<div class="forum-post"><strong>${esc(author?.name||'Unknown')}</strong> <small>Day ${Math.floor(post.timestamp/1440)}</small><p>${esc(post.text)}</p><button class="btn reply-forum-btn" data-postid="${post.id}">Reply</button><div style="margin-left:20px;">${(post.replies||[]).map(r=>{ const ra = r.author===world.player.id?world.player:getNpcById(r.author); return `<div class="forum-reply"><strong>${esc(ra?.name||'?')}</strong> ${esc(r.text)}</div>`; }).join('')}</div></div>`;
+        });
+        main.innerHTML = html;
+        document.getElementById('backToAlbumBtn').onclick = () => { playClick(); delete main.dataset.currentAlbumId; viewAlbum(albumId); };
+        document.getElementById('newForumPostBtn').onclick = () => { playClick(); newForumPost(albumId); };
+        document.querySelectorAll('.reply-forum-btn').forEach(b => b.onclick = () => { playClick(); replyForumPost(albumId, b.dataset.postid); });
+    }
+
+    function newForumPost(albumId) {
+        const content = document.getElementById('genericModalContent');
+        content.innerHTML = `<h2>New Forum Post</h2><textarea class="input-field" id="forumPostText" rows="4"></textarea><button class="btn" id="submitForumPost">Post</button><button class="btn" id="cancelForumPost">Cancel</button>`;
+        document.getElementById('genericModal').style.display = 'flex';
+        document.getElementById('submitForumPost').onclick = () => {
+            playClick();
+            const text = document.getElementById('forumPostText').value.trim();
+            if (!text) return;
+            const album = world.social.albums.find(a => a.id === albumId);
+            if (album) { album.forumPosts.push({ id: uid(), author: world.player.id, text, timestamp: getTotalGameMinutes(), replies: [] }); saveWorld(); }
+            document.getElementById('genericModal').style.display = 'none';
+            viewAlbumForum(albumId);
+        };
+        document.getElementById('cancelForumPost').onclick = () => { playClick(); document.getElementById('genericModal').style.display = 'none'; };
+    }
+
+    function replyForumPost(albumId, postId) {
+        const content = document.getElementById('genericModalContent');
+        content.innerHTML = `<h2>Reply</h2><textarea class="input-field" id="replyText" rows="3"></textarea><button class="btn" id="submitReply">Reply</button><button class="btn" id="cancelReply">Cancel</button>`;
+        document.getElementById('genericModal').style.display = 'flex';
+        document.getElementById('submitReply').onclick = () => {
+            playClick();
+            const text = document.getElementById('replyText').value.trim();
+            if (!text) return;
+            const album = world.social.albums.find(a => a.id === albumId);
+            const post = album?.forumPosts.find(p => p.id === postId);
+            if (post) {
+                post.replies = post.replies || [];
+                post.replies.push({ author: world.player.id, text });
+                if (post.author !== world.player.id) addNotification(world.player.id, post.author, 'forum_reply', `replied to your post about "${album.title}".`, { type: 'album', id: albumId });
                 saveWorld();
-                alert('Saved.'); };
-            document.getElementById('menuTheme').onclick = () => { playClick(); const themes = ['default', 'amber',
-                    'pink', 'blue'
-                ]; const idx = themes.indexOf(currentTheme);
-                currentTheme = themes[(idx + 1) % themes.length];
-                applyTheme(currentTheme);
-                localStorage.setItem('tapetracks_theme', currentTheme); };
-            document.getElementById('menuNewGame').onclick = () => { playClick(); if (confirm(
-                    'Start new? All progress lost.')) startNewGame(); };
-        }
+            }
+            document.getElementById('genericModal').style.display = 'none';
+            viewAlbumForum(albumId);
+        };
+        document.getElementById('cancelReply').onclick = () => { playClick(); document.getElementById('genericModal').style.display = 'none'; };
+    }
 
-        // ──────────────────────── BROWSE ALBUMS ────────────────────────
-        function browseAlbums(genreFilter = null, sortBy = 'title') {
-            let albums = [...world.social.albums];
-            if (genreFilter) albums = albums.filter(a => a.genre === genreFilter);
-            if (sortBy === 'rating') albums.sort((a, b) => parseFloat(getAlbumAverageRating(b)) - parseFloat(
-                getAlbumAverageRating(a)));
-            else if (sortBy === 'year') albums.sort((a, b) => b.year - a.year);
-            else albums.sort((a, b) => a.title.localeCompare(b.title));
-            let html =
-                `<h2>💿 Album Library</h2><button class="btn" id="backBrowseBtn">⬅️ Back</button>
-    <button class="btn" id="sortTitle">A-Z</button>
-    <button class="btn" id="sortYear">📅 Year</button>
-    <button class="btn" id="sortRating">⭐ Rating</button>
-    <hr><div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">
-    <button class="btn genre-filter-btn ${!genreFilter?'accent':''}" data-genre="">All</button>
-    ${GENRES.map(g=>`<button class="btn genre-filter-btn ${genreFilter===g?'accent':''}" data-genre="${g}">${g}</button>`).join('')}
-    </div><hr>`;
-            albums.forEach(a => {
-                html += `<div class="album-card" data-albumId="${a.id}">
-      <div class="album-cover">${esc(getAsciiLines(a.asciiPoster))}</div>
-      <div style="flex:1;">
-        <strong>${esc(a.title)}</strong> – ${esc(a.artist)} (${a.year})
-        <div style="font-size:10px;color:var(--text-dim);">${esc(a.genre)} · ${esc(a.label||'')}</div>
-        <div style="font-size:11px;color:var(--accent2);">${getAlbumStarDisplay(a)}</div>
-      </div>
-    </div>`;
+    function showSearch() {
+        let html = `<h2>🔍 Search Albums</h2><button class="btn" id="backSearchBtn">⬅️ Back</button><div style="background:#0f140f;padding:12px;border-radius:8px;margin:8px 0;"><input class="input-field" id="searchQuery" placeholder="Artist, album, member, keyword..."><select class="input-field" id="searchGenre"><option value="">All Genres</option>${GENRES.map(g=>`<option value="${g}">${g}</option>`).join('')}</select><button class="btn" id="searchBtn">🔍 Search</button></div><div id="searchResults"></div>`;
+        document.getElementById('mainScreen').innerHTML = html;
+        document.getElementById('backSearchBtn').onclick = () => { playClick(); showMainMenu(); };
+        const executeSearch = async () => {
+            const query = document.getElementById('searchQuery').value.trim().toLowerCase();
+            const genre = document.getElementById('searchGenre').value;
+            const resDiv = document.getElementById('searchResults');
+            resDiv.innerHTML = 'Searching...';
+            let results = world.social.albums.filter(a => {
+                if (genre && a.genre !== genre) return false;
+                if (!query) return true;
+                return a.title.toLowerCase().includes(query) || a.artist.toLowerCase().includes(query) || (a.members || []).some(m => String(m).toLowerCase().includes(query)) || a.description.toLowerCase().includes(query);
             });
-            document.getElementById('mainScreen').innerHTML = html;
-            document.getElementById('backBrowseBtn').onclick = () => { playClick();
-                showMainMenu(); };
-            document.getElementById('sortTitle').onclick = () => { playClick();
-                browseAlbums(genreFilter, 'title'); };
-            document.getElementById('sortYear').onclick = () => { playClick();
-                browseAlbums(genreFilter, 'year'); };
-            document.getElementById('sortRating').onclick = () => { playClick();
-                browseAlbums(genreFilter, 'rating'); };
-            document.querySelectorAll('.genre-filter-btn').forEach(b => b.onclick = () => { playClick();
-                browseAlbums(b.dataset.genre || null, sortBy); });
-            document.querySelectorAll('.album-card').forEach(el => el.onclick = () => { playClick();
-                viewAlbum(el.dataset.albumid); });
-        }
-
-        // ──────────────────────── VIEW ALBUM (with direct download button) ────────────────────────
-        function viewAlbum(albumId) {
-            const album = world.social.albums.find(a => a.id === albumId);
-            if (!album) { browseAlbums(); return; }
-            const main = document.getElementById('mainScreen');
-            if (main.dataset.currentAlbumId === albumId) return;
-            main.dataset.currentAlbumId = albumId;
-            const avgRating = getAlbumAverageRating(album);
-            const userReview = album.reviews.find(r => r.userId === world.player.id);
-            let html = `
-    <h2>🎵 ${esc(album.title)} – ${esc(album.artist)} (${album.year})</h2>
-    <button class="btn" id="backAlbumBtn">⬅️ Back</button>
-    <hr><div style="display:flex;gap:12px;">
-      <div class="album-cover" style="width:100px;height:130px;font-size:9px;">
-  ${album.posterUrl
-    ? `<img src="${esc(album.posterUrl)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentNode.innerHTML='${esc(getAsciiLines(album.asciiPoster))}'">`
-    : esc(getAsciiLines(album.asciiPoster))
-  }
-</div>
-      <div>
-        <p><strong>Artist/Band:</strong> <span class="artist-link" style="cursor:pointer; text-decoration:underline; color:var(--accent2);" data-artist="${esc(album.artist)}">${esc(album.artist)}</span></p>
-        <p><strong>Members:</strong> ${esc(album.members?.join(', ')||'Unknown')}</p>
-        <p><strong>Genre:</strong> ${esc(album.genre)}</p>
-        <p><strong>Label:</strong> ${esc(album.label||'Independent')}</p>
-        <p><strong>Description:</strong> ${esc(album.description)}</p>
-        <p style="font-size:16px;color:var(--accent2);">${avgRating>0?getAlbumStarDisplay(album):'No ratings yet'}</p>
-      </div>
-    </div>
-    <div style="margin:8px 0;">
-      ${userReview?`<button class="btn" id="editRatingBtn">⭐ Your Rating: ${userReview.rating>0?userReview.rating+'/5':'Rate'}</button>`:`<button class="btn" id="rateAlbumBtn">⭐ Rate this Album</button>`}
-      <button class="btn" id="addReviewBtn">✍️ Write Review</button>
-      <button class="btn" id="toggleWatchlistBtn">${world.social.watchlist[world.player.id]?.includes(albumId)?'📼 Remove from Queue':'📼 Add to Queue'}</button>
-      <button class="btn accent" id="listenBtn">▶️ Listen</button>
-      <button class="btn download-btn" id="downloadDirectBtn">💾 Download WAV</button>
-    </div>
-    <hr><h3>📝 Reviews (${album.reviews.filter(r=>r.text).length})</h3>
-  ${album.reviews.filter(r=>r.text).slice().reverse().map(r=>{
-  const author = r.userId===world.player.id?world.player:getNpcById(r.userId);
-  const reviewRatings = r.reviewRatings || [];
-  const avgReviewRating = reviewRatings.length
-    ? (reviewRatings.reduce((a,b)=>a+b.rating,0)/reviewRatings.length).toFixed(1)
-    : 0;
-  const ratingText = avgReviewRating > 0
-    ? ` <span style="font-size:10px;color:var(--accent2);">(Review rated ${avgReviewRating}★ by ${reviewRatings.length} people)</span>`
-    : '';
-  return `<div class="review-block"><strong>${esc(author?.name||'Unknown')}</strong> ${r.rating>0?`· ${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}`:''}${ratingText}<br>${esc(r.text)}</div>`;
-}).join('')||'<p style="color:var(--text-dim);">No reviews yet.</p>'}
-    <button class="btn" id="viewForumBtn">💬 Forum Discussion (${album.forumPosts?.length||0} posts)</button>
-<button class="btn" id="moreLikeThisBtn">🎧 Similar Artists</button>
-<div id="moreLikeThisContainer"></div>
-  `;
-            main.innerHTML = html;
-            document.getElementById('backAlbumBtn').onclick = () => { playClick(); delete main.dataset
-                    .currentAlbumId;
-                browseAlbums(); };
-            if (userReview) {
-                document.getElementById('editRatingBtn').onclick = () => { playClick();
-                    rateAlbum(albumId); };
-            } else {
-                document.getElementById('rateAlbumBtn').onclick = () => { playClick();
-                    rateAlbum(albumId); };
-            }
-            document.getElementById('addReviewBtn').onclick = () => { playClick();
-                addReview(albumId); };
-            document.getElementById('toggleWatchlistBtn').onclick = () => { playClick();
-                toggleWatchlist(albumId); };
-            document.getElementById('viewForumBtn').onclick = () => { playClick();
-                viewAlbumForum(albumId); };
-            document.getElementById('listenBtn').onclick = () => { playClick();
-                listenToAlbum(albumId); };
-            // ★ NEW: Direct download button – no player needed
-            document.getElementById('downloadDirectBtn').onclick = () => { playClick();
-                downloadAlbumDirect(albumId); };
-            document.getElementById('moreLikeThisBtn').onclick = () => {
-                playClick();
-                showMoreLikeThis(albumId);
-            };
-            const artistLink = document.querySelector('.artist-link');
-            if (artistLink) {
-                artistLink.onclick = () => {
-                    playClick();
-                    showAlbumsByArtist(artistLink.dataset.artist);
-                };
-            }
-        }
-
-        function rateAlbum(albumId) {
-            const album = world.social.albums.find(a => a.id === albumId);
-            if (!album) return;
-            const existing = album.reviews.find(r => r.userId === world.player.id);
-            const currentRating = existing?.rating || 0;
-            const content = document.getElementById('genericModalContent');
-            content.innerHTML = `<h2>⭐ Rate ${esc(album.title)}</h2>
-    <div style="display:flex;gap:4px;justify-content:center;font-size:24px;" id="starSelector">
-      ${[1,2,3,4,5].map(i=>`<span class="star-btn ${i<=currentRating?'active':''}" data-star="${i}">★</span>`).join('')}
-    </div>
-    <button class="btn" id="saveRatingBtn">Save Rating</button>
-    <button class="btn" id="cancelRatingBtn">Cancel</button>`;
-            document.getElementById('genericModal').style.display = 'flex';
-            let selectedRating = currentRating;
-            document.querySelectorAll('#starSelector .star-btn').forEach(star => {
-                star.onclick = () => { selectedRating = parseInt(star.dataset.star);
-                    updateStars(); };
-            });
-            const updateStars = () => document.querySelectorAll('#starSelector .star-btn').forEach(s => s.classList
-                .toggle('active', parseInt(s.dataset.star) <= selectedRating));
-            document.getElementById('saveRatingBtn').onclick = () => {
-                playClick();
-                if (existing) { existing.rating = selectedRating; } else { album.reviews.push({ id: uid(), userId: world
-                            .player.id, rating: selectedRating, text: '', timestamp: getTotalGameMinutes(),
-                        reviewRatings: [] }); }
-                saveWorld();
-                document.getElementById('genericModal').style.display = 'none';
-                viewAlbum(albumId);
-            };
-            document.getElementById('cancelRatingBtn').onclick = () => { playClick();
-                document.getElementById('genericModal').style.display = 'none'; };
-        }
-
-        function addReview(albumId) {
-            const album = world.social.albums.find(a => a.id === albumId);
-            const content = document.getElementById('genericModalContent');
-            const existing = album.reviews.find(r => r.userId === world.player.id);
-            content.innerHTML = `<h2>✍️ Review for ${esc(album.title)}</h2>
-    <textarea class="input-field" id="reviewText" rows="5" placeholder="Write your review...">${esc(existing?.text||'')}</textarea>
-    <button class="btn" id="saveReviewBtn">Save Review</button>
-    <button class="btn" id="cancelReviewBtn">Cancel</button>`;
-            document.getElementById('genericModal').style.display = 'flex';
-            document.getElementById('saveReviewBtn').onclick = () => {
-                playClick();
-                const text = document.getElementById('reviewText').value.trim();
-                if (!text) return;
-                if (existing) { existing.text = text; } else { album.reviews.push({ id: uid(), userId: world.player
-                            .id, rating: 0, text, timestamp: getTotalGameMinutes(), reviewRatings: [] }); }
-                saveWorld();
-                document.getElementById('genericModal').style.display = 'none';
-                viewAlbum(albumId);
-            };
-            document.getElementById('cancelReviewBtn').onclick = () => { playClick();
-                document.getElementById('genericModal').style.display = 'none'; };
-        }
-
-        function toggleWatchlist(albumId) {
-            if (!world.social.watchlist[world.player.id]) world.social.watchlist[world.player.id] = [];
-            const list = world.social.watchlist[world.player.id];
-            if (list.includes(albumId)) list.splice(list.indexOf(albumId), 1);
-            else list.push(albumId);
-            saveWorld();
-            viewAlbum(albumId);
-        }
-
-        async function showAlbumsByArtist(artist) {
-            const main = document.getElementById('mainScreen');
-            let albums = world.social.albums.filter(a => a.artist === artist);
-
-            if (albums.length < 3) {
-                const needed = 3 - albums.length;
+            if (results.length < 5 && query) {
+                const needed = 5 - results.length;
                 try {
-                    const prompt =
-                        `Generate ${needed} additional 1980s albums by "${artist}". Return JSON with key "albums": array of objects each with "title", "year" (1980-1989), "artist" (must be "${artist}"), "members" (3-4 names with instruments), "genre", "label", "description" (2 sentences), "asciiPoster" (4-line ASCII album cover art, max 20 chars wide). Output ONLY valid JSON.`;
-                    const data = await mistralChat([{ role: "user", content: prompt }], 8000, true);
+                    const prompt = `Generate ${needed} new 1980s albums matching search "${query}"${genre?` in genre ${genre}`:''}. Return JSON with key "albums": array of objects each with "title", "year" (1980-1989), "artist", "members", "genre", "label", "description" (2 sentences), "asciiPoster" (4-line ASCII art, max 20 chars wide). Output ONLY valid JSON.`;
+                    const data = await mistralChat([{ role: "user", content: prompt }], 2000, true);
                     const newAlbums = data?.albums || data || [];
                     if (Array.isArray(newAlbums)) {
                         newAlbums.forEach(na => {
-                            const newAlbum = {
-                                id: uid(),
-                                title: na.title,
-                                year: na.year || 1985,
-                                artist: artist,
-                                members: na.members,
-                                genre: na.genre,
-                                label: na.label,
-                                description: na.description,
-                                asciiPoster: sanitizeAscii(na.asciiPoster),
-                                reviews: [],
-                                forumPosts: []
-                            };
-                            world.social.albums.push(newAlbum);
-                            albums.push(newAlbum);
+                            const album = { id: uid(), title: na.title, year: na.year || 1987, artist: na.artist, members: na.members, genre: na.genre, label: na.label, description: na.description, asciiPoster: sanitizeAscii(na.asciiPoster), reviews: [], forumPosts: [] };
+                            world.social.albums.push(album);
+                            results.push(album);
                         });
                         saveWorld();
                     }
-                } catch (e) {}
+                } catch (e) { resDiv.innerHTML = `<p style="color:var(--danger);">Search service unavailable (${e.message}).</p>`; return; }
             }
-
-            let html =
-                `<h2>🎵 Albums by ${esc(artist)}</h2>
-    <button class="btn" id="backFromArtistBtn">⬅️ Back</button><hr>`;
-            if (albums.length === 0) html += '<p>No other albums found for this artist.</p>';
-            else albums.forEach(a => {
-                html += `<div class="album-card" data-albumId="${a.id}">
-      <div class="album-cover">${esc(getAsciiLines(a.asciiPoster))}</div>
-      <div style="flex:1;"><strong>${esc(a.title)}</strong> (${a.year}) <span style="font-size:10px;color:var(--text-dim);">${esc(a.genre)}</span></div>
-    </div>`;
-            });
-            main.innerHTML = html;
-            document.getElementById('backFromArtistBtn').onclick = () => { playClick(); const id = main.dataset
-                    .currentAlbumId; delete main.dataset.currentAlbumId; if (id) viewAlbum(id); else
-                showMainMenu(); };
-            document.querySelectorAll('.album-card').forEach(el => el.onclick = () => { playClick(); delete main.dataset
-                    .currentAlbumId;
-                viewAlbum(el.dataset.albumid); });
-        }
-
-       async function listenToAlbum(albumId) {
-    const album = world.social.albums.find(a => a.id === albumId);
-    if (!album) return;
-
-    const modal = document.getElementById('listenModal');
-    const content = document.getElementById('listenModalContent');
-
-    // ── LOADING SCREEN ──
-    content.innerHTML = `
-    <div style="text-align:center; background:#0a0d0a; border-radius:12px; padding:16px; border:2px solid #1a2a1a;">
-      <div style="font-family:'VT323'; font-size:18px; color:var(--accent2);">🎛️ LOADING...</div>
-      <div class="album-cover" style="width:120px; height:120px; margin:10px auto; font-size:10px; border-radius:8px;">
-        ${album.posterUrl
-          ? `<img src="${esc(album.posterUrl)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentNode.innerHTML='${esc(getAsciiLines(album.asciiPoster))}'">`
-          : esc(getAsciiLines(album.asciiPoster))}
-      </div>
-      <div style="font-size:20px; color:var(--text);"><strong>${esc(album.title)}</strong></div>
-      <div style="color:var(--text-dim);">${esc(album.artist)} · ${esc(album.genre)} · ${album.year}</div>
-      <p style="color:var(--text-dim); margin-top:12px;">NOW PLAYING...</p>
-      <button class="btn" id="cancelListenBtn" style="margin-top:12px;">Cancel</button>
-    </div>
-  `;
-    modal.style.display = 'flex';
-
-    let cancelled = false;
-    document.getElementById('cancelListenBtn').onclick = () => {
-        playClick();
-        cancelled = true;
-        modal.style.display = 'none';
-    };
-
-    // 1. Get multi‑section song data – NO FALLBACK
-    let song;
-    try {
-        // Always use the new multi‑section generator
-        song = album.songData?.sections ? album.songData : await generateAlbumSectionsAI(album);
-        if (cancelled) return;
-        if (!album.songData) {
-            album.songData = song;
-            saveWorld();
-        }
-    } catch (e) {
-        if (cancelled) return;
-        content.innerHTML = `
-        <h2 style="color:var(--danger);">Composition Error</h2>
-        <p>Could not generate the song:<br>${esc(e.message)}</p>
-        <p style="color:var(--text-dim);">The AI may be overloaded. Please try again.</p>
-        <button class="btn" id="closeErrorBtn">Close</button>
-      `;
-        document.getElementById('closeErrorBtn').onclick = () => { playClick(); modal.style.display = 'none'; };
-        return;
-    }
-
-    if (cancelled) return;
-
-    // 2. Process sections
-    const bpm = song.bpm || 120;
-    const stepDur = 60 / bpm / 2;   // 8 steps per bar
-    const MAX_EVENTS = 500;
-    const MAX_SIMULTANEOUS = { lead: 3, bass: 2, drums: 3 };
-
-    function limitPolyphony(events, max) {
-        if (!events.length) return [];
-        const sorted = [...events].sort((a, b) => a.step - b.step);
-        const result = [];
-        const activeEnds = [];
-        for (const ev of sorted) {
-            const start = ev.step;
-            const end = start + (ev.durSteps || 1);
-            for (let i = activeEnds.length - 1; i >= 0; i--) {
-                if (activeEnds[i] <= start) activeEnds.splice(i, 1);
-            }
-            if (activeEnds.length < max) {
-                result.push(ev);
-                activeEnds.push(end);
-                activeEnds.sort((a, b) => a - b);
-            }
-        }
-        return result;
-    }
-
-    const sections = song.sections.map(sec => {
-    let lead = limitPolyphony((sec.lead || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.lead);
-    let bass = limitPolyphony((sec.bass || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.bass);
-    const drumTypes = ['kick', 'snare', 'hat'];
-    let drums = [];
-    drumTypes.forEach(type => {
-        const typeEvents = (sec.drums || []).filter(e => e.type === type);
-        const limited = limitPolyphony(typeEvents, MAX_SIMULTANEOUS.drums);
-        drums.push(...limited);
-    });
-    drums.sort((a, b) => a.step - b.step);
-
-    const bars = sec.lengthBars || 8;
-    const totalSteps = bars * 8;          // total 8th-note steps in this section
-    const duration = totalSteps * stepDur;
-
-    // Find the highest step actually used in ANY part
-    const maxLead = lead.reduce((m, e) => Math.max(m, e.step + (e.durSteps || 1) - 1), 0);
-    const maxBass = bass.reduce((m, e) => Math.max(m, e.step + (e.durSteps || 1) - 1), 0);
-    const maxDrums = drums.reduce((m, e) => Math.max(m, e.step), 0);
-    const maxUsed = Math.max(maxLead, maxBass, maxDrums, 0);
-
-    // If the section is empty or doesn't reach near the end, fill the rest with a simple pattern
-    if (maxUsed < totalSteps - 4) {   // more than half a bar of silence
-        const fillStart = maxUsed + 2;
-        // Add a repeating bass note (root of the key, e.g., C2 or the first bass note's pitch)
-        const bassNote = bass.length > 0 ? bass[0].note : 'C2';  // fallback to C2
-        // Add a kick on the first beat of each remaining bar
-        const barLength = 8;
-        for (let step = fillStart; step < totalSteps; step++) {
-            // simple bass pattern: play a note every 8 steps (once per bar)
-            if (step % barLength === 0) {
-                bass.push({ step, note: bassNote, durSteps: 4, vel: 0.5 });
-            }
-            // kick drum on each beat (every 2 steps)
-            if (step % 2 === 0) {
-                drums.push({ step, type: 'kick', vel: 0.6 });
-            }
-        }
-        // sort again to keep order
-        drums.sort((a, b) => a.step - b.step);
-        bass = limitPolyphony(bass, MAX_SIMULTANEOUS.bass);  // re‑apply polyphony limit
-    }
-
-    return { ...sec, lead, bass, drums, duration };
-});
-
-    // Sections must exist
-    if (sections.length === 0) {
-        content.innerHTML = `
-        <h2 style="color:var(--danger);">Empty Song</h2>
-        <p>The AI returned no musical sections. Please try again.</p>
-        <button class="btn" id="closeErrorBtn">Close</button>
-      `;
-        document.getElementById('closeErrorBtn').onclick = () => { playClick(); modal.style.display = 'none'; };
-        return;
-    }
-
-    const totalDuration = sections.reduce((sum, s) => sum + s.duration, 0);
-    const totalSec = Math.ceil(totalDuration);
-
-    // 3. Set up real‑time audio
-    let realtimeAudioOk = false;
-    let ctx = null, masterGain = null;
-    try {
-        if (!ensureAudio()) throw new Error('AudioContext not available');
-
-        ctx = audioCtx;
-        masterGain = ctx.createGain();
-        masterGain.gain.value = 0.8;
-        masterGain.connect(ctx.destination);
-
-       const tapeLP = ctx.createBiquadFilter();
-tapeLP.type = 'lowpass';
-tapeLP.frequency.value = 7500;
-
-const distCurve = createDistortionCurve(15);
-const distNode = ctx.createWaveShaper();
-distNode.curve = distCurve;
-distNode.oversample = '2x';
-
-// Bass clean path
-const bassTapeLP = ctx.createBiquadFilter();
-bassTapeLP.type = 'lowpass';
-bassTapeLP.frequency.value = 7500;
-
-// Reverb
-const reverbDelay = ctx.createDelay(0.5);
-reverbDelay.delayTime.value = 0.35;
-const reverbFB = ctx.createGain();
-reverbFB.gain.value = 0.4;
-const reverbGain = ctx.createGain();
-reverbGain.gain.value = 0.25;
-reverbDelay.connect(reverbFB);
-reverbFB.connect(reverbDelay);
-reverbDelay.connect(reverbGain);
-
-// Echo
-const echoDelay = ctx.createDelay(0.6);
-echoDelay.delayTime.value = 0.28;
-const echoFB = ctx.createGain();
-echoFB.gain.value = 0.3;
-const echoGain = ctx.createGain();
-echoGain.gain.value = 0.18;
-echoDelay.connect(echoFB);
-echoFB.connect(echoDelay);
-echoDelay.connect(echoGain);
-
-// Gains
-const leadGain = ctx.createGain(); leadGain.gain.value = 0.25;
-const bassGain = ctx.createGain(); bassGain.gain.value = 1.1;
-const drumGain = ctx.createGain(); drumGain.gain.value = 0.7;
-
-// Routing
-leadGain.connect(tapeLP);
-drumGain.connect(tapeLP);
-tapeLP.connect(distNode);
-distNode.connect(masterGain);
-distNode.connect(reverbDelay);
-distNode.connect(echoDelay);
-
-bassGain.connect(bassTapeLP);
-bassTapeLP.connect(masterGain);
-
-reverbGain.connect(masterGain);
-echoGain.connect(masterGain);
-masterGain.connect(ctx.destination);
-
-        const drumSched = createDrumSchedulers(ctx, drumGain);
-
-        // 4. Build scheduling tasks (sections sequentially)
-        const allTasks = [];
-        const now = ctx.currentTime + 0.1;
-        let sectionStartTime = now;
-
-        sections.forEach(section => {
-            const offset = sectionStartTime;
-            const { lead, bass, drums } = section;
-
-            lead.forEach(ev => {
-                if (freq[ev.note]) {
-                    allTasks.push(() =>
-                        scheduleNote(ctx, offset + ev.step * stepDur, freq[ev.note],
-                            (ev.durSteps || 1) * stepDur, ev.vel * 0.5, -0.3, leadGain)
-                    );
-                }
-            });
-            bass.forEach(ev => {
-                if (freq[ev.note]) {
-                    allTasks.push(() =>
-                        scheduleNote(ctx, offset + ev.step * stepDur, freq[ev.note],
-                            (ev.durSteps || 1) * stepDur, ev.vel * 0.6, 0.2, bassGain)
-                    );
-                }
-            });
-            drums.forEach(ev => {
-                const t = offset + ev.step * stepDur;
-                if (ev.type === 'kick') allTasks.push(() => drumSched.kick(t, ev.vel));
-                else if (ev.type === 'snare') allTasks.push(() => drumSched.snare(t, ev.vel));
-                else if (ev.type === 'hat') allTasks.push(() => drumSched.hat(t, ev.vel));
-            });
-
-            sectionStartTime += section.duration;
-        });
-
-        // Batch scheduling to avoid browser hang
-        const BATCH_SIZE = 200;
-        let taskIndex = 0;
-        const scheduleBatch = () => {
-            if (cancelled) return;
-            const end = Math.min(taskIndex + BATCH_SIZE, allTasks.length);
-            for (let i = taskIndex; i < end; i++) {
-                allTasks[i]();
-            }
-            taskIndex = end;
-            if (taskIndex < allTasks.length) {
-                requestAnimationFrame(scheduleBatch);
-            }
+            resDiv.innerHTML = results.length === 0 ? '<p style="color:var(--text-dim);">No albums found.</p>' : results.map(a => `<div class="album-card" data-albumId="${a.id}"><div class="album-cover">${esc(getAsciiLines(a.asciiPoster))}</div><div style="flex:1;"><strong>${esc(a.title)}</strong> – ${esc(a.artist)} (${a.year})<div style="font-size:10px;">${esc(a.genre)}</div><div style="font-size:11px;color:var(--accent2);">${getAlbumStarDisplay(a)}</div></div></div>`).join('');
+            document.querySelectorAll('#searchResults .album-card').forEach(el => el.onclick = () => { playClick(); viewAlbum(el.dataset.albumid); });
+            if (results.length > 0) generatePosterForFirstAlbum(results[0]);
         };
-        setTimeout(() => requestAnimationFrame(scheduleBatch), 0);
-
-        realtimeAudioOk = true;
-    } catch (e) {
-        console.warn('Real‑time audio setup failed:', e);
+        document.getElementById('searchBtn').onclick = () => { playClick(); executeSearch(); };
+        document.getElementById('searchQuery').addEventListener('keypress', e => { if (e.key === 'Enter') { playClick(); executeSearch(); } });
     }
 
-    // 5. Build player UI
-    content.innerHTML = `
-    <div style="text-align:center; background:#0a0d0a; border-radius:12px; padding:16px; border:2px solid #1a2a1a; position:relative; min-width:320px;">
-      <button id="closeXBtn" style="position:absolute; top:8px; right:12px; background:none; border:none; color:var(--text); font-size:20px; cursor:pointer; z-index:10;">✖</button>
-      <div style="font-family:'VT323'; font-size:18px; color:var(--accent2); margin-top:8px;">▶️ NOW SPINNING</div>
-      <div class="album-cover" style="width:120px; height:120px; margin:10px auto; font-size:10px; border-radius:8px;">
-        ${album.posterUrl
-          ? `<img src="${esc(album.posterUrl)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentNode.innerHTML='${esc(getAsciiLines(album.asciiPoster))}'">`
-          : esc(getAsciiLines(album.asciiPoster))}
-      </div>
-      <div style="font-size:20px; color:var(--text);"><strong>${esc(album.title)}</strong></div>
-      <div style="color:var(--text-dim);">${esc(album.artist)} · ${esc(album.genre)} · ${album.year}</div>
-      <div style="margin:12px 0; background:#111511; border-radius:10px; padding:10px;">
-        ${realtimeAudioOk ? `
-          <div style="display:flex; align-items:center; gap:6px; justify-content:center; margin-bottom:8px;">
-            <span id="playPauseBtn" style="font-size:24px; cursor:pointer; color:var(--accent2);">⏸️</span>
-            <span id="stopBtn" style="font-size:24px; cursor:pointer; color:var(--danger);">⏹</span>
-          </div>
-          <div style="background:#1a2a1a; border-radius:4px; height:6px; margin:8px 0;">
-            <div id="progressBar" style="background:var(--accent2); width:0%; height:100%; border-radius:4px;"></div>
-          </div>
-          <div style="display:flex; justify-content:space-between; color:var(--text-dim); font-size:10px;">
-            <span id="timeElapsed">0:00</span>
-            <span id="timeTotal">0:${String(totalSec).padStart(2,'0')}</span>
-          </div>
-        ` : `
-          <p style="color:var(--danger);">⚠️ Audio playback unavailable (browser may require user interaction first).</p>
-        `}
-        <div style="font-size:9px; color:var(--text-dim); margin-top:4px;">
-          🎹 ${bpm} BPM · ${sections.length} sections
-        </div>
-      </div>
-      <button class="btn" id="downloadSongBtn" style="margin-top:8px;">💾 DOWNLOAD WAV</button>
-      <button class="btn accent" id="closePlayerBtn">⏹ STOP & CLOSE</button>
-    </div>
-  `;
-
-    // 6. Event handlers
-    const closePlayer = () => {
-        clearInterval(progressInterval);
-        if (masterGain) masterGain.disconnect();
-        modal.style.display = 'none';
-    };
-
-    let isPlaying = realtimeAudioOk;
-    let progressInterval;
-    if (realtimeAudioOk) {
-        const startTime = ctx.currentTime;
-        progressInterval = setInterval(() => {
-            const elapsed = ctx.currentTime - startTime;
-            const percent = Math.min(100, (elapsed / totalDuration) * 100);
-            const pb = document.getElementById('progressBar');
-            const te = document.getElementById('timeElapsed');
-            if (pb) pb.style.width = percent + '%';
-            if (te) te.textContent =
-                `0:${String(Math.floor(Math.min(elapsed, totalDuration))).padStart(2,'0')}`;
-            if (elapsed >= totalDuration) closePlayer();
-        }, 100);
-
-        document.getElementById('playPauseBtn').onclick = () => {
-            if (isPlaying) {
-                masterGain.gain.value = 0;
-                document.getElementById('playPauseBtn').textContent = '▶️';
-                document.getElementById('playPauseBtn').style.color = 'var(--text-dim)';
-                isPlaying = false;
-            } else {
-                masterGain.gain.value = 0.8;
-                document.getElementById('playPauseBtn').textContent = '⏸️';
-                document.getElementById('playPauseBtn').style.color = 'var(--accent2)';
-                isPlaying = true;
-            }
-        };
-
-        document.getElementById('stopBtn').onclick = () => {
-            masterGain.gain.value = 0;
-            document.getElementById('playPauseBtn').textContent = '▶️';
-            document.getElementById('playPauseBtn').style.color = 'var(--text-dim)';
-            isPlaying = false;
-        };
-    }
-
-    // Download button (always uses the new multi‑section renderer)
-    document.getElementById('downloadSongBtn').onclick = async () => {
-        const btn = document.getElementById('downloadSongBtn');
-        const orig = btn.textContent;
-        btn.textContent = '⏳ RENDERING...';
-        btn.disabled = true;
-        btn.style.opacity = '0.6';
+    async function generatePosterForFirstAlbum(album) {
+        const NOW = Date.now();
+        if (NOW - lastPollinationsCall < 30000) return;
+        const coverDiv = document.querySelector(`.album-card[data-albumId="${album.id}"] .album-cover`);
+        if (!coverDiv) return;
+        coverDiv.innerHTML = '<span style="color:var(--text-dim);">Loading art…</span>';
+        coverDiv.style.fontSize = '8px';
         try {
-            const result = await generateAlbumMusic(album);
-            const link = document.createElement('a');
-            link.download = `${album.artist}_-_${album.title}.wav`.replace(/[^a-z0-9._-]/gi, '_');
-            link.href = result.url;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            setTimeout(() => URL.revokeObjectURL(result.url), 5000);
-            btn.textContent = '✅ DOWNLOADED';
-            setTimeout(() => { btn.textContent = orig; btn.disabled = false; btn.style.opacity = '1'; }, 2000);
-        } catch (err) {
-            btn.textContent = '❌ FAILED';
-            btn.style.color = 'var(--danger)';
-            setTimeout(() => { btn.textContent = orig; btn.disabled = false; btn.style.opacity = '1'; btn.style.color = ''; }, 2000);
-        }
-    };
-
-    // Close buttons
-    document.getElementById('closePlayerBtn').onclick = () => { playClick(); closePlayer(); };
-    document.getElementById('closeXBtn').onclick = () => { playClick(); closePlayer(); };
-    modal.onclick = (e) => { if (e.target === modal) { playClick(); closePlayer(); } };
-    const escHandler = (e) => { if (e.key === 'Escape') { closePlayer(); document.removeEventListener('keydown', escHandler); } };
-    document.addEventListener('keydown', escHandler);
-}
-
-        async function showMoreLikeThis(albumId) {
-            const album = world.social.albums.find(a => a.id === albumId);
-            if (!album) return;
-            const container = document.getElementById('moreLikeThisContainer');
-            container.innerHTML = '<p style="color:var(--text-dim);">Loading similar artists…</p>';
-            let similar = world.social.albums.filter(a => a.genre === album.genre && a.id !== albumId);
-            if (similar.length < 4) {
-                const needed = 4 - similar.length;
-                try {
-                    const prompt =
-                        `Generate ${needed} new 1980s albums similar to "${album.title}" by ${album.artist} (genre: ${album.genre}). Return JSON with key "albums": array of objects each with "title", "year" (1980-1989), "artist", "members", "genre", "description", "asciiPoster" (4-line ASCII art). Output ONLY valid JSON.`;
-                    const data = await mistralChat([{ role: "user", content: prompt }], 4000, true);
-                    const newAlbums = data?.albums || data || [];
-                    if (Array.isArray(newAlbums)) {
-                        newAlbums.forEach(na => {
-                            const newAlbum = {
-                                id: uid(),
-                                title: na.title,
-                                year: na.year || 1985,
-                                artist: na.artist,
-                                members: na.members,
-                                genre: na.genre,
-                                description: na.description,
-                                asciiPoster: sanitizeAscii(na.asciiPoster),
-                                reviews: [],
-                                forumPosts: []
-                            };
-                            world.social.albums.push(newAlbum);
-                            similar.push(newAlbum);
-                        });
-                        saveWorld();
-                    }
-                } catch (e) {
-                    container.innerHTML =
-                        `<p style="color:var(--danger);">Could not load: ${e.message}</p>`;
-                    return;
-                }
-            }
-            const display = similar.slice(0, 4);
-            let html =
-                '<h3>🎧 Similar Artists</h3><div style="display:flex; gap:10px; overflow-x:auto;">';
-            display.forEach(a => {
-                html +=
-                    `<div class="album-card" style="flex:0 0 140px; display:block; text-align:center; cursor:pointer;" data-albumId="${a.id}">
-      <div class="album-cover" style="width:100%; height:100px;">${esc(getAsciiLines(a.asciiPoster))}</div>
-      <strong style="font-size:11px;">${esc(a.title)}</strong><br><span style="font-size:10px;">${esc(a.artist)}</span>
-    </div>`;
-            });
-            html += '</div>';
-            container.innerHTML = html;
-            container.querySelectorAll('.album-card').forEach(el => el.onclick = () => { playClick();
-                viewAlbum(el.dataset.albumid); });
-        }
-
-        // ──────────────────────── ALBUM FORUM ────────────────────────
-        function viewAlbumForum(albumId) {
-            const album = world.social.albums.find(a => a.id === albumId);
-            if (!album) return;
-            const main = document.getElementById('mainScreen');
-            main.dataset.currentAlbumId = albumId;
-            let html =
-                `<h2>💬 Forum: ${esc(album.title)}</h2><button class="btn" id="backToAlbumBtn">⬅️ Back to Album</button>
-    <button class="btn" id="newForumPostBtn">✍️ New Post</button><hr>`;
-            album.forumPosts.slice().reverse().forEach(post => {
-                const author = post.author === world.player.id ? world.player : getNpcById(post.author);
-                html +=
-                    `<div class="forum-post"><strong>${esc(author?.name||'Unknown')}</strong> <small>Day ${Math.floor(post.timestamp/1440)}</small>
-      <p>${esc(post.text)}</p>
-      <button class="btn reply-forum-btn" data-postid="${post.id}">Reply</button>
-      <div style="margin-left:20px;">${(post.replies||[]).map(r=>{
-        const ra = r.author===world.player.id?world.player:getNpcById(r.author);
-        return `<div class="forum-reply"><strong>${esc(ra?.name||'?')}</strong> ${esc(r.text)}</div>`;
-      }).join('')}</div>
-    </div>`;
-            });
-            main.innerHTML = html;
-            document.getElementById('backToAlbumBtn').onclick = () => { playClick(); delete main.dataset
-                    .currentAlbumId;
-                viewAlbum(albumId); };
-            document.getElementById('newForumPostBtn').onclick = () => { playClick();
-                newForumPost(albumId); };
-            document.querySelectorAll('.reply-forum-btn').forEach(b => b.onclick = () => { playClick();
-                replyForumPost(albumId, b.dataset.postid); });
-        }
-
-        function newForumPost(albumId) {
-            const content = document.getElementById('genericModalContent');
-            content.innerHTML =
-                `<h2>New Forum Post</h2><textarea class="input-field" id="forumPostText" rows="4"></textarea>
-    <button class="btn" id="submitForumPost">Post</button><button class="btn" id="cancelForumPost">Cancel</button>`;
-            document.getElementById('genericModal').style.display = 'flex';
-            document.getElementById('submitForumPost').onclick = () => {
-                playClick();
-                const text = document.getElementById('forumPostText').value.trim();
-                if (!text) return;
-                const album = world.social.albums.find(a => a.id === albumId);
-                if (album) {
-                    album.forumPosts.push({ id: uid(), author: world.player.id, text, timestamp: getTotalGameMinutes(),
-                        replies: [] });
-                    saveWorld();
-                }
-                document.getElementById('genericModal').style.display = 'none';
-                viewAlbumForum(albumId);
-            };
-            document.getElementById('cancelForumPost').onclick = () => { playClick();
-                document.getElementById('genericModal').style.display = 'none'; };
-        }
-
-        function replyForumPost(albumId, postId) {
-            const content = document.getElementById('genericModalContent');
-            content.innerHTML =
-                `<h2>Reply</h2><textarea class="input-field" id="replyText" rows="3"></textarea>
-    <button class="btn" id="submitReply">Reply</button><button class="btn" id="cancelReply">Cancel</button>`;
-            document.getElementById('genericModal').style.display = 'flex';
-            document.getElementById('submitReply').onclick = () => {
-                playClick();
-                const text = document.getElementById('replyText').value.trim();
-                if (!text) return;
-                const album = world.social.albums.find(a => a.id === albumId);
-                const post = album?.forumPosts.find(p => p.id === postId);
-                if (post) {
-                    post.replies = post.replies || [];
-                    post.replies.push({ author: world.player.id, text });
-                    if (post.author !== world.player.id) addNotification(world.player.id, post.author,
-                        'forum_reply', `replied to your post about "${album.title}".`, { type: 'album',
-                            id: albumId });
-                    saveWorld();
-                }
-                document.getElementById('genericModal').style.display = 'none';
-                viewAlbumForum(albumId);
-            };
-            document.getElementById('cancelReply').onclick = () => { playClick();
-                document.getElementById('genericModal').style.display = 'none'; };
-        }
-
-        // ──────────────────────── SEARCH ────────────────────────
-        function showSearch() {
-            let html =
-                `<h2>🔍 Search Albums</h2><button class="btn" id="backSearchBtn">⬅️ Back</button>
-    <div style="background:#0f140f;padding:12px;border-radius:8px;margin:8px 0;">
-      <input class="input-field" id="searchQuery" placeholder="Artist, album, member, keyword...">
-      <select class="input-field" id="searchGenre"><option value="">All Genres</option>${GENRES.map(g=>`<option value="${g}">${g}</option>`).join('')}</select>
-      <button class="btn" id="searchBtn">🔍 Search</button>
-    </div><div id="searchResults"></div>`;
-            document.getElementById('mainScreen').innerHTML = html;
-            document.getElementById('backSearchBtn').onclick = () => { playClick();
-                showMainMenu(); };
-            const executeSearch = async () => {
-                const query = document.getElementById('searchQuery').value.trim().toLowerCase();
-                const genre = document.getElementById('searchGenre').value;
-                const resDiv = document.getElementById('searchResults');
-                resDiv.innerHTML = 'Searching...';
-                let results = world.social.albums.filter(a => {
-                    if (genre && a.genre !== genre) return false;
-                    if (!query) return true;
-                    return a.title.toLowerCase().includes(query) || a.artist.toLowerCase().includes(
-                        query) || (a.members || []).some(m => String(m).toLowerCase().includes(
-                        query)) || a.description.toLowerCase().includes(query);
-                });
-                if (results.length < 5 && query) {
-                    const needed = 5 - results.length;
-                    try {
-                        const prompt =
-                            `Generate ${needed} new 1980s albums matching search "${query}"${genre?` in genre ${genre}`:''}. Return JSON with key "albums": array of objects each with "title", "year" (1980-1989), "artist", "members", "genre", "label", "description" (2 sentences), "asciiPoster" (4-line ASCII art, max 20 chars wide). Output ONLY valid JSON.`;
-                        const data = await mistralChat([{ role: "user", content: prompt }], 2000, true);
-                        const newAlbums = data?.albums || data || [];
-                        if (Array.isArray(newAlbums)) {
-                            newAlbums.forEach(na => {
-                                const album = { id: uid(), title: na.title, year: na.year || 1987,
-                                    artist: na.artist, members: na.members, genre: na.genre,
-                                    label: na.label, description: na.description, asciiPoster: sanitizeAscii(
-                                        na.asciiPoster), reviews: [], forumPosts: [] };
-                                world.social.albums.push(album);
-                                results.push(album);
-                            });
-                            saveWorld();
-                        }
-                    } catch (e) {
-                        resDiv.innerHTML =
-                            `<p style="color:var(--danger);">Search service unavailable (${e.message}).</p>`;
-                        return;
-                    }
-                }
-                resDiv.innerHTML = results.length === 0 ?
-                    '<p style="color:var(--text-dim);">No albums found.</p>' :
-                    results.map(a =>
-                        `<div class="album-card" data-albumId="${a.id}"><div class="album-cover">${esc(getAsciiLines(a.asciiPoster))}</div><div style="flex:1;"><strong>${esc(a.title)}</strong> – ${esc(a.artist)} (${a.year})<div style="font-size:10px;">${esc(a.genre)}</div><div style="font-size:11px;color:var(--accent2);">${getAlbumStarDisplay(a)}</div></div></div>`
-                        ).join('');
-                document.querySelectorAll('#searchResults .album-card').forEach(el => el.onclick = () => { playClick();
-                    viewAlbum(el.dataset.albumid); });
-                if (results.length > 0) generatePosterForFirstAlbum(results[0]);
-            };
-            document.getElementById('searchBtn').onclick = () => { playClick();
-                executeSearch(); };
-            document.getElementById('searchQuery').addEventListener('keypress', e => { if (e.key === 'Enter') { playClick
-                    ();
-                    executeSearch(); } });
-        }
-
-        async function generatePosterForFirstAlbum(album) {
-            const NOW = Date.now();
-            if (NOW - lastPollinationsCall < 30000) return;
-            const coverDiv = document.querySelector(`.album-card[data-albumId="${album.id}"] .album-cover`);
-            if (!coverDiv) return;
-            coverDiv.innerHTML = '<span style="color:var(--text-dim);">Loading art…</span>';
-            coverDiv.style.fontSize = '8px';
-            try {
-                const url = pollinationsImageUrl(album);
-                lastPollinationsCall = Date.now();
-                const img = new Image();
-                img.onload = () => {
-                    coverDiv.innerHTML = '';
-                    coverDiv.appendChild(img);
-                    img.style.width = '100%';
-                    img.style.height = '100%';
-                    img.style.objectFit = 'cover';
-                    album.posterUrl = url;
-                    saveWorld();
-                };
-                img.onerror = () => { coverDiv.innerHTML = esc(getAsciiLines(album.asciiPoster)); };
-                img.src = url;
-            } catch (e) { coverDiv.innerHTML = esc(getAsciiLines(album.asciiPoster)); }
-        }
-
-        // ──────────────────────── WATCHLIST & REVIEWS ────────────────────────
-        function showWatchlist() {
-            const list = world.social.watchlist[world.player.id] || [];
-            const albums = world.social.albums.filter(a => list.includes(a.id));
-            let html =
-                `<h2>📼 My Listening Queue</h2><button class="btn" id="backWatchlistBtn">⬅️ Back</button><hr>`;
-            if (albums.length === 0) html += '<p>No albums in your queue. Browse and add some!</p>';
-            else albums.forEach(a => { html +=
-                    `<div class="album-card" data-albumId="${a.id}"><div class="album-cover">${esc(getAsciiLines(a.asciiPoster))}</div><div><strong>${esc(a.title)}</strong> – ${esc(a.artist)} (${a.year})</div></div>`;
-                });
-            document.getElementById('mainScreen').innerHTML = html;
-            document.getElementById('backWatchlistBtn').onclick = () => { playClick();
-                showMainMenu(); };
-            document.querySelectorAll('.album-card').forEach(el => el.onclick = () => { playClick();
-                viewAlbum(el.dataset.albumid); });
-        }
-
-        function showMyReviews() {
-            const myReviews = world.social.albums.flatMap(a => a.reviews.filter(r => r.userId === world.player.id).map(
-                r => ({ ...r, albumId: a.id, albumTitle: a.title })));
-            let html =
-                `<h2>✍️ My Reviews</h2><button class="btn" id="backMyReviewsBtn">⬅️ Back</button><hr>`;
-            if (myReviews.length === 0) html += '<p>You haven\'t reviewed any albums yet.</p>';
-            else myReviews.forEach(r => { html +=
-                    `<div class="review-block" data-albumId="${r.albumId}"><strong>${esc(r.albumTitle)}</strong> ${r.rating>0?'· '+ '★'.repeat(r.rating)+'☆'.repeat(5-r.rating):''}<br>${esc(r.text||'(no text)')}</div>`;
-                });
-            document.getElementById('mainScreen').innerHTML = html;
-            document.getElementById('backMyReviewsBtn').onclick = () => { playClick();
-                showMainMenu(); };
-            document.querySelectorAll('.review-block').forEach(el => el.onclick = () => { playClick();
-                viewAlbum(el.dataset.albumid); });
-        }
-
-        // ──────────────────────── NOTIFICATIONS ────────────────────────
-        function showNotifications() {
-            const notifs = world.social.notifications.slice().reverse();
-            let html =
-                `<h2>🔔 Notifications</h2><button class="btn" id="backNotifBtn">⬅️ Back</button><hr>`;
-            notifs.forEach(n => {
-                const from = getNpcById(n.fromId);
-                const name = from ? from.name : 'Someone';
-                html +=
-                    `<div class="notification-item ${n.read?'':'unread'}" data-nid="${n.id}" data-linktype="${n.linkData?.type||''}" data-linkid="${n.linkData?.id||''}"><strong>${esc(name)}</strong> ${esc(n.text)}</div>`;
-            });
-            document.getElementById('mainScreen').innerHTML = html;
-            document.getElementById('backNotifBtn').onclick = () => { playClick();
-                showMainMenu(); };
-            document.querySelectorAll('.notification-item').forEach(el => el.onclick = () => {
-                playClick();
-                const nid = el.dataset.nid;
-                const notif = world.social.notifications.find(n => n.id === nid); if (notif) notif.read =
-                    true;
+            const url = pollinationsImageUrl(album);
+            lastPollinationsCall = Date.now();
+            const img = new Image();
+            img.onload = () => {
+                coverDiv.innerHTML = '';
+                coverDiv.appendChild(img);
+                img.style.width = '100%';
+                img.style.height = '100%';
+                img.style.objectFit = 'cover';
+                album.posterUrl = url;
                 saveWorld();
-                updateNotifBadge();
-                if (el.dataset.linktype === 'album' && el.dataset.linkid) viewAlbum(el.dataset.linkid);
-                else showMainMenu();
-            });
-        }
+            };
+            img.onerror = () => { coverDiv.innerHTML = esc(getAsciiLines(album.asciiPoster)); };
+            img.src = url;
+        } catch (e) { coverDiv.innerHTML = esc(getAsciiLines(album.asciiPoster)); }
+    }
 
-        // ──────────────────────── INBOX ────────────────────────
-        function showInboxList() {
-            if (!world.inbox || !world.inbox.length) {
-                document.getElementById('mainScreen').innerHTML =
-                    `<h2>📬 Private Mail</h2><p>No messages.</p><button class="btn" id="backInbox">⬅️ Back</button>`;
-                document.getElementById('backInbox').onclick = () => { playClick();
-                    showMainMenu(); };
-                return;
-            }
-            let html =
-                `<h2>📬 Private Mail</h2><button class="btn" id="backInbox">⬅️ Back</button>`;
-            world.inbox.forEach(thread => {
-                const npc = getNpcById(thread.npcId);
-                if (!npc) return;
-                const unread = thread.messages.filter(m => m.sender === 'npc' && !m.read).length;
-                html +=
-                    `<div class="menu-item" data-npcid="${thread.npcId}">${esc(npc.name)} ${unread?`<span class="unread-badge">${unread}</span>`:''}</div>`;
-            });
-            document.getElementById('mainScreen').innerHTML = html;
-            document.getElementById('backInbox').onclick = () => { playClick();
-                showMainMenu(); };
-            document.querySelectorAll('.menu-item[data-npcid]').forEach(el => el.onclick = () => { playClick();
-                openChat(el.dataset.npcid); });
-        }
+    function showWatchlist() {
+        const list = world.social.watchlist[world.player.id] || [];
+        const albums = world.social.albums.filter(a => list.includes(a.id));
+        let html = `<h2>📼 My Listening Queue</h2><button class="btn" id="backWatchlistBtn">⬅️ Back</button><hr>`;
+        if (albums.length === 0) html += '<p>No albums in your queue. Browse and add some!</p>';
+        else albums.forEach(a => { html += `<div class="album-card" data-albumId="${a.id}"><div class="album-cover">${esc(getAsciiLines(a.asciiPoster))}</div><div><strong>${esc(a.title)}</strong> – ${esc(a.artist)} (${a.year})</div></div>`; });
+        document.getElementById('mainScreen').innerHTML = html;
+        document.getElementById('backWatchlistBtn').onclick = () => { playClick(); showMainMenu(); };
+        document.querySelectorAll('.album-card').forEach(el => el.onclick = () => { playClick(); viewAlbum(el.dataset.albumid); });
+    }
 
-        function openChat(npcId) {
-            const npc = getNpcById(npcId);
-            if (!npc) return;
-            let thread = world.inbox.find(t => t.npcId === npcId);
-            if (!thread) { thread = { npcId, messages: [] };
-                world.inbox.push(thread); }
-            thread.messages.forEach(m => { if (m.sender === 'npc') m.read = true; });
+    function showMyReviews() {
+        const myReviews = world.social.albums.flatMap(a => a.reviews.filter(r => r.userId === world.player.id).map(r => ({ ...r, albumId: a.id, albumTitle: a.title })));
+        let html = `<h2>✍️ My Reviews</h2><button class="btn" id="backMyReviewsBtn">⬅️ Back</button><hr>`;
+        if (myReviews.length === 0) html += '<p>You haven\'t reviewed any albums yet.</p>';
+        else myReviews.forEach(r => { html += `<div class="review-block" data-albumId="${r.albumId}"><strong>${esc(r.albumTitle)}</strong> ${r.rating>0?'· '+ '★'.repeat(r.rating)+'☆'.repeat(5-r.rating):''}<br>${esc(r.text||'(no text)')}</div>`; });
+        document.getElementById('mainScreen').innerHTML = html;
+        document.getElementById('backMyReviewsBtn').onclick = () => { playClick(); showMainMenu(); };
+        document.querySelectorAll('.review-block').forEach(el => el.onclick = () => { playClick(); viewAlbum(el.dataset.albumid); });
+    }
+
+    function showNotifications() {
+        const notifs = world.social.notifications.slice().reverse();
+        let html = `<h2>🔔 Notifications</h2><button class="btn" id="backNotifBtn">⬅️ Back</button><hr>`;
+        notifs.forEach(n => {
+            const from = getNpcById(n.fromId);
+            const name = from ? from.name : 'Someone';
+            html += `<div class="notification-item ${n.read?'':'unread'}" data-nid="${n.id}" data-linktype="${n.linkData?.type||''}" data-linkid="${n.linkData?.id||''}"><strong>${esc(name)}</strong> ${esc(n.text)}</div>`;
+        });
+        document.getElementById('mainScreen').innerHTML = html;
+        document.getElementById('backNotifBtn').onclick = () => { playClick(); showMainMenu(); };
+        document.querySelectorAll('.notification-item').forEach(el => el.onclick = () => {
+            playClick();
+            const nid = el.dataset.nid;
+            const notif = world.social.notifications.find(n => n.id === nid);
+            if (notif) notif.read = true;
             saveWorld();
-            const content = document.getElementById('inboxModalContent');
-            content.innerHTML = `
+            updateNotifBadge();
+            if (el.dataset.linktype === 'album' && el.dataset.linkid) viewAlbum(el.dataset.linkid);
+            else showMainMenu();
+        });
+    }
+
+    function showInboxList() {
+        if (!world.inbox || !world.inbox.length) {
+            document.getElementById('mainScreen').innerHTML = `<h2>📬 Private Mail</h2><p>No messages.</p><button class="btn" id="backInbox">⬅️ Back</button>`;
+            document.getElementById('backInbox').onclick = () => { playClick(); showMainMenu(); };
+            return;
+        }
+        let html = `<h2>📬 Private Mail</h2><button class="btn" id="backInbox">⬅️ Back</button>`;
+        world.inbox.forEach(thread => {
+            const npc = getNpcById(thread.npcId);
+            if (!npc) return;
+            const unread = thread.messages.filter(m => m.sender === 'npc' && !m.read).length;
+            html += `<div class="menu-item" data-npcid="${thread.npcId}">${esc(npc.name)} ${unread?`<span class="unread-badge">${unread}</span>`:''}</div>`;
+        });
+        document.getElementById('mainScreen').innerHTML = html;
+        document.getElementById('backInbox').onclick = () => { playClick(); showMainMenu(); };
+        document.querySelectorAll('.menu-item[data-npcid]').forEach(el => el.onclick = () => { playClick(); openChat(el.dataset.npcid); });
+    }
+
+    function openChat(npcId) {
+        const npc = getNpcById(npcId);
+        if (!npc) return;
+        let thread = world.inbox.find(t => t.npcId === npcId);
+        if (!thread) { thread = { npcId, messages: [] }; world.inbox.push(thread); }
+        thread.messages.forEach(m => { if (m.sender === 'npc') m.read = true; });
+        saveWorld();
+        const content = document.getElementById('inboxModalContent');
+        content.innerHTML = `
     <h2>💬 Chat with ${esc(npc.name)}</h2>
     <div id="chatMessages" style="max-height:250px;overflow-y:auto;background:#0a0d0a;padding:8px;border-radius:6px;margin-bottom:8px;">
       ${thread.messages.map(m=>`<div style="margin:4px 0;"><strong>${m.sender==='player'?'You':esc(npc.name)}:</strong> ${esc(m.text)}</div>`).join('')}
     </div>
     <input class="input-field" id="chatInput" placeholder="Type message...">
     <button class="btn" id="sendChatBtn">Send</button>
-    <button class="btn" id="closeChatBtn">Close</button>
-  `;
-            document.getElementById('inboxModal').style.display = 'flex';
-            document.getElementById('sendChatBtn').onclick = () => sendChatMessage(npcId);
-            document.getElementById('chatInput').addEventListener('keypress', e => { if (e.key === 'Enter')
-                    sendChatMessage(npcId); });
-            document.getElementById('closeChatBtn').onclick = () => { playClick();
-                document.getElementById('inboxModal').style.display = 'none'; };
-            document.getElementById('inboxModal').onclick = e => { if (e.target === document.getElementById(
-                    'inboxModal')) { playClick();
-                    document.getElementById('inboxModal').style.display = 'none'; } };
-        }
+    <button class="btn" id="closeChatBtn">Close</button>`;
+        document.getElementById('inboxModal').style.display = 'flex';
+        document.getElementById('sendChatBtn').onclick = () => sendChatMessage(npcId);
+        document.getElementById('chatInput').addEventListener('keypress', e => { if (e.key === 'Enter') sendChatMessage(npcId); });
+        document.getElementById('closeChatBtn').onclick = () => { playClick(); document.getElementById('inboxModal').style.display = 'none'; };
+        document.getElementById('inboxModal').onclick = e => { if (e.target === document.getElementById('inboxModal')) { playClick(); document.getElementById('inboxModal').style.display = 'none'; } };
+    }
 
-        async function sendChatMessage(npcId) {
-            const input = document.getElementById('chatInput');
-            const text = input.value.trim();
-            if (!text) return;
-            input.value = '';
-            const npc = getNpcById(npcId);
-            let thread = world.inbox.find(t => t.npcId === npcId);
-            if (!thread) { thread = { npcId, messages: [] };
-                world.inbox.push(thread); }
-            thread.messages.push({ sender: 'player', text, read: true, timestamp: Date.now() });
-            document.getElementById('chatMessages').innerHTML += `<div><strong>You:</strong> ${esc(text)}</div>`;
+    async function sendChatMessage(npcId) {
+        const input = document.getElementById('chatInput');
+        const text = input.value.trim();
+        if (!text) return;
+        input.value = '';
+        const npc = getNpcById(npcId);
+        let thread = world.inbox.find(t => t.npcId === npcId);
+        if (!thread) { thread = { npcId, messages: [] }; world.inbox.push(thread); }
+        thread.messages.push({ sender: 'player', text, read: true, timestamp: Date.now() });
+        document.getElementById('chatMessages').innerHTML += `<div><strong>You:</strong> ${esc(text)}</div>`;
+        saveWorld();
+        try {
+            const systemPrompt = `You are ${npc.name}, a music fan in 1987. Personality: ${npc.personality}. Reply to the player's message about music or life. 1-2 sentences. Output only the reply.`;
+            const reply = await mistralChat([{ role: "system", content: systemPrompt }, { role: "user", content: text }], 150, false);
+            thread.messages.push({ sender: 'npc', text: reply, read: true, timestamp: Date.now() });
+            document.getElementById('chatMessages').innerHTML += `<div><strong>${esc(npc.name)}:</strong> ${esc(reply)}</div>`;
             saveWorld();
-            try {
-                const systemPrompt =
-                    `You are ${npc.name}, a music fan in 1987. Personality: ${npc.personality}. Reply to the player's message about music or life. 1-2 sentences. Output only the reply.`;
-                const reply = await mistralChat([{ role: "system", content: systemPrompt }, { role: "user",
-                    content: text }], 150, false);
-                thread.messages.push({ sender: 'npc', text: reply, read: true, timestamp: Date.now() });
-                document.getElementById('chatMessages').innerHTML +=
-                    `<div><strong>${esc(npc.name)}:</strong> ${esc(reply)}</div>`;
+        } catch (e) {
+            document.getElementById('chatMessages').innerHTML += `<div style="color:var(--danger);">Chat unavailable: ${e.message}</div>`;
+        }
+    }
+
+    async function generateNpcInteractions() {
+        if (Math.random() > 0.3) return;
+        const allNpcs = world.npcs;
+        if (!allNpcs.length) return;
+        const album = world.social.albums[Math.floor(Math.random() * world.social.albums.length)];
+        if (album) {
+            const npc = allNpcs[Math.floor(Math.random() * allNpcs.length)];
+            if (npc && !album.reviews.some(r => r.userId === npc.id) && Math.random() < 0.6) {
+                const rating = 1 + Math.floor(Math.random() * 5);
+                album.reviews.push({ id: uid(), userId: npc.id, rating, text: '', timestamp: getTotalGameMinutes(), reviewRatings: [] });
+                if (album.reviews.filter(r => r.userId === world.player.id).length > 0) addNotification(npc.id, world.player.id, 'rating', `rated ${album.title} ${rating}/5.`, { type: 'album', id: album.id });
                 saveWorld();
-            } catch (e) {
-                document.getElementById('chatMessages').innerHTML +=
-                    `<div style="color:var(--danger);">Chat unavailable: ${e.message}</div>`;
             }
         }
-
-        // ──────────────────────── NPC AUTONOMY ────────────────────────
-        async function generateNpcInteractions() {
-            if (Math.random() > 0.3) return;
-            const allNpcs = world.npcs;
-            if (!allNpcs.length) return;
-            // rate random album
-            const album = world.social.albums[Math.floor(Math.random() * world.social.albums.length)];
-            if (album) {
-                const npc = allNpcs[Math.floor(Math.random() * allNpcs.length)];
-                if (npc && !album.reviews.some(r => r.userId === npc.id) && Math.random() < 0.6) {
-                    const rating = 1 + Math.floor(Math.random() * 5);
-                    album.reviews.push({ id: uid(), userId: npc.id, rating, text: '', timestamp: getTotalGameMinutes(),
-                        reviewRatings: [] });
-                    if (album.reviews.filter(r => r.userId === world.player.id).length > 0) addNotification(npc.id,
-                        world.player.id, 'rating', `rated ${album.title} ${rating}/5.`, { type: 'album',
-                            id: album.id });
-                    saveWorld();
-                }
-            }
-            // NPC writes a review
-            const album2 = world.social.albums[Math.floor(Math.random() * world.social.albums.length)];
-            const npc2 = allNpcs[Math.floor(Math.random() * allNpcs.length)];
-            if (album2 && npc2 && Math.random() < 0.4) {
-                try {
-                    const prompt =
-                        `You are ${npc2.name}, a music fan. Write a short review (2 sentences) for the album "${album2.title}" by ${album2.artist}. Output ONLY the review.`;
-                    const text = await mistralChat([{ role: "user", content: prompt }], 120, false);
-                    album2.reviews.push({ id: uid(), userId: npc2.id, rating: Math.floor(Math.random() * 4) + 2,
-                        text, timestamp: getTotalGameMinutes(), reviewRatings: [] });
-                    if (album2.reviews.some(r => r.userId === world.player.id)) addNotification(npc2.id, world.player
-                        .id, 'review', `reviewed ${album2.title}.`, { type: 'album', id: album2.id });
-                    saveWorld();
-                } catch (e) {}
-            }
-            // NPC forum post
-            const album3 = world.social.albums[Math.floor(Math.random() * world.social.albums.length)];
-            const npc3 = allNpcs[Math.floor(Math.random() * allNpcs.length)];
-            if (album3 && npc3 && Math.random() < 0.5) {
-                try {
-                    const prompt =
-                        `You are ${npc3.name}. Write a forum post (1-2 sentences) about the album "${album3.title}". Output ONLY the post.`;
-                    const text = await mistralChat([{ role: "user", content: prompt }], 120, false);
-                    album3.forumPosts.push({ id: uid(), author: npc3.id, text, timestamp: getTotalGameMinutes(),
-                        replies: [] });
-                    saveWorld();
-                } catch (e) {}
-            }
-            // NPC reply
-            if (world.social.albums.length > 0 && Math.random() < 0.3) {
-                const album4 = world.social.albums[Math.floor(Math.random() * world.social.albums.length)];
-                const npc4 = allNpcs[Math.floor(Math.random() * allNpcs.length)];
-                if (npc4) {
-                    const eligible = album4.forumPosts.filter(p => p.author !== npc4.id);
-                    if (eligible.length) {
-                        const post = eligible[Math.floor(Math.random() * eligible.length)];
-                        try {
-                            const prompt =
-                                `You are ${npc4.name}. Reply to this post about "${album4.title}": "${post.text}". 1 sentence. Output ONLY the reply.`;
-                            const reply = await mistralChat([{ role: "user", content: prompt }], 100, false);
-                            post.replies = post.replies || [];
-                            post.replies.push({ author: npc4.id, text: reply });
-                            if (post.author === world.player.id) addNotification(npc4.id, world.player.id,
-                                'forum_reply', `replied to your post.`, { type: 'album', id: album4.id });
-                            saveWorld();
-                        } catch (e) {}
-                    }
-                }
-            }
-            // NPC rates player review
-            const playerReviews = world.social.albums.flatMap(a => a.reviews.filter(r => r.userId === world.player.id &&
-                r.text));
-            if (playerReviews.length > 0 && Math.random() < 0.25) {
-                const review = playerReviews[Math.floor(Math.random() * playerReviews.length)];
-                const npc = allNpcs[Math.floor(Math.random() * allNpcs.length)];
-                if (npc && !review.reviewRatings.some(rr => rr.userId === npc.id)) {
+        const album2 = world.social.albums[Math.floor(Math.random() * world.social.albums.length)];
+        const npc2 = allNpcs[Math.floor(Math.random() * allNpcs.length)];
+        if (album2 && npc2 && Math.random() < 0.4) {
+            try {
+                const prompt = `You are ${npc2.name}, a music fan. Write a short review (2 sentences) for the album "${album2.title}" by ${album2.artist}. Output ONLY the review.`;
+                const text = await mistralChat([{ role: "user", content: prompt }], 120, false);
+                album2.reviews.push({ id: uid(), userId: npc2.id, rating: Math.floor(Math.random() * 4) + 2, text, timestamp: getTotalGameMinutes(), reviewRatings: [] });
+                if (album2.reviews.some(r => r.userId === world.player.id)) addNotification(npc2.id, world.player.id, 'review', `reviewed ${album2.title}.`, { type: 'album', id: album2.id });
+                saveWorld();
+            } catch (e) {}
+        }
+        const album3 = world.social.albums[Math.floor(Math.random() * world.social.albums.length)];
+        const npc3 = allNpcs[Math.floor(Math.random() * allNpcs.length)];
+        if (album3 && npc3 && Math.random() < 0.5) {
+            try {
+                const prompt = `You are ${npc3.name}. Write a forum post (1-2 sentences) about the album "${album3.title}". Output ONLY the post.`;
+                const text = await mistralChat([{ role: "user", content: prompt }], 120, false);
+                album3.forumPosts.push({ id: uid(), author: npc3.id, text, timestamp: getTotalGameMinutes(), replies: [] });
+                saveWorld();
+            } catch (e) {}
+        }
+        if (world.social.albums.length > 0 && Math.random() < 0.3) {
+            const album4 = world.social.albums[Math.floor(Math.random() * world.social.albums.length)];
+            const npc4 = allNpcs[Math.floor(Math.random() * allNpcs.length)];
+            if (npc4) {
+                const eligible = album4.forumPosts.filter(p => p.author !== npc4.id);
+                if (eligible.length) {
+                    const post = eligible[Math.floor(Math.random() * eligible.length)];
                     try {
-                        const prompt =
-                            `You are ${npc.name}. Read this album review: "${review.text}". Rate its helpfulness 1-5. Output ONLY the number.`;
-                        const rating = parseInt(await mistralChat([{ role: "user", content: prompt }], 10,
-                            false));
-                        if (rating >= 1 && rating <= 5) {
-                            review.reviewRatings.push({ userId: npc.id, rating });
-                            const parent = world.social.albums.find(a => a.reviews.includes(review));
-                            if (parent) addNotification(npc.id, world.player.id, 'review_rated',
-                                `rated your review of "${parent.title}" ${rating}/5.`, { type: 'album',
-                                    id: parent.id });
-                            saveWorld();
-                        }
+                        const prompt = `You are ${npc4.name}. Reply to this post about "${album4.title}": "${post.text}". 1 sentence. Output ONLY the reply.`;
+                        const reply = await mistralChat([{ role: "user", content: prompt }], 100, false);
+                        post.replies = post.replies || [];
+                        post.replies.push({ author: npc4.id, text: reply });
+                        if (post.author === world.player.id) addNotification(npc4.id, world.player.id, 'forum_reply', `replied to your post.`, { type: 'album', id: album4.id });
+                        saveWorld();
                     } catch (e) {}
                 }
             }
-            // private message
-            const messager = allNpcs[Math.floor(Math.random() * allNpcs.length)];
-            if (messager && Math.random() < 0.3) {
+        }
+        const playerReviews = world.social.albums.flatMap(a => a.reviews.filter(r => r.userId === world.player.id && r.text));
+        if (playerReviews.length > 0 && Math.random() < 0.25) {
+            const review = playerReviews[Math.floor(Math.random() * playerReviews.length)];
+            const npc = allNpcs[Math.floor(Math.random() * allNpcs.length)];
+            if (npc && !review.reviewRatings.some(rr => rr.userId === npc.id)) {
                 try {
-                    let thread = world.inbox.find(t => t.npcId === messager.id);
-                    const prompt =
-                        `You are ${messager.name}. Write a short message to the player about music, an album you love, or ask their opinion. Output ONLY the message.`;
-                    const msg = await mistralChat([{ role: "user", content: prompt }], 150, false);
-                    if (!thread) { thread = { npcId: messager.id, messages: [] };
-                        world.inbox.push(thread); }
-                    thread.messages.push({ sender: 'npc', text: msg, read: false, timestamp: Date.now() });
-                    playNotification();
-                    saveWorld();
+                    const prompt = `You are ${npc.name}. Read this album review: "${review.text}". Rate its helpfulness 1-5. Output ONLY the number.`;
+                    const rating = parseInt(await mistralChat([{ role: "user", content: prompt }], 10, false));
+                    if (rating >= 1 && rating <= 5) {
+                        review.reviewRatings.push({ userId: npc.id, rating });
+                        const parent = world.social.albums.find(a => a.reviews.includes(review));
+                        if (parent) addNotification(npc.id, world.player.id, 'review_rated', `rated your review of "${parent.title}" ${rating}/5.`, { type: 'album', id: parent.id });
+                        saveWorld();
+                    }
                 } catch (e) {}
             }
         }
-
-        function advanceTime(minutes) {
-            world.time.minute += minutes;
-            while (world.time.minute >= 60) { world.time.minute -= 60;
-                world.time.hour++; }
-            if (world.time.hour >= 24) { world.time.hour -= 24;
-                world.time.day++; }
-            updateStatusBar();
-            generateNpcInteractions();
-            saveWorld();
-        }
-
-        // ──────────────────────── INIT ────────────────────────
-        async function startNewGame() {
-            document.getElementById('mainScreen').innerHTML =
-                '<div style="text-align:center;padding:40px;">Loading TapeTracks...</div>';
+        const messager = allNpcs[Math.floor(Math.random() * allNpcs.length)];
+        if (messager && Math.random() < 0.3) {
             try {
-                const townPrompt =
-                    `Create a small American town Ember Creek in 1987. JSON with "npcs": 8 residents (name,age 18-65,sex,bio,homeLocation), "locationDescriptions". Output only JSON.`;
-                const townData = await mistralChat([{ role: "user", content: townPrompt }], 4000, true);
-                world = {
-                    player: { id: 'player', name: 'You', location: 'Your House', inventory: [] },
-                    npcs: townData.npcs.map(n => { const p = HARDCODED_PERSONALITIES[Math.floor(Math.random() *
-                            HARDCODED_PERSONALITIES.length)]; return { ...n, id: uid(),
-                            currentLocation: n.homeLocation, personality: p.traits }; }),
-                    locationDescriptions: townData.locationDescriptions,
-                    time: { day: 1, hour: 8, minute: 0 },
-                    inbox: [],
-                    social: { albums: [], watchlist: {}, notifications: [] }
-                };
-                world.social.watchlist[world.player.id] = [];
-                const seedPrompt =
-                    `Generate 12 albums from the 1980s (any year 1980-1989). JSON array: "artist","title","year","genre","label","members" (array of 3-4 names with instrument),"description" (2 sentences liner note style),"asciiPoster" (4 lines, max 20 chars wide, cassette/vinyl art). Output ONLY valid JSON.`;
-                const albumsData = await mistralChat([{ role: "user", content: seedPrompt }], 4000, true);
-                const seedAlbums = albumsData?.albums || albumsData || [];
-                seedAlbums.forEach(a => { world.social.albums.push({ id: uid(), artist: a.artist, title: a.title,
-                        year: a.year || 1987, genre: a.genre, label: a.label, members: a.members,
-                        description: a.description, asciiPoster: sanitizeAscii(a.asciiPoster), reviews: [],
-                        forumPosts: [] }); });
-                // NPC initial reviews
-                for (let i = 0; i < 5; i++) {
-                    const album = world.social.albums[Math.floor(Math.random() * world.social.albums.length)];
-                    const npc = world.npcs[Math.floor(Math.random() * world.npcs.length)];
-                    if (album && npc) album.reviews.push({ id: uid(), userId: npc.id, rating: Math.floor(Math.random() *
-                            4) + 2, text: '', timestamp: getTotalGameMinutes() });
-                }
+                let thread = world.inbox.find(t => t.npcId === messager.id);
+                const prompt = `You are ${messager.name}. Write a short message to the player about music, an album you love, or ask their opinion. Output ONLY the message.`;
+                const msg = await mistralChat([{ role: "user", content: prompt }], 150, false);
+                if (!thread) { thread = { npcId: messager.id, messages: [] }; world.inbox.push(thread); }
+                thread.messages.push({ sender: 'npc', text: msg, read: false, timestamp: Date.now() });
+                playNotification();
                 saveWorld();
-                showMainMenu();
-            } catch (e) { alert('Failed: ' + e.message); }
+            } catch (e) {}
         }
+    }
 
-        async function init() {
-            if (!apiKey) {
-                document.getElementById('genericModalContent').innerHTML =
-                    `<h2>🔑 Mistral API Key</h2><p>Get from console.mistral.ai</p><input class="input-field" id="apiKeyInput" placeholder="Enter key..."><button class="btn" id="saveApiKey">Save</button>`;
-                document.getElementById('genericModal').style.display = 'flex';
-                document.getElementById('saveApiKey').onclick = () => { const key = document.getElementById(
-                        'apiKeyInput').value.trim(); if (key.length > 10) { apiKey = key;
-                        localStorage.setItem('mistral_api_key', key);
-                        document.getElementById('genericModal').style.display = 'none';
-                        init(); } };
-                return;
+    function advanceTime(minutes) {
+        world.time.minute += minutes;
+        while (world.time.minute >= 60) { world.time.minute -= 60; world.time.hour++; }
+        if (world.time.hour >= 24) { world.time.hour -= 24; world.time.day++; }
+        updateStatusBar();
+        generateNpcInteractions();
+        saveWorld();
+    }
+
+    async function startNewGame() {
+        document.getElementById('mainScreen').innerHTML = '<div style="text-align:center;padding:40px;">Loading TapeTracks...</div>';
+        try {
+            const townPrompt = `Create a small American town Ember Creek in 1987. JSON with "npcs": 8 residents (name,age 18-65,sex,bio,homeLocation), "locationDescriptions". Output only JSON.`;
+            const townData = await mistralChat([{ role: "user", content: townPrompt }], 4000, true);
+            world = {
+                player: { id: 'player', name: 'You', location: 'Your House', inventory: [] },
+                npcs: townData.npcs.map(n => { const p = HARDCODED_PERSONALITIES[Math.floor(Math.random() * HARDCODED_PERSONALITIES.length)]; return { ...n, id: uid(), currentLocation: n.homeLocation, personality: p.traits }; }),
+                locationDescriptions: townData.locationDescriptions,
+                time: { day: 1, hour: 8, minute: 0 },
+                inbox: [],
+                social: { albums: [], watchlist: {}, notifications: [] }
+            };
+            world.social.watchlist[world.player.id] = [];
+            const seedPrompt = `Generate 12 albums from the 1980s (any year 1980-1989). JSON array: "artist","title","year","genre","label","members" (array of 3-4 names with instrument),"description" (2 sentences liner note style),"asciiPoster" (4 lines, max 20 chars wide, cassette/vinyl art). Output ONLY valid JSON.`;
+            const albumsData = await mistralChat([{ role: "user", content: seedPrompt }], 4000, true);
+            const seedAlbums = albumsData?.albums || albumsData || [];
+            seedAlbums.forEach(a => { world.social.albums.push({ id: uid(), artist: a.artist, title: a.title, year: a.year || 1987, genre: a.genre, label: a.label, members: a.members, description: a.description, asciiPoster: sanitizeAscii(a.asciiPoster), reviews: [], forumPosts: [] }); });
+            for (let i = 0; i < 5; i++) {
+                const album = world.social.albums[Math.floor(Math.random() * world.social.albums.length)];
+                const npc = world.npcs[Math.floor(Math.random() * world.npcs.length)];
+                if (album && npc) album.reviews.push({ id: uid(), userId: npc.id, rating: Math.floor(Math.random() * 4) + 2, text: '', timestamp: getTotalGameMinutes() });
             }
-            if (!loadWorld()) await startNewGame();
-            else { updateStatusBar();
-                showMainMenu(); }
-            setInterval(() => { advanceTime(5); }, 30000);
+            saveWorld();
+            showMainMenu();
+        } catch (e) { alert('Failed: ' + e.message); }
+    }
+
+    async function init() {
+        if (!apiKey) {
+            document.getElementById('genericModalContent').innerHTML = `<h2>🔑 Mistral API Key</h2><p>Get from console.mistral.ai</p><input class="input-field" id="apiKeyInput" placeholder="Enter key..."><button class="btn" id="saveApiKey">Save</button>`;
+            document.getElementById('genericModal').style.display = 'flex';
+            document.getElementById('saveApiKey').onclick = () => {
+                const key = document.getElementById('apiKeyInput').value.trim();
+                if (key.length > 10) { apiKey = key; localStorage.setItem('mistral_api_key', key); document.getElementById('genericModal').style.display = 'none'; init(); }
+            };
+            return;
         }
-        applyTheme(currentTheme);
-        document.getElementById('notifBell').onclick = () => { playClick();
-            showNotifications(); };
-        init();
-    </script>
+        if (!loadWorld()) await startNewGame();
+        else { updateStatusBar(); showMainMenu(); }
+        setInterval(() => { advanceTime(5); }, 30000);
+    }
+
+    applyTheme(currentTheme);
+    document.getElementById('notifBell').onclick = () => { playClick(); showNotifications(); };
+    init();
+</script>  
 </body>
 </html>
