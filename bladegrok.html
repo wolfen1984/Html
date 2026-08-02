@@ -161,7 +161,7 @@
 
 <script>
     (function() {
-        // DOM
+        // DOM refs
         const apiModal = document.getElementById('api-modal');
         const apiKeyInput = document.getElementById('api-key-input');
         const apiSubmitBtn = document.getElementById('api-submit-btn');
@@ -212,7 +212,7 @@
                 model: MODEL,
                 messages,
                 temperature: 0.85,
-                max_tokens: jsonMode ? 4000 : 700,
+                max_tokens: jsonMode ? 4000 : 800,   // 4000 for JSON rooms, 800 for dialogue
             };
             if (jsonMode) body.response_format = { type: 'json_object' };
             const resp = await fetch(MISTRAL_URL, {
@@ -225,7 +225,7 @@
             return data.choices[0].message.content;
         }
 
-        // Room generation prompt (no fallback)
+        // Room generation prompt – NO FALLBACK
         function buildRoomPrompt(direction) {
             const prevName = currentRoom ? currentRoom.roomName : 'Nowhere';
             const prevDesc = currentRoom ? currentRoom.description : 'The void';
@@ -268,7 +268,7 @@ Previously visited: ${visited}. Player comes from "${prevName}": ${prevDesc}` },
             try {
                 const json = await callMistral(buildRoomPrompt(direction), true);
                 let room = JSON.parse(json);
-                // Normalize but never substitute with hardcoded content
+                // Validate minimal fields – if missing, throw (no fallback)
                 if (!room.roomName) throw new Error('AI missing roomName');
                 room.description = room.description || 'A place.';
                 room.mood = room.mood || 'neon_street';
@@ -328,11 +328,11 @@ Previously visited: ${visited}. Player comes from "${prevName}": ${prevDesc}` },
             await sleep(200);
             try {
                 const newRoom = await generateRoom(exitObj.direction);
+                hideLoading();  // Ensure overlay hidden after generation
                 await enterRoom(newRoom);
             } catch (err) {
                 setMessage('ERROR: ' + err.message);
                 transitionOverlay.style.opacity = '0';
-            } finally {
                 hideLoading();
             }
         }
@@ -415,7 +415,6 @@ Previously visited: ${visited}. Player comes from "${prevName}": ${prevDesc}` },
                 if (res.success) {
                     exit.locked = false;
                     setMessage(res.message || 'Exit unlocked!');
-                    // optionally auto-walk? We'll just notify
                 } else {
                     setMessage(res.message || 'It did not work.');
                 }
@@ -423,7 +422,7 @@ Previously visited: ${visited}. Player comes from "${prevName}": ${prevDesc}` },
             finally { hideLoading(); }
         }
 
-        // ---- Canvas interaction (async) ----
+        // ---- Canvas interaction ----
         async function handleCanvasClick(cx, cy) {
             if (!currentRoom || !gameInitialized) return;
             if (npcChatModal.style.display === 'flex') return;
@@ -499,7 +498,6 @@ Previously visited: ${visited}. Player comes from "${prevName}": ${prevDesc}` },
                 ctx.fillStyle='#000'; ctx.font='8px VT323'; ctx.fillText('?',it.x-3,it.y+bob+3);
             }
             for (const npc of currentRoom.npcs||[]) drawNpc(npc);
-            // spinners
             for (const s of flyingSpinners) {
                 ctx.fillStyle='#44ccff'; ctx.fillRect(s.x,s.y,28,6);
                 ctx.fillStyle='#ff55aa'; ctx.fillRect(s.x+6,s.y-3,12,5);
@@ -558,6 +556,7 @@ Previously visited: ${visited}. Player comes from "${prevName}": ${prevDesc}` },
         npcChatInput.addEventListener('keydown', e=>{ if(e.key==='Enter') sendPlayerMsg(); });
         npcChatClose.addEventListener('click', closeNpcChat);
 
+        // API key submit
         apiSubmitBtn.addEventListener('click', async ()=>{
             const key = apiKeyInput.value.trim();
             if(!key) { apiError.textContent='Enter API key.'; return; }
@@ -568,17 +567,17 @@ Previously visited: ${visited}. Player comes from "${prevName}": ${prevDesc}` },
                 apiModal.style.display='none'; gameInitialized=true;
                 setMessage('NEURAL LINK ACTIVE. GENERATING WORLD...');
                 const room = await generateRoom(null);
+                hideLoading();   // FIX: hide the loading overlay after first room generation
                 await enterRoom(room);
                 gameLoop();
             } catch(e) {
                 apiError.textContent='Error: '+e.message;
                 apiSubmitBtn.disabled=false; apiSubmitBtn.textContent='INITIALIZE NEURAL LINK';
                 MISTRAL_API_KEY=null;
+                hideLoading();
             }
         });
         apiKeyInput.addEventListener('keydown', e=>{ if(e.key==='Enter') apiSubmitBtn.click(); });
-        const saved = localStorage.getItem('mistral_hint'); if(saved) apiKeyInput.value=saved;
-        apiSubmitBtn.addEventListener('click', ()=>{ if(gameInitialized) localStorage.setItem('mistral_hint', apiKeyInput.value.substring(0,8)+'...'); });
     })();
 </script>
 </body>
