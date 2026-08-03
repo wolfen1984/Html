@@ -559,55 +559,92 @@
             return curve;
         }
 
-        // ──────────── REALISTIC NOTE SCHEDULER (guitar/bass hybrid) ────────────
-        function scheduleNote(ctx, time, freqVal, dur, gainVal, pan, outputNode) {
-            // Sawtooth layer – body
-            const o1 = ctx.createOscillator();
-            o1.type = 'triangle';
-            o1.frequency.value = freqVal;
-            o1.detune.value = -18;
-            const g1 = ctx.createGain();
-            g1.gain.setValueAtTime(0.001, time);
-            g1.gain.exponentialRampToValueAtTime(gainVal * 0.78, time + 0.01);
-            g1.gain.exponentialRampToValueAtTime(gainVal * 0.32, time + dur * 0.6);
-            g1.gain.setValueAtTime(0.001, time + dur - 0.02);
-            // Square layer – bite
-            const o2 = ctx.createOscillator();
-            o2.type = 'square';
-            o2.frequency.value = freqVal;
-            o2.detune.value = 12;
-            const g2 = ctx.createGain();
-            g2.gain.setValueAtTime(0.001, time);
-            g2.gain.exponentialRampToValueAtTime(gainVal * 0.42, time + 0.01);
-            g2.gain.exponentialRampToValueAtTime(gainVal * 0.18, time + dur * 0.65);
-            g2.gain.setValueAtTime(0.001, time + dur - 0.02);
-            // Noise burst – attack
-            const nb = ctx.createBuffer(1, ctx.sampleRate * 0.6, ctx.sampleRate);
-            const nd = nb.getChannelData(0);
-            for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
-            const noise = ctx.createBufferSource();
-            noise.buffer = nb;
-            const ng = ctx.createGain();
-            ng.gain.setValueAtTime(0.001, time);
-            ng.gain.exponentialRampToValueAtTime(gainVal * 0.18, time + 0.03);
-            ng.gain.exponentialRampToValueAtTime(0.001, time + dur * 0.4);
-            // Panning
-            const panNode = ctx.createStereoPanner();
-            panNode.pan.value = pan;
-            o1.connect(g1);
-            o2.connect(g2);
-            noise.connect(ng);
-            g1.connect(panNode);
-            g2.connect(panNode);
-            ng.connect(panNode);
-            panNode.connect(outputNode);
-            o1.start(time);
-            o2.start(time);
-            noise.start(time);
-            o1.stop(time + dur);
-            o2.stop(time + dur);
-            noise.stop(time + dur * 0.35);
-        }
+        // ──────────── ENHANCED NOTE SCHEDULER ────────────
+function scheduleNote(ctx, time, freqVal, dur, gainVal, pan, outputNode, type = 'lead') {
+  // --- COMMON ENVELOPE ---
+  const createGainEnvelope = (initialGain, sustainGain, decayRatio, releaseTime) => {
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.001, time);
+    g.gain.exponentialRampToValueAtTime(initialGain * gainVal, time + 0.01);
+    g.gain.exponentialRampToValueAtTime(sustainGain * gainVal, time + dur * decayRatio);
+    g.gain.setValueAtTime(0.001, time + dur - releaseTime);
+    return g;
+  };
+
+  const panNode = ctx.createStereoPanner();
+  panNode.pan.value = pan;
+
+  if (type === 'lead') {
+    // --- DISTORTED GUITAR ---
+    // Sawtooth for body
+    const o1 = ctx.createOscillator();
+    o1.type = 'sawtooth';
+    o1.frequency.value = freqVal;
+    o1.detune.value = -10;
+    const g1 = createGainEnvelope(0.65, 0.28, 0.6, 0.02);
+    // Square for bite
+    const o2 = ctx.createOscillator();
+    o2.type = 'square';
+    o2.frequency.value = freqVal;
+    o2.detune.value = 8;
+    const g2 = createGainEnvelope(0.35, 0.15, 0.65, 0.02);
+    // Noise burst for attack
+    const nb = ctx.createBuffer(1, ctx.sampleRate * 0.6, ctx.sampleRate);
+    const nd = nb.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource();
+    noise.buffer = nb;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.001, time);
+    ng.gain.exponentialRampToValueAtTime(gainVal * 0.2, time + 0.03);
+    ng.gain.exponentialRampToValueAtTime(0.001, time + dur * 0.4);
+
+    o1.connect(g1);
+    o2.connect(g2);
+    noise.connect(ng);
+    g1.connect(panNode);
+    g2.connect(panNode);
+    ng.connect(panNode);
+    panNode.connect(outputNode);
+
+    o1.start(time); o1.stop(time + dur);
+    o2.start(time); o2.stop(time + dur);
+    noise.start(time); noise.stop(time + dur * 0.35);
+
+  } else {
+    // --- OVERDRIVEN BASS ---
+    // Two triangle waves, one an octave lower for sub-bass
+    const o1 = ctx.createOscillator();
+    o1.type = 'triangle';
+    o1.frequency.value = freqVal;
+    o1.detune.value = -5;
+    const g1 = createGainEnvelope(0.9, 0.55, 0.7, 0.03);
+    // Sub oscillator (one octave down)
+    const o2 = ctx.createOscillator();
+    o2.type = 'triangle';
+    o2.frequency.value = freqVal / 2;
+    o2.detune.value = 0;
+    const g2 = createGainEnvelope(0.35, 0.2, 0.7, 0.03);
+    // Tiny square edge for punch
+    const o3 = ctx.createOscillator();
+    o3.type = 'square';
+    o3.frequency.value = freqVal;
+    o3.detune.value = 12;
+    const g3 = createGainEnvelope(0.15, 0.08, 0.5, 0.02);
+
+    o1.connect(g1);
+    o2.connect(g2);
+    o3.connect(g3);
+    g1.connect(panNode);
+    g2.connect(panNode);
+    g3.connect(panNode);
+    panNode.connect(outputNode);
+
+    o1.start(time); o1.stop(time + dur);
+    o2.start(time); o2.stop(time + dur);
+    o3.start(time); o3.stop(time + dur);
+  }
+}
 
         // ──────────── DRUM SOUNDS (kick, snare, hi‑hat) ────────────
         function createDrumSchedulers(ctx, outputNode) {
@@ -1162,8 +1199,12 @@ async function generateAlbumMusic(album) {
   // Audio graph (same as your original)
   const masterGain = offlineCtx.createGain(); masterGain.gain.value = 0.8;
   const tapeLP = offlineCtx.createBiquadFilter(); tapeLP.type = 'lowpass'; tapeLP.frequency.value = 7500;
-  const distNode = offlineCtx.createWaveShaper(); distNode.curve = createDistortionCurve(15); distNode.oversample = '2x';
+  const distNode = offlineCtx.createWaveShaper(); distNode.curve = createDistortionCurve(25); distNode.oversample = '2x';
   const bassTapeLP = offlineCtx.createBiquadFilter(); bassTapeLP.type = 'lowpass'; bassTapeLP.frequency.value = 2500;
+// Bass overdrive
+const bassDistNode = offlineCtx.createWaveShaper();
+bassDistNode.curve = createDistortionCurve(12);  // mild crunch
+bassDistNode.oversample = '2x';
 
   const reverbDelay = offlineCtx.createDelay(0.5); reverbDelay.delayTime.value = 0.35;
   const reverbFB = offlineCtx.createGain(); reverbFB.gain.value = 0.4;
@@ -1181,7 +1222,9 @@ async function generateAlbumMusic(album) {
 
   leadGain.connect(tapeLP); drumGain.connect(tapeLP);
   tapeLP.connect(distNode); distNode.connect(masterGain); distNode.connect(reverbDelay); distNode.connect(echoDelay);
-  bassGain.connect(bassTapeLP); bassTapeLP.connect(masterGain);
+  bassGain.connect(bassTapeLP);
+bassTapeLP.connect(bassDistNode);
+bassDistNode.connect(masterGain);
   reverbGain.connect(masterGain); echoGain.connect(masterGain);
   masterGain.connect(offlineCtx.destination);
 
@@ -1190,10 +1233,10 @@ async function generateAlbumMusic(album) {
   sections.forEach(section => {
     const offset = sectionStartTime;
     section.lead.forEach(ev => {
-      if (freq[ev.note]) scheduleNote(offlineCtx, offset + ev.step * stepDur, freq[ev.note], (ev.durSteps || 1) * stepDur, ev.vel * 0.5, -0.3, leadGain);
+      if (freq[ev.note]) scheduleNote(offlineCtx, offset + ev.step * stepDur, freq[ev.note], (ev.durSteps || 1) * stepDur, ev.vel * 0.5, -0.3, leadGain, 'lead');
     });
     section.bass.forEach(ev => {
-      if (freq[ev.note]) scheduleNote(offlineCtx, offset + ev.step * stepDur, freq[ev.note], (ev.durSteps || 1) * stepDur, ev.vel * 0.6, 0.2, bassGain);
+      if (freq[ev.note]) scheduleNote(offlineCtx, offset + ev.step * stepDur, freq[ev.note], (ev.durSteps || 1) * stepDur, ev.vel * 0.6, 0.2, bassGain, 'bass');
     });
     section.drums.forEach(ev => {
       const t = offset + ev.step * stepDur;
@@ -1589,13 +1632,14 @@ async function generateAlbumMusic(album) {
                 viewAlbum(el.dataset.albumid); });
         }
 
-      async function listenToAlbum(albumId) {
+     async function listenToAlbum(albumId) {
   const album = world.social.albums.find(a => a.id === albumId);
   if (!album) return;
 
   const modal = document.getElementById('listenModal');
   const content = document.getElementById('listenModalContent');
 
+  // Loading screen
   content.innerHTML = `
     <div style="text-align:center; background:#0a0d0a; border-radius:12px; padding:16px; border:2px solid #1a2a1a;">
       <div style="font-family:'VT323'; font-size:18px; color:var(--accent2);">🎛️ LOADING...</div>
@@ -1717,14 +1761,16 @@ async function generateAlbumMusic(album) {
     try {
       if (!ensureAudio()) throw new Error('AudioContext not available');
       ctx = audioCtx;
-      // FIX 1: Resume audio context so it runs
       await ctx.resume();
 
       masterGain = ctx.createGain(); masterGain.gain.value = 0.8;
       masterGain.connect(ctx.destination);
 
       const tapeLP = ctx.createBiquadFilter(); tapeLP.type = 'lowpass'; tapeLP.frequency.value = 7500;
-      const distNode = ctx.createWaveShaper(); distNode.curve = createDistortionCurve(15); distNode.oversample = '2x';
+const bassDistNode = ctx.createWaveShaper();
+bassDistNode.curve = createDistortionCurve(12);
+bassDistNode.oversample = '2x';
+      const distNode = ctx.createWaveShaper(); distNode.curve = createDistortionCurve(25); distNode.oversample = '2x';
       const bassTapeLP = ctx.createBiquadFilter(); bassTapeLP.type = 'lowpass'; bassTapeLP.frequency.value = 7500;
 
       const reverbDelay = ctx.createDelay(0.5); reverbDelay.delayTime.value = 0.35;
@@ -1743,58 +1789,111 @@ async function generateAlbumMusic(album) {
 
       leadGain.connect(tapeLP); drumGain.connect(tapeLP);
       tapeLP.connect(distNode); distNode.connect(masterGain); distNode.connect(reverbDelay); distNode.connect(echoDelay);
-      bassGain.connect(bassTapeLP); bassTapeLP.connect(masterGain);
+      bassGain.connect(bassTapeLP);
+bassTapeLP.connect(bassDistNode);
+bassDistNode.connect(masterGain);
       reverbGain.connect(masterGain); echoGain.connect(masterGain);
       masterGain.connect(ctx.destination);
 
       const drumSched = createDrumSchedulers(ctx, drumGain);
-      const allTasks = [];
-      const now = ctx.currentTime + 0.1;
-      let sectionStartTime = now;
 
-      sections.forEach(section => {
-        const offset = sectionStartTime;
-        section.lead.forEach(ev => {
-          if (freq[ev.note]) allTasks.push(() => scheduleNote(ctx, offset + ev.step * stepDur, freq[ev.note], (ev.durSteps || 1) * stepDur, ev.vel * 0.5, -0.3, leadGain));
-        });
-        section.bass.forEach(ev => {
-          if (freq[ev.note]) allTasks.push(() => scheduleNote(ctx, offset + ev.step * stepDur, freq[ev.note], (ev.durSteps || 1) * stepDur, ev.vel * 0.6, 0.2, bassGain));
-        });
-        section.drums.forEach(ev => {
-          const t = offset + ev.step * stepDur;
-          if (ev.type === 'kick') allTasks.push(() => drumSched.kick(t, ev.vel));
-          else if (ev.type === 'snare') allTasks.push(() => drumSched.snare(t, ev.vel));
-          else if (ev.type === 'hat') allTasks.push(() => drumSched.hat(t, ev.vel));
-        });
-        sectionStartTime += section.duration;
+      // --- JUST-IN-TIME SCHEDULER (CORRECTED) ---
+const allEvents = [];
+let sectionStartTime = 0;
+sections.forEach(section => {
+  const offset = sectionStartTime;
+  section.lead.forEach(ev => {
+    if (freq[ev.note]) {
+      allEvents.push({
+        type: 'lead',
+        time: offset + ev.step * stepDur,
+        note: ev.note,
+        dur: ev.durSteps || 1,
+        vel: ev.vel,
       });
+    }
+  });
+  section.bass.forEach(ev => {
+    if (freq[ev.note]) {
+      allEvents.push({
+        type: 'bass',
+        time: offset + ev.step * stepDur,
+        note: ev.note,
+        dur: ev.durSteps || 1,
+        vel: ev.vel,
+      });
+    }
+  });
+  section.drums.forEach(ev => {
+    allEvents.push({
+      type: 'drum',
+      time: offset + ev.step * stepDur,
+      drumType: ev.type,
+      vel: ev.vel,
+    });
+  });
+  sectionStartTime += section.duration;
+});
 
-      // FIX 2: Smaller batch size
-      const BATCH_SIZE = 20;
-      let taskIndex = 0;
-      // FIX 3: Wrap each task in try/catch
-      const scheduleBatch = () => {
-        if (cancelled) return;
-        const end = Math.min(taskIndex + BATCH_SIZE, allTasks.length);
-        for (let i = taskIndex; i < end; i++) {
-          try {
-            allTasks[i]();
-          } catch (e) {
-            console.warn('Skipping bad event:', e);
-          }
-        }
-        taskIndex = end;
-        if (taskIndex < allTasks.length) requestAnimationFrame(scheduleBatch);
-      };
-      // FIX 4: Small startup delay
-      setTimeout(() => requestAnimationFrame(scheduleBatch), 50);
+allEvents.sort((a, b) => a.time - b.time);
+
+let eventIndex = 0;
+const scheduleWindowMs = 100;
+const scheduleInterval = setInterval(() => {
+  if (cancelled) {
+    clearInterval(scheduleInterval);
+    return;
+  }
+  const now = ctx.currentTime;
+  const deadline = now + scheduleWindowMs / 1000;
+
+  while (eventIndex < allEvents.length && allEvents[eventIndex].time < deadline) {
+    const ev = allEvents[eventIndex];
+    try {
+      if (ev.type === 'lead') {
+        scheduleNote(
+          ctx,                             // use ctx, not offlineCtx
+          ev.time,                         // already absolute
+          freq[ev.note],
+          ev.dur * stepDur,
+          ev.vel * 0.5,
+          -0.3,
+          leadGain,
+          'lead'
+        );
+      } else if (ev.type === 'bass') {
+        scheduleNote(
+          ctx,
+          ev.time,
+          freq[ev.note],
+          ev.dur * stepDur,
+          ev.vel * 0.6,
+          0.2,
+          bassGain,
+          'bass'
+        );
+      } else if (ev.type === 'drum') {
+        if (ev.drumType === 'kick') drumSched.kick(ev.time, ev.vel);
+        else if (ev.drumType === 'snare') drumSched.snare(ev.time, ev.vel);
+        else if (ev.drumType === 'hat') drumSched.hat(ev.time, ev.vel);
+      }
+    } catch (e) {
+      console.warn('Bad event skipped:', e);
+    }
+    eventIndex++;
+  }
+
+  if (eventIndex >= allEvents.length) {
+    clearInterval(scheduleInterval);
+  }
+}, 40); // check every 40 ms
 
       realtimeAudioOk = true;
     } catch (e) {
       console.warn('Real‑time audio setup failed:', e);
     }
 
-    // Build player UI (same as before)
+    // Player UI
     content.innerHTML = `
       <div style="text-align:center; background:#0a0d0a; border-radius:12px; padding:16px; border:2px solid #1a2a1a; position:relative; min-width:320px;">
         <button id="closeXBtn" style="position:absolute; top:8px; right:12px; background:none; border:none; color:var(--text); font-size:20px; cursor:pointer; z-index:10;">✖</button>
