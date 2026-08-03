@@ -437,61 +437,13 @@
         let audioCtx = null;
 
         // ──────────── FREQUENCY TABLE (from NIGHT CREEPER) ────────────
-        const freq = {
-            'C1': 32.70,
-            'C#1': 34.65,
-            'D1': 36.71,
-            'D#1': 38.89,
-            'E1': 41.20,
-            'F1': 43.65,
-            'F#1': 46.25,
-            'G1': 49.00,
-            'G#1': 51.91,
-            'A1': 55.00,
-            'A#1': 58.27,
-            'B1': 61.74,
-            'C2': 65.41,
-            'C#2': 69.30,
-            'D2': 73.42,
-            'D#2': 77.78,
-            'E2': 82.41,
-            'F2': 87.31,
-            'F#2': 92.50,
-            'G2': 98.00,
-            'G#2': 103.83,
-            'A2': 110.00,
-            'A#2': 116.54,
-            'B2': 123.47,
-            'C3': 130.81,
-            'C#3': 138.59,
-            'D3': 146.83,
-            'D#3': 155.56,
-            'E3': 164.81,
-            'F3': 174.61,
-            'F#3': 185.00,
-            'G3': 196.00,
-            'G#3': 207.65,
-            'A3': 220.00,
-            'A#3': 233.08,
-            'B3': 246.94,
-            'C4': 261.63,
-            'C#4': 277.18,
-            'D4': 293.66,
-            'D#4': 311.13,
-            'E4': 329.63,
-            'F4': 349.23,
-            'F#4': 369.99,
-            'G4': 392.00,
-            'G#4': 415.30,
-            'A4': 440.00,
-            'A#4': 466.16,
-            'B4': 493.88,
-            'C5': 523.25,
-            'C#5': 554.37,
-            'D5': 587.33,
-            'D#5': 622.25,
-            'E5': 659.25
-        };
+       const freq = {
+  'C1':32.70,'C#1':34.65,'D1':36.71,'D#1':38.89,'E1':41.20,'F1':43.65,'F#1':46.25,'G1':49.00,'G#1':51.91,'A1':55.00,'A#1':58.27,'B1':61.74,
+  'C2':65.41,'C#2':69.30,'D2':73.42,'D#2':77.78,'E2':82.41,'F2':87.31,'F#2':92.50,'G2':98.00,'G#2':103.83,'A2':110.00,'A#2':116.54,'B2':123.47,
+  'C3':130.81,'C#3':138.59,'D3':146.83,'D#3':155.56,'E3':164.81,'F3':174.61,'F#3':185.00,'G3':196.00,'G#3':207.65,'A3':220.00,'A#3':233.08,'B3':246.94,
+  'C4':261.63,'C#4':277.18,'D4':293.66,'D#4':311.13,'E4':329.63,'F4':349.23,'F#4':369.99,'G4':392.00,'G#4':415.30,'A4':440.00,'A#4':466.16,'B4':493.88,
+  'C5':523.25,'C#5':554.37,'D5':587.33,'D#5':622.25,'E5':659.25,'F5':698.46,'F#5':739.99,'G5':783.99,'G#5':830.61,'A5':880.00,'A#5':932.33,'B5':987.77
+};
 
         function audioBufferToWav(buffer) {
             const numChannels = buffer.numberOfChannels;
@@ -887,6 +839,66 @@ The chord progression should fit the genre and mood. Output ONLY the raw JSON.`;
   return data;
 }
 
+async function generateFullSongAI(album) {
+  const prompt = `You are a 1980s cassette composer. Create a complete musical score for the album "${album.title}" by ${album.artist} (genre: ${album.genre}, year: ${album.year}, mood: "${album.description}").
+
+Return ONLY a valid JSON (no markdown, no explanation) with this exact structure:
+{
+  "bpm": 120,
+  "key": "C major",
+  "tracks": {
+    "lead": [
+      { "step": 0, "pitch": "C4", "durSteps": 2, "vel": 0.7 },
+      { "step": 2, "pitch": "E4", "durSteps": 1, "vel": 0.8 }
+    ],
+    "bass": [
+      { "step": 0, "pitch": "C2", "durSteps": 4, "vel": 0.9 }
+    ],
+    "drums": [
+      { "step": 0, "type": "kick", "vel": 0.8 },
+      { "step": 1, "type": "hat", "vel": 0.5 }
+    ]
+  },
+  "soundDesign": "description of the overall sound (e.g. overdriven synth lead, deep bass, 808 drums)"
+}
+
+RULES:
+- "step" is the 8th‑note position, starting at 0.
+- "durSteps" is the note length in 8th‑notes (1 = eighth, 2 = quarter, 4 = half, etc.).
+- "vel" is velocity 0.1–1.0.
+- "pitch" must use note name + octave (C1–B5), e.g. "C4", "Eb3". Only notes from the chromatic scale.
+- "drums" types: ONLY "kick", "snare", "hat".
+- The total song must be exactly 256 steps long (32 bars at 8th‑notes). The last event's (step + durSteps) must be ≤ 256.
+- Make the music sound authentically like 1980s ${album.genre}. Use rhythmic patterns, melodic hooks, and genre‑appropriate feel.
+- BPM between 100 and 140.
+- Key should match the mood: minor keys for sad/dark, major for happy/upbeat.
+- Output ONLY the JSON object – nothing else.`;
+
+  const data = await mistralChat(
+    [{ role: 'user', content: prompt }],
+    8000,   // <-- high token limit for the large track data
+    true
+  );
+
+  if (!data || !data.bpm || !data.tracks || !data.tracks.lead || !data.tracks.bass || !data.tracks.drums) {
+    throw new Error('Invalid full‑song AI response');
+  }
+
+  // Sanitize pitches: ensure they exist in our frequency table
+  const sanitizeTrack = (events) => events.map(e => {
+    if (freq[e.pitch]) return e;
+    // fallback: try to use C4 if pitch missing
+    return { ...e, pitch: 'C4' };
+  });
+
+  data.tracks.lead = sanitizeTrack(data.tracks.lead);
+  data.tracks.bass = sanitizeTrack(data.tracks.bass);
+  // drums need no sanitize
+
+  data.bpm = Math.min(140, Math.max(100, data.bpm));
+  return data;
+}
+
         function ensureAudio() { if (!audioCtx) { try { audioCtx = new(window.AudioContext || window
                     .webkitAudioContext)(); } catch (e) { return false; } } if (audioCtx.state === 'suspended') audioCtx
                 .resume().catch(() => {}); return audioCtx.state !== 'closed'; }
@@ -1120,17 +1132,68 @@ function trimStructureToBars(structure, maxBars) {
   return trimmed;
 }
 
+function convertAITracksToSong(plan) {
+  const bpm = plan.bpm;
+  const stepDur = 60 / bpm / 2;   // 8th‑note duration in seconds
+  const totalSteps = 256;         // as requested in the prompt
+  const totalDuration = totalSteps * stepDur;
+
+  // Create one single section containing all events
+  // (You could split into multiple sections later if needed)
+  const sections = [{
+    name: 'full_song',
+    lengthBars: totalSteps / 8,
+    lead: (plan.tracks.lead || []).map(e => ({
+      step: e.step,
+      note: e.pitch,
+      durSteps: e.durSteps || 1,
+      vel: e.vel || 0.7
+    })),
+    bass: (plan.tracks.bass || []).map(e => ({
+      step: e.step,
+      note: e.pitch,
+      durSteps: e.durSteps || 1,
+      vel: e.vel || 0.7
+    })),
+    drums: (plan.tracks.drums || []).map(e => ({
+      step: e.step,
+      type: e.type,
+      vel: e.vel || 0.7
+    })),
+    duration: totalDuration
+  }];
+
+  return { bpm, sections };
+}
+
 async function generateAlbumMusic(album) {
   let plan;
-  if (album.songPlan && album.songPlan.bpm) {
+  if (album.songPlan && album.songPlan.bpm && album.songPlan.tracks) {
+    // Full AI track already exists
+    plan = album.songPlan;
+  } else if (album.songPlan && album.songPlan.bpm) {
+    // Old‑style plan (chord progression + structure) – fallback
     plan = album.songPlan;
   } else {
-    plan = await generateAlbumSectionsAI(album);
+    // Try to get a full AI track first
+    try {
+      plan = await generateFullSongAI(album);
+    } catch (e) {
+      console.warn('Full song generation failed, falling back to chord-based generator:', e);
+      plan = await generateAlbumSectionsAI(album);
+    }
     album.songPlan = plan;
     saveWorld();
   }
 
-  const song = generateSectionsFromPlan(plan);
+  let song;
+  if (plan.tracks) {
+    // Convert AI’s track arrays directly into sections
+    song = convertAITracksToSong(plan);
+  } else {
+    // Old‑style plan: use procedural generator
+    song = generateSectionsFromPlan(plan);
+  }
   album.songData = song;
   saveWorld();
 
@@ -1664,19 +1727,28 @@ bassDistNode.connect(masterGain);
   };
 
   try {
-    let plan;
-    if (album.songPlan && album.songPlan.bpm) {
-      plan = album.songPlan;
-    } else {
-      plan = await generateAlbumSectionsAI(album);
-      album.songPlan = plan;
-      saveWorld();
-    }
-
-    if (cancelled) return;
-
-    const song = generateSectionsFromPlan(plan);
-    album.songData = song;
+let plan;
+if (album.songPlan && album.songPlan.bpm && album.songPlan.tracks) {
+  plan = album.songPlan;
+} else if (album.songPlan && album.songPlan.bpm) {
+  plan = album.songPlan;
+} else {
+  try {
+    plan = await generateFullSongAI(album);
+  } catch (e) {
+    console.warn('Full song generation failed, using chord‑based generator:', e);
+    plan = await generateAlbumSectionsAI(album);
+  }
+  album.songPlan = plan;
+  saveWorld();
+}
+if (cancelled) return;
+let song;
+if (plan.tracks) {
+  song = convertAITracksToSong(plan);
+} else {
+  song = generateSectionsFromPlan(plan);
+}
     saveWorld();
 
     const dataBtn = document.getElementById('dataBtn');
