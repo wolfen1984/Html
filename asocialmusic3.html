@@ -1749,6 +1749,7 @@ if (plan.tracks) {
 } else {
   song = generateSectionsFromPlan(plan);
 }
+album.songData = song;
     saveWorld();
 
     const dataBtn = document.getElementById('dataBtn');
@@ -1870,7 +1871,7 @@ bassDistNode.connect(masterGain);
       const drumSched = createDrumSchedulers(ctx, drumGain);
 
       // --- JUST-IN-TIME SCHEDULER (CORRECTED) ---
-const allEvents = [];
+let allEvents = [];
 let sectionStartTime = 0;
 sections.forEach(section => {
   const offset = sectionStartTime;
@@ -1908,6 +1909,14 @@ sections.forEach(section => {
 });
 
 allEvents.sort((a, b) => a.time - b.time);
+
+// ADD THESE LINES:
+const scheduleAheadTime = 0.1; // small look‑ahead in seconds
+const playStartTime = ctx.currentTime + scheduleAheadTime;
+allEvents = allEvents.map(ev => ({
+  ...ev,
+  time: playStartTime + ev.time   // shift into the future
+}));
 
 let eventIndex = 0;
 const scheduleWindowMs = 100;
@@ -2011,7 +2020,7 @@ const scheduleInterval = setInterval(() => {
     let isPlaying = realtimeAudioOk;
     let progressInterval;
     if (realtimeAudioOk) {
-      const startTime = ctx.currentTime;
+      const startTime = playStartTime;
       progressInterval = setInterval(() => {
         const elapsed = ctx.currentTime - startTime;
         const percent = Math.min(100, (elapsed / totalDuration) * 100);
@@ -2073,15 +2082,10 @@ const scheduleInterval = setInterval(() => {
     const escHandler = (e) => { if (e.key === 'Escape') { closePlayer(); document.removeEventListener('keydown', escHandler); } };
     document.addEventListener('keydown', escHandler);
 
-  } catch (e) {
+    } catch (e) {
     if (cancelled) return;
-    content.innerHTML = `
-      <h2 style="color:var(--danger);">Composition Error</h2>
-      <p>Could not generate the song:<br>${esc(e.message)}</p>
-      <p style="color:var(--text-dim);">The AI may be overloaded. Please try again.</p>
-      <button class="btn" id="closeErrorBtn">Close</button>
-    `;
-    document.getElementById('closeErrorBtn').onclick = () => { playClick(); modal.style.display = 'none'; };
+    console.error('Listen error:', e);
+    modal.style.display = 'none';
   }
 }
 
