@@ -433,8 +433,33 @@
             { style: "the MTV addict", traits: ["music-video-hoarder", "trendy", "visual", "energetic"] }
         ];
 
+const GENRE_HINTS = {
+  Rock: "Lead: overdriven pentatonic riffs, power chords on strong beats. Vary the melody: start low, peak in chorus, use longer notes occasionally. Bass: driving eighth‑notes, roots with octave jumps. Drums: kick on steps 0&4 of each bar, snare ONLY on steps 2&6. Hi‑hat on EVERY single step (0,1,2,3…), velocity ~0.5. This is mandatory.",
+  Metal: "Lead: fast palm‑muted power chords, high‑note bends. Melody should have aggressive contour. Bass: tightly locked to kick, sometimes galloping. Drums: kick on 0&4, snare ONLY on 2&6, hi‑hat on EVERY step (mandatory). Double‑kick occasionally.",
+  'Hip‑Hop': "Lead: sparse synth stabs, minimalistic melody. Bass: deep 808‑style long notes on 1 and 3. Drums: kick on steps 0&4, snare/clap ONLY on 2&6. Hi‑hat on EVERY step (mandatory, vel 0.5).",
+  Electronic: "Lead: arpeggiated synth sequences, filter sweeps, evolving melody. Bass: sidechained saw bass. Drums: four‑on‑the‑floor kick (every 0&4), snare/clap ONLY on 2&6, hi‑hat on EVERY step (mandatory).",
+  Jazz: "Lead: swinging melodies with chromatic approach notes and blue notes. Use syncopation. Bass: walking bass in quarter notes. Drums: ride cymbal on every step (type 'hat' but mention ride feel), kick on 0&4, snare comping softly on 2&6.",
+  Funk: "Lead: syncopated single‑note lines, use of wah‑wah effect. Melody should be groove‑based with rests. Bass: slapped and popped, syncopated. Drums: tight kick, snare on 2&6, hi‑hat on EVERY step (mandatory, sometimes open hat on off‑beats).",
+  Disco: "Lead: string‑like synth pads, orchestral stabs. Bass: octave‑jumping. Drums: four‑on‑the‑floor kick, snare ONLY on 2&6, open hi‑hat on off‑beats, closed hi‑hat on EVERY step (mandatory).",
+  'New Wave': "Lead: jangly guitar or synth, often arpeggiated. Melody should have a clear pop contour. Bass: melodic, moving counter‑melody. Drums: electronic drum machine feel, kick every 0&4, snare ONLY on 2&6, hi‑hat on EVERY step (mandatory).",
+  Pop: "Lead: catchy vocal‑like melody, stepwise motion, wide intervals in choruses. Avoid repeating same note consecutively. Bass: simple, root‑focused. Drums: standard backbeat, kick 0&4, snare ONLY 2&6, hi‑hat EVERY step (mandatory).",
+  Punk: "Lead: fast down‑stroke power chords, simple riffs. Bass: fast root notes. Drums: rapid kick‑snare pattern, hi‑hat on EVERY step (mandatory). Snare ONLY on 2&6.",
+  Indie: "Lead: jangly, sometimes angular melodies. Bass: melodic, often uses upper register. Drums: loose, but hi‑hat on EVERY step (mandatory), snare ONLY on 2&6.",
+  Folk: "Lead: acoustic fingerpicking patterns, simple melodies. Bass: gentle, sparse. Drums: brushed snare on 2&6, hi‑hat on EVERY step (mandatory, soft vel 0.3).",
+  Blues: "Lead: 12‑bar blues progression, bends and vibrato. Bass: walking bass or simple root‑fifth pattern. Drums: shuffle rhythm (if possible, use hi‑hat on EVERY step but swung), snare ONLY on 2&6.",
+  Reggae: "Lead: off‑beat chord stabs. Bass: heavy, melodic counter‑melody. Drums: one‑drop rhythm (kick on step 4 of each bar), snare cross‑stick on 2&6, hi‑hat on EVERY step (mandatory).",
+  Country: "Lead: twangy guitar, pedal steel bends. Bass: root‑fifth, simple patterns. Drums: train beat, but hi‑hat on EVERY step (mandatory), snare ONLY on 2&6.",
+  Alternative: "Lead: fuzzy, distorted guitars, unconventional melodies. Bass: simple but effective. Drums: powerful, hi‑hat on EVERY step (mandatory), snare ONLY on 2&6.",
+  'R&B': "Lead: smooth, melismatic melody lines, use of piano/e‑piano. Bass: deep, groovy, often syncopated. Drums: laid‑back, punchy kick on 0&4, snare ONLY on 2&6, hi‑hat on EVERY step (mandatory) with swing feel if possible.",
+  Soul: "Lead: expressive, gospel‑influenced melody, use of horns. Bass: groovy, with slide notes. Drums: tight, snappy snare on 2&6, hi‑hat on EVERY step (mandatory).",
+};
         const uid = () => Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 8);
         let audioCtx = null;
+
+function sanitizeJSONForAI(str) {
+  // replace stray '&' that are not part of HTML entities with 'and'
+  return str.replace(/&(?!(?:amp|lt|gt|quot|#39);)/g, 'and');
+}
 
         // ──────────── FREQUENCY TABLE (from NIGHT CREEPER) ────────────
        const freq = {
@@ -840,65 +865,117 @@ The chord progression should fit the genre and mood. Output ONLY the raw JSON.`;
 }
 
 async function generateFullSongAI(album) {
-  const prompt = `You are a 1980s cassette composer. Create a complete musical score for the album "${album.title}" by ${album.artist} (genre: ${album.genre}, year: ${album.year}, mood: "${album.description}").
+  // ========== STEP 1 – get musical blueprint ==========
+  const blueprintPrompt = `You are an expert 1980s composer. For the album "${album.title}" by ${album.artist} (genre: ${album.genre}, year: ${album.year}, mood: "${album.description}"), design a musical blueprint.
 
-Return ONLY a valid JSON (no markdown, no explanation) with this exact structure:
-{
-  "bpm": 120,
-  "key": "C major",
-  "tracks": {
-    "lead": [
-      { "step": 0, "pitch": "C4", "durSteps": 2, "vel": 0.7 },
-      { "step": 2, "pitch": "E4", "durSteps": 1, "vel": 0.8 }
-    ],
-    "bass": [
-      { "step": 0, "pitch": "C2", "durSteps": 4, "vel": 0.9 }
-    ],
-    "drums": [
-      { "step": 0, "type": "kick", "vel": 0.8 },
-      { "step": 1, "type": "hat", "vel": 0.5 }
-    ]
-  },
-  "soundDesign": "description of the overall sound (e.g. overdriven synth lead, deep bass, 808 drums)"
-}
+Return ONLY a valid JSON with these keys:
+- "bpm": number (100-140)
+- "key": string, e.g. "C major", "A minor"
+- "chordProgression": array of chord strings (e.g. ["Am","G","F","G"]) – a loopable sequence appropriate for the genre.
+- "structure": array of objects, each with "section" (string: "intro","verse","chorus","bridge","outro") and "bars" (integer).  The total bars must equal exactly 16.
 
-RULES:
-- "step" is the 8th‑note position, starting at 0.
-- "durSteps" is the note length in 8th‑notes (1 = eighth, 2 = quarter, 4 = half, etc.).
-- "vel" is velocity 0.1–1.0.
-- "pitch" must use note name + octave (C1–B5), e.g. "C4", "Eb3". Only notes from the chromatic scale.
-- "drums" types: ONLY "kick", "snare", "hat".
-- The total song must be exactly 256 steps long (32 bars at 8th‑notes). The last event's (step + durSteps) must be ≤ 256.
-- Make the music sound authentically like 1980s ${album.genre}. Use rhythmic patterns, melodic hooks, and genre‑appropriate feel.
-- BPM between 100 and 140.
-- Key should match the mood: minor keys for sad/dark, major for happy/upbeat.
-- Output ONLY the JSON object – nothing else.`;
+Make the chord progression idiomatic for ${album.genre} and match the mood.  Output ONLY the JSON.`;
 
-  const data = await mistralChat(
-    [{ role: 'user', content: prompt }],
-    8000,   // <-- high token limit for the large track data
+  // No try-catch – if this fails, the error will propagate up to the UI.
+  const blueprint = await mistralChat(
+    [{ role: 'user', content: blueprintPrompt }],
+    2000,
     true
   );
 
-  if (!data || !data.bpm || !data.tracks || !data.tracks.lead || !data.tracks.bass || !data.tracks.drums) {
+  // Validate/repair total bars
+  const totalBars = blueprint.structure.reduce((sum, s) => sum + (parseInt(s.bars)||0), 0);
+  if (totalBars !== 16) {
+    const diff = 16 - totalBars;
+    const last = blueprint.structure[blueprint.structure.length-1];
+    if (last) last.bars = Math.max(1, (last.bars || 0) + diff);
+  }
+
+  // Build a section description with exact step ranges
+  let barCounter = 0;
+  const sectionDescriptions = blueprint.structure.map(sec => {
+    const startBar = barCounter;
+    barCounter += sec.bars;
+    const endBar = barCounter - 1;
+    return `${sec.section} (bars ${startBar}-${endBar}, steps ${startBar*8}-${endBar*8+7})`;
+  }).join(', ');
+
+  const genreHint = GENRE_HINTS[album.genre] || GENRE_HINTS['Pop'];
+
+  // ========== STEP 2 – generate note events ==========
+  const notePrompt = `You are an 80s ${album.genre} producer. Given this blueprint:
+- BPM: ${blueprint.bpm}, Key: ${blueprint.key}
+- Chord progression (loops): ${blueprint.chordProgression.join(', ')}
+- Structure (16 bars = 128 steps, each bar=8 steps): ${sectionDescriptions}
+
+Style guidelines for ${album.genre}: ${genreHint}
+
+Write the complete instrumental track. Return ONLY a valid JSON with this structure:
+{
+  "tracks": {
+    "lead": [
+      { "step": 0, "pitch": "C4", "durSteps": 2, "vel": 0.7 },
+      ...
+    ],
+    "bass": [...],
+    "drums": [...]
+  }
+}
+
+ABSOLUTE RULES (non‑negotiable):
+- "step" is the 8th‑note position (0–127).
+- "durSteps" is note length in 8th‑notes (1=eighth, 2=quarter, etc.).
+- "vel" is velocity 0.1–1.0.
+- "pitch": use note name + octave (C1–B5). Only notes from the chromatic scale.
+- "drums" types: ONLY "kick", "snare", "hat".
+- The chord progression repeats every ${blueprint.chordProgression.length} bars. The lead and bass MUST use notes that belong to the current chord. On strong beats, prefer chord tones (root, 3rd, 5th). Use passing notes sparingly.
+- The bass should outline the root of the current chord on beats 1 and 3 most of the time.
+- The total steps must be exactly 128. The last event's (step + durSteps) must be ≤ 128.
+
+MELODY & EXPRESSION RULES:
+- Create a melodic arc: start lower in the verse, rise to a peak in the chorus, then descend again.
+- Use a variety of note lengths: mix short (1‑2 steps) with occasional long notes (3‑4 steps).
+- Avoid repeating the exact same melody pattern for more than 4 bars; introduce variation.
+- Use dynamic velocity: accents (0.9‑1.0) on downbeats (step 0 of each bar), softer (0.5‑0.6) on off‑beats and passing notes.
+- The lead should feel like a real instrumental melody, not a random sequence.
+
+DRUM RULES (MANDATORY – IF YOU IGNORE THESE THE OUTPUT IS INVALID):
+- You MUST include a hi‑hat event (type "hat", vel 0.5) on EVERY SINGLE STEP from 0 to 127. No exceptions.
+- Kicks should mainly fall on steps 0 and 4 of each 8‑step bar.
+- Snares MUST ONLY be placed on steps 2 and 6 of each bar.
+- No other drum types. The hi‑hat pattern is non‑negotiable; the song will be rejected if any step lacks a hat.
+
+Make the music sound authentically like 1980s ${album.genre}. Output ONLY the JSON.`;
+
+  let data;
+  try {
+    data = await mistralChat(
+      [{ role: 'user', content: notePrompt }],
+      16000,   // high token limit for the large track data
+      true
+    );
+  } catch (e) {
+    throw new Error('Full song generation failed: ' + e.message);
+  }
+
+  if (!data || !data.tracks || !data.tracks.lead || !data.tracks.bass || !data.tracks.drums) {
     throw new Error('Invalid full‑song AI response');
   }
 
-  // Sanitize pitches: ensure they exist in our frequency table
+  // Sanitize pitches – replace any missing pitch with C4
   const sanitizeTrack = (events) => events.map(e => {
     if (freq[e.pitch]) return e;
-    // fallback: try to use C4 if pitch missing
     return { ...e, pitch: 'C4' };
   });
-
   data.tracks.lead = sanitizeTrack(data.tracks.lead);
   data.tracks.bass = sanitizeTrack(data.tracks.bass);
-  // drums need no sanitize
 
-  data.bpm = Math.min(140, Math.max(100, data.bpm));
+  // Attach the blueprint for later display (optional)
+  data.blueprint = blueprint;
+  data.bpm = blueprint.bpm;  // ensure consistent bpm
+
   return data;
 }
-
         function ensureAudio() { if (!audioCtx) { try { audioCtx = new(window.AudioContext || window
                     .webkitAudioContext)(); } catch (e) { return false; } } if (audioCtx.state === 'suspended') audioCtx
                 .resume().catch(() => {}); return audioCtx.state !== 'closed'; }
@@ -983,8 +1060,15 @@ RULES:
             }
             const data = await res.json();
             let content = data.choices[0].message.content.trim();
-            if (jsonMode) { content = content.replace(/^```json\s*/, '').replace(/```\s*$/, '').trim(); try { return JSON
-                        .parse(content); } catch (e) { throw new Error('Invalid JSON from AI'); } }
+            if (jsonMode) {
+  content = content.replace(/^```json\s*/, '').replace(/```\s*$/, '').trim();
+  content = sanitizeJSONForAI(content);   // ← FIX
+  try {
+    return JSON.parse(content);
+  } catch (e) {
+    throw new Error('Invalid JSON from AI: ' + e.message);
+  }
+}
             return content;
         }
 
@@ -1135,7 +1219,7 @@ function trimStructureToBars(structure, maxBars) {
 function convertAITracksToSong(plan) {
   const bpm = plan.bpm;
   const stepDur = 60 / bpm / 2;   // 8th‑note duration in seconds
-  const totalSteps = 256;         // as requested in the prompt
+  const totalSteps = 128;         // as requested in the prompt
   const totalDuration = totalSteps * stepDur;
 
   // Create one single section containing all events
@@ -1175,13 +1259,8 @@ async function generateAlbumMusic(album) {
     // Old‑style plan (chord progression + structure) – fallback
     plan = album.songPlan;
   } else {
-    // Try to get a full AI track first
-    try {
-      plan = await generateFullSongAI(album);
-    } catch (e) {
-      console.warn('Full song generation failed, falling back to chord-based generator:', e);
-      plan = await generateAlbumSectionsAI(album);
-    }
+    plan = await generateFullSongAI(album);
+    // If it throws, the error will propagate – no fallback
     album.songPlan = plan;
     saveWorld();
   }
@@ -1733,11 +1812,27 @@ if (album.songPlan && album.songPlan.bpm && album.songPlan.tracks) {
 } else if (album.songPlan && album.songPlan.bpm) {
   plan = album.songPlan;
 } else {
-  try {
+    try {
     plan = await generateFullSongAI(album);
   } catch (e) {
-    console.warn('Full song generation failed, using chord‑based generator:', e);
-    plan = await generateAlbumSectionsAI(album);
+    console.error('Song generation error:', e);
+    content.innerHTML = `
+      <div style="text-align:center; color:var(--danger); padding:20px;">
+        <h2>⚠️ Generation Failed</h2>
+        <p>${esc(e.message)}</p>
+        <button class="btn" id="retryListenBtn">Retry</button>
+        <button class="btn" id="closeErrorBtn">Close</button>
+      </div>`;
+    document.getElementById('retryListenBtn').onclick = () => {
+      playClick();
+      modal.style.display = 'none';   // or directly call listenToAlbum again
+      listenToAlbum(albumId);
+    };
+    document.getElementById('closeErrorBtn').onclick = () => {
+      playClick();
+      modal.style.display = 'none';
+    };
+    return; // stop execution
   }
   album.songPlan = plan;
   saveWorld();
