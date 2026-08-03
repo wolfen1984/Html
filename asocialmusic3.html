@@ -876,14 +876,12 @@ Return ONLY a valid JSON with these keys:
 
 Make the chord progression idiomatic for ${album.genre} and match the mood.  Output ONLY the JSON.`;
 
-  // No try-catch – if this fails, the error will propagate up to the UI.
   const blueprint = await mistralChat(
     [{ role: 'user', content: blueprintPrompt }],
     2000,
     true
   );
 
-  // Validate/repair total bars
   const totalBars = blueprint.structure.reduce((sum, s) => sum + (parseInt(s.bars)||0), 0);
   if (totalBars !== 16) {
     const diff = 16 - totalBars;
@@ -891,7 +889,6 @@ Make the chord progression idiomatic for ${album.genre} and match the mood.  Out
     if (last) last.bars = Math.max(1, (last.bars || 0) + diff);
   }
 
-  // Build a section description with exact step ranges
   let barCounter = 0;
   const sectionDescriptions = blueprint.structure.map(sec => {
     const startBar = barCounter;
@@ -902,7 +899,6 @@ Make the chord progression idiomatic for ${album.genre} and match the mood.  Out
 
   const genreHint = GENRE_HINTS[album.genre] || GENRE_HINTS['Pop'];
 
-  // ========== STEP 2 – generate note events ==========
   const notePrompt = `You are an 80s ${album.genre} producer. Given this blueprint:
 - BPM: ${blueprint.bpm}, Key: ${blueprint.key}
 - Chord progression (loops): ${blueprint.chordProgression.join(', ')}
@@ -913,45 +909,29 @@ Style guidelines for ${album.genre}: ${genreHint}
 Write the complete instrumental track. Return ONLY a valid JSON with this structure:
 {
   "tracks": {
-    "lead": [
-      { "step": 0, "pitch": "C4", "durSteps": 2, "vel": 0.7 },
-      ...
-    ],
-    "bass": [...],
-    "drums": [...]
+    "lead": [ ... ],
+    "bass": [ ... ],
+    "drums": [ ... ]
   }
 }
 
-ABSOLUTE RULES (non‑negotiable):
+RULES:
 - "step" is the 8th‑note position (0–127).
-- "durSteps" is note length in 8th‑notes (1=eighth, 2=quarter, etc.).
+- "durSteps" is note length in 8th‑notes.
 - "vel" is velocity 0.1–1.0.
-- "pitch": use note name + octave (C1–B5). Only notes from the chromatic scale.
+- "pitch": use note name + octave (C1–B5).
 - "drums" types: ONLY "kick", "snare", "hat".
-- The chord progression repeats every ${blueprint.chordProgression.length} bars. The lead and bass MUST use notes that belong to the current chord. On strong beats, prefer chord tones (root, 3rd, 5th). Use passing notes sparingly.
-- The bass should outline the root of the current chord on beats 1 and 3 most of the time.
-- The total steps must be exactly 128. The last event's (step + durSteps) must be ≤ 128.
-
-MELODY & EXPRESSION RULES:
-- Create a melodic arc: start lower in the verse, rise to a peak in the chorus, then descend again.
-- Use a variety of note lengths: mix short (1‑2 steps) with occasional long notes (3‑4 steps).
-- Avoid repeating the exact same melody pattern for more than 4 bars; introduce variation.
-- Use dynamic velocity: accents (0.9‑1.0) on downbeats (step 0 of each bar), softer (0.5‑0.6) on off‑beats and passing notes.
-- The lead should feel like a real instrumental melody, not a random sequence.
-
-DRUM RULES (MANDATORY – IF YOU IGNORE THESE THE OUTPUT IS INVALID):
-- You MUST include a hi‑hat event (type "hat", vel 0.5) on EVERY SINGLE STEP from 0 to 127. No exceptions.
-- Kicks should mainly fall on steps 0 and 4 of each 8‑step bar.
-- Snares MUST ONLY be placed on steps 2 and 6 of each bar.
-- No other drum types. The hi‑hat pattern is non‑negotiable; the song will be rejected if any step lacks a hat.
-
-Make the music sound authentically like 1980s ${album.genre}. Output ONLY the JSON.`;
+- The chord progression repeats every ${blueprint.chordProgression.length} bars. Use chord tones on strong beats.
+- Bass: root of the current chord on beats 1 and 3.
+- Drums: hi‑hat on EVERY step (mandatory), kicks on relative steps 0&4, snare ONLY on 2&6.
+- Melody: create a melodic arc with variation, use dynamics.
+- Total steps exactly 128. Output ONLY the JSON.`;
 
   let data;
   try {
     data = await mistralChat(
       [{ role: 'user', content: notePrompt }],
-      16000,   // high token limit for the large track data
+      20000,   // safe for 128 steps
       true
     );
   } catch (e) {
@@ -962,7 +942,6 @@ Make the music sound authentically like 1980s ${album.genre}. Output ONLY the JS
     throw new Error('Invalid full‑song AI response');
   }
 
-  // Sanitize pitches – replace any missing pitch with C4
   const sanitizeTrack = (events) => events.map(e => {
     if (freq[e.pitch]) return e;
     return { ...e, pitch: 'C4' };
@@ -970,13 +949,12 @@ Make the music sound authentically like 1980s ${album.genre}. Output ONLY the JS
   data.tracks.lead = sanitizeTrack(data.tracks.lead);
   data.tracks.bass = sanitizeTrack(data.tracks.bass);
 
-  // Attach the blueprint for later display (optional)
   data.blueprint = blueprint;
-  data.bpm = blueprint.bpm;  // ensure consistent bpm
-
+  data.bpm = blueprint.bpm;
   return data;
 }
-        function ensureAudio() { if (!audioCtx) { try { audioCtx = new(window.AudioContext || window
+
+      function ensureAudio() { if (!audioCtx) { try { audioCtx = new(window.AudioContext || window
                     .webkitAudioContext)(); } catch (e) { return false; } } if (audioCtx.state === 'suspended') audioCtx
                 .resume().catch(() => {}); return audioCtx.state !== 'closed'; }
 
@@ -1132,6 +1110,63 @@ Make the music sound authentically like 1980s ${album.genre}. Output ONLY the JS
             return stars + ` (${album.reviews.filter(r=>r.rating>0).length})`;
         }
 
+function fillSeedGaps(seedSong, chordProgression) {
+  const section = seedSong.sections[0];
+  const totalBars = section.lengthBars;   // 16
+
+  // Chord note pool (same as before)
+  const chordNotes = chordProgression.map(ch => {
+    const root = ch.match(/^[A-G][#b]?/)[0];
+    const isMinor = ch.includes('m') && !ch.includes('maj');
+    const rootIdx = {C:0,D:2,E:4,F:5,G:7,A:9,B:11}[root.replace(/[#b]/,'')];
+    let offsets = isMinor ? [0,3,7] : [0,4,7];
+    const notes = offsets.map(o => (rootIdx + o) % 12);
+    const noteNames = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+    return notes.map(n => noteNames[n] + '4');  // lead octave
+  });
+
+  // Bass note pool (use root an octave lower)
+  const bassNotes = chordProgression.map(ch => {
+    const root = ch.match(/^[A-G][#b]?/)[0];
+    return root + '2';  // bass root in octave 2
+  });
+
+  const ensureBar = (events, noteChoices, startStep, type) => {
+    const hasEvent = events.some(e => e.step >= startStep && e.step < startStep + 8);
+    if (!hasEvent) {
+      const idx = Math.floor((startStep / 8) % noteChoices.length);
+      const note = noteChoices[idx];
+      if (type === 'lead') {
+        events.push({ step: startStep, note: note, durSteps: 4, vel: 0.5 });
+        events.push({ step: startStep + 4, note: note, durSteps: 4, vel: 0.4 });
+      } else if (type === 'bass') {
+        events.push({ step: startStep, note: note, durSteps: 4, vel: 0.6 });
+        events.push({ step: startStep + 4, note: note, durSteps: 4, vel: 0.5 });
+      }
+    }
+  };
+
+  const lead = [...section.lead];
+  const bass = [...section.bass];
+  const drums = [...section.drums];
+
+  for (let bar = 0; bar < totalBars; bar++) {
+    const stepStart = bar * 8;
+    ensureBar(lead, chordNotes, stepStart, 'lead');
+    ensureBar(bass, bassNotes, stepStart, 'bass');
+  }
+
+  // Keep hi‑hat enforcement (already done in expansion, but we do it here too for safety)
+  return {
+    bpm: seedSong.bpm,
+    sections: [{
+      ...section,
+      lead: lead.sort((a,b) => a.step - b.step),
+      bass: bass.sort((a,b) => a.step - b.step),
+      drums: drums.sort((a,b) => a.step - b.step),
+    }]
+  };
+}
 function padPlanToMinimum(plan, targetBars = 72, maxBars = 80) {
   let currentBars = plan.structure.reduce((sum, s) => sum + (parseInt(s.split(':')[1]) || 0), 0);
 
@@ -1218,12 +1253,10 @@ function trimStructureToBars(structure, maxBars) {
 
 function convertAITracksToSong(plan) {
   const bpm = plan.bpm;
-  const stepDur = 60 / bpm / 2;   // 8th‑note duration in seconds
-  const totalSteps = 128;         // as requested in the prompt
+  const stepDur = 60 / bpm / 2;
+  const totalSteps = 128;         // must match the prompt
   const totalDuration = totalSteps * stepDur;
 
-  // Create one single section containing all events
-  // (You could split into multiple sections later if needed)
   const sections = [{
     name: 'full_song',
     lengthBars: totalSteps / 8,
@@ -1239,17 +1272,97 @@ function convertAITracksToSong(plan) {
       durSteps: e.durSteps || 1,
       vel: e.vel || 0.7
     })),
-    drums: (plan.tracks.drums || []).map(e => ({
-      step: e.step,
-      type: e.type,
-      vel: e.vel || 0.7
-    })),
+    drums: (() => {
+      const rawDrums = plan.tracks.drums;
+      if (!rawDrums) return [];
+      if (Array.isArray(rawDrums)) {
+        return rawDrums.map(e => ({ step: e.step, type: e.type, vel: e.vel || 0.7 }));
+      }
+      if (typeof rawDrums === 'object') {
+        const merged = [];
+        Object.keys(rawDrums).forEach(key => {
+          const events = rawDrums[key];
+          if (Array.isArray(events)) {
+            events.forEach(e => merged.push({ step: e.step, type: key, vel: e.vel || 0.7 }));
+          }
+        });
+        return merged;
+      }
+      return [];
+    })(),
     duration: totalDuration
   }];
 
   return { bpm, sections };
 }
+function expandSongToFullLength(seedSong, targetBars = 64) {
+  const seedSection = seedSong.sections[0];
+  const seedLead = seedSection.lead || [];
+  const seedBass = seedSection.bass || [];
+  const seedDrums = seedSection.drums || [];
 
+  const barsPerSeed = seedSection.lengthBars;   // 16
+  const repeats = Math.floor(targetBars / barsPerSeed);  // 4
+  const stepDuration = 60 / seedSong.bpm / 2;
+
+  const sections = [];
+
+  for (let r = 0; r < repeats; r++) {
+    // NO stepOffset – events remain relative to the section start
+    const copyEvents = (events, extraFn = null) =>
+      events.map(ev => {
+        const newEv = { ...ev };
+        if (extraFn) return extraFn(newEv, r, repeats);
+        return newEv;
+      });
+
+    let lead = copyEvents(seedLead);
+    let bass = copyEvents(seedBass);
+    let drums = copyEvents(seedDrums);
+
+    // Musical variations
+    if (r === 0) {
+      lead = lead.map(e => ({ ...e, vel: e.vel * 0.5 }));
+      bass = bass.map(e => ({ ...e, vel: e.vel * 0.4 }));
+      drums = drums.filter(e => e.type !== 'kick').concat(
+        drums.filter(e => e.type === 'kick').map(e => ({ ...e, vel: e.vel * 0.3 }))
+      );
+    } else if (r === repeats - 1) {
+      const fadeRatio = 0.6;
+      lead = lead.map(e => ({ ...e, vel: e.vel * fadeRatio }));
+      bass = bass.map(e => ({ ...e, vel: e.vel * fadeRatio }));
+      drums = drums.map(e => ({ ...e, vel: e.vel * fadeRatio }));
+    } else if (r === 2) {
+      lead = lead.map(e => ({ ...e, vel: Math.min(1, e.vel * 1.1) }));
+      bass = bass.map(e => ({ ...e, vel: Math.min(1, e.vel * 1.1) }));
+      // Crash on the first step (step 0)
+      drums.push({ step: 0, type: 'hat', vel: 1.0 }); // fake crash
+    }
+
+    // Ensure hi‑hat on every step (always)
+    const hatSteps = new Set(drums.filter(d => d.type === 'hat').map(d => d.step));
+    for (let s = 0; s < barsPerSeed * 8; s++) {
+      if (!hatSteps.has(s)) {
+        drums.push({ step: s, type: 'hat', vel: 0.5 });
+      }
+    }
+    drums.sort((a, b) => a.step - b.step);
+
+    sections.push({
+      name: r === 0 ? 'intro' : r === repeats - 1 ? 'outro' : `section_${r}`,
+      lengthBars: barsPerSeed,
+      lead,
+      bass,
+      drums,
+      duration: barsPerSeed * 8 * stepDuration
+    });
+  }
+
+  return {
+    bpm: seedSong.bpm,
+    sections
+  };
+}
 async function generateAlbumMusic(album) {
   let plan;
   if (album.songPlan && album.songPlan.bpm && album.songPlan.tracks) {
@@ -1272,11 +1385,18 @@ async function generateAlbumMusic(album) {
   } else {
     // Old‑style plan: use procedural generator
     song = generateSectionsFromPlan(plan);
-  }
-  album.songData = song;
+ }
+
+// Fill any gaps in the AI’s note data
+const chordProgression = plan.blueprint?.chordProgression || ['C']; // fallback
+song = fillSeedGaps(song, chordProgression);
+
+  // ===== EXPAND SEED TO FULL LENGTH =====
+  const fullSong = expandSongToFullLength(song, 64);   // 64 bars = ~2 minutes
+  album.songData = fullSong;
   saveWorld();
 
-  const bpm = song.bpm;
+  const bpm = fullSong.bpm;
   const stepDur = 60 / bpm / 2;
   const MAX_EVENTS = 500;
   const MAX_SIMULTANEOUS = { lead: 3, bass: 2, drums: 3 };
@@ -1301,7 +1421,7 @@ async function generateAlbumMusic(album) {
     return result;
   }
 
-  const sections = song.sections.map(sec => {
+  const sections = fullSong.sections.map(sec => {
     let lead = limitPolyphony((sec.lead || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.lead);
     let bass = limitPolyphony((sec.bass || []).slice(0, MAX_EVENTS), MAX_SIMULTANEOUS.bass);
     let drums = [];
@@ -1645,7 +1765,7 @@ bassDistNode.connect(masterGain);
                 playClick();
                 showMoreLikeThis(albumId);
 };
-            document.getElementById('downloadDirectBtn').onclick = () => { playClick(); downloadAlbumDirect(albumId); };
+            
             document.getElementById('dataBtn').onclick = () => { playClick(); downloadSongData(albumId); };
             const artistLink = document.querySelector('.artist-link');
             if (artistLink) {
@@ -1844,8 +1964,15 @@ if (plan.tracks) {
 } else {
   song = generateSectionsFromPlan(plan);
 }
+
+// Fill any gaps in the AI’s note data
+const chordProgression = plan.blueprint?.chordProgression || ['C']; // fallback
+song = fillSeedGaps(song, chordProgression);
+
+// ===== EXPAND SEED TO FULL LENGTH =====
+song = expandSongToFullLength(song, 64);
 album.songData = song;
-    saveWorld();
+saveWorld();
 
     const dataBtn = document.getElementById('dataBtn');
     if (dataBtn) {
