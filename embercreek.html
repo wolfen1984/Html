@@ -1237,10 +1237,12 @@ function getGossipThread(npcIdA, npcIdB) {
     );
     if (!thread) {
         thread = {
-            id: uid(),
-            participants: sorted,
-            messages: []
-        };
+    id: uid(),
+    participants: sorted,
+    messages: [],
+    summary: null,          // will hold the AI-generated summary
+    summaryUpToIndex: -1    // last message index that the summary covers
+};
         world.gossipThreads.push(thread);
     }
     return thread;
@@ -1257,6 +1259,10 @@ function addGossipMessage(senderId, receiverId, text, triggeredByPlayer = false)
     });
 thread.lastGameMinute = getTotalGameMinutes(); 
     saveWorld();
+// Every 4 messages (or whenever the summary is stale), regenerate it
+if (thread.messages.length % 4 === 0 && thread.summaryUpToIndex < thread.messages.length - 4) {
+    updateGossipSummary(thread).catch(() => {});  // fire-and-forget
+}
     updateGossipIndicator();
     // You could also log a subtle system message:
     // logMessage(`💬 ${getNpcById(senderId)?.name} whispered something to ${getNpcById(receiverId)?.name}...`, 'system');
@@ -1466,16 +1472,23 @@ async function continueGossipThreads() {
 
         // Build a prompt using the last 4 messages as context
         const recent = thread.messages.slice(-4).map(m => {
-            const sender = m.senderId === npcA.id ? npcA.name : npcB.name;
-            return `${sender}: ${m.text}`;
-        }).join('\n');
+    const sender = m.senderId === npcA.id ? npcA.name : npcB.name;
+    return `${sender}: ${m.text}`;
+}).join('\n');
 
-        const systemPrompt = `You are ${nextSpeaker.name}, a ${nextSpeaker.isTransient ? nextSpeaker.type+' passing through' : 'resident of'} Ember Creek in 1987.
+// Build context with summary if available
+let contextBlock = '';
+if (thread.summary && thread.summary.trim()) {
+    contextBlock = `Summary of your conversation so far: ${thread.summary}\n\nRecent messages:\n${recent}`;
+} else {
+    contextBlock = `Recent messages:\n${recent}`;
+}
+
+const systemPrompt = `You are ${nextSpeaker.name}, a ${nextSpeaker.isTransient ? nextSpeaker.type+' passing through' : 'resident of'} Ember Creek in 1987.
 Personality: ${nextSpeaker.personality}. Bio: ${nextSpeaker.bio}. Age: ${nextSpeaker.age}, Sex: ${nextSpeaker.sex}.
 You are having a private conversation with ${other.name}.
 
-Recent messages:
-${recent}
+${contextBlock}
 
 Write your next message in the conversation. Keep it 1-3 sentences. Stay in character.
 Output ONLY the message text, no quotes, no JSON.`;
@@ -1596,6 +1609,48 @@ Output ONLY the reply text, no quotes, no JSON.`;
         }
     } catch (e) {
         // fail silently
+    }
+}
+
+// ─── Generate or update the conversation summary ─────────────────
+async function updateGossipSummary(thread) {
+    if (!apiKey) return;
+    if (thread.messages.length < 4) return; // only start summarizing after 4 messages
+
+    const npcA = getNpcById(thread.participants[0]);
+    const npcB = getNpcById(thread.participants[1]);
+    if (!npcA || !npcB) return;
+
+    // Use the last 8 messages (or all if less) for the summary context
+    const recentMsgs = thread.messages.slice(-8).map(m => {
+        const sender = m.senderId === npcA.id ? npcA.name : npcB.name;
+        return `${sender}: ${m.text}`;
+    }).join('\n');
+
+    const systemPrompt = `You are an observer of a private conversation between two residents of Ember Creek, 1987.
+${npcA.name} and ${npcB.name}.
+
+Here are their most recent messages:
+${recentMsgs}
+
+Write a concise summary (max 3 sentences) of the key topics, any plans, secrets, or conflicts they've discussed. 
+This summary will be used later to remind the AI what has been talked about.
+Output ONLY the summary text, no quotes, no extra commentary.`;
+
+    try {
+        const summaryText = await mistralChat([
+            { role: "system", content: systemPrompt },
+            { role: "user", content: "Summarize the conversation." }
+        ], 120, false);  // plain text
+
+        const clean = summaryText.replace(/^["']|["']$/g, '').trim();
+        if (clean) {
+            thread.summary = clean;
+            thread.summaryUpToIndex = thread.messages.length - 1;
+            saveWorld();
+        }
+    } catch (e) {
+        // fail silently – the conversation will still continue without a summary
     }
 }
 
