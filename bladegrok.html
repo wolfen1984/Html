@@ -63,12 +63,8 @@
             flex-direction: column;
             background: #0a0808;
             border: 4px double #3a2820;
-            box-shadow:
-                0 0 60px rgba(180, 30, 30, 0.3),
-                0 0 120px rgba(100, 10, 10, 0.15),
-                inset 0 0 50px rgba(139, 0, 0, 0.08),
-                0 0 0 8px #050303,
-                0 0 0 12px #1a1010;
+            box-shadow: 0 0 60px rgba(180, 30, 30, 0.3), 0 0 120px rgba(100, 10, 10, 0.15),
+                inset 0 0 50px rgba(139, 0, 0, 0.08), 0 0 0 8px #050303, 0 0 0 12px #1a1010;
             position: relative;
             border-radius: 2px;
             overflow: hidden;
@@ -86,10 +82,8 @@
             pointer-events: none;
             z-index: 600;
             background: repeating-linear-gradient(to bottom,
-                    transparent 0px,
-                    transparent 2px,
-                    rgba(0, 0, 0, 0.04) 2px,
-                    rgba(0, 0, 0, 0.04) 4px);
+                    transparent 0px, transparent 2px,
+                    rgba(0, 0, 0, 0.04) 2px, rgba(0, 0, 0, 0.04) 4px);
             animation: scanlines 8s linear infinite;
         }
         @keyframes scanlines {
@@ -632,7 +626,6 @@
             box-shadow: 0 0 16px rgba(200, 150, 40, 0.4);
         }
 
-        /* ── INVENTORY MODAL ── */
         #inventory-modal {
             position: absolute;
             top: 0;
@@ -833,6 +826,23 @@
             box-shadow: 0 0 20px rgba(200, 150, 30, 0.4);
             border-radius: 2px;
         }
+
+        #hint-tooltip {
+            position: absolute;
+            pointer-events: none;
+            z-index: 200;
+            font-family: 'VT323', monospace;
+            font-size: 13px;
+            color: #ffcc88;
+            background: #000000cc;
+            padding: 3px 8px;
+            border-radius: 2px;
+            border: 1px solid #5a3a20;
+            display: none;
+            text-shadow: 0 0 4px #c89030;
+            letter-spacing: 1px;
+            white-space: nowrap;
+        }
     </style>
 </head>
 <body>
@@ -858,9 +868,10 @@
             <div id="region-tag"></div>
         </div>
         <canvas id="canvas" width="360" height="250"></canvas>
+        <div id="hint-tooltip"></div>
         <div id="ui-panel">
             <div id="verbs">
-                <div class="verb-button active" data-verb="WALK">WALK</div>
+                <div class="verb-button active" data-verb="GO">GO</div>
                 <div class="verb-button" data-verb="LOOK">LOOK</div>
                 <div class="verb-button" data-verb="TALK">TALK</div>
                 <div class="verb-button" data-verb="TAKE">TAKE</div>
@@ -943,6 +954,7 @@
             const invBagBtn = document.getElementById('inv-bag-btn');
             const bagCountEl = invBagBtn.querySelector('.bag-count');
             const overflowDot = invBagBtn.querySelector('.overflow-dot');
+            const hintTooltip = document.getElementById('hint-tooltip');
 
             // ──────────────────────────────────────
             // STATE
@@ -958,11 +970,9 @@
             let currentRegion = 'village';
             let castleRoomsExplored = 0;
             let draculaDefeated = false;
-            let player = { x: 180, y: 210, target: null, walkAnim: 0, facingRight: true };
-            let currentVerb = 'WALK';
+            let currentVerb = 'GO';
             let selectedItem = null;
             let inventory = [];
-            let bats = [];
             let particles = [];
             let fogParticles = [];
             let activeNpc = null;
@@ -971,6 +981,8 @@
             let messageTimeout = null;
             let playerPortraitCanvas = null;
             let npcPortraitCache = {};
+            let torchFlicker = 0;
+            let hoveredZone = null;
 
             // ──────────────────────────────────────
             // UTILITY FUNCTIONS
@@ -1168,24 +1180,37 @@
                     totalRoomsGenerated++;
                 }
                 if (currentRegion === 'castle') castleRoomsExplored++;
-                player.x = 180;
-                player.y = 210;
-                player.target = null;
-                bats = [];
                 fogParticles = [];
                 if (!roomData.isIndoor) {
-                    for (let i = 0; i < 15; i++) {
+                    for (let i = 0; i < 20; i++) {
                         fogParticles.push({
                             x: Math.random() * 360,
                             y: Math.random() * 250,
-                            vx: (Math.random() - 0.5) * 0.4,
-                            vy: (Math.random() - 0.5) * 0.2,
-                            size: 8 + Math.random() * 25,
-                            alpha: 0.03 + Math.random() * 0.08,
-                            life: 200 + Math.random() * 400
+                            vx: (Math.random() - 0.5) * 0.5,
+                            vy: (Math.random() - 0.5) * 0.3,
+                            size: 6 + Math.random() * 30,
+                            alpha: 0.02 + Math.random() * 0.07,
+                            life: 180 + Math.random() * 400
                         });
                     }
                 }
+// Generate static wall texture
+const wallColor = currentRoom.accentColor || '#3a3035';
+const backR = parseInt(wallColor.slice(1, 3), 16);
+const backG = parseInt(wallColor.slice(3, 5), 16);
+const backB = parseInt(wallColor.slice(5, 7), 16);
+const tileW = 10, tileH = 8;
+const cols = Math.ceil((285 - 75) / tileW);   // BACK_WALL_RIGHT - BACK_WALL_LEFT
+const rows = Math.ceil((158 - 38) / tileH);   // BACK_WALL_BOTTOM - BACK_WALL_TOP
+const texture = [];
+for (let r = 0; r < rows; r++) {
+    texture[r] = [];
+    for (let c = 0; c < cols; c++) {
+        const v = (Math.random() - 0.5) * 18;
+        texture[r][c] = `rgb(${clamp(backR + v, 0, 255)}, ${clamp(backG + v, 0, 255)}, ${clamp(backB + v, 0, 255)})`;
+    }
+}
+currentRoom._wallTexture = texture;
                 roomNameEl.textContent = roomData.roomName;
                 roomCountEl.textContent = `Rooms: ${totalRoomsGenerated}`;
                 regionTagEl.textContent = currentRegion.toUpperCase();
@@ -1193,6 +1218,8 @@
                 updateInventoryDisplay();
                 transitionOverlay.style.opacity = '0';
                 npcPortraitCache = {};
+                hoveredZone = null;
+                hintTooltip.style.display = 'none';
             }
 
             async function moveToExit(exitObj) {
@@ -1202,7 +1229,7 @@
                     return;
                 }
                 transitionOverlay.style.opacity = '1';
-                await sleep(250);
+                await sleep(280);
                 try {
                     if (exitObj.leadsToRegion) currentRegion = exitObj.leadsToRegion;
                     const newRoom = await generateRoom(exitObj.direction);
@@ -1297,8 +1324,6 @@
                 if (isUndead) {
                     pctx.fillStyle = '#8a9a7a';
                     pctx.fillRect(9, 8, 14, 14);
-                }
-                if (isUndead) {
                     pctx.fillStyle = '#6a7a5a';
                     pctx.fillRect(9, 12, 3, 6);
                     pctx.fillRect(20, 12, 3, 6);
@@ -1341,6 +1366,9 @@
                 } else if (expr === 'scared') {
                     pctx.fillRect(9, 10, 5, 1);
                     pctx.fillRect(18, 10, 5, 1);
+                } else if (expr === 'sad') {
+                    pctx.fillRect(9, 11, 5, 1);
+                    pctx.fillRect(18, 11, 5, 1);
                 } else {
                     pctx.fillRect(9, 11, 5, 1);
                     pctx.fillRect(18, 11, 5, 1);
@@ -1486,9 +1514,7 @@
                     setMessage(res.message || 'Something happened.');
                     if (res.draculaKilled && !draculaDefeated) {
                         draculaDefeated = true;
-                        setTimeout(() => {
-                            victoryOverlay.style.display = 'flex';
-                        }, 1200);
+                        setTimeout(() => { victoryOverlay.style.display = 'flex'; }, 1200);
                     }
                     if (res.npcDefeated && npc.isHostile) {
                         npc._defeated = true;
@@ -1512,13 +1538,9 @@
                     setMessage(res.message || 'The attack lands!');
                     if (res.draculaKilled && !draculaDefeated) {
                         draculaDefeated = true;
-                        setTimeout(() => {
-                            victoryOverlay.style.display = 'flex';
-                        }, 1200);
+                        setTimeout(() => { victoryOverlay.style.display = 'flex'; }, 1200);
                     }
-                    if (res.npcDefeated) {
-                        npc._defeated = true;
-                    }
+                    if (res.npcDefeated) { npc._defeated = true; }
                 } catch (e) { setMessage('ERROR: ' + e.message); } finally { hideLoading(); }
             }
 
@@ -1543,27 +1565,136 @@
             }
 
             // ──────────────────────────────────────
-            // CANVAS INTERACTION
+            // FIRST-PERSON COORDINATE MAPPING
             // ──────────────────────────────────────
+            const VP_X = 180; // vanishing point x (center)
+            const VP_Y = 105; // vanishing point y (slightly above center)
+            const BACK_WALL_LEFT = 75;
+            const BACK_WALL_RIGHT = 285;
+            const BACK_WALL_TOP = 38;
+            const BACK_WALL_BOTTOM = 158;
+            const FLOOR_BOTTOM = 250;
+
+            function mapDepthToScreen(y) {
+                // y=100 is far (near back wall), y=180 is near (close to viewer)
+                const t = clamp((y - 90) / 100, 0, 1); // 0=far, 1=near
+                return t;
+            }
+
+            function getScreenPosition(x, y) {
+                const depth = mapDepthToScreen(y);
+                // Screen x: interpolate between back wall bounds (far) and full canvas (near)
+                const farLeft = BACK_WALL_LEFT + 20;
+                const farRight = BACK_WALL_RIGHT - 20;
+                const nearLeft = 20;
+                const nearRight = 340;
+                const sx = farLeft + (nearLeft - farLeft) * depth + (x / 360) * ((farRight + (nearRight - farRight) *
+                    depth) - (farLeft + (nearLeft - farLeft) * depth));
+                // Screen y: far = higher, near = lower
+                const farY = BACK_WALL_BOTTOM - 15;
+                const nearY = FLOOR_BOTTOM - 10;
+                const sy = farY + (nearY - farY) * depth;
+                const scale = 0.35 + depth * 1.1;
+                return { sx: clamp(sx, 10, 350), sy: clamp(sy, 50, 240), depth, scale };
+            }
+
+            function getExitScreenBounds(exit) {
+                const dir = exit.direction.toLowerCase();
+                let bx, by, bw, bh;
+                if (dir === 'north' || dir === 'up') {
+                    // Back wall doorway
+                    const cx = BACK_WALL_LEFT + (BACK_WALL_RIGHT - BACK_WALL_LEFT) * clamp(exit.x / 340, 0.15, 0.85);
+                    bw = clamp(exit.w * 0.9, 28, 65);
+                    bh = clamp(exit.h * 0.9, 40, 90);
+                    bx = clamp(cx - bw / 2, BACK_WALL_LEFT + 8, BACK_WALL_RIGHT - bw - 8);
+                    by = clamp(exit.y * 0.7 + 10, BACK_WALL_TOP + 5, BACK_WALL_BOTTOM - bh);
+                } else if (dir === 'east') {
+                    // Right wall doorway
+                    bw = clamp(exit.w * 0.7, 22, 50);
+                    bh = clamp(exit.h * 0.8, 35, 85);
+                    bx = BACK_WALL_RIGHT + 8;
+                    by = clamp(exit.y * 0.7 + 5, BACK_WALL_TOP + 8, BACK_WALL_BOTTOM - bh);
+                } else if (dir === 'west') {
+                    // Left wall doorway
+                    bw = clamp(exit.w * 0.7, 22, 50);
+                    bh = clamp(exit.h * 0.8, 35, 85);
+                    bx = BACK_WALL_LEFT - bw - 8;
+                    by = clamp(exit.y * 0.7 + 5, BACK_WALL_TOP + 8, BACK_WALL_BOTTOM - bh);
+                } else {
+                    // South/down - bottom of view
+                    bw = clamp(exit.w * 1.2, 40, 80);
+                    bh = clamp(exit.h * 0.6, 25, 55);
+                    bx = clamp(exit.x - bw / 2, 40, 320 - bw);
+                    by = FLOOR_BOTTOM - bh + 5;
+                }
+                return { bx: clamp(bx, 2, 355), by: clamp(by, 10, 240), bw, bh, dir };
+            }
+
+            // ──────────────────────────────────────
+            // CANVAS INTERACTION (FIRST-PERSON)
+            // ──────────────────────────────────────
+            function getClickTarget(cx, cy) {
+                if (!currentRoom) return null;
+                // Check exits (doorways)
+                for (const ex of currentRoom.exits || []) {
+                    const { bx, by, bw, bh, dir } = getExitScreenBounds(ex);
+                    if (cx >= bx - 4 && cx <= bx + bw + 4 && cy >= by - 4 && cy <= by + bh + 4) {
+                        return { type: 'exit', data: ex, rect: { x: bx, y: by, w: bw, h: bh } };
+                    }
+                }
+                // Check NPCs
+                for (const npc of currentRoom.npcs || []) {
+                    if (npc._defeated) continue;
+                    const { sx, sy, scale } = getScreenPosition(npc.x, npc.y);
+                    const nw = 18 * scale;
+                    const nh = 32 * scale;
+                    if (cx >= sx - nw / 2 && cx <= sx + nw / 2 && cy >= sy - nh && cy <= sy) {
+                        return { type: 'npc', data: npc, rect: { x: sx - nw / 2, y: sy - nh, w: nw, h: nh } };
+                    }
+                }
+                // Check items
+                for (const it of currentRoom.items || []) {
+                    if (it.taken) continue;
+                    const { sx, sy, scale } = getScreenPosition(it.x, it.y);
+                    const iw = 14 * scale;
+                    const ih = 14 * scale;
+                    if (cx >= sx - iw / 2 && cx <= sx + iw / 2 && cy >= sy - ih && cy <= sy) {
+                        return { type: 'item', data: it, rect: { x: sx - iw / 2, y: sy - ih, w: iw, h: ih } };
+                    }
+                }
+                return null;
+            }
+
             async function handleCanvasClick(cx, cy) {
                 if (!currentRoom || !gameInitialized) return;
                 if (npcChatModal.style.display === 'flex') return;
                 if (inventoryModal.style.display === 'flex') return;
                 if (victoryOverlay.style.display === 'flex') return;
-                const hit = getHitAt(cx, cy);
+                const hit = getClickTarget(cx, cy);
 
-                if (currentVerb === 'WALK') {
+                if (currentVerb === 'GO') {
                     if (hit && hit.type === 'exit') { await moveToExit(hit.data); return; }
-                    const tx = hit ? (hit.data.x || cx) : cx;
-                    const ty = hit ? (hit.data.y || cy) : cy;
-                    player.target = { x: Math.max(12, Math.min(348, tx)), y: Math.max(155, Math.min(238, ty)) };
+                    if (hit && hit.type === 'npc') { openNpcChat(hit.data); return; }
+                    if (hit && hit.type === 'item' && hit.data.takeable && !hit.data.taken) {
+                        hit.data.taken = true;
+                        inventory.push({
+                            name: hit.data.name,
+                            short: hit.data.name.substring(0, 10),
+                            icon: hit.data.icon || '⬡'
+                        });
+                        updateInventoryDisplay();
+                        setMessage(`Taken: ${hit.data.name}`);
+                        spawnPickupParticles(hit.data.x, hit.data.y, hit.data.icon || '⬡');
+                        return;
+                    }
+                    setMessage('Nothing to interact with there. Try LOOK to examine the area.');
                 } else if (currentVerb === 'LOOK') {
                     if (hit && hit.type === 'npc')
                         setMessage(`${hit.data.name}: ${hit.data.appearance}. ${hit.data.personality}`);
                     else if (hit && hit.type === 'item') setMessage(hit.data.description);
                     else if (hit && hit.type === 'exit')
                         setMessage(hit.data.description + (hit.data.locked ? ' [LOCKED]' : ''));
-                    else setMessage('Nothing remarkable in the darkness.');
+                    else setMessage('You peer into the shadows but see nothing remarkable.');
                 } else if (currentVerb === 'TALK') {
                     if (hit && hit.type === 'npc') openNpcChat(hit.data);
                     else setMessage('Nobody to talk to there.');
@@ -1579,7 +1710,7 @@
                         setMessage(`Taken: ${hit.data.name}`);
                         spawnPickupParticles(hit.data.x, hit.data.y, hit.data.icon || '⬡');
                     } else if (hit && hit.type === 'item' && hit.data.taken) setMessage('Already taken.');
-                    else setMessage('Nothing to take.');
+                    else setMessage('Nothing to take there.');
                 } else if (currentVerb === 'USE') {
                     if (!selectedItem) { setMessage('Select an inventory item first.'); return; }
                     if (hit && hit.type === 'npc') {
@@ -1587,12 +1718,12 @@
                     } else if (hit && hit.type === 'exit' && hit.data.locked) {
                         await useItemOnExit(hit.data, selectedItem);
                     } else if (hit && hit.type === 'exit' && !hit.data.locked) {
-                        setMessage('That exit is already open. Just walk there.');
+                        setMessage('That exit is already open. Just GO there.');
                     } else {
                         setMessage(`Using ${selectedItem.name} here does nothing.`);
                     }
                     selectedItem = null;
-                    setVerb('WALK');
+                    setVerb('GO');
                     updateInventoryDisplay();
                 } else if (currentVerb === 'ATTACK') {
                     if (hit && hit.type === 'npc') {
@@ -1609,311 +1740,410 @@
                 }
             }
 
-            function getHitAt(x, y) {
-                if (!currentRoom) return null;
-                for (const npc of currentRoom.npcs || []) {
-                    if (npc._defeated) continue;
-                    if (x > npc.x - 14 && x < npc.x + 14 && y > npc.y - 24 && y < npc.y + 16)
-                        return { type: 'npc', data: npc };
+            // ──────────────────────────────────────
+            // FIRST-PERSON ROOM RENDERING
+            // ──────────────────────────────────────
+            function drawStoneTexture(x, y, w, h, baseColor, variation, gridSize) {
+                const r = parseInt(baseColor.slice(1, 3), 16);
+                const g = parseInt(baseColor.slice(3, 5), 16);
+                const b = parseInt(baseColor.slice(5, 7), 16);
+                for (let gy = y; gy < y + h; gy += gridSize) {
+                    for (let gx = x; gx < x + w; gx += gridSize) {
+                        const v = (Math.random() - 0.5) * variation * 2;
+                        const rr = clamp(r + v, 0, 255);
+                        const gg = clamp(g + v, 0, 255);
+                        const bb = clamp(b + v, 0, 255);
+                        ctx.fillStyle = `rgb(${rr},${gg},${bb})`;
+                        ctx.fillRect(gx, gy, gridSize, gridSize);
+                        ctx.fillStyle = 'rgba(0,0,0,0.15)';
+                        ctx.fillRect(gx, gy, gridSize, 1);
+                        ctx.fillRect(gx, gy, 1, gridSize);
+                    }
                 }
-                for (const it of currentRoom.items || []) {
-                    if (!it.taken && x > it.x - 12 && x < it.x + 12 && y > it.y - 12 && y < it.y + 12)
-                        return { type: 'item', data: it };
-                }
-                for (const ex of currentRoom.exits || []) {
-                    if (x > ex.x && x < ex.x + ex.w && y > ex.y && y < ex.y + ex.h)
-                        return { type: 'exit', data: ex };
-                }
-                return null;
             }
 
-            // ──────────────────────────────────────
-            // RENDERING - GOTHIC PIXEL ART
-            // ──────────────────────────────────────
-            function drawRoom() {
+            function drawFirstPersonRoom() {
                 if (!currentRoom) {
                     ctx.fillStyle = '#050510';
                     ctx.fillRect(0, 0, 360, 250);
                     return;
                 }
-                const skyGrad = ctx.createLinearGradient(0, 0, 0, 170);
-                skyGrad.addColorStop(0, currentRoom.skyColor || '#0a0a18');
-                skyGrad.addColorStop(0.65, currentRoom.groundColor || '#1a1620');
-                skyGrad.addColorStop(1, '#0d0a10');
-                ctx.fillStyle = skyGrad;
-                ctx.fillRect(0, 0, 360, 250);
-                ctx.fillStyle = '#0d0a1066';
-                ctx.fillRect(0, 180, 360, 70);
-                ctx.fillStyle = '#11101844';
-                ctx.fillRect(0, 178, 360, 4);
-                if (currentRoom.hasMoon && !currentRoom.isIndoor) {
+                const wallColor = currentRoom.accentColor || '#3a3035';
+                const floorColor = currentRoom.groundColor || '#1a1518';
+                const ceilingColor = currentRoom.skyColor || '#0d0d18';
+                const isIndoor = currentRoom.isIndoor;
+
+                // ── CEILING ──
+                const ceilGrad = ctx.createLinearGradient(0, 0, 0, BACK_WALL_TOP);
+                ceilGrad.addColorStop(0, '#050510');
+                ceilGrad.addColorStop(0.7, ceilingColor);
+                ceilGrad.addColorStop(1, '#111122');
+                ctx.fillStyle = ceilGrad;
+                ctx.fillRect(0, 0, 360, BACK_WALL_TOP + 2);
+                // Ceiling beams (indoor)
+                if (isIndoor) {
+                    ctx.fillStyle = '#0a080c';
+                    ctx.fillRect(60, 0, 8, BACK_WALL_TOP + 2);
+                    ctx.fillRect(176, 0, 8, BACK_WALL_TOP + 2);
+                    ctx.fillRect(292, 0, 8, BACK_WALL_TOP + 2);
+                }
+                // Moon visible through window/opening
+                if (currentRoom.hasMoon && !isIndoor) {
                     const moonX = 290;
-                    const moonY = 35;
-                    ctx.fillStyle = '#ddd8c0';
-                    ctx.beginPath();
-                    ctx.arc(moonX, moonY, 22, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.fillStyle = '#eee8d8';
-                    ctx.beginPath();
-                    ctx.arc(moonX - 3, moonY - 2, 18, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.fillStyle = '#05051044';
-                    ctx.beginPath();
-                    ctx.arc(moonX + 8, moonY - 6, 16, 0, Math.PI * 2);
-                    ctx.fill();
-                    const moonGlow = ctx.createRadialGradient(moonX, moonY, 20, moonX, moonY, 60);
-                    moonGlow.addColorStop(0, '#ddd8c022');
+                    const moonY = 28;
+                    const moonGlow = ctx.createRadialGradient(moonX, moonY, 12, moonX, moonY, 45);
+                    moonGlow.addColorStop(0, '#eee8d8');
+                    moonGlow.addColorStop(0.3, '#ddd8c0aa');
                     moonGlow.addColorStop(1, 'transparent');
                     ctx.fillStyle = moonGlow;
                     ctx.beginPath();
-                    ctx.arc(moonX, moonY, 60, 0, Math.PI * 2);
+                    ctx.arc(moonX, moonY, 45, 0, Math.PI * 2);
                     ctx.fill();
-                }
-                for (const st of currentRoom.structures || []) {
-                    ctx.fillStyle = st.color + 'cc';
-                    ctx.fillRect(st.x, st.y, st.w, st.h);
-                    ctx.strokeStyle = '#ffffff18';
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(st.x, st.y, st.w, st.h);
-                    if (st.h > 60 && st.type === 'arch') {
-                        ctx.fillStyle = '#00000044';
-                        ctx.beginPath();
-                        ctx.arc(st.x + st.w / 2, st.y, st.w / 2, Math.PI, 0);
-                        ctx.fill();
-                    }
-                    if (st.type === 'pillar') {
-                        ctx.fillStyle = '#ffffff0a';
-                        ctx.fillRect(st.x + 2, st.y, st.w - 4, st.h);
-                    }
-                    if (st.type === 'coffin') {
-                        ctx.fillStyle = '#3a2a20';
-                        ctx.fillRect(st.x + st.w / 2 - 4, st.y, 8, st.h);
-                    }
-                }
-                for (const ex of currentRoom.exits || []) {
-                    ctx.fillStyle = ex.locked ? '#3a101088' : '#1a2a1a55';
-                    ctx.fillRect(ex.x, ex.y, ex.w, ex.h);
-                    ctx.setLineDash([5, 4]);
-                    ctx.strokeStyle = ex.locked ? '#882222' : '#557744';
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(ex.x, ex.y, ex.w, ex.h);
-                    ctx.setLineDash([]);
-                    ctx.fillStyle = '#ddd';
-                    ctx.font = '9px VT323';
-                    ctx.textAlign = 'center';
-                    ctx.fillText(ex.direction.toUpperCase(), ex.x + ex.w / 2, ex.y + ex.h / 2 + 3);
-                    ctx.textAlign = 'start';
-                    if (ex.locked) {
-                        ctx.fillStyle = '#ff4444';
-                        ctx.font = '7px VT323';
-                        ctx.fillText('🔒', ex.x + ex.w / 2 - 5, ex.y + ex.h / 2 + 15);
-                    }
-                }
-                for (const it of currentRoom.items || []) {
-                    if (it.taken) continue;
-                    const bob = Math.sin(Date.now() / 700 + it.x) * 3;
-                    ctx.fillStyle = '#ffeebb22';
+                    ctx.fillStyle = '#ddd8c0';
                     ctx.beginPath();
-                    ctx.arc(it.x, it.y + bob, 8, 0, Math.PI * 2);
+                    ctx.arc(moonX, moonY, 14, 0, Math.PI * 2);
                     ctx.fill();
-                    ctx.strokeStyle = '#ccbb88';
-                    ctx.lineWidth = 1.5;
+                    ctx.fillStyle = '#05051044';
+                    ctx.beginPath();
+                    ctx.arc(moonX + 5, moonY - 3, 10, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+              // ── BACK WALL (static precomputed texture) ──
+const texture = currentRoom._wallTexture;
+if (texture) {
+    const tileW = 10, tileH = 8;
+    for (let r = 0; r < texture.length; r++) {
+        const row = texture[r];
+        const gy = BACK_WALL_TOP + r * tileH;
+        for (let c = 0; c < row.length; c++) {
+            const gx = BACK_WALL_LEFT + c * tileW;
+            ctx.fillStyle = row[c];
+            ctx.fillRect(gx, gy, tileW, tileH);
+        }
+    }
+    // Grid lines on top
+    for (let r = 0; r < texture.length; r++) {
+        const gy = BACK_WALL_TOP + r * tileH;
+        for (let c = 0; c < texture[0].length; c++) {
+            const gx = BACK_WALL_LEFT + c * tileW;
+            ctx.fillStyle = 'rgba(0,0,0,0.2)';
+            ctx.fillRect(gx, gy, tileW, 1);
+            ctx.fillRect(gx, gy, 1, tileH);
+        }
+    }
+}
+// Back wall border (only once!)
+ctx.strokeStyle = '#00000088';
+ctx.lineWidth = 3;
+ctx.strokeRect(BACK_WALL_LEFT, BACK_WALL_TOP, BACK_WALL_RIGHT - BACK_WALL_LEFT, BACK_WALL_BOTTOM - BACK_WALL_TOP);
+
+                // ── LEFT WALL (perspective trapezoid) ──
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(BACK_WALL_LEFT, BACK_WALL_TOP);
+                ctx.lineTo(BACK_WALL_LEFT, BACK_WALL_BOTTOM);
+                ctx.lineTo(0, FLOOR_BOTTOM);
+                ctx.closePath();
+                const leftWallGrad = ctx.createLinearGradient(0, 0, BACK_WALL_LEFT, 0);
+                leftWallGrad.addColorStop(0, '#0a080c');
+                leftWallGrad.addColorStop(1, wallColor);
+                ctx.fillStyle = leftWallGrad;
+                ctx.fill();
+                ctx.strokeStyle = '#00000055';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                // Left wall stone lines (perspective)
+                for (let i = 0; i < 6; i++) {
+                    const t = i / 5;
+                    const lx = BACK_WALL_LEFT * t;
+                    const ly1 = BACK_WALL_TOP + (0 - BACK_WALL_TOP) * t;
+                    const ly2 = BACK_WALL_BOTTOM + (FLOOR_BOTTOM - BACK_WALL_BOTTOM) * t;
+                    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(lx, ly1);
+                    ctx.lineTo(lx, ly2);
                     ctx.stroke();
-                    ctx.fillStyle = '#000';
+                }
+
+                // ── RIGHT WALL (perspective trapezoid) ──
+                ctx.beginPath();
+                ctx.moveTo(360, 0);
+                ctx.lineTo(BACK_WALL_RIGHT, BACK_WALL_TOP);
+                ctx.lineTo(BACK_WALL_RIGHT, BACK_WALL_BOTTOM);
+                ctx.lineTo(360, FLOOR_BOTTOM);
+                ctx.closePath();
+                const rightWallGrad = ctx.createLinearGradient(BACK_WALL_RIGHT, 0, 360, 0);
+                rightWallGrad.addColorStop(0, wallColor);
+                rightWallGrad.addColorStop(1, '#0a080c');
+                ctx.fillStyle = rightWallGrad;
+                ctx.fill();
+                ctx.strokeStyle = '#00000055';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                for (let i = 0; i < 6; i++) {
+                    const t = i / 5;
+                    const rx = BACK_WALL_RIGHT + (360 - BACK_WALL_RIGHT) * t;
+                    const ry1 = BACK_WALL_TOP + (0 - BACK_WALL_TOP) * t;
+                    const ry2 = BACK_WALL_BOTTOM + (FLOOR_BOTTOM - BACK_WALL_BOTTOM) * t;
+                    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(rx, ry1);
+                    ctx.lineTo(rx, ry2);
+                    ctx.stroke();
+                }
+
+                // ── FLOOR ──
+                ctx.beginPath();
+                ctx.moveTo(0, FLOOR_BOTTOM);
+                ctx.lineTo(BACK_WALL_LEFT, BACK_WALL_BOTTOM);
+                ctx.lineTo(BACK_WALL_RIGHT, BACK_WALL_BOTTOM);
+                ctx.lineTo(360, FLOOR_BOTTOM);
+                ctx.closePath();
+                const floorGrad = ctx.createLinearGradient(0, BACK_WALL_BOTTOM, 0, FLOOR_BOTTOM);
+                floorGrad.addColorStop(0, floorColor);
+                floorGrad.addColorStop(1, '#0a080c');
+                ctx.fillStyle = floorGrad;
+                ctx.fill();
+                // Floor perspective grid
+                for (let i = 0; i < 8; i++) {
+                    const t = i / 7;
+                    const fy = BACK_WALL_BOTTOM + (FLOOR_BOTTOM - BACK_WALL_BOTTOM) * t;
+                    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(BACK_WALL_LEFT + (0 - BACK_WALL_LEFT) * t, fy);
+                    ctx.lineTo(BACK_WALL_RIGHT + (360 - BACK_WALL_RIGHT) * t, fy);
+                    ctx.stroke();
+                }
+                // Floor center line
+                ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([8, 12]);
+                ctx.beginPath();
+                ctx.moveTo(VP_X, BACK_WALL_BOTTOM);
+                ctx.lineTo(VP_X, FLOOR_BOTTOM);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // ── STRUCTURES (wall decorations) ──
+                for (const st of currentRoom.structures || []) {
+                    const sx = clamp(st.x, 0, 340);
+                    const sy = clamp(st.y, 5, 230);
+                    const sw = clamp(st.w, 6, 120);
+                    const sh = clamp(st.h, 6, 160);
+                    // Only render structures near walls
+                    if (sy < BACK_WALL_BOTTOM + 10) {
+                        ctx.fillStyle = st.color + '88';
+                        if (st.type === 'arch') {
+                            ctx.fillStyle = st.color + '66';
+                            ctx.fillRect(sx - 2, sy, sw + 4, sh);
+                            ctx.fillStyle = '#00000055';
+                            ctx.beginPath();
+                            ctx.arc(sx + sw / 2, sy, sw / 2, Math.PI, 0);
+                            ctx.fill();
+                        } else if (st.type === 'pillar') {
+                            ctx.fillStyle = st.color + 'aa';
+                            ctx.fillRect(sx, sy, sw, sh);
+                            ctx.fillStyle = '#ffffff10';
+                            ctx.fillRect(sx + 2, sy, sw - 4, sh);
+                        } else if (st.type === 'coffin') {
+                            ctx.fillStyle = '#3a2a20cc';
+                            ctx.fillRect(sx, sy, sw, sh);
+                            ctx.fillStyle = '#2a1a10';
+                            ctx.fillRect(sx + sw / 2 - 3, sy, 6, sh);
+                        } else if (st.type === 'fireplace') {
+                            ctx.fillStyle = '#2a1a1acc';
+                            ctx.fillRect(sx, sy, sw, sh);
+                            ctx.fillStyle = '#ff660033';
+                            ctx.fillRect(sx + sw * 0.2, sy + sh * 0.4, sw * 0.6, sh * 0.5);
+                        } else if (st.type === 'altar') {
+                            ctx.fillStyle = '#4a3a30cc';
+                            ctx.fillRect(sx, sy + sh * 0.4, sw, sh * 0.6);
+                            ctx.fillStyle = '#5a4a3a';
+                            ctx.fillRect(sx, sy, sw, sh * 0.45);
+                        } else {
+                            ctx.fillStyle = st.color + '77';
+                            ctx.fillRect(sx, sy, sw, sh);
+                        }
+                        ctx.strokeStyle = '#00000044';
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(sx, sy, sw, sh);
+                    }
+                }
+
+                // ── EXITS (doorways) ──
+                for (const ex of currentRoom.exits || []) {
+                    const { bx, by, bw, bh, dir } = getExitScreenBounds(ex);
+                    // Doorway opening (dark)
+                    const doorGrad = ctx.createLinearGradient(bx, by, bx, by + bh);
+                    doorGrad.addColorStop(0, '#000008');
+                    doorGrad.addColorStop(1, '#050510');
+                    ctx.fillStyle = doorGrad;
+                    ctx.fillRect(bx, by, bw, bh);
+                    // Doorway frame
+                    ctx.strokeStyle = ex.locked ? '#662222' : '#3a3028';
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(bx - 2, by - 2, bw + 4, bh + 4);
+                    ctx.strokeStyle = '#00000088';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(bx, by, bw, bh);
+                    // Direction label
+                    ctx.fillStyle = ex.locked ? '#ff6666' : '#ccbb99';
                     ctx.font = '10px VT323';
                     ctx.textAlign = 'center';
-                    ctx.fillText('?', it.x, it.y + bob + 4);
+                    ctx.fillText(dir.toUpperCase(), bx + bw / 2, by + bh / 2 + 4);
+                    ctx.textAlign = 'start';
+                    // Lock icon
+                    if (ex.locked) {
+                        ctx.fillStyle = '#ff4444';
+                        ctx.font = '9px VT323';
+                        ctx.fillText('🔒', bx + bw / 2 - 6, by + bh / 2 + 18);
+                    }
+                    // Subtle glow for unlocked doors
+                    if (!ex.locked && dir === 'north') {
+                        const glowGrad = ctx.createRadialGradient(bx + bw / 2, by + bh / 2, bw * 0.3, bx + bw / 2, by + bh /
+                            2, bw * 0.9);
+                        glowGrad.addColorStop(0, 'rgba(180,160,120,0.12)');
+                        glowGrad.addColorStop(1, 'transparent');
+                        ctx.fillStyle = glowGrad;
+                        ctx.fillRect(bx - bw * 0.4, by - bh * 0.3, bw * 1.8, bh * 1.6);
+                    }
+                }
+
+                // ── ITEMS ON FLOOR ──
+                const sortedItems = [...(currentRoom.items || [])].filter(it => !it.taken).sort((a, b) => b.y - a.y);
+                for (const it of sortedItems) {
+                    const { sx, sy, scale } = getScreenPosition(it.x, it.y);
+                    const iw = 12 * scale;
+                    const ih = 12 * scale;
+                    // Glow under item
+                    const itemGlow = ctx.createRadialGradient(sx, sy - ih / 2, iw * 0.3, sx, sy, iw * 1.5);
+                    itemGlow.addColorStop(0, 'rgba(200,180,140,0.3)');
+                    itemGlow.addColorStop(1, 'transparent');
+                    ctx.fillStyle = itemGlow;
+                    ctx.beginPath();
+                    ctx.arc(sx, sy - ih / 2, iw * 1.5, 0, Math.PI * 2);
+                    ctx.fill();
+                    // Item shadow
+                    ctx.fillStyle = '#00000066';
+                    ctx.beginPath();
+                    ctx.ellipse(sx, sy, iw * 0.6, ih * 0.25, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    // Item icon
+                    ctx.fillStyle = '#ffeebb';
+                    ctx.font = `${Math.floor(14*scale)}px VT323`;
+                    ctx.textAlign = 'center';
+                    ctx.fillText(it.icon || '?', sx, sy - 2);
                     ctx.textAlign = 'start';
                 }
-                for (const npc of currentRoom.npcs || []) {
-                    if (npc._defeated) continue;
-                    drawNpc(npc);
-                }
-                for (const bat of bats) {
-                    ctx.fillStyle = '#1a1a1a';
-                    ctx.fillRect(bat.x, bat.y, 14, 5);
-                    ctx.fillStyle = '#2a2a2a';
-                    ctx.fillRect(bat.x + 3, bat.y - 3, 8, 4);
-                    ctx.fillRect(bat.x + 2, bat.y + 2, 4, 3);
-                    ctx.fillRect(bat.x + 8, bat.y + 2, 4, 3);
-                }
-                for (const fp of fogParticles) {
-                    ctx.fillStyle = `rgba(180,190,200,${fp.alpha})`;
-                    ctx.fillRect(fp.x, fp.y, fp.size, fp.size * 0.5);
-                    ctx.fillStyle = `rgba(200,210,220,${fp.alpha*0.6})`;
-                    ctx.fillRect(fp.x + fp.size * 0.2, fp.y - fp.size * 0.1, fp.size * 0.6, fp.size * 0.3);
-                }
-                for (const p of particles) {
-                    ctx.globalAlpha = Math.max(0, p.life / 50);
-                    ctx.fillStyle = p.color;
-                    ctx.fillRect(p.x, p.y, p.size, p.size);
-                    ctx.globalAlpha = 1;
-                }
-            }
 
-            function drawNpc(npc) {
-                const bob = Math.sin(Date.now() / 500 + npc.x) * 2;
-                const x = npc.x;
-                const y = npc.y + bob;
-                const isHostile = npc.isHostile;
-                const isVamp = npc.isVampire;
-                const isUndead = npc.isUndead;
-                ctx.fillStyle = '#00000055';
-                ctx.fillRect(x - 8, y + 8, 16, 5);
-                ctx.fillStyle = npc.color;
-                ctx.fillRect(x - 7, y - 6, 14, 22);
-                if (isVamp) {
-                    ctx.fillStyle = '#0a0a0a';
-                    ctx.fillRect(x - 10, y - 8, 5, 20);
-                    ctx.fillRect(x + 5, y - 8, 5, 20);
-                    ctx.fillRect(x - 9, y - 9, 18, 6);
-                }
-                const skinColors = {
-                    'pale': '#e8dcc8',
-                    'light': '#d4b896',
-                    'tan': '#c4a07a',
-                    'dark': '#6b4a3a',
-                    'undead': '#9aaf9a'
-                };
-                ctx.fillStyle = skinColors[npc.skinTone] || '#d4b896';
-                ctx.fillRect(x - 6, y - 16, 12, 13);
-                const hairColors = {
-                    'black': '#1a1a1a',
-                    'brown': '#4a3020',
-                    'blonde': '#c8b060',
-                    'red': '#8b3020',
-                    'gray': '#888',
-                    'white': '#d8d8d8',
-                    'none': null
-                };
-                const hc = hairColors[npc.hairColor];
-                if (hc) {
-                    ctx.fillStyle = hc;
-                    ctx.fillRect(x - 7, y - 19, 14, 6);
-                    ctx.fillRect(x - 8, y - 17, 3, 6);
-                    ctx.fillRect(x + 5, y - 17, 3, 6);
-                }
-                if (isVamp) {
-                    ctx.fillStyle = '#ff0000';
-                    ctx.fillRect(x - 3, y - 11, 2, 2);
-                    ctx.fillRect(x + 1, y - 11, 2, 2);
-                    ctx.fillStyle = '#ff4444';
-                    ctx.fillRect(x - 4, y - 12, 1, 1);
-                    ctx.fillRect(x + 3, y - 12, 1, 1);
-                } else if (isUndead) {
-                    ctx.fillStyle = '#aacc44';
-                    ctx.fillRect(x - 3, y - 11, 2, 2);
-                    ctx.fillRect(x + 1, y - 11, 2, 2);
-                } else {
-                    ctx.fillStyle = '#000';
-                    ctx.fillRect(x - 3, y - 11, 2, 2);
-                    ctx.fillRect(x + 1, y - 11, 2, 2);
-                }
-                if (isHostile) {
-                    ctx.fillStyle = '#ff000033';
+                // ── NPCs ──
+                const sortedNpcs = [...(currentRoom.npcs || [])].filter(n => !n._defeated).sort((a, b) => b.y - a.y);
+                for (const npc of sortedNpcs) {
+                    const { sx, sy, scale } = getScreenPosition(npc.x, npc.y);
+                    const nw = 16 * scale;
+                    const nh = 30 * scale;
+                    const nx = sx - nw / 2;
+                    const ny = sy - nh;
+                    // Shadow
+                    ctx.fillStyle = '#00000066';
                     ctx.beginPath();
-                    ctx.arc(x, y - 6, 16, 0, Math.PI * 2);
+                    ctx.ellipse(sx, sy, nw * 0.5, nh * 0.12, 0, 0, Math.PI * 2);
                     ctx.fill();
+                    // Body
+                    const skinColors = {
+                        'pale': '#e8dcc8',
+                        'light': '#d4b896',
+                        'tan': '#c4a07a',
+                        'dark': '#6b4a3a',
+                        'undead': '#9aaf9a'
+                    };
+                    const skin = skinColors[npc.skinTone] || '#d4b896';
+                    const clothColor = npc.color || '#664433';
+                    // Legs
+                    ctx.fillStyle = '#1a1010';
+                    ctx.fillRect(nx + nw * 0.2, ny + nh * 0.75, nw * 0.25, nh * 0.25);
+                    ctx.fillRect(nx + nw * 0.55, ny + nh * 0.75, nw * 0.25, nh * 0.25);
+                    // Torso
+                    ctx.fillStyle = clothColor;
+                    ctx.fillRect(nx + nw * 0.1, ny + nh * 0.35, nw * 0.8, nh * 0.42);
+                    // Arms
+                    ctx.fillStyle = clothColor;
+                    ctx.fillRect(nx, ny + nh * 0.38, nw * 0.2, nh * 0.35);
+                    ctx.fillRect(nx + nw * 0.8, ny + nh * 0.38, nw * 0.2, nh * 0.35);
+                    // Head
+                    ctx.fillStyle = skin;
+                    ctx.fillRect(nx + nw * 0.2, ny + nh * 0.05, nw * 0.6, nh * 0.32);
+                    // Hair
+                    const hairColors = {
+                        'black': '#1a1a1a',
+                        'brown': '#4a3020',
+                        'blonde': '#c8b060',
+                        'red': '#8b3020',
+                        'gray': '#888',
+                        'white': '#d8d8d8',
+                        'none': null
+                    };
+                    const hc = hairColors[npc.hairColor];
+                    if (hc) {
+                        ctx.fillStyle = hc;
+                        ctx.fillRect(nx + nw * 0.15, ny, nw * 0.7, nh * 0.18);
+                    }
+                    // Eyes
+                    if (npc.isVampire) {
+                        ctx.fillStyle = '#ff0000';
+                        ctx.fillRect(nx + nw * 0.3, ny + nh * 0.16, nw * 0.15, nw * 0.15);
+                        ctx.fillRect(nx + nw * 0.55, ny + nh * 0.16, nw * 0.15, nw * 0.15);
+                    } else if (npc.isUndead) {
+                        ctx.fillStyle = '#aacc44';
+                        ctx.fillRect(nx + nw * 0.3, ny + nh * 0.16, nw * 0.15, nw * 0.15);
+                        ctx.fillRect(nx + nw * 0.55, ny + nh * 0.16, nw * 0.15, nw * 0.15);
+                    } else {
+                        ctx.fillStyle = '#000';
+                        ctx.fillRect(nx + nw * 0.3, ny + nh * 0.16, nw * 0.15, nw * 0.15);
+                        ctx.fillRect(nx + nw * 0.55, ny + nh * 0.16, nw * 0.15, nw * 0.15);
+                    }
+                    // Hostile glow
+                    if (npc.isHostile) {
+                        const hostileGlow = ctx.createRadialGradient(sx, ny + nh * 0.5, nw * 0.4, sx, ny + nh * 0.5, nw *
+                            1.2);
+                        hostileGlow.addColorStop(0, 'rgba(255,30,30,0.3)');
+                        hostileGlow.addColorStop(1, 'transparent');
+                        ctx.fillStyle = hostileGlow;
+                        ctx.fillRect(nx - nw * 0.5, ny - nh * 0.2, nw * 2, nh * 1.5);
+                    }
+                    // Name label
+                    ctx.fillStyle = '#ffffffdd';
+                    ctx.font = `${Math.floor(10*scale)}px VT323`;
+                    ctx.textAlign = 'center';
+                    ctx.fillText(npc.name, sx, ny - 4);
+                    ctx.textAlign = 'start';
                 }
-                ctx.fillStyle = '#ffffffdd';
-                ctx.font = '15px VT323';
-                ctx.textAlign = 'center';
-                ctx.fillText(npc.name, x, y - 22);
-                ctx.textAlign = 'start';
-                if (npc._defeated) {
-                    ctx.fillStyle = '#00000088';
-                    ctx.fillRect(x - 8, y - 6, 16, 20);
-                }
-            }
+         
 
-            function drawPlayer() {
-                const px = player.x;
-                const py = player.y;
-                const bob = player.target ? Math.sin(player.walkAnim += 0.25) * 2.5 : Math.sin(Date.now() / 500) * 1.2;
-                const facingRight = player.target ? player.target.x > px : player.facingRight;
-                if (player.target) player.facingRight = facingRight;
-                ctx.fillStyle = '#00000055';
-                ctx.fillRect(px - 9, py + 8, 18, 5);
-                ctx.fillStyle = '#1a1010';
-                ctx.fillRect(px - 6, py + 3 + bob, 5, 6);
-                ctx.fillRect(px + 1, py + 3 + bob, 5, 6);
-                ctx.fillStyle = '#2a1a1a';
-                ctx.fillRect(px - 5, py - 4 + bob, 4, 9);
-                ctx.fillRect(px + 1, py - 4 + bob, 4, 9);
-                ctx.fillStyle = '#1a1020';
-                ctx.fillRect(px - 7, py - 14 + bob, 14, 16);
-                ctx.fillStyle = '#3a2a1a';
-                ctx.fillRect(px - 7, py - 2 + bob, 14, 3);
-                ctx.fillStyle = '#c8b060';
-                ctx.fillRect(px - 1, py - 11 + bob, 2, 6);
-                ctx.fillRect(px - 3, py - 9 + bob, 6, 2);
-                ctx.fillStyle = '#1a1020';
-                const armSwing = player.target ? Math.sin(player.walkAnim * 1.5) * 5 : 0;
-                ctx.fillRect(px - 9, py - 10 + bob + armSwing, 3, 10);
-                ctx.fillRect(px + 6, py - 10 + bob - armSwing, 3, 10);
-                ctx.fillStyle = '#d4b896';
-                ctx.fillRect(px - 5, py - 22 + bob, 10, 11);
-                ctx.fillStyle = '#2a1a10';
-                ctx.fillRect(px - 6, py - 25 + bob, 12, 5);
-                ctx.fillRect(px - 7, py - 23 + bob, 2, 5);
-                ctx.fillRect(px + 5, py - 23 + bob, 2, 5);
-                ctx.fillRect(px - 5, py - 26 + bob, 10, 2);
-                ctx.fillStyle = '#fff';
-                ctx.fillRect(px - 3, py - 18 + bob, 3, 3);
-                ctx.fillRect(px + 1, py - 18 + bob, 3, 3);
-                ctx.fillStyle = '#334433';
-                ctx.fillRect(px - 2, py - 17 + bob, 1, 1);
-                ctx.fillRect(px + 2, py - 17 + bob, 1, 1);
-                ctx.fillStyle = '#1a0a00';
-                ctx.fillRect(px - 4, py - 20 + bob, 4, 1);
-                ctx.fillRect(px + 1, py - 20 + bob, 4, 1);
+                // ── VIGNETTE ──
+                const vignetteGrad = ctx.createRadialGradient(180, 125, 100, 180, 125, 260);
+                vignetteGrad.addColorStop(0, 'transparent');
+                vignetteGrad.addColorStop(0.7, 'rgba(0,0,0,0.3)');
+                vignetteGrad.addColorStop(1, 'rgba(0,0,0,0.75)');
+                ctx.fillStyle = vignetteGrad;
+                ctx.fillRect(0, 0, 360, 250);
             }
 
             function spawnPickupParticles(x, y, icon) {
-                for (let i = 0; i < 14; i++) {
+                const { sx, sy } = getScreenPosition(x, y);
+                for (let i = 0; i < 16; i++) {
                     particles.push({
-                        x,
-                        y,
-                        vx: (Math.random() - 0.5) * 6,
-                        vy: -Math.random() * 7 - 2,
-                        life: 22 + Math.random() * 28,
+                        x: sx,
+                        y: sy,
+                        vx: (Math.random() - 0.5) * 5,
+                        vy: -Math.random() * 6 - 3,
+                        life: 20 + Math.random() * 25,
                         color: '#ffcc66',
-                        size: 2 + Math.random() * 4
-                    });
-                }
-            }
-
-            function updateMovement() {
-                if (!player.target) return;
-                const dx = player.target.x - player.x;
-                const dy = player.target.y - player.y;
-                const dist = Math.hypot(dx, dy);
-                if (dist > 2.5) {
-                    player.x += dx / dist * 3.2;
-                    player.y += dy / dist * 3.2;
-                } else player.target = null;
-            }
-
-            function updateBats() {
-                for (let i = bats.length - 1; i >= 0; i--) {
-                    bats[i].x += bats[i].vx;
-                    bats[i].y += Math.sin(Date.now() / 300 + i) * 0.8;
-                    if (bats[i].x > 400 || bats[i].x < -50) bats.splice(i, 1);
-                }
-                if (Math.random() < 0.02 && bats.length < 5 && currentRegion === 'castle') {
-                    bats.push({
-                        x: -40,
-                        y: 20 + Math.random() * 100,
-                        vx: 1.5 + Math.random() * 3,
-                        size: 6 + Math.random() * 8
-                    });
-                }
-                if (Math.random() < 0.008 && bats.length < 3 && currentRegion === 'forest') {
-                    bats.push({
-                        x: -40,
-                        y: 30 + Math.random() * 120,
-                        vx: 1 + Math.random() * 2.5,
-                        size: 5 + Math.random() * 7
+                        size: 1.5 + Math.random() * 3
                     });
                 }
             }
@@ -1926,26 +2156,24 @@
                     if (fp.life <= 0) {
                         fp.x = Math.random() * 360;
                         fp.y = Math.random() * 250;
-                        fp.life = 200 + Math.random() * 400;
+                        fp.life = 180 + Math.random() * 400;
                     }
                 }
             }
 
             function gameLoop() {
                 ctx.clearRect(0, 0, 360, 250);
-                drawRoom();
-                updateMovement();
-                updateBats();
+                drawFirstPersonRoom();
                 updateFog();
-                drawPlayer();
+                // Particles
                 for (let i = particles.length - 1; i >= 0; i--) {
                     const p = particles[i];
                     ctx.fillStyle = p.color;
-                    ctx.globalAlpha = Math.max(0, p.life / 50);
+                    ctx.globalAlpha = Math.max(0, p.life / 45);
                     ctx.fillRect(p.x, p.y, p.size, p.size);
                     p.x += p.vx;
                     p.y += p.vy;
-                    p.vy += 0.12;
+                    p.vy += 0.1;
                     p.life--;
                     if (p.life <= 0) particles.splice(i, 1);
                 }
@@ -1978,9 +2206,7 @@
                     inventory.forEach((item, index) => {
                         const card = document.createElement('div');
                         card.className = 'inv-modal-item';
-                        if (selectedItem === item) {
-                            card.classList.add('selected');
-                        }
+                        if (selectedItem === item) card.classList.add('selected');
                         card.innerHTML = `
                             <span class="modal-item-icon">${item.icon || '⬡'}</span>
                             <span class="modal-item-name">${item.name}</span>
@@ -1998,7 +2224,7 @@
             function selectItemFromModal(item, index) {
                 if (selectedItem === item) {
                     selectedItem = null;
-                    setVerb('WALK');
+                    setVerb('GO');
                 } else {
                     selectedItem = item;
                     if (currentVerb === 'ATTACK') {
@@ -2026,6 +2252,13 @@
                     }
                 });
                 updateInventoryDisplay();
+                // Update cursor
+                if (v === 'ATTACK') canvas.style.cursor = 'crosshair';
+                else if (v === 'LOOK') canvas.style.cursor = 'zoom-in';
+                else if (v === 'USE') canvas.style.cursor = 'pointer';
+                else canvas.style.cursor = 'default';
+                hoveredZone = null;
+                hintTooltip.style.display = 'none';
             }
 
             function updateInventoryDisplay() {
@@ -2041,18 +2274,10 @@
                     slot.classList.toggle('selected', selectedItem && inventory[i] === selectedItem);
                     slot.classList.toggle('has-more-indicator', false);
                 });
-                // Update bag button
                 const totalItems = inventory.length;
                 bagCountEl.textContent = totalItems > 0 ? totalItems : '';
-                if (totalItems > 4) {
-                    overflowDot.style.display = 'block';
-                } else {
-                    overflowDot.style.display = 'none';
-                }
-                // If modal is open, refresh it
-                if (inventoryModal.style.display === 'flex') {
-                    renderInventoryModal();
-                }
+                overflowDot.style.display = totalItems > 4 ? 'block' : 'none';
+                if (inventoryModal.style.display === 'flex') renderInventoryModal();
             }
 
             function setMessage(txt) {
@@ -2071,6 +2296,47 @@
             }
 
             // ──────────────────────────────────────
+            // HOVER TOOLTIP
+            // ──────────────────────────────────────
+            function updateHoverTooltip(cx, cy) {
+                if (!currentRoom || !gameInitialized) {
+                    hintTooltip.style.display = 'none';
+                    return;
+                }
+                if (npcChatModal.style.display === 'flex' || inventoryModal.style.display === 'flex' ||
+                    victoryOverlay.style.display === 'flex') {
+                    hintTooltip.style.display = 'none';
+                    return;
+                }
+                const hit = getClickTarget(cx, cy);
+                if (hit && hit !== hoveredZone) {
+                    hoveredZone = hit;
+                    let label = '';
+                    if (hit.type === 'exit') {
+                        label = hit.data.locked ? `🔒 ${hit.data.direction.toUpperCase()} (LOCKED)` :
+                            `🚪 ${hit.data.direction.toUpperCase()} - ${hit.data.description.substring(0,30)}`;
+                    } else if (hit.type === 'npc') {
+                        label = hit.data.isHostile ? `⚠️ ${hit.data.name} (HOSTILE)` : `👤 ${hit.data.name}`;
+                    } else if (hit.type === 'item') {
+                        label = `📦 ${hit.data.name}`;
+                    }
+                    if (label) {
+                        hintTooltip.textContent = label;
+                        hintTooltip.style.display = 'block';
+                        const containerRect = document.getElementById('game-container').getBoundingClientRect();
+                        const canvasRect = canvas.getBoundingClientRect();
+                        const tx = canvasRect.left - containerRect.left + (cx / 360) * canvasRect.width;
+                        const ty = canvasRect.top - containerRect.top + (cy / 250) * canvasRect.height;
+                        hintTooltip.style.left = Math.min(tx + 16, containerRect.width - 160) + 'px';
+                        hintTooltip.style.top = Math.max(ty - 28, 50) + 'px';
+                    }
+                } else if (!hit && hoveredZone) {
+                    hoveredZone = null;
+                    hintTooltip.style.display = 'none';
+                }
+            }
+
+            // ──────────────────────────────────────
             // EVENT BINDING
             // ──────────────────────────────────────
             canvas.addEventListener('click', e => {
@@ -2085,6 +2351,15 @@
                 handleCanvasClick((t.clientX - r.left) * (360 / r.width), (t.clientY - r.top) * (250 / r
                     .height));
             });
+            canvas.addEventListener('mousemove', e => {
+                const r = canvas.getBoundingClientRect();
+                updateHoverTooltip((e.clientX - r.left) * (360 / r.width), (e.clientY - r.top) * (250 / r
+                    .height));
+            });
+            canvas.addEventListener('mouseleave', () => {
+                hoveredZone = null;
+                hintTooltip.style.display = 'none';
+            });
             document.querySelectorAll('.verb-button').forEach(b =>
                 b.addEventListener('click', () => setVerb(b.dataset.verb))
             );
@@ -2095,7 +2370,7 @@
                     if (inventory[idx]) {
                         if (selectedItem === inventory[idx]) {
                             selectedItem = null;
-                            setVerb('WALK');
+                            setVerb('GO');
                         } else {
                             selectedItem = inventory[idx];
                             if (currentVerb === 'ATTACK') {
@@ -2109,20 +2384,13 @@
                     }
                 })
             );
-            // Bag button opens inventory modal
             invBagBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 openInventoryModal();
             });
-            // Close inventory modal
-            inventoryModalClose.addEventListener('click', () => {
-                closeInventoryModal();
-            });
-            // Click outside modal grid (on the dark overlay) to close
+            inventoryModalClose.addEventListener('click', () => closeInventoryModal());
             inventoryModal.addEventListener('click', function(e) {
-                if (e.target === inventoryModal) {
-                    closeInventoryModal();
-                }
+                if (e.target === inventoryModal) closeInventoryModal();
             });
             npcChatSend.addEventListener('click', sendPlayerMsg);
             npcChatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendPlayerMsg(); });
@@ -2137,7 +2405,8 @@
             // ──────────────────────────────────────
             apiSubmitBtn.addEventListener('click', async () => {
                 const key = apiKeyInput.value.trim();
-                if (!key) { apiError.textContent = 'Enter thy API key.'; return; }
+                if (!key) { apiError.textContent = 'Enter thy API key.';
+                    return; }
                 apiError.textContent = '';
                 MISTRAL_API_KEY = key;
                 apiSubmitBtn.disabled = true;
@@ -2164,18 +2433,28 @@
             });
             apiKeyInput.addEventListener('keydown', e => { if (e.key === 'Enter') apiSubmitBtn.click(); });
 
-            // Initial fog particles for atmosphere
-            for (let i = 0; i < 10; i++) {
+            // Initial fog
+            for (let i = 0; i < 15; i++) {
                 fogParticles.push({
                     x: Math.random() * 360,
                     y: Math.random() * 250,
-                    vx: (Math.random() - 0.5) * 0.3,
-                    vy: (Math.random() - 0.5) * 0.15,
-                    size: 10 + Math.random() * 20,
+                    vx: (Math.random() - 0.5) * 0.35,
+                    vy: (Math.random() - 0.5) * 0.2,
+                    size: 8 + Math.random() * 22,
                     alpha: 0.02 + Math.random() * 0.06,
                     life: 150 + Math.random() * 350
                 });
             }
+
+            // Initial draw
+            ctx.fillStyle = '#050510';
+            ctx.fillRect(0, 0, 360, 250);
+            ctx.fillStyle = '#332222';
+            ctx.font = '18px VT323';
+            ctx.textAlign = 'center';
+            ctx.fillText('ENTER API KEY', 180, 120);
+            ctx.fillText('TO AWAKEN THE NIGHT', 180, 145);
+            ctx.textAlign = 'start';
         })();
     </script>
 </body>
