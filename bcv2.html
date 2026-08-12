@@ -275,6 +275,7 @@
     let currentLocIndex = 0;
     let inventory = ["PISTOL", "MEDKIT", "CYBER-CLAW"];
     let equippedWeapon = "PISTOL";   // active weapon for combat
+    let armorBought = false;         // track one‑time body armor purchase
 
     // Combat state
     let inCombat = false;
@@ -352,7 +353,7 @@
 
     // ---------- COMBAT SYSTEM ----------
     function startCombat() {
-        if (inCombat) return; // already in combat
+        if (inCombat) return;
         inCombat = true;
         enemy = randomEnemy(currentLocIndex);
         displayCombatUI();
@@ -360,14 +361,12 @@
 
     function playerAttack(weapon) {
         if (!inCombat || stamina <= 0) return;
-        // Calculate damage
         let baseDamage = 8;
         if (weapon === "PISTOL") baseDamage = 10 + Math.floor(Math.random() * 10);
         else if (weapon === "CYBER-CLAW") baseDamage = 15 + Math.floor(Math.random() * 12);
-        else if (weapon === "EMP GRENADE") baseDamage = 25 + Math.floor(Math.random() * 15); // powerful but consumes item
-        else baseDamage = 6 + Math.floor(Math.random() * 8); // generic
+        else if (weapon === "EMP GRENADE") baseDamage = 25 + Math.floor(Math.random() * 15);
+        else baseDamage = 6 + Math.floor(Math.random() * 8);
 
-        // Hit chance 85%
         const hit = Math.random() < 0.85;
         if (!hit) {
             displayCombatUI(`You swing your ${weapon}... MISS!`);
@@ -377,14 +376,11 @@
 
         enemy.hp -= baseDamage;
         let msg = `You attack with ${weapon}. Deals ${baseDamage} damage.`;
-
-        // Special weapon consumption
         if (weapon === "EMP GRENADE") {
             inventory = inventory.filter(i => i !== "EMP GRENADE");
             msg += " (EMP grenade consumed.)";
         }
 
-        // Check kill
         if (enemy.hp <= 0) {
             msg += ` ${enemy.name} is defeated!`;
             endCombat(true);
@@ -413,15 +409,11 @@
     function endCombat(victory) {
         inCombat = false;
         if (victory) {
-            // Reward
             const earnedCreds = enemy.maxHp * 2;
             credits += earnedCreds;
             const repGain = locations[currentLocIndex].difficulty * 5;
             rep = Math.min(100, rep + repGain);
-
-            // Quest progress
             updateQuestProgress(enemy.name);
-
             const winMsg = `
                 <span style="color:#ff8800;">VICTORY!</span> ${enemy.name} neutralised.<br>
                 +${earnedCreds} CREDITS &nbsp; +${repGain} REP<br>
@@ -434,7 +426,6 @@
                 <p style="color:#ffff00; margin-top:25px; text-align:center;">► Click the gameplay window to continue</p>
             `);
         } else {
-            // Defeat
             enemy = null;
             updateWindow(`
                 <div style="color:#ff0000; text-align:center; margin-bottom:12px; font-size:22px; text-shadow:0 0 10px #ff0000; border-bottom:2px solid #00ff00; padding-bottom:6px;">DEFEATED</div>
@@ -449,11 +440,9 @@
 
     function displayCombatUI(extraMsg = '') {
         if (!inCombat || !enemy) return;
-        // Show available weapons (from inventory, only those useable in combat)
         const weapons = inventory.filter(item =>
             ["PISTOL","CYBER-CLAW","EMP GRENADE","SHOTGUN","PLASMA RIFLE"].includes(item)
         );
-        // Add a "FLEE" option
         let weaponBtns = weapons.map(w =>
             `<span onclick="event.stopPropagation(); playerAttack('${w}')" style="display:block;color:#ffff00;cursor:pointer;margin:6px 0;text-shadow:0 0 5px #ffff00;">► ATTACK with ${w}</span>`
         ).join('');
@@ -516,7 +505,6 @@
                     q.status = "completed";
                     credits += q.reward;
                     addToInbox("SYSTEM", `Contract "${q.title}" completed! +${q.reward} CR transferred.`);
-                    // Optional rep bonus
                     rep = Math.min(100, rep + 10);
                 }
             }
@@ -559,7 +547,93 @@
         } catch(e) { console.log("Audio error:", e); }
     }
 
-    // ---------- BUTTON HANDLERS ----------
+    // ==================== SHOP SYSTEM (FIXED) ====================
+    // Reusable shop view generator
+    function showShopView(optionalMessage = '') {
+        const shopItems = [
+            { name: "MEDKIT",        price: 80,  desc: "Restores 30% stamina." },
+            { name: "PISTOL",        price: 150, desc: "Standard sidearm. Decent damage." },
+            { name: "CYBER-CLAW",    price: 250, desc: "Melee upgrade. High damage." },
+            { name: "EMP GRENADE",   price: 300, desc: "One‑use massive damage." },
+            { name: "BODY ARMOR",    price: 400, desc: "Permanently raises max stamina by 20 (one time)." }
+        ];
+
+        const shopHTML = shopItems.map(item => {
+            const owned = (item.name === "BODY ARMOR") ? armorBought : inventory.includes(item.name);
+            return `<span onclick="event.stopPropagation(); buyItem('${item.name}', ${item.price})" 
+                         style="display:block;color:${owned?'#555':'#00ffcc'};cursor:${owned?'default':'pointer'};margin:6px 0;text-shadow:0 0 5px #00ffcc;">
+                         ► ${item.name} (${item.price} CR) - ${item.desc} ${owned ? '[OWNED]' : ''}
+                    </span>`;
+        }).join('');
+
+        const fullHTML = `
+            <div style="color:#ff0000; text-align:center; margin-bottom:12px; font-size:22px; text-shadow:0 0 10px #ff0000; border-bottom:2px solid #00ff00; padding-bottom:6px;">BLACK MARKET SUPPLY</div>
+            ${optionalMessage ? `<p style="color:#ff8800; text-align:center; margin:10px 0;">${optionalMessage}</p>` : ''}
+            <div style="color:#00ccff;">${shopHTML}</div>
+            <p style="color:#ffff00; margin-top:15px;">Your credits: ${credits} &nbsp;|&nbsp; Click an item to buy.</p>
+        `;
+        updateWindow(fullHTML);
+    }
+
+    // Buy item with receipt + "Continue Shopping" button
+    window.buyItem = function(name, price) {
+        if (credits < price) {
+            playSound('error');
+            showShopView(`<span style="color:#ff0000;">Not enough credits! Need ${price - credits} more CR.</span>`);
+            return;
+        }
+
+        // One‑time body armor
+        if (name === "BODY ARMOR") {
+            if (armorBought) {
+                showShopView("You already have body armor.");
+                return;
+            }
+            armorBought = true;
+            stamina = Math.min(100, stamina + 20);
+            credits -= price;
+            playSound('success');
+            updateHUD();
+            showShopView("<span style='color:#00ff44;'>Body armor installed. Max stamina permanently +20.</span>");
+            return;
+        }
+
+        // Normal items
+        if (inventory.includes(name)) {
+            playSound('error');
+            showShopView(`<span style="color:#ff8800;">You already own ${name}.</span>`);
+            return;
+        }
+
+        inventory.push(name);
+        credits -= price;
+        playSound('action');
+        updateHUD();
+
+        // Receipt with "Continue Shopping"
+        const receiptHTML = `
+            <div style="color:#ff0000; text-align:center; margin-bottom:12px; font-size:22px; text-shadow:0 0 10px #ff0000; border-bottom:2px solid #00ff00; padding-bottom:6px;">PURCHASE COMPLETE</div>
+            <div style="color:#00ccff; text-align:center; margin:15px 0;">
+                ✅ ${name} purchased. It's in your inventory.
+            </div>
+            <div style="text-align:center; margin-top:10px;">
+                <span onclick="event.stopPropagation(); showShopView()" 
+                      style="color:#ffff00; cursor:pointer; text-shadow:0 0 8px #ffff00; border:1px solid #ffff00; padding:4px 12px;">
+                      CONTINUE SHOPPING
+                </span>
+            </div>
+            <p style="color:#ffff00; margin-top:15px; text-align:center;">► Click the gameplay window to return to the streets</p>
+        `;
+        updateWindow(receiptHTML);
+    };
+
+    // Shop button now just calls the reusable view
+    document.getElementById('btn-shop').addEventListener('click', () => {
+        playSound('click');
+        showShopView();
+    });
+
+    // ---------- OTHER BUTTON HANDLERS ----------
     // 1. BATTLE
     document.getElementById('btn-battle').addEventListener('click', () => {
         playSound('action');
@@ -569,7 +643,6 @@
             return;
         }
         if (inCombat) {
-            // already in combat, just refresh UI
             displayCombatUI();
         } else {
             startCombat();
@@ -595,60 +668,6 @@ ACTIVE QUESTS: ${quests.filter(q=>q.status==='active').length}
         `);
     });
 
-    // 3. SHOP
-    document.getElementById('btn-shop').addEventListener('click', () => {
-        playSound('click');
-        const shopItems = [
-            { name: "MEDKIT", price: 80, desc: "Restores 30% stamina." },
-            { name: "PISTOL", price: 150, desc: "Standard sidearm. Decent damage." },
-            { name: "CYBER-CLAW", price: 250, desc: "Melee upgrade. High damage." },
-            { name: "EMP GRENADE", price: 300, desc: "One‑use massive damage." },
-            { name: "BODY ARMOR", price: 400, desc: "Permanently raises max stamina by 20 (one time)." }
-        ];
-
-        const shopHTML = shopItems.map((item, idx) => {
-            const owned = inventory.includes(item.name);
-            if (item.name === "BODY ARMOR" && window.armorBought) owned = true; // track separately
-            return `<span onclick="event.stopPropagation(); buyItem('${item.name}', ${item.price})" style="display:block;color:${owned?'#555':'#00ffcc'};cursor:${owned?'default':'pointer'};margin:6px 0;text-shadow:0 0 5px #00ffcc;">► ${item.name} (${item.price} CR) - ${item.desc} ${owned ? '[OWNED]' : ''}</span>`;
-        }).join('');
-
-        updateWindow(`
-            <div style="color:#ff0000; text-align:center; margin-bottom:12px; font-size:22px; text-shadow:0 0 10px #ff0000; border-bottom:2px solid #00ff00; padding-bottom:6px;">BLACK MARKET SUPPLY</div>
-            <div style="color:#00ccff;">${shopHTML}</div>
-            <p style="color:#ffff00; margin-top:15px;">Click an item to buy. Your credits: ${credits}</p>
-        `);
-    });
-
-    window.buyItem = function(name, price) {
-        if (credits < price) {
-            playSound('error');
-            updateWindow(`<div style="color:#ff0000;">INSUFFICIENT CREDITS</div><p style="color:#ff8800;">You need ${price - credits} more CR.</p>`);
-            return;
-        }
-        if (name === "BODY ARMOR") {
-            if (window.armorBought) return;
-            window.armorBought = true;
-            stamina = Math.min(100, stamina + 20);
-            document.getElementById('stamina-fill-hud').style.width = stamina + '%';
-            credits -= price;
-            playSound('success');
-            updateWindow(`<div style="color:#00ffcc;">Body armor installed. Max stamina permanently increased by 20.</div>`);
-            updateHUD();
-            return;
-        }
-        // Normal item
-        if (!inventory.includes(name)) {
-            inventory.push(name);
-            credits -= price;
-            playSound('action');
-            updateWindow(`<div style="color:#00ffcc;">Purchased ${name}. It's in your inventory.</div>`);
-        } else {
-            playSound('error');
-            updateWindow(`<div style="color:#ff8800;">You already own ${name}.</div>`);
-        }
-        updateHUD();
-    };
-
     // 4. QUESTS
     document.getElementById('btn-quests').addEventListener('click', () => {
         playSound('click');
@@ -671,7 +690,6 @@ ACTIVE QUESTS: ${quests.filter(q=>q.status==='active').length}
             </div>`;
         }).join('');
 
-        // Also show inbox from fixers
         let inboxHTML = '<div style="margin-top:20px; color:#ff0000;">INBOX</div>';
         inbox.forEach((msg, i) => {
             inboxHTML += `<div style="color:#00ffcc; margin:4px 0;" onclick="event.stopPropagation(); readInboxMsg(${i})">[${msg.time}] ${msg.from}: ${msg.text.substring(0,40)}...</div>`;
@@ -711,7 +729,6 @@ ACTIVE QUESTS: ${quests.filter(q=>q.status==='active').length}
             `<span onclick="event.stopPropagation(); useInventoryItem('${item}')" style="display:block;color:#00ffcc;cursor:pointer;margin:6px 0;text-shadow:0 0 5px #00ffcc;">► ${item}</span>`
         ).join('') || '<span style="color:#ff8800;">EMPTY</span>';
 
-        // Allow equip weapon
         const weapons = inventory.filter(i => ["PISTOL","CYBER-CLAW","EMP GRENADE","SHOTGUN","PLASMA RIFLE"].includes(i));
         let equipHTML = '';
         if (weapons.length > 0) {
@@ -750,7 +767,6 @@ ACTIVE QUESTS: ${quests.filter(q=>q.status==='active').length}
             updateHUD();
             return;
         }
-        // generic use
         playSound('click');
         updateWindow(`<div style="color:#00ccff;">You examine the ${item}. It's ready for combat or quests.</div>`);
     };
