@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>ASYLUM 1958 — Experimental Lab</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: "Courier New", Courier, monospace;
+      color: #c9b87a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #game-container {
+      position: relative;
+      width: 100%;
+      max-width: min(480px, 100vw);
+      aspect-ratio: 1023 / 1537;
+      height: auto;
+      max-height: 100vh;
+      margin: 0 auto;
+      background: #000;
+      overflow: hidden;
+    }
+
+    /* ===== MAIN GUI IMAGE – full image always visible ===== */
+    #gui {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: fill;
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    /* Custom scrollbars */
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: #c9a030 #1a1508;
+    }
+    *::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    *::-webkit-scrollbar-track {
+      background: #0a0800;
+      border: 1px solid #3a2a10;
+    }
+    *::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, #e8d070 0%, #a07810 100%);
+      border: 1px solid #c9a030;
+    }
+
+    /* ===== MAIN OVERLAY WINDOW (covers the map area) ===== */
+    #main-overlay {
+      position: absolute;
+      top: 24%;
+      left: 30%;
+      width: 64%;
+      height: 45.5%;
+      background: transparent;
+      border: 0px solid #5a4a2a;
+      box-shadow:
+        inset 0 0 30px rgba(0,0,0,0.85),
+        0 0 12px rgba(80, 50, 20, 0.4);
+      z-index: 20;
+      overflow: hidden;
+      display: none;
+    }
+
+    #main-overlay.visible {
+      display: block;
+    }
+
+    .overlay-header {
+      background: transparent;
+      border-bottom: 0px solid #6a5a30;
+      padding: 8px 12px;
+      font-size: 13px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #d4c080;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .overlay-header .close-btn {
+      width: 28px;
+      height: 28px;
+      background: transparent;
+      border: 1px solid #7a6a30;
+      color: #c9b87a;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .overlay-body {
+      padding: 12px;
+      height: calc(100% - 44px);
+      overflow-y: auto;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    /* ===== FIVE BUTTON FRAMES (sit over the existing buttons) ===== */
+    .btn-frame {
+      position: absolute;
+      z-index: 15;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 3px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+    }
+
+    .btn-frame:active {
+      background: rgba(180, 140, 40, 0.18);
+    }
+
+    .btn-frame.active {
+      border-color: #c9a030;
+      box-shadow: 0 0 10px rgba(200, 160, 40, 0.55);
+    }
+
+    /* Approximate positions – fine-tune these % if needed */
+    #btn-ward     { bottom: 8%; left: 8.45%;  width: 13%; height: 11%; }
+    #btn-patients { bottom: 8%; left: 26.3%; width: 13%; height: 11%; }
+    #btn-treatment{ bottom: 8%; left: 43.9%; width: 13%; height: 11%; }
+    #btn-lab      { bottom: 8%; left: 61.5%; width: 13%; height: 11%; }
+    #btn-asylums  { bottom: 8%; left: 78.5%; width: 13%; height: 11%; }
+
+    /* ===== YELLOW SLIDING INDICATOR ===== */
+    #yellow-indicator {
+      position: absolute;
+      bottom: 3.0%;
+      left: 15%;
+      width: 12%;
+      height: 2.5%;
+      background: linear-gradient(180deg, #e8d070 0%, #c9a020 40%, #a07810 100%);
+      border: 1px solid #f0e090;
+      border-radius: 2px;
+      box-shadow:
+        0 0 6px rgba(230, 190, 50, 0.7),
+        inset 0 1px 0 rgba(255,255,200,0.5);
+      z-index: 12;
+      transition: left 0.28s cubic-bezier(0.25, 0.8, 0.25, 1);
+      pointer-events: none;
+    }
+
+    /* ===== CONTENT STYLING ===== */
+    .section-title {
+      font-size: 15px;
+      color: #e0c060;
+      margin-bottom: 10px;
+      letter-spacing: 1px;
+      border-bottom: 1px solid #5a4a20;
+      padding-bottom: 4px;
+    }
+
+    .patient-card, .trade-card, .lab-result {
+      background: transparent;
+      border: 1px solid #5a4a28;
+      padding: 8px 10px;
+      margin-bottom: 8px;
+      font-size: 12px;
+    }
+
+    .patient-card .name, .trade-card .name {
+      color: #e0c060;
+      font-weight: bold;
+    }
+
+    .stat {
+      display: flex;
+      justify-content: space-between;
+      margin: 2px 0;
+      color: #a09060;
+    }
+
+    .stat span:last-child {
+      color: #c9b87a;
+    }
+
+    .danger { color: #c05040 !important; }
+    .warning { color: #c09030 !important; }
+    .good { color: #60a060 !important; }
+
+    button.action {
+      display: block;
+      width: 100%;
+      margin-top: 6px;
+      padding: 8px;
+      background: #c41e1e;
+      border: 2px solid #7a6a30;
+      color: #f0e68c !important;
+      font-family: inherit;
+      font-size: 12px;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+    }
+
+    button.action:active {
+      background: #3a3018;
+    }
+
+    button.action.danger {
+      border-color: #8a3030;
+      color: #f0e6d0 !important;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .row button {
+      flex: 1;
+    }
+
+    .resource-bar {
+      display: flex;
+      justify-content: space-between;
+      background: #1a1508;
+      border: 1px solid #4a3a18;
+      padding: 6px 10px;
+      margin-bottom: 12px;
+      font-size: 11px;
+    }
+
+    .resource-bar span {
+      color: #c9b87a;
+    }
+
+    .lab-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .lab-item {
+      background: transparent;
+      border: 1px solid #4a3a18;
+      padding: 10px;
+      text-align: center;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .lab-item:active {
+      background: #2a2210;
+    }
+
+    .empty-state {
+      text-align: center;
+      color: #6a5a30;
+      padding: 30px 10px;
+      font-size: 13px;
+    }
+
+    /* ===== INTRO & SLEEP TEXT ===== */
+    .type-cursor {
+      display: inline-block;
+      animation: blink 1s step-end infinite;
+      color: #e0c060;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    .intro-text {
+      white-space: pre-wrap;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .sleep-message {
+      white-space: pre-wrap;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #c9b87a;
+    }
+
+    #status-line {
+      position: absolute;
+      bottom: 0.4%;
+      left: 0;
+      width: 100%;
+      text-align: center;
+      font-size: 10px;
+      color: #5a4a28;
+      z-index: 40;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-container">
+    <!-- Main GUI image – same technique as CREATURE 1962 -->
+    <img id="gui" src="asylum.png" alt="ASYLUM 1958 GUI">
+
+    <!-- MAIN OVERLAY WINDOW (covers the map area) -->
+    <div id="main-overlay">
+      <div class="overlay-header">
+        <span id="overlay-title">LABORATORY</span>
+        <div class="close-btn" id="close-overlay">×</div>
+      </div>
+      <div class="overlay-body" id="overlay-content"></div>
+    </div>
+
+    <!-- FIVE BUTTON FRAMES -->
+    <div class="btn-frame" id="btn-ward" data-section="ward"></div>
+    <div class="btn-frame" id="btn-patients" data-section="patients"></div>
+    <div class="btn-frame" id="btn-treatment" data-section="treatment"></div>
+    <div class="btn-frame" id="btn-lab" data-section="lab"></div>
+    <div class="btn-frame" id="btn-asylums" data-section="asylums"></div>
+
+    <!-- YELLOW SLIDING INDICATOR -->
+    <div id="yellow-indicator"></div>
+
+    <div id="status-line">AUTHORIZED PERSONNEL ONLY — DOC-19-1958-A</div>
+  </div>
+
+  <script>
+    // ========== GAME STATE ==========
+    const state = {
+      currentSection: null,
+      overlayMode: null, // 'intro', 'section', 'sleep', or null
+      funds: 1240,
+      subjects: 7,
+      research: 38,
+      patients: [
+        { id: 1, name: "Eleanor Voss", age: 34, condition: "Paranoid Schizophrenia", sanity: 42, value: 180, risk: "High" },
+        { id: 2, name: "Harold Finch", age: 51, condition: "Catatonic Depression", sanity: 18, value: 95, risk: "Low" },
+        { id: 3, name: "Margaret Hale", age: 27, condition: "Hysteria / Trauma", sanity: 61, value: 220, risk: "Medium" },
+        { id: 4, name: "Subject 17-B", age: "?", condition: "Experimental (Classified)", sanity: 9, value: 450, risk: "Extreme" },
+        { id: 5, name: "Thomas Reed", age: 44, condition: "Alcoholic Psychosis", sanity: 55, value: 110, risk: "Medium" }
+      ],
+      market: [
+        { id: 101, name: "Clara Mendez", age: 31, condition: "Dissociative Episodes", sanity: 33, value: 160, risk: "High", from: "Blackwood Asylum" },
+        { id: 102, name: "Dr. Alistair Crowe", age: 58, condition: "Self-experimentation sequelae", sanity: 12, value: 380, risk: "Extreme", from: "Ravenscroft Institute" },
+        { id: 103, name: "Young Male (Unnamed)", age: 19, condition: "Acute Mania", sanity: 48, value: 140, risk: "Medium", from: "County Transfer" }
+      ],
+      labProjects: [
+        { id: "serum", name: "Neuroleptic Serum X", progress: 65, cost: 80 },
+        { id: "shock", name: "Refined ECT Protocol", progress: 40, cost: 55 },
+        { id: "lobe", name: "Precision Lobotomy", progress: 22, cost: 120 },
+        { id: "dream", name: "Dream Extraction", progress: 8, cost: 200 }
+      ]
+    };
+
+    // ========== DOM REFS ==========
+    const overlay = document.getElementById("main-overlay");
+    const overlayTitle = document.getElementById("overlay-title");
+    const overlayContent = document.getElementById("overlay-content");
+    const closeBtn = document.getElementById("close-overlay");
+    const indicator = document.getElementById("yellow-indicator");
+    const frames = document.querySelectorAll(".btn-frame");
+
+    // Indicator left positions for each button (matches the button left % roughly centered)
+    const indicatorPositions = {
+      ward: "9.1%",
+      patients: "26.7%",
+      treatment: "44.4%",
+      lab: "61.8%",
+      asylums: "79%"
+    };
+
+    // ========== INTRO & SLEEP TEXT ==========
+    const introText = `Welcome to Blackburn Asylum, Doctor.
+
+You are the new doctor assigned here, after the... disappearance of your predecessor.
+
+Your duties are simple: manage the patients, maintain order, and continue the research.
+
+But remember: the walls have ears, and the patients are not the only ones being watched.
+
+Your first shift begins now...`;
+
+    const sleepMessageHTML = `<div class="sleep-message">The Asylum sleeps...
+
+But the walls whisper, the lights flicker, and somewhere in Ward C, a door opens.
+
+Remain vigilant, Doctor.</div>`;
+
+    // ========== TYPING EFFECT ==========
+    let introTypingInterval = null;
+
+    function clearTyping() {
+      if (introTypingInterval) {
+        clearInterval(introTypingInterval);
+        introTypingInterval = null;
+      }
+    }
+
+    function typeIntro() {
+  clearTyping();
+  overlayContent.innerHTML = '<div class="intro-text" id="intro-text"></div><span class="type-cursor">|</span>';
+  const introEl = document.getElementById('intro-text');
+  let i = 0;
+  const fullText = introText;
+  introTypingInterval = setInterval(() => {
+    if (i <= fullText.length) {
+      introEl.textContent = fullText.slice(0, i);
+      // 👇 Auto-scroll the overlay body to the bottom
+      overlayContent.scrollTop = overlayContent.scrollHeight;
+      i++;
+    } else {
+      clearInterval(introTypingInterval);
+      introTypingInterval = null;
+      // Ensure final scroll position is at the bottom
+      overlayContent.scrollTop = overlayContent.scrollHeight;
+    }
+  }, 45);
+}
+
+    // ========== SECTION CONTENT ==========
+    const sections = {
+      ward: {
+        title: "WARD CONTROL",
+        render() {
+          return `
+            <div class="resource-bar">
+              <span>Occupied Beds: <b>${state.subjects}/24</b></span>
+              <span>Security: <b class="warning">LEVEL 2</b></span>
+            </div>
+            <div class="section-title">Active Wards</div>
+            <div class="patient-card">
+              <div class="name">Ward Block A — Isolation</div>
+              <div class="stat"><span>Patients</span><span>4</span></div>
+              <div class="stat"><span>Status</span><span class="warning">Unstable</span></div>
+              <button class="action">LOCKDOWN</button>
+            </div>
+            <div class="patient-card">
+              <div class="name">Ward Block B — Observation</div>
+              <div class="stat"><span>Patients</span><span>2</span></div>
+              <div class="stat"><span>Status</span><span class="good">Contained</span></div>
+              <button class="action">VIEW CAMERAS</button>
+            </div>
+            <div class="patient-card">
+              <div class="name">Ward Block C — General</div>
+              <div class="stat"><span>Patients</span><span>1</span></div>
+              <div class="stat"><span>Status</span><span class="good">Quiet</span></div>
+              <button class="action">INSPECT</button>
+            </div>
+          `;
+        }
+      },
+
+      patients: {
+        title: "PATIENT FILES",
+        render() {
+          let html = `
+            <div class="resource-bar">
+              <span>Active Subjects: <b>${state.patients.length}</b></span>
+              <span>Funds: <b>$${state.funds}</b></span>
+            </div>
+            <div class="section-title">Current Inmates</div>
+          `;
+          state.patients.forEach(p => {
+            const sanityClass = p.sanity < 25 ? "danger" : p.sanity < 50 ? "warning" : "good";
+            html += `
+              <div class="patient-card">
+                <div class="name">${p.name} <span style="color:#6a5a30;font-weight:normal">• ${p.age} yrs</span></div>
+                <div class="stat"><span>Condition</span><span>${p.condition}</span></div>
+                <div class="stat"><span>Sanity</span><span class="${sanityClass}">${p.sanity}%</span></div>
+                <div class="stat"><span>Trade Value</span><span>$${p.value}</span></div>
+                <div class="stat"><span>Risk</span><span class="${p.risk === 'Extreme' || p.risk === 'High' ? 'danger' : 'warning'}">${p.risk}</span></div>
+                <div class="row">
+                  <button class="action" onclick="selectForLab(${p.id})">SEND TO LAB</button>
+                  <button class="action danger" onclick="sellPatient(${p.id})">SELL</button>
+                </div>
+              </div>
+            `;
+          });
+          return html;
+        }
+      },
+
+      treatment: {
+        title: "TREATMENT PROTOCOLS",
+        render() {
+          return `
+            <div class="section-title">Available Procedures</div>
+            <div class="patient-card">
+              <div class="name">Electroconvulsive Therapy</div>
+              <div class="stat"><span>Risk</span><span class="warning">Moderate</span></div>
+              <div class="stat"><span>Effect</span><span>Temporary compliance ↑</span></div>
+              <button class="action">PREPARE SESSION</button>
+            </div>
+            <div class="patient-card">
+              <div class="name">Insulin Coma Therapy</div>
+              <div class="stat"><span>Risk</span><span class="danger">High</span></div>
+              <div class="stat"><span>Effect</span><span>Deep sedation / memory wipe</span></div>
+              <button class="action">INITIATE</button>
+            </div>
+            <div class="patient-card">
+              <div class="name">Hydrotherapy (Ice Packs)</div>
+              <div class="stat"><span>Risk</span><span class="good">Low</span></div>
+              <div class="stat"><span>Effect</span><span>Calms agitation</span></div>
+              <button class="action">SCHEDULE</button>
+            </div>
+            <div class="patient-card">
+              <div class="name">Experimental Serum</div>
+              <div class="stat"><span>Risk</span><span class="danger">Unknown</span></div>
+              <div class="stat"><span>Effect</span><span>Requires Lab authorization</span></div>
+              <button class="action">REQUEST FROM LAB</button>
+            </div>
+          `;
+        }
+      },
+
+      lab: {
+        title: "EXPERIMENTAL LABORATORY",
+        render() {
+          let html = `
+            <div class="resource-bar">
+              <span>Research Points: <b>${state.research}</b></span>
+              <span>Funds: <b>$${state.funds}</b></span>
+            </div>
+            <div class="section-title">Active Projects</div>
+            <div class="lab-grid">
+          `;
+          state.labProjects.forEach(proj => {
+            html += `
+              <div class="lab-item" onclick="advanceProject('${proj.id}')">
+                <div style="color:#e0c060;margin-bottom:4px">${proj.name}</div>
+                <div style="font-size:11px;color:#8a7a40">${proj.progress}%</div>
+                <div style="font-size:10px;color:#6a5a30;margin-top:4px">Cost: $${proj.cost}</div>
+              </div>
+            `;
+          });
+          html += `</div>
+            <div style="margin-top:14px" class="section-title">Recent Results</div>
+            <div class="lab-result">
+              Subject 17-B — Neural response anomalous. Recommend isolation and further voltage trials.
+            </div>
+            <div class="lab-result">
+              Serum batch #4 produced elevated aggression. Sample stored for study.
+            </div>
+          `;
+          return html;
+        }
+      },
+
+      asylums: {
+        title: "ASYLUM TRADE NETWORK",
+        render() {
+          let html = `
+            <div class="resource-bar">
+              <span>Funds: <b>$${state.funds}</b></span>
+              <span>Subjects: <b>${state.patients.length}</b></span>
+            </div>
+            <div class="section-title">Sell Your Patients</div>
+            <p style="font-size:11px;color:#8a7a40;margin-bottom:8px">Other asylums pay for “difficult” cases. Higher risk = higher price.</p>
+          `;
+          state.patients.forEach(p => {
+            html += `
+              <div class="trade-card">
+                <div class="name">${p.name}</div>
+                <div class="stat"><span>Value</span><span>$${p.value}</span></div>
+                <div class="stat"><span>Risk</span><span class="${p.risk === 'Extreme' || p.risk === 'High' ? 'danger' : ''}">${p.risk}</span></div>
+                <button class="action danger" onclick="sellPatient(${p.id})">SELL FOR $${p.value}</button>
+              </div>
+            `;
+          });
+
+          html += `<div class="section-title" style="margin-top:16px">Available for Purchase</div>`;
+          if (state.market.length === 0) {
+            html += `<div class="empty-state">No subjects currently offered by partner asylums.</div>`;
+          } else {
+            state.market.forEach(m => {
+              html += `
+                <div class="trade-card">
+                  <div class="name">${m.name}</div>
+                  <div class="stat"><span>From</span><span>${m.from}</span></div>
+                  <div class="stat"><span>Condition</span><span>${m.condition}</span></div>
+                  <div class="stat"><span>Sanity</span><span>${m.sanity}%</span></div>
+                  <div class="stat"><span>Price</span><span>$${m.value}</span></div>
+                  <button class="action" onclick="buyPatient(${m.id})">PURCHASE — $${m.value}</button>
+                </div>
+              `;
+            });
+          }
+          return html;
+        }
+      }
+    };
+
+    // ========== CORE FUNCTIONS ==========
+    function openSection(sectionKey) {
+      clearTyping();
+      state.overlayMode = 'section';
+      closeBtn.style.display = 'flex';
+      state.currentSection = sectionKey;
+      const section = sections[sectionKey];
+      if (!section) return;
+
+      overlayTitle.textContent = section.title;
+      overlayContent.innerHTML = section.render();
+      overlay.classList.add("visible");
+
+      frames.forEach(f => f.classList.remove("active"));
+      const activeFrame = document.querySelector(`.btn-frame[data-section="${sectionKey}"]`);
+      if (activeFrame) activeFrame.classList.add("active");
+
+      // Move yellow indicator
+      if (indicatorPositions[sectionKey]) {
+        indicator.style.left = indicatorPositions[sectionKey];
+      }
+    }
+
+    function closeOverlay() {
+      clearTyping();
+
+      // If the sleep message is already showing, close it completely
+      if (state.overlayMode === 'sleep') {
+        overlay.classList.remove("visible");
+        state.overlayMode = null;
+        state.currentSection = null;
+        frames.forEach(f => f.classList.remove("active"));
+        closeBtn.style.display = 'flex';
+        return;
+      }
+
+      // Otherwise, show the "Asylum sleeps" message in the same area
+      state.overlayMode = 'sleep';
+      overlayTitle.textContent = "ASYLUM STATUS";
+      closeBtn.style.display = 'flex';
+      overlayContent.innerHTML = sleepMessageHTML;
+      overlay.classList.add("visible");
+      frames.forEach(f => f.classList.remove("active"));
+      state.currentSection = null;
+    }
+
+    function showIntro() {
+      state.overlayMode = 'intro';
+      overlayTitle.textContent = "WELCOME TO BLACKBURN ASYLUM";
+      closeBtn.style.display = 'none'; // no close button during intro
+      overlay.classList.add("visible");
+      typeIntro();
+    }
+
+    // ========== GAME ACTIONS ==========
+    function sellPatient(id) {
+      const idx = state.patients.findIndex(p => p.id === id);
+      if (idx === -1) return;
+      const patient = state.patients[idx];
+      state.funds += patient.value;
+      state.patients.splice(idx, 1);
+      if (state.currentSection) openSection(state.currentSection);
+      flashStatus(`Sold ${patient.name} for $${patient.value}`);
+    }
+
+    function buyPatient(id) {
+      const idx = state.market.findIndex(m => m.id === id);
+      if (idx === -1) return;
+      const offer = state.market[idx];
+      if (state.funds < offer.value) {
+        flashStatus("Insufficient funds");
+        return;
+      }
+      state.funds -= offer.value;
+      state.patients.push({
+        id: Date.now(),
+        name: offer.name,
+        age: offer.age,
+        condition: offer.condition,
+        sanity: offer.sanity,
+        value: Math.floor(offer.value * 0.7),
+        risk: offer.risk
+      });
+      state.market.splice(idx, 1);
+      if (state.currentSection) openSection(state.currentSection);
+      flashStatus(`Acquired ${offer.name}`);
+    }
+
+    function selectForLab(id) {
+      flashStatus("Subject transferred to Laboratory");
+      openSection("lab");
+    }
+
+    function advanceProject(projId) {
+      const proj = state.labProjects.find(p => p.id === projId);
+      if (!proj) return;
+      if (state.funds < proj.cost) {
+        flashStatus("Insufficient funds for research");
+        return;
+      }
+      state.funds -= proj.cost;
+      proj.progress = Math.min(100, proj.progress + 8 + Math.floor(Math.random() * 12));
+      state.research += 3;
+      if (state.currentSection) openSection(state.currentSection);
+      flashStatus(`${proj.name} advanced to ${proj.progress}%`);
+    }
+
+    function flashStatus(msg) {
+      const el = document.getElementById("status-line");
+      el.textContent = msg;
+      el.style.color = "#c9a030";
+      setTimeout(() => {
+        el.textContent = "AUTHORIZED PERSONNEL ONLY — DOC-19-1958-A";
+        el.style.color = "#5a4a28";
+      }, 2200);
+    }
+
+    // ========== EVENT LISTENERS ==========
+    frames.forEach(frame => {
+      frame.addEventListener("click", () => {
+        const section = frame.dataset.section;
+        openSection(section); // clicking any button hides the intro and opens the section
+      });
+    });
+
+    document.getElementById("close-overlay").addEventListener("click", closeOverlay);
+
+    // Prevent page bounce on mobile
+    document.body.addEventListener("touchmove", e => {
+      if (e.target.closest(".overlay-body")) return;
+      e.preventDefault();
+    }, { passive: false });
+
+    // Start with indicator under LAB
+    indicator.style.left = indicatorPositions.lab;
+
+    // ========== START INTRO ==========
+    showIntro();
+  </script>
+</body>
+</html>
