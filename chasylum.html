@@ -478,7 +478,43 @@
 
             let sectionThemeScore = null;
 
-            function createKeepAlive(ctx) {
+function extractJsonObject(text) {
+  const start = text.indexOf('{');
+  if (start === -1) throw new Error('No JSON object found');
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+    } else {
+      if (ch === '"') {
+        inString = true;
+      } else if (ch === '{') {
+        depth++;
+      } else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          return text.slice(start, i + 1);
+        }
+      }
+    }
+  }
+
+  throw new Error('Unclosed JSON object');
+}            
+
+function createKeepAlive(ctx) {
                 if (keepAliveNode) return;
                 const osc = ctx.createOscillator();
                 osc.type = 'sine';
@@ -1457,7 +1493,11 @@
         No markdown.`;
                 const resp = await mistralChat([{ role: 'system', content: system }, { role: 'user', content: prompt }], 3500, 45000);
                 let jsonStr = resp.replace(/```json|```/g, '').replace(/`/g, '').trim();
-                const story = JSON.parse(jsonStr);
+
+// Extract only the JSON object and clean trailing commas
+jsonStr = extractJsonObject(jsonStr).replace(/,\s*([}\]])/g, '$1');
+
+const story = JSON.parse(jsonStr);
                 story.story = story.story.replace(/\\n/g, '\n');
                 if (!story.title || !story.story || !story.closing_remark) throw new Error('Invalid story structure.');
                 let imageUrl = null;
