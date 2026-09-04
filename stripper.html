@@ -1,0 +1,1346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>Stripper</title>
+    <style>
+        :root {
+            --bg-dark: #0a0a14;
+            --neon-green: #00ff41;
+            --neon-amber: #ffb347;
+            --neon-red: #ff3355;
+            --neon-pink: #ff44cc;
+            --neon-cyan: #00e5ff;
+            --neon-purple: #aa66ff;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #050510;
+            font-family: 'Courier New', 'Lucida Console', monospace;
+            touch-action: manipulation;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        body {
+            background: radial-gradient(ellipse at center, #1a1a35 0%, #0a0a14 70%, #050510 100%);
+        }
+
+        /* Outer frame using the GUI art – fixed aspect ratio 512:768 */
+        .gui-frame {
+            position: relative;
+            width: min(100vw, calc(100vh * 512 / 768));
+            height: min(100vh, calc(100vw * 768 / 512));
+            max-width: 512px;
+            max-height: 768px;
+            background: url('stripgui.jpg') center / 100% 100% no-repeat;
+            image-rendering: auto;
+            box-shadow: 0 0 40px rgba(0, 0, 0, 0.8);
+        }
+
+        /* MAIN VIEWPORT – large black area (game canvas) */
+        /* Approx image coords: x 78-430, y 198-532  (of 512x768) */
+        .main-viewport {
+            position: absolute;
+            left: 15.2%;
+            top: 25.8%;
+            width: 69.1%;
+            height: 43.5%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        canvas#gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+            touch-action: none;
+            background: #0d0d1a;
+            border-radius: 2px;
+        }
+
+        /* MIDDLE PANEL – stats + buttons */
+        /* Approx: x 68-444, y 575-705 */
+        .mid-panel {
+            position: absolute;
+            left: 13.3%;
+            top: 74.9%;
+            width: 73.4%;
+            height: 17.0%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-evenly;
+            padding: 2% 3%;
+            gap: 4px;
+        }
+        .target-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+        }
+        .hot-label {
+            font-size: clamp(9px, 2.2vw, 13px);
+            color: var(--neon-red);
+            text-shadow: 0 0 8px var(--neon-red);
+            letter-spacing: 2px;
+            font-weight: bold;
+            animation: hotFlash 2s ease-in-out infinite;
+        }
+        @keyframes hotFlash {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.55; }
+        }
+        .target-number {
+            font-size: clamp(20px, 5.5vw, 32px);
+            font-weight: bold;
+            color: var(--neon-amber);
+            text-shadow: 0 0 12px var(--neon-amber), 0 0 24px rgba(255, 179, 71, 0.6);
+            letter-spacing: 1px;
+            line-height: 1;
+            animation: pulseTarget 1.5s ease-in-out infinite;
+        }
+        @keyframes pulseTarget {
+            0%, 100% { text-shadow: 0 0 12px var(--neon-amber), 0 0 24px rgba(255,179,71,0.6); }
+            50% { text-shadow: 0 0 20px var(--neon-amber), 0 0 40px rgba(255,179,71,0.9); }
+        }
+        .stats-row {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            width: 100%;
+            gap: 4px;
+        }
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1px;
+            min-width: 0;
+        }
+        .stat-label {
+            font-size: clamp(6px, 1.6vw, 9px);
+            color: #aaa;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+        .stat-value {
+            font-size: clamp(11px, 2.8vw, 16px);
+            font-weight: bold;
+            letter-spacing: 0.5px;
+        }
+        .stat-value.level { color: var(--neon-pink); text-shadow: 0 0 8px var(--neon-pink); }
+        .stat-value.timer { color: var(--neon-cyan); text-shadow: 0 0 8px var(--neon-cyan); }
+        .stat-value.revealed { color: var(--neon-purple); text-shadow: 0 0 8px var(--neon-purple); }
+
+        .btn-row {
+            display: flex;
+            justify-content: center;
+            gap: 6px;
+            width: 100%;
+        }
+        .btn {
+            padding: 4px 8px;
+            font-size: clamp(8px, 2vw, 11px);
+            font-weight: bold;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            border: 1.5px solid;
+            border-radius: 3px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            background: transparent;
+            touch-action: manipulation;
+            line-height: 1.2;
+        }
+        .btn-hint {
+            border-color: var(--neon-amber);
+            color: var(--neon-amber);
+            text-shadow: 0 0 6px rgba(255, 179, 71, 0.5);
+            background: rgba(255, 179, 71, 0.1);
+        }
+        .btn-hint:active { background: rgba(255, 179, 71, 0.3); transform: scale(0.95); }
+        .btn-mute {
+            border-color: #666;
+            color: #aaa;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 4px 7px;
+        }
+        .btn-mute.muted {
+            border-color: var(--neon-red);
+            color: var(--neon-red);
+            text-shadow: 0 0 6px rgba(255, 51, 85, 0.5);
+        }
+        .btn-mute:active { background: rgba(255, 255, 255, 0.15); transform: scale(0.95); }
+        .btn-restart {
+            border-color: var(--neon-green);
+            color: var(--neon-green);
+            text-shadow: 0 0 6px rgba(0, 255, 65, 0.5);
+            background: rgba(0, 255, 65, 0.08);
+        }
+        .btn-restart:active { background: rgba(0, 255, 65, 0.25); transform: scale(0.95); }
+
+        /* BOTTOM PANEL – score only */
+        /* Approx: x 200-310, y 720-745  (centered narrow strip) */
+        .bottom-panel {
+            position: absolute;
+            left: 38.5%;
+            top: 93.5%;
+            width: 23%;
+            height: 3.8%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+        }
+        .score-label {
+            font-size: clamp(7px, 1.6vw, 10px);
+            color: #888;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+        .score-value {
+            font-size: clamp(12px, 3vw, 18px);
+            font-weight: bold;
+            color: var(--neon-green);
+            text-shadow: 0 0 8px var(--neon-green), 0 0 16px rgba(0, 255, 65, 0.5);
+            letter-spacing: 1px;
+        }
+
+        /* Overlays (start / game-over) sit over the whole frame */
+      .overlay {
+    position: absolute; 
+    left: 15.2%;                   /* Matches .main-viewport */
+    top: 25.8%;                    /* Matches .main-viewport */
+    width: 69.1%;
+    height: 43.5%;
+    /* Remove inset: 0; */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 5, 15, 0.88);
+    z-index: 50;
+    border-radius: 4px;
+    pointer-events: auto;
+    transition: opacity 0.3s;
+    padding: 10% 8%;
+    text-align: center;
+}
+        .overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .overlay-title {
+            font-size: clamp(18px, 5vw, 28px);
+            font-weight: bold;
+            letter-spacing: 3px;
+            color: var(--neon-red);
+            text-shadow: 0 0 10px var(--neon-red), 0 0 25px rgba(255, 51, 85, 0.5);
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+        .overlay-subtitle {
+            font-size: clamp(11px, 2.8vw, 14px);
+            color: #ccc;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+            line-height: 1.4;
+        }
+        .overlay-score {
+            font-size: clamp(28px, 7vw, 40px);
+            font-weight: bold;
+            color: var(--neon-green);
+            text-shadow: 0 0 10px var(--neon-green), 0 0 25px rgba(0, 255, 65, 0.5);
+            margin-bottom: 6px;
+            letter-spacing: 2px;
+        }
+        .overlay-highscore {
+            font-size: clamp(11px, 2.8vw, 14px);
+            color: var(--neon-amber);
+            text-shadow: 0 0 8px var(--neon-amber);
+            margin-bottom: 14px;
+            letter-spacing: 1px;
+        }
+        .overlay .btn {
+            padding: 10px 22px;
+            font-size: clamp(12px, 3vw, 14px);
+            margin-top: 6px;
+        }
+        .btn-play-again {
+            border-color: var(--neon-green);
+            color: var(--neon-green);
+            text-shadow: 0 0 8px rgba(0, 255, 65, 0.5);
+            background: rgba(0, 255, 65, 0.12);
+        }
+        .btn-play-again:active {
+            background: rgba(0, 255, 65, 0.3);
+            transform: scale(0.95);
+        }
+        .win-title {
+            color: var(--neon-amber) !important;
+            text-shadow: 0 0 15px var(--neon-amber), 0 0 35px rgba(255, 179, 71, 0.7) !important;
+        }
+
+        /* Subtle scanlines over everything */
+        .scanlines {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 90;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.12) 0px,
+                rgba(0, 0, 0, 0.12) 1px,
+                transparent 1px,
+                transparent 3px
+            );
+            opacity: 0.45;
+            mix-blend-mode: overlay;
+            border-radius: 2px;
+        }
+.gallery-overlay {
+    position: absolute;
+    top: 26%;
+    left: 15%;
+    width: 70%;
+    height: 44%;
+    background: black;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0px;
+    pointer-events: auto;
+}
+.gallery-overlay.hidden {
+    display: none;
+}
+.gallery-content {
+    background: black;
+    border: 0px solid rgba(0, 255, 65, 0.4);
+    border-radius: 8px;
+    padding: 1px;
+    width: 98%;
+height: 100%
+   
+    display: flex;
+    flex-direction: column;
+}
+.gallery-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.gallery-header span {
+    font-size: 14px;
+    color: var(--neon-amber);
+    text-shadow: var(--amber-glow);
+    letter-spacing: 2px;
+}
+.gallery-close-btn {
+    background: none;
+    border: 1px solid #666;
+    color: #aaa;
+    font-size: 18px;
+    cursor: pointer;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    overflow-y: auto;
+    flex: 1;
+    margin-bottom: 8px;
+}
+.gallery-item {
+    aspect-ratio: 1/1;
+    background: #1a1a2e;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: #666;
+    text-align: center;
+    padding: 4px;
+    position: relative;
+    overflow: hidden;
+}
+.gallery-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 3px;
+}
+.gallery-item.locked {
+    background: repeating-linear-gradient(45deg, #1a1a2e, #1a1a2e 10px, #222240 10px, #222240 20px);
+    color: #888;
+    font-size: 8px;
+}
+.gallery-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.gallery-nav button {
+    background: rgba(0,255,65,0.1);
+    border: 1px solid var(--neon-green);
+    color: var(--neon-green);
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+}
+.gallery-nav span {
+    color: #aaa;
+    font-size: 12px;
+}
+.btn-gallery {
+    border-color: var(--neon-pink);       /* or any color you like */
+    color: var(--neon-pink);
+    text-shadow: 0 0 6px rgba(255, 68, 204, 0.5);
+    background: rgba(255, 68, 204, 0.1);
+}
+.btn-gallery:active {
+    background: rgba(255, 68, 204, 0.3);
+    transform: scale(0.95);
+}
+    </style>
+</head>
+<body>
+    <div class="gui-frame" id="guiFrame">
+        <div class="scanlines"></div>
+
+        <!-- MAIN GAME AREA -->
+        <div class="main-viewport">
+            <canvas id="gameCanvas"></canvas>
+        </div>
+
+        <!-- MIDDLE PANEL: target + stats + buttons -->
+        <div class="mid-panel">
+            <div class="target-row">
+                <span class="hot-label">🔥 </span>
+                <span class="target-number" id="targetDisplay">10</span>
+                <span class="hot-label">🔥</span>
+            </div>
+            <div class="stats-row">
+                <div class="stat-item">
+                    <span class="stat-label">LEVEL</span>
+                    <span class="stat-value level" id="levelDisplay">1</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">TIME</span>
+                    <span class="stat-value timer" id="timerDisplay">120</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">REVEALED</span>
+                    <span class="stat-value revealed" id="revealedDisplay">0%</span>
+                </div>
+            </div>
+            <div class="btn-row">
+                <button class="btn btn-hint" id="hintBtn">💡 HINT</button>
+                <button class="btn btn-mute" id="muteBtn">🔊</button>
+                <button class="btn btn-restart" id="restartBtn">↻</button>
+<button class="btn btn-gallery" id="galleryBtn">🖼️</button>
+            </div>
+        </div>
+
+<div class="gallery-overlay hidden" id="galleryOverlay">
+    <div class="gallery-content">
+        <div class="gallery-header">
+            <span>🔓 GALLERY</span>
+            <button class="gallery-close-btn" id="galleryCloseBtn">✕</button>
+        </div>
+        <div class="gallery-grid" id="galleryGrid"></div>
+        <div class="gallery-nav">
+            <button id="galleryPrevBtn">◀ BACK</button>
+            <span id="galleryPageInfo">1 / 1</span>
+            <button id="galleryNextBtn">NEXT ▶</button>
+        </div>
+    </div>
+</div>
+
+        <!-- BOTTOM PANEL: score -->
+        <div class="bottom-panel">
+            <span class="score-label">SCORE</span>
+            <span class="score-value" id="scoreDisplay">0</span>
+        </div>
+
+        <!-- OVERLAYS -->
+        <div class="overlay hidden" id="gameOverOverlay">
+            <div class="overlay-title" id="gameOverTitle">GAME OVER</div>
+            <div class="overlay-subtitle" id="gameOverSub">Time's up!</div>
+            <div class="overlay-score" id="finalScore">0</div>
+            <div class="overlay-highscore" id="highScoreDisplay">HIGH SCORE: 0</div>
+            <button class="btn btn-play-again" id="playAgainBtn">▶ PLAY AGAIN</button>
+        </div>
+        <div class="overlay" id="startOverlay">
+            <div class="overlay-title" style="color:var(--neon-amber); text-shadow:0 0 15px var(--neon-amber), 0 0 35px rgba(255,179,71,0.7);">STRIP NUMBERS</div>
+            <div class="overlay-subtitle">Match adjacent pairs that sum to the target to reveal the hidden picture!</div>
+            <div class="overlay-score" style="font-size:clamp(22px,6vw,32px); color:var(--neon-amber); text-shadow:0 0 15px var(--neon-amber);" id="startTargetDisplay">10</div>
+            <button class="btn btn-play-again" id="startBtn">▶ START GAME</button>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            // ==================== CONFIGURATION ====================
+            const GRID_SIZE = 6;
+            const NUM_TILES = GRID_SIZE * GRID_SIZE;
+            const INITIAL_TIME = 120;
+            const TIME_BONUS_PER_MATCH = 4;
+            const BASE_SCORE = 100;
+            const CHAIN_BONUS = 50;
+            const RESHUFFLE_PENALTY = 5;
+            const LEVEL_TIME_BONUS = 15;
+
+            // ==================== DOM ====================
+            const canvas = document.getElementById('gameCanvas');
+            const ctx = canvas.getContext('2d');
+            const scoreDisplay = document.getElementById('scoreDisplay');
+            const targetDisplay = document.getElementById('targetDisplay');
+            const levelDisplay = document.getElementById('levelDisplay');
+            const timerDisplay = document.getElementById('timerDisplay');
+            const revealedDisplay = document.getElementById('revealedDisplay');
+            const gameOverOverlay = document.getElementById('gameOverOverlay');
+            const gameOverTitle = document.getElementById('gameOverTitle');
+            const gameOverSub = document.getElementById('gameOverSub');
+            const startOverlay = document.getElementById('startOverlay');
+            const finalScoreEl = document.getElementById('finalScore');
+            const highScoreDisplayEl = document.getElementById('highScoreDisplay');
+            const startTargetDisplay = document.getElementById('startTargetDisplay');
+            const restartBtn = document.getElementById('restartBtn');
+            const playAgainBtn = document.getElementById('playAgainBtn');
+            const startBtn = document.getElementById('startBtn');
+            const hintBtn = document.getElementById('hintBtn');
+            const muteBtn = document.getElementById('muteBtn');
+            const guiFrame = document.getElementById('guiFrame');
+const TOTAL_LEVELS = 15;   // total number of gallery slots
+let galleryOpen = false;
+let galleryPage = 0;
+const GALLERY_PAGE_SIZE = 6; // 3 cols x 2 rows
+
+            // ==================== STATE ====================
+            let grid = [];
+            let selectedTile = null;
+            let targetNumber = 10;
+            let level = 1;
+            let score = 0;
+            let timeRemaining = INITIAL_TIME;
+            let gameRunning = false;
+            let gameOver = false;
+            let chainCount = 0;
+            let hintPair = null;
+            let hintTimer = null;
+            let highScore = parseInt(localStorage.getItem('hotNumbersHighScore_reveal')) || 0;
+            let muted = localStorage.getItem('hotNumbersMuted_reveal') === 'true';
+            let particles = [];
+            let lastTime = 0;
+            let animFrameId = null;
+            let reshuffleMessage = false;
+            let flashTilePos = null;
+            let flashTimer = null;
+            let revealedCount = 0;
+            let totalTiles = NUM_TILES;
+
+           const levelImages = [
+    'g1.jpg',
+    'level2.jpg',
+    'level3.jpg',
+    'level4.jpg',
+    'level5.jpg',
+    'level6.jpg',
+    'level7.jpg',
+    'level8.jpg',
+    'level9.jpg',
+    'level10.jpg',
+    'level11.jpg',
+    'level12.jpg',
+    'level13.jpg',
+    'level14.jpg',
+    'level15.jpg'
+];
+            let currentBackgroundImage = new Image();
+            currentBackgroundImage.src = levelImages[0];
+
+            // ==================== AUDIO ====================
+            let audioCtx = null;
+
+            function initAudio() {
+                if (!audioCtx) {
+                    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+                }
+                if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+            }
+
+            function playTone(freq, dur, type = 'sine', vol = 0.15) {
+                if (muted || !audioCtx) return;
+                try {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = type;
+                    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(audioCtx.currentTime);
+                    osc.stop(audioCtx.currentTime + dur + 0.05);
+                } catch (e) {}
+            }
+
+            function playSelectSound() { playTone(600, 0.08, 'sine', 0.1); }
+            function playMatchSound() {
+                playTone(800, 0.12, 'sine', 0.18);
+                setTimeout(() => playTone(1000, 0.1, 'sine', 0.15), 70);
+                setTimeout(() => playTone(1200, 0.12, 'sine', 0.12), 140);
+            }
+            function playFailSound() { playTone(200, 0.12, 'sawtooth', 0.08); }
+            function playLevelUpSound() {
+                playTone(500, 0.1, 'square', 0.12);
+                setTimeout(() => playTone(700, 0.1, 'square', 0.12), 100);
+                setTimeout(() => playTone(900, 0.15, 'square', 0.15), 200);
+            }
+            function playWinSound() {
+                playTone(600, 0.15, 'sine', 0.15);
+                setTimeout(() => playTone(800, 0.15, 'sine', 0.15), 150);
+                setTimeout(() => playTone(1000, 0.2, 'sine', 0.18), 300);
+                setTimeout(() => playTone(1200, 0.3, 'sine', 0.2), 450);
+                setTimeout(() => playTone(1500, 0.4, 'sine', 0.18), 600);
+            }
+            function playGameOverSound() {
+                playTone(400, 0.2, 'sawtooth', 0.1);
+                setTimeout(() => playTone(300, 0.2, 'sawtooth', 0.1), 200);
+                setTimeout(() => playTone(200, 0.3, 'sawtooth', 0.08), 400);
+            }
+            function playReshuffleSound() { playTone(300, 0.2, 'triangle', 0.1); }
+
+            // ==================== CANVAS ====================
+            let canvasWidth = 0;
+            let canvasHeight = 0;
+            let tileSize = 0;
+
+            function resizeCanvas() {
+                const viewport = canvas.parentElement;
+                const dpr = window.devicePixelRatio || 1;
+                const displayW = viewport.clientWidth;
+                const displayH = viewport.clientHeight;
+                // Keep square tiles – use the smaller dimension
+                const side = Math.min(displayW, displayH);
+                canvas.style.width = side + 'px';
+                canvas.style.height = side + 'px';
+                canvas.width = Math.floor(side * dpr);
+                canvas.height = Math.floor(side * dpr);
+                canvasWidth = side;
+                canvasHeight = side;
+                tileSize = canvasWidth / GRID_SIZE;
+                canvas._dpr = dpr;
+            }
+
+            function getTilePixelRect(row, col) {
+                const x = col * tileSize;
+                const y = row * tileSize;
+                return { x, y, w: tileSize, h: tileSize };
+            }
+
+            function getGridCoordsFromPixel(px, py) {
+                const col = Math.floor(px / tileSize);
+                const row = Math.floor(py / tileSize);
+                if (row >= 0 && row < GRID_SIZE && col >= 0 && col < GRID_SIZE) return { row, col };
+                return null;
+            }
+
+            // ==================== BACKGROUND IMAGE ====================
+            function drawBackgroundImage() {
+                const dpr = canvas._dpr || 1;
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                const w = canvasWidth;
+                const h = canvasHeight;
+                ctx.clearRect(0, 0, w, h);
+                ctx.globalAlpha = 1.0;
+                if (currentBackgroundImage.complete && currentBackgroundImage.naturalWidth > 0) {
+                    const scale = Math.max(w / currentBackgroundImage.naturalWidth, h / currentBackgroundImage.naturalHeight);
+                    const imgW = currentBackgroundImage.naturalWidth * scale;
+                    const imgH = currentBackgroundImage.naturalHeight * scale;
+                    const offsetX = (w - imgW) / 2;
+                    const offsetY = (h - imgH) / 2;
+                    ctx.drawImage(currentBackgroundImage, offsetX, offsetY, imgW, imgH);
+                } else {
+                    ctx.fillStyle = '#0d0d1a';
+                    ctx.fillRect(0, 0, w, h);
+                }
+                ctx.globalAlpha = 1.0;
+            }
+
+            // ==================== GRID GENERATION ====================
+            function generateRandomTile() {
+                return Math.floor(Math.random() * 9) + 1;
+            }
+
+            function generateGrid() {
+                grid = [];
+                for (let r = 0; r < GRID_SIZE; r++) {
+                    grid[r] = [];
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        grid[r][c] = generateRandomTile();
+                    }
+                }
+                let attempts = 0;
+                while (countValidMatches() < 3 && attempts < 80) {
+                    for (let r = 0; r < GRID_SIZE; r++) {
+                        for (let c = 0; c < GRID_SIZE; c++) {
+                            if (grid[r][c] !== null) grid[r][c] = generateRandomTile();
+                        }
+                    }
+                    attempts++;
+                }
+                revealedCount = 0;
+                totalTiles = NUM_TILES;
+            }
+
+            function countValidMatches() {
+                let count = 0;
+                for (let r = 0; r < GRID_SIZE; r++) {
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        if (grid[r][c] === null) continue;
+                        if (c < GRID_SIZE - 1 && grid[r][c + 1] !== null && grid[r][c] + grid[r][c + 1] === targetNumber) count++;
+                        if (r < GRID_SIZE - 1 && grid[r + 1][c] !== null && grid[r][c] + grid[r + 1][c] === targetNumber) count++;
+                    }
+                }
+                return count;
+            }
+
+            function findValidMatch() {
+                for (let r = 0; r < GRID_SIZE; r++) {
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        if (grid[r][c] === null) continue;
+                        if (c < GRID_SIZE - 1 && grid[r][c + 1] !== null && grid[r][c] + grid[r][c + 1] === targetNumber) {
+                            return [{ row: r, col: c }, { row: r, col: c + 1 }];
+                        }
+                        if (r < GRID_SIZE - 1 && grid[r + 1][c] !== null && grid[r][c] + grid[r + 1][c] === targetNumber) {
+                            return [{ row: r, col: c }, { row: r + 1, col: c }];
+                        }
+                    }
+                }
+                return null;
+            }
+
+            function reshuffleRemainingTiles() {
+                const positions = [];
+                const values = [];
+                for (let r = 0; r < GRID_SIZE; r++) {
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        if (grid[r][c] !== null) {
+                            positions.push({ row: r, col: c });
+                            values.push(grid[r][c]);
+                        }
+                    }
+                }
+                for (let i = values.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [values[i], values[j]] = [values[j], values[i]];
+                }
+                for (let i = 0; i < positions.length; i++) {
+                    grid[positions[i].row][positions[i].col] = values[i];
+                }
+                if (countValidMatches() === 0 && positions.length >= 2) forceValidMatch();
+            }
+
+            function forceValidMatch() {
+                for (let r = 0; r < GRID_SIZE; r++) {
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        if (grid[r][c] === null) continue;
+                        if (c < GRID_SIZE - 1 && grid[r][c + 1] !== null) {
+                            const val1 = Math.floor(Math.random() * (targetNumber - 1)) + 1;
+                            const val2 = targetNumber - val1;
+                            if (val1 >= 1 && val1 <= 9 && val2 >= 1 && val2 <= 9) {
+                                grid[r][c] = val1;
+                                grid[r][c + 1] = val2;
+                                return;
+                            }
+                        }
+                        if (r < GRID_SIZE - 1 && grid[r + 1][c] !== null) {
+                            const val1 = Math.floor(Math.random() * (targetNumber - 1)) + 1;
+                            const val2 = targetNumber - val1;
+                            if (val1 >= 1 && val1 <= 9 && val2 >= 1 && val2 <= 9) {
+                                grid[r][c] = val1;
+                                grid[r + 1][c] = val2;
+                                return;
+                            }
+                        }
+                    }
+                }
+                if (targetNumber > 9) {
+                    for (let r = 0; r < GRID_SIZE; r++) {
+                        for (let c = 0; c < GRID_SIZE; c++) {
+                            if (grid[r][c] === null) continue;
+                            if (c < GRID_SIZE - 1 && grid[r][c + 1] !== null) {
+                                targetNumber = grid[r][c] + grid[r][c + 1];
+                                updateUI();
+                                return;
+                            }
+                            if (r < GRID_SIZE - 1 && grid[r + 1][c] !== null) {
+                                targetNumber = grid[r][c] + grid[r + 1][c];
+                                updateUI();
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+
+function openGallery() {
+    if (gameOver || !gameRunning) return;
+    galleryOpen = true;
+    gameRunning = false;   // pause game
+    galleryPage = 0;
+    document.getElementById('galleryOverlay').classList.remove('hidden');
+    renderGallery();
+}
+
+function closeGallery() {
+    galleryOpen = false;
+    gameRunning = true;    // resume game
+    lastTime = performance.now();
+    document.getElementById('galleryOverlay').classList.add('hidden');
+    if (!gameOver) {
+        animFrameId = requestAnimationFrame(gameLoop);
+    }
+}
+
+function renderGallery() {
+    const grid = document.getElementById('galleryGrid');
+    grid.innerHTML = '';
+    const startIdx = galleryPage * GALLERY_PAGE_SIZE;
+    const endIdx = Math.min(startIdx + GALLERY_PAGE_SIZE, TOTAL_LEVELS);
+    const completedLevels = level - 1;   // levels already completed
+
+    for (let i = startIdx; i < endIdx; i++) {
+        const levelNum = i + 1;
+        const div = document.createElement('div');
+        div.className = 'gallery-item';
+        if (i < completedLevels && i < levelImages.length) {
+            // unlocked: show image
+            const img = document.createElement('img');
+            img.src = levelImages[i];
+            img.alt = `Level ${levelNum}`;
+            img.onerror = function() {   // fallback if image missing
+                div.classList.add('locked');
+                div.textContent = `Level ${levelNum}\n(no image)`;
+            };
+            div.appendChild(img);
+        } else {
+            div.classList.add('locked');
+            div.textContent = `Level ${levelNum}\nNot achieved`;
+        }
+        grid.appendChild(div);
+    }
+
+    // Update page info
+    const totalPages = Math.ceil(TOTAL_LEVELS / GALLERY_PAGE_SIZE);
+    document.getElementById('galleryPageInfo').textContent = `${galleryPage + 1} / ${totalPages}`;
+    document.getElementById('galleryPrevBtn').disabled = (galleryPage === 0);
+    document.getElementById('galleryNextBtn').disabled = (galleryPage >= totalPages - 1);
+}
+
+            // ==================== PARTICLES ====================
+            function spawnParticles(row, col, color, count = 18) {
+                const rect = getTilePixelRect(row, col);
+                const cx = rect.x + rect.w / 2;
+                const cy = rect.y + rect.h / 2;
+                for (let i = 0; i < count; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = Math.random() * 130 + 40;
+                    particles.push({
+                        x: cx, y: cy,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed - 60,
+                        life: 1.0,
+                        decay: Math.random() * 2 + 1.5,
+                        size: Math.random() * 5 + 2,
+                        color: color,
+                    });
+                }
+            }
+
+            function updateParticles(dt) {
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    const p = particles[i];
+                    p.x += p.vx * dt;
+                    p.y += p.vy * dt;
+                    p.vy += 200 * dt;
+                    p.life -= p.decay * dt;
+                    if (p.life <= 0) particles.splice(i, 1);
+                }
+            }
+
+            function drawParticles() {
+                const dpr = canvas._dpr || 1;
+                for (const p of particles) {
+                    ctx.globalAlpha = Math.max(0, p.life);
+                    ctx.fillStyle = p.color;
+                    ctx.shadowColor = p.color;
+                    ctx.shadowBlur = 10;
+                    ctx.beginPath();
+                    ctx.arc(p.x * dpr, p.y * dpr, p.size * dpr * p.life, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1;
+                ctx.shadowBlur = 0;
+            }
+
+            // ==================== GAME LOGIC ====================
+            function startGame() {
+                initAudio();
+                score = 0;
+                level = 1;
+                currentBackgroundImage.src = levelImages[0];
+                targetNumber = 10;
+                timeRemaining = INITIAL_TIME;
+                chainCount = 0;
+                gameRunning = true;
+                gameOver = false;
+                selectedTile = null;
+                hintPair = null;
+                particles = [];
+                revealedCount = 0;
+                totalTiles = NUM_TILES;
+                generateGrid();
+                updateUI();
+                gameOverOverlay.classList.add('hidden');
+                startOverlay.classList.add('hidden');
+                if (animFrameId) cancelAnimationFrame(animFrameId);
+                lastTime = performance.now();
+                gameLoop(lastTime);
+galleryOpen = false;
+document.getElementById('galleryOverlay').classList.add('hidden');
+            }
+
+            function endGame(win = false) {
+                gameRunning = false;
+                gameOver = true;
+                if (win) {
+                    playWinSound();
+                    gameOverTitle.textContent = '🎉 IMAGE REVEALED! 🎉';
+                    gameOverTitle.className = 'overlay-title win-title';
+                    gameOverSub.textContent = 'Amazing! You cleared the entire board!';
+                    const timeBonus = Math.ceil(timeRemaining) * 10;
+                    score += timeBonus;
+                } else {
+                    playGameOverSound();
+                    gameOverTitle.textContent = 'GAME OVER';
+                    gameOverTitle.className = 'overlay-title';
+                    gameOverSub.textContent = timeRemaining <= 0 ? "Time's up!" : 'No more matches available!';
+                }
+                if (score > highScore) {
+                    highScore = score;
+                    localStorage.setItem('hotNumbersHighScore_reveal', highScore);
+                }
+                finalScoreEl.textContent = score;
+                highScoreDisplayEl.textContent = 'HIGH SCORE: ' + highScore;
+                gameOverOverlay.classList.remove('hidden');
+                updateUI();
+            }
+
+            function checkWinCondition() {
+                if (revealedCount >= totalTiles) {
+                    endGame(true);
+                    return true;
+                }
+                return false;
+            }
+
+            function updateUI() {
+                scoreDisplay.textContent = score;
+                targetDisplay.textContent = targetNumber;
+                startTargetDisplay.textContent = targetNumber;
+                levelDisplay.textContent = level;
+                timerDisplay.textContent = Math.ceil(timeRemaining);
+                const pct = totalTiles > 0 ? Math.round((revealedCount / totalTiles) * 100) : 100;
+                revealedDisplay.textContent = pct + '%';
+            }
+
+            function handleTileTap(row, col) {
+                if (!gameRunning || gameOver) return;
+                if (grid[row][col] === null) return;
+
+                if (selectedTile === null) {
+                    selectedTile = { row, col };
+                    playSelectSound();
+                    return;
+                }
+                if (selectedTile.row === row && selectedTile.col === col) {
+                    selectedTile = null;
+                    playSelectSound();
+                    return;
+                }
+
+                const rowDiff = Math.abs(selectedTile.row - row);
+                const colDiff = Math.abs(selectedTile.col - col);
+                const isAdjacent = (rowDiff + colDiff) === 1;
+
+                if (!isAdjacent) {
+                    selectedTile = { row, col };
+                    playSelectSound();
+                    return;
+                }
+
+                const val1 = grid[selectedTile.row][selectedTile.col];
+                const val2 = grid[row][col];
+                const sum = val1 + val2;
+
+                if (sum === targetNumber) {
+                    const tile1 = { row: selectedTile.row, col: selectedTile.col };
+                    const tile2 = { row, col };
+                    const color1 = getTileColor(val1);
+                    const color2 = getTileColor(val2);
+                    selectedTile = null;
+                    chainCount++;
+                    playMatchSound();
+                    spawnParticles(tile1.row, tile1.col, color1, 20);
+                    spawnParticles(tile2.row, tile2.col, color2, 20);
+
+                    const chainBonus = Math.max(0, (chainCount - 1) * CHAIN_BONUS);
+                    score += BASE_SCORE + chainBonus;
+                    timeRemaining += TIME_BONUS_PER_MATCH;
+                    revealedCount += 2;
+
+                    grid[tile1.row][tile1.col] = null;
+                    grid[tile2.row][tile2.col] = null;
+
+                    if (hintPair) {
+                        const isHintStillValid = hintPair.some(p =>
+                            (p.row === tile1.row && p.col === tile1.col) ||
+                            (p.row === tile2.row && p.col === tile2.col)
+                        );
+                        if (isHintStillValid) {
+                            hintPair = null;
+                            if (hintTimer) clearTimeout(hintTimer);
+                        }
+                    }
+
+                   const checkLevelComplete = () => {
+    if (revealedCount >= totalTiles) {
+        // Always advance to the next level (no win screen)
+        level++;
+        const imgIndex = (level - 1) % levelImages.length;   // cycles images
+        currentBackgroundImage.src = levelImages[imgIndex];
+        targetNumber = Math.min(10 + (level - 1), 15);       // cap at 15
+
+        // Reset game state for new level
+        revealedCount = 0;
+        totalTiles = NUM_TILES;
+        generateGrid();
+        selectedTile = null;
+        hintPair = null;
+        if (hintTimer) clearTimeout(hintTimer);
+        chainCount = 0;
+        particles = [];
+        flashTilePos = null;
+        reshuffleMessage = false;
+
+        playLevelUpSound();
+        updateUI();
+        return true;
+    }
+    return false;
+};
+
+                    if (checkLevelComplete()) return;
+
+                    const remainingTiles = totalTiles - revealedCount;
+                    if (remainingTiles <= 4 && countValidMatches() === 0) {
+                        for (let r = 0; r < GRID_SIZE; r++) {
+                            for (let c = 0; c < GRID_SIZE; c++) {
+                                if (grid[r][c] !== null) {
+                                    const val = grid[r][c];
+                                    grid[r][c] = null;
+                                    revealedCount++;
+                                    spawnParticles(r, c, getTileColor(val), 10);
+                                }
+                            }
+                        }
+                        playMatchSound();
+                        if (checkLevelComplete()) return;
+                    }
+
+                    if (countValidMatches() === 0) {
+                        reshuffleRemainingTiles();
+                        reshuffleMessage = true;
+                        playReshuffleSound();
+                        score = Math.max(0, score - RESHUFFLE_PENALTY);
+                        setTimeout(() => { reshuffleMessage = false; }, 1200);
+                    }
+                    updateUI();
+                } else {
+                    chainCount = 0;
+                    playFailSound();
+                    selectedTile = { row, col };
+                    flashTilePos = { row, col };
+                    if (flashTimer) clearTimeout(flashTimer);
+                    flashTimer = setTimeout(() => { flashTilePos = null; }, 300);
+                }
+            }
+
+            function getTileColor(value) {
+                const colors = {
+                    1: '#4FC3F7', 2: '#26C6DA', 3: '#66BB6A', 4: '#9CCC65',
+                    5: '#FFEE58', 6: '#FFCA28', 7: '#FFA726', 8: '#FF7043', 9: '#EF5350'
+                };
+                return colors[value] || '#ffffff';
+            }
+
+            function isPartOfHint(row, col) {
+                if (!hintPair) return false;
+                return (hintPair[0].row === row && hintPair[0].col === col) ||
+                    (hintPair[1].row === row && hintPair[1].col === col);
+            }
+
+            function showHint() {
+                if (!gameRunning || gameOver) return;
+                const match = findValidMatch();
+                if (match) {
+                    hintPair = match;
+                    playSelectSound();
+                    if (hintTimer) clearTimeout(hintTimer);
+                    hintTimer = setTimeout(() => { hintPair = null; }, 2500);
+                }
+            }
+
+            // ==================== RENDERING ====================
+            function render() {
+                const dpr = canvas._dpr || 1;
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                drawBackgroundImage();
+
+                for (let r = 0; r < GRID_SIZE; r++) {
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        const rect = getTilePixelRect(r, c);
+                        const value = grid[r][c];
+                        const isSelected = selectedTile && selectedTile.row === r && selectedTile.col === c;
+                        const isHint = isPartOfHint(r, c);
+                        const isFlash = flashTilePos && flashTilePos.row === r && flashTilePos.col === c;
+
+                        if (value === null) continue;
+
+                        const x = rect.x, y = rect.y, w = rect.w, h = rect.h;
+                        const color = getTileColor(value);
+
+                        ctx.fillStyle = 'rgba(10, 10, 25, 1)';
+                        ctx.fillRect(x, y, w, h);
+
+                        if (isSelected) {
+                            ctx.shadowColor = color; ctx.shadowBlur = 22;
+                        } else if (isHint) {
+                            ctx.shadowColor = '#ffb347'; ctx.shadowBlur = 20;
+                        } else if (isFlash) {
+                            ctx.shadowColor = '#ff3355'; ctx.shadowBlur = 24;
+                        } else {
+                            ctx.shadowColor = color; ctx.shadowBlur = 10;
+                        }
+
+                        ctx.strokeStyle = isSelected ? '#ffffff' : isHint ? '#ffb347' : 'rgba(255,255,255,0.25)';
+                        ctx.lineWidth = isSelected || isHint ? 2 : 1;
+                        ctx.strokeRect(x, y, w, h);
+
+                        ctx.shadowColor = color;
+                        ctx.shadowBlur = isSelected ? 18 : isHint ? 15 : 8;
+                        ctx.fillStyle = color;
+                        ctx.font = `bold ${Math.floor(w * 0.45)}px 'Courier New', monospace`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(value.toString(), x + w / 2, y + h / 2 + 1);
+                        ctx.shadowBlur = 0;
+
+                        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+                        ctx.fillRect(x + 2, y + 2, w - 4, h * 0.2);
+                    }
+                }
+
+                drawParticles();
+
+                if (reshuffleMessage) {
+                    ctx.fillStyle = 'rgba(255, 179, 71, 0.9)';
+                    ctx.font = `bold 13px 'Courier New', monospace`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.shadowColor = '#ffb347';
+                    ctx.shadowBlur = 18;
+                    ctx.fillText('⟳ RESHUFFLED (-5)', canvasWidth / 2, canvasHeight / 2);
+                    ctx.shadowBlur = 0;
+                }
+
+                if (selectedTile && grid[selectedTile.row] && grid[selectedTile.col] !== null) {
+                    const rect = getTilePixelRect(selectedTile.row, selectedTile.col);
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 3;
+                    ctx.shadowColor = '#ffffff';
+                    ctx.shadowBlur = 18;
+                    ctx.strokeRect(rect.x - 2, rect.y - 2, rect.w + 4, rect.h + 4);
+                    ctx.shadowBlur = 0;
+                }
+            }
+
+            // ==================== GAME LOOP ====================
+            function gameLoop(timestamp) {
+                if (!gameRunning && !gameOver) {
+                    render();
+                    return;
+                }
+                const dt = (timestamp - lastTime) / 1000;
+                lastTime = timestamp;
+
+                if (gameRunning && !gameOver) {
+                    timeRemaining -= dt;
+                    if (timeRemaining <= 0) {
+                        timeRemaining = 0;
+                        updateUI();
+                        endGame(false);
+                        render();
+                        return;
+                    }
+                    updateParticles(dt);
+                }
+
+                render();
+                updateUI();
+
+                if (gameRunning || gameOver) {
+                    animFrameId = requestAnimationFrame(gameLoop);
+                }
+            }
+
+            // ==================== INPUT ====================
+            function handleCanvasInteraction(clientX, clientY) {
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvasWidth / rect.width;
+                const scaleY = canvasHeight / rect.height;
+                const px = (clientX - rect.left) * scaleX;
+                const py = (clientY - rect.top) * scaleY;
+                const coords = getGridCoordsFromPixel(px, py);
+                if (coords) handleTileTap(coords.row, coords.col);
+            }
+
+            canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                handleCanvasInteraction(touch.clientX, touch.clientY);
+            }, { passive: false });
+
+            canvas.addEventListener('mousedown', (e) => {
+                handleCanvasInteraction(e.clientX, e.clientY);
+            });
+
+            canvas.addEventListener('touchmove', (e) => { e.preventDefault(); }, { passive: false });
+
+            restartBtn.addEventListener('click', () => { initAudio(); startGame(); });
+            playAgainBtn.addEventListener('click', () => { initAudio(); startGame(); });
+            startBtn.addEventListener('click', () => { initAudio(); startGame(); });
+            hintBtn.addEventListener('click', () => { initAudio(); showHint(); });
+            muteBtn.addEventListener('click', () => {
+                muted = !muted;
+                localStorage.setItem('hotNumbersMuted_reveal', muted);
+                updateMuteButton();
+                if (!muted) { initAudio(); playSelectSound(); }
+            });
+
+            function updateMuteButton() {
+                if (muted) {
+                    muteBtn.textContent = '🔇';
+                    muteBtn.classList.add('muted');
+                } else {
+                    muteBtn.textContent = '🔊';
+                    muteBtn.classList.remove('muted');
+                }
+            }
+
+            // ==================== INIT ====================
+            function init() {
+                resizeCanvas();
+                updateMuteButton();
+                highScoreDisplayEl.textContent = 'HIGH SCORE: ' + highScore;
+                targetDisplay.textContent = targetNumber;
+                startTargetDisplay.textContent = targetNumber;
+                generateGrid();
+                render();
+                updateUI();
+                animFrameId = requestAnimationFrame(gameLoop);
+            }
+
+            window.addEventListener('resize', () => { resizeCanvas(); render(); });
+            window.addEventListener('orientationchange', () => {
+                setTimeout(() => { resizeCanvas(); render(); }, 300);
+            });
+            if (window.ResizeObserver) {
+                const ro = new ResizeObserver(() => { resizeCanvas(); render(); });
+                ro.observe(canvas.parentElement);
+                ro.observe(guiFrame);
+            }
+
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'r' || e.key === 'R') { if (gameOver) startGame(); }
+                if (e.key === 'h' || e.key === 'H') showHint();
+                if (e.key === 'm' || e.key === 'M') {
+                    muted = !muted;
+                    localStorage.setItem('hotNumbersMuted_reveal', muted);
+                    updateMuteButton();
+                }
+            });
+document.getElementById('galleryBtn').addEventListener('click', openGallery);
+document.getElementById('galleryCloseBtn').addEventListener('click', closeGallery);
+document.getElementById('galleryPrevBtn').addEventListener('click', () => {
+    if (galleryPage > 0) {
+        galleryPage--;
+        renderGallery();
+    }
+});
+document.getElementById('galleryNextBtn').addEventListener('click', () => {
+    const totalPages = Math.ceil(TOTAL_LEVELS / GALLERY_PAGE_SIZE);
+    if (galleryPage < totalPages - 1) {
+        galleryPage++;
+        renderGallery();
+    }
+});
+
+            init();
+
+            window.hotNumbers = {
+                startGame,
+                grid: () => grid,
+                target: () => targetNumber,
+                score: () => score,
+                revealed: () => revealedCount,
+                total: () => totalTiles,
+                time: () => timeRemaining,
+            };
+        })();
+    </script>
+</body>
+</html>
